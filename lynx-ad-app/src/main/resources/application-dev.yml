@@ -1,0 +1,110 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lynx-ad-app
+    username: lynx
+    password: lynx_dev
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+lynx:
+  ad:
+    mock:
+      qianchuan: true
+      ai: true
+      auto-audit: PASS
+    sms:
+      mode: mock
+      dev-code: "123456"
+      ttl-sec: 300
+      cooldown-sec: 90
+      live:
+        vendor: ""
+        endpoint: ${SMS_ENDPOINT:}
+        access-key: ${SMS_ACCESS_KEY:}
+        access-secret: ${SMS_ACCESS_SECRET:}
+        sign-name: ${SMS_SIGN_NAME:}
+        template-code: ${SMS_TEMPLATE_CODE:}
+    contact:
+      phone: ${LYNX_CONTACT_PHONE:400-000-0000}
+      email: ${LYNX_CONTACT_EMAIL:hello@example.com}
+      ops-phones: ${LYNX_CONTACT_OPS_PHONES:}
+    jwt:
+      secret: "dev-only-change-me-32bytes-min-key!!"
+      ttl-sec: 86400
+    crypto:
+      aes-key: "dev-only-aes256-key-32bytes!!!!"
+    oauth:
+      web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI:http://localhost:5173/oauth/callback}
+      qianchuan:
+        app-id: ${QIANCHUAN_APPID:}
+        app-secret: ${QIANCHUAN_SECRET:}
+        redirect-uri: ${QIANCHUAN_REDIRECT_URI:http://localhost:8080/lynx-ad/api/v1/identity/oauth/callback}
+        authorize-url: ${QIANCHUAN_AUTHORIZE_URL:https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html}
+    payment:
+      mode: mock
+      timezone: Asia/Shanghai
+      wechat:
+        app-id: ${WECHAT_PAY_APP_ID:}
+        mch-id: ${WECHAT_PAY_MCH_ID:}
+        api-v3-key: ${WECHAT_PAY_API_V3_KEY:}
+        serial-no: ${WECHAT_PAY_SERIAL_NO:}
+        private-key-pem: ${WECHAT_PAY_PRIVATE_KEY_PEM:}
+        notify-url: ${WECHAT_PAY_NOTIFY_URL:}
+    storage:
+      mode: local
+      local-dir: ./data/storage
+      url-ttl-sec: 3600
+      oss:
+        endpoint: ${OSS_ENDPOINT:}
+        bucket: ${OSS_BUCKET:}
+        region: ${OSS_REGION:}
+        prefix: ${OSS_PREFIX:lynx-ad/}
+        access-key-id: ${OSS_ACCESS_KEY_ID:}
+        access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+    qianchuan:
+      video-get-url: ${QC_VIDEO_GET_URL:https://ad.oceanengine.com/open_api/v1.0/qianchuan/video/get/}
+      image-get-url: ${QC_IMAGE_GET_URL:https://ad.oceanengine.com/open_api/v1.0/qianchuan/image/get/}
+      carousel-get-url: ${QC_CAROUSEL_GET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/carousel/get/}
+      oauth:
+        access-token-url: ${QC_ACCESS_TOKEN_URL:https://api.oceanengine.com/open_api/oauth2/access_token/}
+        refresh-token-url: ${QC_REFRESH_TOKEN_URL:https://ad.oceanengine.com/open_api/oauth2/refresh_token/}
+        advertiser-get-url: ${QC_ADVERTISER_GET_URL:https://api.oceanengine.com/open_api/oauth2/advertiser/get/}
+        aweme-authorized-url: ${QC_AWEME_AUTHORIZED_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/authorized/get/}
+      catalog:
+        product-get-url: ${QC_PRODUCT_GET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/product/get/}
+      delivery:
+        suggest-budget-url: ${QC_SUGGEST_BUDGET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/budget/}
+        suggest-roi-url: ${QC_SUGGEST_ROI_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/roi/}
+        ad-create-url: ${QC_AD_CREATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/create/}
+        ad-update-url: ${QC_AD_UPDATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/update/}
+        ad-list-url: ${QC_AD_LIST_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/list/}
+        ad-status-url: ${QC_AD_STATUS_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/status/update/}
+      report:
+        custom-url: ${QC_REPORT_CUSTOM_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/report/uni_promotion/data/get/}
+      material:
+        video-upload-url: ${QC_VIDEO_UPLOAD_URL:https://ad.oceanengine.com/open_api/2/file/video/ad/}
+    ai:
+      llm:
+        base-url: ${LLM_BASE_URL:}
+        api-key: ${LLM_API_KEY:}
+        model: ${LLM_MODEL:}
+        timeout-ms: 60000
+      tts:
+        base-url: ${TTS_BASE_URL:}
+        api-key: ${TTS_API_KEY:}
+        timeout-ms: 60000
+      keling:
+        endpoint: ${KELING_ENDPOINT:}
+        access-key: ${KELING_ACCESS_KEY:}
+        secret: ${KELING_SECRET:}
+        poll-ms: 2000
+        max-poll: 150
+    schedule:
+      token-refresh-ms: 600000
+      audit-poll-ms: 30000
+      metric-snapshot-ms: 300000
+    money:
+      stat-cost-divisor: 100000
+    demo-mode: true

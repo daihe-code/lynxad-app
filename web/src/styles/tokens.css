@@ -1,0 +1,72 @@
+:root {
+  --color-primary: #575cf6;
+  --color-primary-dark: #4548d4;
+  --color-primary-soft: #eef0ff;
+  --el-color-primary: #575cf6;
+  --el-color-primary-light-3: #7b7ff8;
+  --el-color-primary-light-5: #9da0fa;
+  --el-color-primary-light-7: #bfc1fc;
+  --el-color-primary-light-8: #d0d2fd;
+  --el-color-primary-light-9: #e8e9fe;
+  --el-color-primary-dark-2: #4649c5;
+  --color-navy: #1e1b4b;
+  --color-bg: #f4f6fb;
+  --color-text: #1f2333;
+  --color-muted: #6b7280;
+  --color-success: #16a34a;
+  --color-danger: #ef4444;
+  --radius: 12px;
+  --shadow: 0 8px 24px rgba(87, 92, 246, 0.08);
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.page-card {
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.demo-watermark {
+  pointer-events: none;
+  position: fixed;
+  inset: 72px 0 0 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 56px;
+  font-weight: 800;
+  color: rgba(87, 92, 246, 0.06);
+  letter-spacing: 12px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.chip.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 600;
+}

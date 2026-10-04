@@ -1,0 +1,112 @@
+package com.lynx.ad.modules.tenant.application;
+
+import com.lynx.ad.common.domain.CompanyScale;
+import com.lynx.ad.common.domain.Ids.UserId;
+import com.lynx.ad.common.domain.PhoneNumber;
+import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.RequestMeta;
+import com.lynx.ad.common.security.TenantContext;
+import com.lynx.ad.modules.audit.application.AuditRecorder;
+import com.lynx.ad.modules.audit.application.SuccessAuditCommand;
+import com.lynx.ad.modules.audit.domain.model.AuditActionType;
+import com.lynx.ad.modules.tenant.api.dto.CurrentUserResponse;
+import com.lynx.ad.modules.tenant.api.dto.UpdatePasswordRequest;
+import com.lynx.ad.modules.tenant.api.dto.UpdatePhoneRequest;
+import com.lynx.ad.modules.tenant.api.dto.UpdateProfileRequest;
+import com.lynx.ad.modules.tenant.domain.model.PasswordHasher;
+import com.lynx.ad.modules.tenant.domain.model.Tenant;
+import com.lynx.ad.modules.tenant.domain.model.User;
+import com.lynx.ad.modules.tenant.domain.port.OtpStore;
+import com.lynx.ad.modules.tenant.domain.port.TenantRepository;
+import com.lynx.ad.modules.tenant.domain.port.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class AccountCommandService {
+
+    private final UserRepository userRepository;
+    private final TenantRepository tenantRepository;
+    private final PasswordHasher passwordHasher;
+    private final OtpStore otpStore;
+    private final TenantQuerySupport querySupport;
+    private final AuditRecorder auditRecorder;
+
+    public AccountCommandService(
+            UserRepository userRepository,
+            TenantRepository tenantRepository,
+            PasswordHasher passwordHasher,
+            OtpStore otpStore,
+            TenantQuerySupport querySupport,
+            AuditRecorder auditRecorder) {
+        this.userRepository = userRepository;
+        this.tenantRepository = tenantRepository;
+        this.passwordHasher = passwordHasher;
+        this.otpStore = otpStore;
+        this.querySupport = querySupport;
+        this.auditRecorder = auditRecorder;
+    }
+
+    @Transactional
+    public CurrentUserResponse updateProfile(UserId userId, UpdateProfileRequest req) {
+        User user = require(userId);
+        user.profileOrCreate()
+                .updateAccount(
+                        req.nickname(),
+                        req.email(),
+                        req.companyName(),
+                        req.industry(),
+                        CompanyScale.parse(req.companyScale()));
+        userRepository.save(user);
+        record(user, "账户资料");
+        return querySupport.current(userId);
+    }
+
+    @Transactional
+    public CurrentUserResponse updatePassword(UserId userId, UpdatePasswordRequest req) {
+        User user = require(userId);
+        user.changePassword(req.oldPassword(), req.newPassword(), passwordHasher);
+        userRepository.save(user);
+        record(user, "登录密码");
+        return querySupport.current(userId);
+    }
+
+    @Transactional
+    public CurrentUserResponse updatePhone(UserId userId, UpdatePhoneRequest req) {
+        User user = require(userId);
+        PhoneNumber next = new PhoneNumber(req.phone());
+        if (!otpStore.verifyAndConsume(next, req.code())) {
+            throw new BizException(1101, "验证码不正确或已过期");
+        }
+        userRepository.findByPhone(next).ifPresent(existing -> {
+            if (!existing.id().equals(userId)) {
+                throw new BizException(1106, "该手机号已被使用");
+            }
+        });
+        user.changePhone(next);
+        userRepository.save(user);
+        record(user, "换绑手机");
+        return querySupport.current(userId);
+    }
+
+    private User require(UserId userId) {
+        return userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
+    }
+
+    private void record(User user, String label) {
+        Tenant tenant = tenantRepository.findByUserId(user.id()).orElse(null);
+        String jti = TenantContext.require().sessionId().orElse(null);
+        auditRecorder.record(new SuccessAuditCommand(
+                tenant == null ? null : tenant.id(),
+                user.id(),
+                AuthCommandService.actorName(user),
+                AuditActionType.ACCOUNT,
+                "USER",
+                user.id().value(),
+                label,
+                RequestMeta.ip().orElse(null),
+                jti,
+                RequestMeta.userAgent().orElse(null),
+                null));
+    }
+}

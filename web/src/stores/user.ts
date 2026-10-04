@@ -1,0 +1,69 @@
+import { defineStore } from "pinia";
+import { computed, ref } from "vue";
+import { completeOnboarding, fetchMe, passwordLogin, smsLogin, type CurrentUser, type OnboardingPayload } from "@/features/tenant/authApi";
+
+export const useUserStore = defineStore("user", () => {
+  const token = ref(localStorage.getItem("lynx.token") || "");
+  const me = ref<CurrentUser | null>(null);
+
+  const isLoggedIn = computed(() => Boolean(token.value));
+  const demoMode = computed(() => Boolean(me.value?.demoMode));
+  const trialActive = computed(() => {
+    if (me.value?.trialActive) return true;
+    const st = me.value?.subscriptionStatus;
+    return st === "ACTIVE" || st === "PENDING_DOWNGRADE";
+  });
+  const needOnboarding = computed(() => Boolean(me.value?.needOnboarding));
+
+  function persist(next: string) {
+    token.value = next;
+    localStorage.setItem("lynx.token", next);
+  }
+
+  async function afterLogin(res: { token: string }) {
+    persist(res.token);
+    me.value = await fetchMe();
+    return me.value;
+  }
+
+  async function loginBySms(phone: string, code: string) {
+    return afterLogin(await smsLogin(phone, code));
+  }
+
+  async function loginByPassword(phone: string, password: string) {
+    return afterLogin(await passwordLogin(phone, password));
+  }
+
+  async function loadMe() {
+    if (!token.value) {
+      return null;
+    }
+    me.value = await fetchMe();
+    return me.value;
+  }
+
+  async function onboard(payload: OnboardingPayload) {
+    me.value = await completeOnboarding(payload);
+    return me.value;
+  }
+
+  function logout() {
+    token.value = "";
+    me.value = null;
+    localStorage.removeItem("lynx.token");
+  }
+
+  return {
+    token,
+    me,
+    isLoggedIn,
+    demoMode,
+    trialActive,
+    needOnboarding,
+    loginBySms,
+    loginByPassword,
+    loadMe,
+    onboard,
+    logout,
+  };
+});

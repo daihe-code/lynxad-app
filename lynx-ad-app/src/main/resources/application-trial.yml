@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+
+lynx:
+  ad:
+    demo-mode: true
+    mock:
+      qianchuan: true
+      ai: true
+    sms:
+      mode: mock
+    payment:
+      mode: mock
+    storage:
+      mode: local
+      local-dir: ${LYNX_STORAGE_LOCAL_DIR}
+    jwt:
+      secret: ${LYNX_JWT_SECRET}
+    crypto:
+      aes-key: ${LYNX_AES_KEY}
+    oauth:
+      web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI}
+      qianchuan:
+        redirect-uri: ${QIANCHUAN_REDIRECT_URI}
