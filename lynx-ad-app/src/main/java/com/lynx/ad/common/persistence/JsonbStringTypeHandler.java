@@ -13,6 +13,11 @@ public class JsonbStringTypeHandler extends BaseTypeHandler<String> {
     @Override
     public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType)
             throws SQLException {
+        String product = ps.getConnection().getMetaData().getDatabaseProductName();
+        if (product != null && product.contains("MySQL")) {
+            ps.setString(i, parameter);
+            return;
+        }
         PGobject json = new PGobject();
         json.setType("jsonb");
         json.setValue(parameter);

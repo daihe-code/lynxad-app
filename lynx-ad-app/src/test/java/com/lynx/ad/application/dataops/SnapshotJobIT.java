@@ -74,6 +74,11 @@ class SnapshotJobIT extends AbstractContainerIT {
                 BigDecimal.class,
                 planId);
         assertEquals(0, new BigDecimal("1.0000").compareTo(cost));
+        Long convert = jdbc.queryForObject(
+                "select convert from plan_metric_snapshot where ad_plan_id = ? order by snapshot_ts desc, id desc limit 1",
+                Long.class,
+                planId);
+        assertEquals(1L, convert);
 
         JsonNode list = mapper.readTree(get("/api/v1/delivery/plans", token)).path("data").path("records");
         boolean found = false;

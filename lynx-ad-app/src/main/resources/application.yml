@@ -12,7 +12,6 @@ spring:
     default-property-inclusion: non_null
   flyway:
     enabled: true
-    locations: classpath:db/migration
 
 mybatis-plus:
   configuration:
@@ -36,3 +35,18 @@ management:
     health:
       probes:
         enabled: true
+
+# 业务库只由 lynx.ad.db.vendor 决定，取值 mysql 或 postgresql，缺省 mysql。
+# 开发、试用、正式共用这棵树。本机 dev 用字面量覆盖两枝连接。
+lynx:
+  ad:
+    db:
+      vendor: ${LYNX_DB_VENDOR:mysql}
+      mysql:
+        url: ${LYNX_DB_MYSQL_URL:${SPRING_DATASOURCE_URL:}}
+        username: ${LYNX_DB_MYSQL_USERNAME:${SPRING_DATASOURCE_USERNAME:}}
+        password: ${LYNX_DB_MYSQL_PASSWORD:${SPRING_DATASOURCE_PASSWORD:}}
+      postgresql:
+        url: ${LYNX_DB_POSTGRESQL_URL:${SPRING_DATASOURCE_URL:}}
+        username: ${LYNX_DB_POSTGRESQL_USERNAME:${SPRING_DATASOURCE_USERNAME:}}
+        password: ${LYNX_DB_POSTGRESQL_PASSWORD:${SPRING_DATASOURCE_PASSWORD:}}

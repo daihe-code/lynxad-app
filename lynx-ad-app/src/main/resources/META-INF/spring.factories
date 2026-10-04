@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.lynx.ad.common.persistence.DbVendorEnvironmentPostProcessor

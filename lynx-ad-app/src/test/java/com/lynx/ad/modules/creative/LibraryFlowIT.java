@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.starter.LynxAdApplication;
 import com.lynx.ad.support.AbstractContainerIT;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -81,7 +83,8 @@ class LibraryFlowIT extends AbstractContainerIT {
         post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);
         post("/api/v1/delivery/plans/" + planId + "/publish", "{}", token);
 
-        JsonNode lib = json(get("/api/v1/creative/library?from=2026-09-12&to=2026-09-25&type=VIDEO", token));
+        String to = LocalDate.now(ZoneOffset.UTC).toString();
+        JsonNode lib = json(get("/api/v1/creative/library?from=2026-09-12&to=" + to + "&type=VIDEO", token));
         assertTrue(lib.path("data").path("qianchuanBound").asBoolean());
         boolean lynx = false;
         boolean ext = false;

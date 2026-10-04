@@ -2,9 +2,15 @@ spring:
   task:
     scheduling:
       enabled: false
+  datasource:
+    hikari:
+      maximum-pool-size: 2
 
 lynx:
   ad:
+    db:
+      # 与容器注入的 PostgreSQL URL 使用同一个开关，不另写一套数据源覆盖。
+      vendor: postgresql
     mock:
       qianchuan: true
       ai: true

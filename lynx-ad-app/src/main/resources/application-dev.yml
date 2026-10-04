@@ -1,8 +1,4 @@
 spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/lynx-ad-app
-    username: lynx
-    password: lynx_dev
   data:
     redis:
       host: localhost
@@ -10,6 +6,15 @@ spring:
 
 lynx:
   ad:
+    db:
+      mysql:
+        url: jdbc:mysql://127.0.0.1:3306/lynx-ad-app?characterEncoding=utf8&connectionCollation=utf8mb4_0900_as_cs&serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true&useSSL=false
+        username: root
+        password: root
+      postgresql:
+        url: jdbc:postgresql://localhost:5432/lynx-ad-app
+        username: lynx
+        password: lynx_dev
     mock:
       qianchuan: true
       ai: true

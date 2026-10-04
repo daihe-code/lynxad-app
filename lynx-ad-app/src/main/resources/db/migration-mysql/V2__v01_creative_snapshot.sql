@@ -1,0 +1,4 @@
+ALTER TABLE creative_task
+  ADD COLUMN product_ids_json JSON NOT NULL DEFAULT (JSON_ARRAY()),
+  ADD COLUMN steps_json JSON NOT NULL DEFAULT (JSON_ARRAY()),
+  ADD COLUMN package_id VARCHAR(36);
