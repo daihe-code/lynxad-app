@@ -1,0 +1,90 @@
+/* Popovers and dialogs are teleported to body; use explicit page-only classes. */
+.campaign-shell,
+.campaign-popover,
+.campaign-dropdown,
+.campaign-tooltip,
+.campaign-dialog {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --el-color-primary: #575cf6;
+  --el-color-primary-light-3: #7b7ff8;
+  --el-color-primary-light-5: #9da0fa;
+  --el-color-primary-light-7: #bfc1fc;
+  --el-color-primary-light-8: #d0d2fd;
+  --el-color-primary-light-9: #eeeefe;
+  --el-color-primary-dark-2: #4348db;
+  --el-text-color-primary: #1a1b2e;
+  --el-text-color-regular: #4e5069;
+  --el-text-color-secondary: #7c7f99;
+  --el-text-color-placeholder: #9295ac;
+  --el-border-color: #e6e8f2;
+  --el-border-radius-base: 10px;
+  color: #4e5069;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.campaign-shell button, .campaign-shell input, .campaign-shell select,
+.campaign-dialog button, .campaign-dialog input,
+.campaign-popover button, .campaign-popover input { font-family: inherit; }
+.campaign-shell button:focus-visible, .campaign-shell a:focus-visible,
+.campaign-dialog button:focus-visible, .campaign-popover button:focus-visible { outline: 2px solid #575cf6; outline-offset: 3px; }
+.campaign-popover.el-popover { padding: 20px; border-radius: 16px; box-shadow: 0 10px 36px #2824521a; border-color: #e6e8f2; box-sizing: border-box; max-width: calc(100vw - 24px); }
+.campaign-dropdown.el-popper { border-radius: 12px; box-shadow: 0 8px 24px #28245212; border-color: #e6e8f2; }
+.campaign-dropdown .el-select-dropdown__list { padding: 6px; }
+.campaign-dropdown .el-select-dropdown__item { font-size: 13px; height: 36px; line-height: 36px; border-radius: 7px; padding: 0 12px; color: #4e5069; }
+.campaign-dropdown .el-select-dropdown__item.is-selected { color: #4348db; background: #f2f3fe; font-weight: 600; }
+.campaign-tooltip.el-popper { font-size: 12px; line-height: 20px; max-width: min(300px, calc(100vw - 32px)); }
+.campaign-overlay.el-overlay { background-color: #1a1b2e66; backdrop-filter: blur(2px); }
+.campaign-dialog.el-dialog { border-radius: 20px; padding: 0; max-width: calc(100vw - 32px); box-shadow: 0 24px 80px #1a1b2e33; overflow: hidden; }
+.campaign-dialog .el-dialog__header { padding: 24px 28px 20px; margin: 0; border-bottom: 1px solid #eeeff4; }
+.campaign-dialog .el-dialog__title { color: #1a1b2e; font-size: 18px; line-height: 26px; font-weight: 600; }
+.campaign-dialog .el-dialog__headerbtn { width: 32px; height: 32px; top: 20px; right: 22px; border-radius: 8px; font-size: 18px; }
+.campaign-dialog .el-dialog__headerbtn:hover { background: #f2f3fe; }
+.campaign-dialog .el-dialog__body { padding: 24px 28px 0; max-height: calc(100dvh - 230px); overflow-y: auto; color: #4e5069; overscroll-behavior: contain; scrollbar-width: thin; }
+.campaign-dialog .el-dialog__footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 20px 28px 24px; border-top: 1px solid #eeeff4; margin-top: 8px; background: #fff; }
+.campaign-dialog .el-dialog__footer .el-button { margin-left: 0; }
+.campaign-dialog .el-button, .campaign-popover .el-button { min-height: 38px; border-radius: 10px; font-size: 13px; padding: 0 18px; }
+.campaign-dialog .el-button--primary.is-disabled { color: #fff; background: #adaff9; border-color: #adaff9; }
+.campaign-dialog .el-input__wrapper, .campaign-dialog .el-select__wrapper { min-height: 44px; padding: 0 14px; border-radius: 10px; box-sizing: border-box; }
+.campaign-dialog .el-input__inner { font-size: 15px; color: #1a1b2e; }
+.campaign-dialog .el-form-item__label { font-size: 13px; font-weight: 500; line-height: 20px; margin-bottom: 8px; color: #4e5069; }
+.campaign-dialog .el-form-item__content { line-height: 20px; }
+.campaign-dialog .el-form-item__error { position: static; width: 100%; font-size: 12px; line-height: 18px; padding-top: 6px; }
+.campaign-dialog .el-input-number .el-input__wrapper { padding-left: 42px; padding-right: 42px; }
+.campaign-dialog .el-input__count { font-size: 11px; background: transparent; }
+.dialog-footer-note { margin-right: auto; display: flex; align-items: center; gap: 5px; color: #7c7f99; font-size: 12px; }
+.campaign-tools-dialog.el-dialog { border-radius: 16px; }
+.campaign-tools-dialog .el-dialog__header { border-bottom: 0; padding: 20px 24px 28px; }
+.campaign-tools-dialog .el-dialog__headerbtn { top: 16px; right: 16px; }
+.campaign-tools-dialog .el-dialog__body { padding: 0 24px; max-height: calc(100dvh - 180px); }
+.campaign-tools-dialog .el-dialog__footer { border-top: 0; margin-top: 0; padding: 24px; }
+.campaign-tools-dialog .el-dialog__footer .el-button { border-radius: 7px; min-height: 36px; }
+.tools-help-popover .principle-text { font-size: 12px; line-height: 20px; color: #7c7f99; }
+.tools-date-picker { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: calc(100vw - 24px); }
+.popup-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.popup-heading strong { font-size: 15px; font-weight: 600; color: #1a1b2e; }
+.popup-heading span { color: #7c7f99; font-size: 12px; }
+.popup-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #eeeff4; }
+.popup-footer .el-button { margin: 0; min-height: 34px; }
+.popup-footer .reset-filter { margin-right: auto; padding: 0; }
+.campaign-popover .el-select__wrapper { min-height: 38px; font-size: 13px; }
+.campaign-inbox .mail { padding: 12px 8px; border-radius: 8px; }
+.campaign-inbox .mail:hover { background: #f7f8fe; }
+.campaign-inbox .mail strong { font-size: 13px; color: #4e5069; font-weight: 500; }
+.campaign-inbox .mail.unread strong::before { content: ''; display: inline-block; width: 5px; height: 5px; background: #575cf6; border-radius: 50%; vertical-align: 2px; margin-right: 6px; }
+.campaign-inbox .mail p { line-height: 20px; color: #7c7f99; }
+.campaign-inbox .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 28px 0; color: #7c7f99; font-size: 13px; }
+.campaign-inbox .empty .el-icon { font-size: 24px; color: #b7baf1; }
+@media (max-width: 600px) {
+  .campaign-dialog .el-dialog__header { padding: 20px 20px 16px; }
+  .campaign-dialog .el-dialog__headerbtn { top: 16px; right: 14px; }
+  .campaign-dialog .el-dialog__body { padding: 20px 20px 0; max-height: calc(100dvh - 200px); }
+  .campaign-dialog .el-dialog__footer { padding: 16px 20px 20px; flex-wrap: wrap; }
+  .dialog-footer-note { width: 100%; margin: 0; justify-content: flex-end; }
+  .campaign-tools-dialog .el-dialog__header { padding: 20px 16px; }
+  .campaign-tools-dialog .el-dialog__body { padding: 0 16px; max-height: calc(100dvh - 200px); }
+  .campaign-tools-dialog .el-dialog__footer { padding: 20px 16px; }
+  .tools-date-picker { max-height: 70dvh; overflow-x: hidden; overflow-y: auto; }
+  .tools-date-picker .el-date-range-picker { width: calc(100vw - 32px); max-width: 100%; }
+  .tools-date-picker .el-picker-panel__body { min-width: 0; }
+  .tools-date-picker .el-date-range-picker__content { float: none; width: 100%; padding: 12px; box-sizing: border-box; }
+}

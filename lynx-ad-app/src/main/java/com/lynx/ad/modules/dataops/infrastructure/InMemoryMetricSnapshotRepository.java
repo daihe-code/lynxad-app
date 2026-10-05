@@ -8,6 +8,8 @@ import com.lynx.ad.modules.dataops.domain.port.SnapshotPair;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 public class InMemoryMetricSnapshotRepository implements MetricSnapshotRepository {
 
@@ -45,6 +47,21 @@ public class InMemoryMetricSnapshotRepository implements MetricSnapshotRepositor
 
     @Override
     public synchronized List<MetricSnapshot> listLatestByTenant(TenantId tenantId) {
-        return rows.stream().filter(s -> s.tenantId().equals(tenantId)).toList();
+        return listLatestPairsByTenant(tenantId).values().stream().map(SnapshotPair::current).toList();
+    }
+
+    @Override
+    public synchronized Map<String, SnapshotPair> listLatestPairsByTenant(TenantId tenantId) {
+        Map<String, SnapshotPair> pairs = new LinkedHashMap<>();
+        rows.stream().filter(s -> s.tenantId().equals(tenantId) && s.planId() != null)
+                .sorted(Comparator.comparing(MetricSnapshot::ts).reversed())
+                .forEach(snapshot -> {
+                    String id = snapshot.planId().value();
+                    SnapshotPair pair = pairs.get(id);
+                    if (pair == null) pairs.put(id, new SnapshotPair(snapshot, null));
+                    else if (pair.previous() == null && snapshot.ts().isBefore(pair.current().ts()))
+                        pairs.put(id, new SnapshotPair(pair.current(), snapshot));
+                });
+        return pairs;
     }
 }

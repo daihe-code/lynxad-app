@@ -152,6 +152,10 @@ public class OrderCommandService {
         return OrderView.from(order);
     }
 
+    public OrderView pending(TenantId tenantId) {
+        return orderRepository.findPendingPay(tenantId).map(OrderView::from).orElse(null);
+    }
+
     private OrderView remember(TenantId tenantId, String idempotencyKey, OrderView view) {
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             try {

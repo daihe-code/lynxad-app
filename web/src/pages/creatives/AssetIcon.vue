@@ -1,0 +1,43 @@
+<template>
+  <svg v-bind="icon.attrs" aria-hidden="true" v-html="icon.content" />
+</template>
+<script setup lang="ts">
+import { computed } from "vue";
+const props = defineProps<{ name: string }>();
+// Trusted SVG paths from the supplied asset-center reference; no server HTML is rendered.
+const icons: Record<string, { attrs: Record<string, string>; content: string }> = {
+  "user": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<circle cx=\"12\" cy=\"8.4\" r=\"4.1\"/>\n    <path d=\"M4.4 20.4c0-3.6 3.4-6.2 7.6-6.2s7.6 2.6 7.6 6.2v.4H4.4v-.4Z\"/>" },
+  "bell": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M18.2 8.8a6.2 6.2 0 1 0-12.4 0c0 5.3-2.1 6.9-2.1 6.9h16.6s-2.1-1.6-2.1-6.9Z\"/>\n    <path d=\"M13.7 19.2a1.9 1.9 0 0 1-3.4 0\"/>" },
+  "caret": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"m6.5 9.4 5.5 5.4 5.5-5.4\"/>" },
+  "menu": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round"}, content: "<path d=\"M4 7h16M4 12h16M4 17h16\"/>" },
+  "mountain": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<path d=\"M2.6 19.4 9.4 7.6l4 6.5 2.1-3.2 5.9 8.5H2.6Z\"/>" },
+  "calendar": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<rect x=\"3.2\" y=\"5\" width=\"17.6\" height=\"15.6\" rx=\"3\"/>\n    <path d=\"M3.2 9.6h17.6M8 3.4v3M16 3.4v3\"/>" },
+  "refresh": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.9","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M20 11.4A8 8 0 0 0 6.3 6.1L3.8 8.4\"/>\n    <path d=\"M4 12.6a8 8 0 0 0 13.7 5.3l2.5-2.3\"/>\n    <path d=\"M3.4 4.4v4.2h4.2M20.6 19.6v-4.2h-4.2\"/>" },
+  "plus": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2.1","stroke-linecap":"round"}, content: "<path d=\"M12 5.4v13.2M5.4 12h13.2\"/>" },
+  "close": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2","stroke-linecap":"round"}, content: "<path d=\"M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8\"/>" },
+  "check": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2.1","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"m5 12.6 4.6 4.4L19 7.4\"/>" },
+  "check-circle": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<circle cx=\"12\" cy=\"12\" r=\"8.9\"/>\n    <path d=\"m8.2 12.3 2.5 2.5 5.1-5.3\"/>" },
+  "warn-fill": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<path d=\"M12 2.6a9.4 9.4 0 1 0 0 18.8 9.4 9.4 0 0 0 0-18.8Zm0 4.2c.6 0 1.05.5 1 1.1l-.35 5.3a.65.65 0 0 1-1.3 0L11 7.9c-.05-.6.4-1.1 1-1.1Zm0 10.9a1.35 1.35 0 1 1 0-2.7 1.35 1.35 0 0 1 0 2.7Z\"/>" },
+  "info-line": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<circle cx=\"12\" cy=\"12\" r=\"9\"/>\n    <path d=\"M12 11.2v5.4M12 7.9h.01\"/>" },
+  "search": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.9","stroke-linecap":"round"}, content: "<circle cx=\"10.8\" cy=\"10.8\" r=\"6.8\"/>\n    <path d=\"m15.8 15.8 4.4 4.4\"/>" },
+  "video": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<rect x=\"3.2\" y=\"5.4\" width=\"17.6\" height=\"13.2\" rx=\"3\"/>\n    <path d=\"M10.4 9.4 15 12l-4.6 2.6z\" fill=\"currentColor\"/>" },
+  "image": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<rect x=\"3.4\" y=\"4.6\" width=\"17.2\" height=\"14.8\" rx=\"3\"/>\n    <circle cx=\"8.9\" cy=\"9.9\" r=\"1.6\"/>\n    <path d=\"m4.6 17.6 4.6-4.4 3.4 3.1 3.2-2.9 4 3.8\"/>" },
+  "note": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<rect x=\"4.2\" y=\"3.6\" width=\"12.6\" height=\"16.8\" rx=\"2.6\"/>\n    <path d=\"M7.6 8.4h5.8M7.6 12h5.8M7.6 15.6h3.4\"/>\n    <path d=\"M16.8 6.6h1.6a1.6 1.6 0 0 1 1.6 1.6v9.6a2.6 2.6 0 0 1-2.6 2.6H6.8\"/>" },
+  "play": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<path d=\"M8.4 5.2 18.6 12 8.4 18.8z\"/>" },
+  "pause": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<rect x=\"7\" y=\"5.2\" width=\"3.6\" height=\"13.6\" rx=\"1.2\"/>\n    <rect x=\"13.4\" y=\"5.2\" width=\"3.6\" height=\"13.6\" rx=\"1.2\"/>" },
+  "expand": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.9","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M9.6 4.6H4.6v5M14.4 4.6h5v5M14.4 19.4h5v-5M9.6 19.4h-5v-5\"/>" },
+  "upload": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M12 16.4V5.6M7.6 10 12 5.6 16.4 10\"/><path d=\"M4.6 17.6v.8a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6v-.8\"/>" },
+  "download": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M12 4v10.4M7.6 10.4 12 14.8l4.4-4.4\"/><path d=\"M4.6 18.6h14.8\"/>" },
+  "trash": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M4.8 6.8h14.4M9.4 6.8V4.6h5.2v2.2M6.6 6.8l.9 12.4a1.6 1.6 0 0 0 1.6 1.5h5.8a1.6 1.6 0 0 0 1.6-1.5l.9-12.4\"/>\n    <path d=\"M10.6 10.4v6.4M13.4 10.4v6.4\"/>" },
+  "link": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M10.2 13.8a3.6 3.6 0 0 0 5.1 0l2.9-2.9a3.6 3.6 0 1 0-5.1-5.1L11.6 7\"/>\n    <path d=\"M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-2.9 2.9a3.6 3.6 0 1 0 5.1 5.1L12.4 17\"/>" },
+  "sparkle": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M12 3.4l1.7 4.5 4.5 1.7-4.5 1.7L12 15.8l-1.7-4.5L5.8 9.6l4.5-1.7z\"/>\n    <path d=\"M18.6 15.4l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z\"/>" },
+  "clock": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.9","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<circle cx=\"12\" cy=\"12\" r=\"8.6\"/><path d=\"M12 7.6V12l3 1.8\"/>" },
+  "chevron-right": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2.1","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"m9.4 5.6 6.4 6.4-6.4 6.4\"/>" },
+  "arrow-left": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.9","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M19.6 12H4.4M10.6 5.8 4.4 12l6.2 6.2\"/>" },
+  "tune": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round"}, content: "<path d=\"M4 7.6h9M4 16.4h5M16 16.4h4M13 7.6h7\"/>\n    <circle cx=\"14.4\" cy=\"16.4\" r=\"1.9\"/>\n    <circle cx=\"11.4\" cy=\"7.6\" r=\"1.9\"/>" },
+  "tag": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.8","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M11.4 3.8H5.6a1.8 1.8 0 0 0-1.8 1.8v5.8c0 .5.2 1 .5 1.3l7.4 7.4a1.8 1.8 0 0 0 2.5 0l5.6-5.6a1.8 1.8 0 0 0 0-2.5l-7.4-7.4a1.8 1.8 0 0 0-1-.8Z\"/>\n    <path d=\"M7.9 8.6h.01\"/>" },
+  "folder": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M3.6 7.4a2 2 0 0 1 2-2h3.2l2 2.4h7.6a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2H5.6a2 2 0 0 1-2-2z\"/>" },
+  "filter": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M3.6 5.4h16.8l-6.6 7.6v6.2l-3.6-2V13z\"/>" }
+};
+const icon = computed(() => icons[props.name] || icons.image!);
+</script>

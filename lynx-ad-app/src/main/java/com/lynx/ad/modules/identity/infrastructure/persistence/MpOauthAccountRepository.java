@@ -201,6 +201,6 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
                 po.getRefreshExpiresAt(),
                 po.getStatus(),
                 awemes,
-                po.getAuthorizedByUserId());
+                po.getAuthorizedByUserId()).withAuthorizedAt(po.getAuthorizedAt());
     }
 }

@@ -82,4 +82,10 @@ public class IdentityOauthController {
         commandService.unbind(TenantContext.requireTenantId(), new AccountId(id));
         return ApiResponse.ok(null);
     }
+
+    @PostMapping("/api/v1/identity/accounts/{id}/remove")
+    public ApiResponse<Void> remove(@PathVariable String id) {
+        commandService.remove(TenantContext.requireTenantId(), new AccountId(id));
+        return ApiResponse.ok(null);
+    }
 }

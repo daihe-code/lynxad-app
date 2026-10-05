@@ -11,7 +11,7 @@ public record LibraryResponse(
 
     public record TabCounts(int video, int image, int carousel) {}
 
-    public record StatusCounts(int all, int used, int unused) {}
+    public record StatusCounts(int all, int used, int unused, int reviewing, int rejected) {}
 
     public record PageInfo(int page, int pageSize, int total) {}
 }

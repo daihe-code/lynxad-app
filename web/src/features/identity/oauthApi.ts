@@ -17,6 +17,9 @@ export interface AccountVo {
   status: string;
   awemes: AwemeVo[];
   authorizedByUserId?: string | null;
+  authorizedAt?: string | null;
+  tokenExpiresAt?: string | null;
+  refreshExpiresAt?: string | null;
 }
 
 export function listAccounts() {
@@ -37,6 +40,11 @@ export function refreshAccount(id: string) {
 
 export function unbindAccount(id: string) {
   return apiDelete<void>(`/api/v1/identity/accounts/${id}`);
+}
+
+/** Removes an inactive authorization record while retaining historical references. */
+export function removeAccount(id: string) {
+  return apiPost<void>(`/api/v1/identity/accounts/${id}/remove`);
 }
 
 export function hasUsableAweme(accounts: AccountVo[] | undefined) {

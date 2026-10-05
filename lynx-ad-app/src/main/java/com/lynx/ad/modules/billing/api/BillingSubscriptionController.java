@@ -78,6 +78,11 @@ public class BillingSubscriptionController {
         return ApiResponse.ok(orderCommandService.create(TenantContext.requireTenantId(), req.planCode(), idem));
     }
 
+    @GetMapping("/orders/pending")
+    public ApiResponse<OrderView> pendingOrder() {
+        return ApiResponse.ok(orderCommandService.pending(TenantContext.requireTenantId()));
+    }
+
     @PostMapping("/orders/{orderId}/close")
     public ApiResponse<OrderView> close(
             @PathVariable String orderId,

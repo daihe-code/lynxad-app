@@ -18,11 +18,13 @@ public class OauthQueryService {
     }
 
     public List<AccountVo> list(TenantId tenantId) {
-        return repository.findByTenant(tenantId).stream().map(OauthQueryService::toVo).toList();
+        return repository.findByTenant(tenantId).stream()
+                .filter(a -> !"DELETED".equals(a.status()))
+                .map(OauthQueryService::toVo).toList();
     }
 
     public boolean hasBoundQianchuan(TenantId tenantId) {
-        return !repository.findByTenant(tenantId).isEmpty();
+        return repository.findByTenant(tenantId).stream().anyMatch(a -> "ACTIVE".equals(a.status()));
     }
 
     public static AccountVo toVo(OauthAccount account) {
@@ -41,6 +43,9 @@ public class OauthQueryService {
                                 a.primary(),
                                 a.sceneHint()))
                         .toList(),
-                account.authorizedByUserId().orElse(null));
+                account.authorizedByUserId().orElse(null),
+                account.authorizedAt(),
+                account.tokenExpiresAt(),
+                account.refreshExpiresAt());
     }
 }

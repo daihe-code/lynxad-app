@@ -1,6 +1,6 @@
 <template>
-  <div class="wizard">
-    <section class="banner" aria-label="投放计划概览">
+  <div class="wizard" :class="{ 'wizard--products': wizard.step <= 2 }">
+    <section v-if="wizard.step > 2" class="banner" aria-label="投放计划概览">
       <div class="banner__copy">
         <div class="banner__head">
           <h1>灵投广告投放</h1>
@@ -41,7 +41,7 @@
       </div>
     </section>
 
-    <nav class="stepper" aria-label="投放计划进度">
+    <nav v-if="wizard.step > 2" class="stepper" aria-label="投放计划进度">
       <template v-for="(label, i) in STEP_LABELS" :key="label">
         <span class="step" :class="{ current: wizard.step === i + 1, done: wizard.step > i + 1 }" :aria-current="wizard.step === i + 1 ? 'step' : undefined">
           <span class="step__dot">
@@ -54,178 +54,9 @@
       </template>
     </nav>
 
-    <section v-if="wizard.step === 1" class="panel">
-      <div class="panel__pad">
-        <div class="panel__head">
-          <div>
-            <h2>选择要投放广告的商品<span class="panel__badge">商品全域投放</span></h2>
-            <p class="panel__sub">系统将为选中商品自动匹配最佳投放策略</p>
-          </div>
-          <button v-if="analysisOpen" type="button" class="text-btn" @click="listExpanded = !listExpanded">
-            {{ listExpanded ? "收起" : "展开" }}
-          </button>
-        </div>
-        <p class="tip">建议相似ROI目标的商品集中在一条计划下投放，效果会更好。</p>
-      </div>
+    <CreateProductsStep v-if="wizard.step === 1" :key="awemeKey" :products="products" :selected="wizard.products" :loaded="productsLoaded" :load-error="productsLoadError" :saving="saving" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @select="toggleProduct" @remove="removeProduct" @account="chooseAweme" @retry="loadProducts" @next="toStep2" @cancel="$router.push('/campaigns')" />
 
-      <div v-show="!analysisOpen || listExpanded" class="panel__body">
-        <div class="filters">
-          <div class="seg" role="group" aria-label="商品筛选">
-            <button type="button" class="seg__item on" aria-pressed="true">全部商品</button>
-            <button v-for="name in LOCKED_SEGS" :key="name" type="button" class="seg__item" disabled :title="SEG_NOTE">{{ name }}</button>
-          </div>
-          <p class="filters__note">{{ SEG_NOTE }}</p>
-          <label class="check">
-            <input type="checkbox" disabled />
-            <span>只看未投放商品</span>
-          </label>
-          <p class="filters__note">暂无法区分已投放商品</p>
-          <div class="filters__right">
-            <span>最多可选 20 个</span>
-            <el-input v-model="keyword" clearable placeholder="搜索商品名称/ID" @change="loadProducts" @keyup.enter="loadProducts" />
-          </div>
-        </div>
-
-        <el-empty v-if="productsLoaded && products.length === 0" :description="keyword.trim() ? '没有匹配的商品' : '该抖音号暂无商品'" />
-        <div v-else class="grid" role="listbox" aria-multiselectable="true" aria-label="可投放商品列表">
-          <article
-            v-for="p in products"
-            :key="p.productId"
-            :class="['prod', { on: wizard.productIds.includes(p.productId) }]"
-            role="option"
-            :aria-selected="wizard.productIds.includes(p.productId)"
-            @click="toggleProduct(p)"
-          >
-            <img v-if="p.imageUrl" class="thumb" :src="p.imageUrl" alt="" />
-            <div v-else class="thumb thumb--empty" aria-hidden="true" />
-            <strong>{{ p.name }}</strong>
-            <p class="price">{{ cardPrice(p) }}</p>
-          </article>
-        </div>
-        <p v-if="productsLoaded" class="total">共 {{ products.length }} 条</p>
-      </div>
-
-      <div class="selbar">
-        <span class="selbar__count">已选 <b>{{ wizard.productIds.length }}</b> / 20</span>
-        <div class="selbar__list">
-          <span v-if="wizard.products.length === 0" class="muted">请选择要投放广告的商品</span>
-          <span v-for="p in wizard.products" :key="p.productId" class="chip">
-            {{ p.name }}
-            <button v-if="!analysisOpen" type="button" aria-label="移除" @click="removeProduct(p.productId)">×</button>
-          </span>
-        </div>
-        <button type="button" class="btn-brand" :disabled="wizard.productIds.length === 0" @click="confirmGoods">
-          {{ analysisOpen ? "重新选择商品" : "我选好了" }}
-        </button>
-      </div>
-
-      <section v-if="analysisOpen" class="analysis" aria-label="商品智能分析">
-        <h2>商品智能分析</h2>
-        <div class="an-grid">
-          <article v-for="title in ANALYSIS_TITLES" :key="title" class="an-card">
-            <h3>{{ title }}</h3>
-            <p>演示评估，暂无实测数据</p>
-            <p>已选 {{ wizard.productIds.length }} 个：{{ selectedNames }}</p>
-          </article>
-        </div>
-      </section>
-
-      <div v-if="recommendOpen" class="recommend" role="dialog" aria-label="演示推荐">
-        <div class="recommend__card">
-          <button type="button" class="recommend__close" aria-label="关闭" @click="recommendOpen = false">×</button>
-          <h3>演示推荐</h3>
-          <p>推荐商品目标ROI和已选商品相似、商品类目相同，投放后流量互补</p>
-          <div class="recommend__thumbs">
-            <button v-for="p in recommendItems" :key="p.productId" type="button" class="recommend__thumb" @click.prevent>
-              <img v-if="p.imageUrl" :src="p.imageUrl" alt="" />
-              <span v-else class="thumb thumb--empty" />
-              <span>{{ p.name }}</span>
-            </button>
-          </div>
-          <p class="recommend__note">演示推荐，不会自动加入已选</p>
-        </div>
-      </div>
-
-      <div class="footer">
-        <button type="button" class="btn-ghost" @click="$router.push('/campaigns')">取消投放</button>
-        <button type="button" class="btn-brand" :disabled="wizard.productIds.length === 0 || saving" @click="toStep2">下一步</button>
-      </div>
-    </section>
-
-    <section v-else-if="wizard.step === 2" class="panel">
-      <div class="panel__pad">
-        <h2>设置投放目标</h2>
-        <p class="panel__sub">系统智能托管模式，自动优化出价和投放节奏，你只需设定预算和时间</p>
-        <p class="tip">涉及投放成本和目标效果，需重点关注</p>
-        <p v-if="selectWarn" class="warn-banner">{{ selectWarn }}</p>
-      </div>
-      <div class="panel__body">
-        <p class="field-label">投放方式</p>
-        <div class="bid" role="radiogroup" aria-label="投放方式">
-          <button type="button" :class="['bid-card', { on: wizard.smartBidType === 'SMART_BID_CUSTOM' }]" role="radio" :aria-checked="wizard.smartBidType === 'SMART_BID_CUSTOM'" @click="pickMode('SMART_BID_CUSTOM')">
-            <span class="bid-card__row"><span class="radio" />控成本投放<span class="badge badge--rec">推荐</span></span>
-            <span class="bid-card__sub">守住单价，少亏钱，适合测款</span>
-          </button>
-          <button type="button" :class="['bid-card', { on: wizard.smartBidType === 'SMART_BID_CONSERVATIVE' }]" role="radio" :aria-checked="wizard.smartBidType === 'SMART_BID_CONSERVATIVE'" @click="pickMode('SMART_BID_CONSERVATIVE')">
-            <span class="bid-card__row"><span class="radio" />放量投放<span class="badge badge--fast">起量快</span></span>
-            <span class="bid-card__sub">预算范围内，多推流量多接单，前期成本可能偏高</span>
-          </button>
-        </div>
-
-        <div class="goal-grid">
-          <div>
-            <label for="in-budget">日预算</label>
-            <div class="field-input">
-              <span>¥</span>
-              <input id="in-budget" v-model="budgetText" inputmode="decimal" autocomplete="off" />
-              <span>元/天</span>
-            </div>
-            <p class="hint">已填入系统推荐目标值，可调整</p>
-            <p v-if="budgetErrorText" class="err">{{ budgetErrorText }}</p>
-            <p v-else-if="budgetWarnText" class="warn">{{ budgetWarnText }}</p>
-          </div>
-
-          <div v-if="wizard.smartBidType === 'SMART_BID_CUSTOM'">
-            <label for="in-roi">净成交ROI目标</label>
-            <div class="field-input">
-              <input id="in-roi" v-model="roiText" inputmode="decimal" autocomplete="off" />
-            </div>
-            <p class="hint">净成交ROI=（整体成交金额-秒退订单成交额）/ 消耗</p>
-            <p v-if="roiErrorText" class="err">{{ roiErrorText }}</p>
-          </div>
-
-          <div v-else class="estimate">
-            <p class="estimate__title">连续投放7天预估带来 <span class="badge badge--demo">演示预估</span></p>
-            <p><span>7日净成交ROI</span> <b>不低于 0.19</b> <span class="badge badge--demo">演示预估</span></p>
-            <p><span>7日净成交订单量</span> <b>{{ orderLo }} ～ {{ orderHi }}单</b></p>
-          </div>
-        </div>
-
-        <p class="field-label">投放时长</p>
-        <div class="dur" role="radiogroup" aria-label="投放时长">
-          <button type="button" :class="['dur__btn', { on: durationMode === 'long' }]" role="radio" :aria-checked="durationMode === 'long'" @click="durationMode = 'long'">
-            <span class="badge badge--rec">推荐</span>
-            长期投放
-            <small>随时暂停</small>
-          </button>
-          <button type="button" :class="['dur__btn', { on: durationMode === 'custom' }]" role="radio" :aria-checked="durationMode === 'custom'" @click="durationMode = 'custom'">
-            自定日期
-          </button>
-        </div>
-        <div v-if="durationMode === 'custom'" class="dates">
-          <label>开始日 <input v-model="customStart" type="date" /></label>
-          <span>至</span>
-          <label>结束日 <input v-model="customEnd" type="date" /></label>
-        </div>
-        <p class="hint">投放期间可随时暂停或调整，到期后自动停止</p>
-        <p class="hint">建议至少投放 2 周及以上，覆盖完整的冷启动 → 稳定期 → 放量期</p>
-        <p v-if="durationMode === 'custom'" class="err">演示计划本版不保存自定日期，请改回长期投放</p>
-      </div>
-      <div class="footer">
-        <button type="button" class="btn-ghost" @click="backToProducts">上一步</button>
-        <button type="button" class="btn-brand" :disabled="durationMode === 'custom' || saving" @click="toStep3">下一步</button>
-      </div>
-    </section>
+    <CreateGoalStep v-else-if="wizard.step === 2" v-model:budget="budgetText" v-model:roi="roiText" v-model:duration="durationMode" v-model:start="customStart" v-model:end="customEnd" :mode="wizard.smartBidType" :saving="saving" :budget-error="budgetErrorText" :budget-warn="budgetWarnText" :roi-error="roiErrorText" :order-lo="orderLo" :order-hi="orderHi" :selection-warning="selectWarn" :demo-mode="user.demoMode" :selected="wizard.products" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @mode="pickMode" @account="chooseAweme" @prev="backToProducts" @next="toStep3" />
 
     <section v-else-if="wizard.step === 3" class="page-card panel">
       <h2>确定投放素材</h2>
@@ -253,7 +84,7 @@
       </div>
       <el-form label-position="top">
         <el-form-item label="投放计划名称（1-30 字）">
-          <el-input v-model="wizard.planName" maxlength="30" show-word-limit />
+          <el-input v-model="wizard.planName" maxlength="30" show-word-limit placeholder="请输入自定义计划名称，如：国庆蛋糕推广" aria-label="自定义计划名称" />
         </el-form-item>
       </el-form>
       <div class="footer">
@@ -301,12 +132,12 @@ import { createDraft, publishPlan, updateDraft } from "@/features/delivery/deliv
 import { useWizardStore } from "@/stores/wizard";
 import { BID_TYPE, yuan } from "@/utils/labels";
 import "./create/create-theme.css";
+import CreateProductsStep from "./create/CreateProductsStep.vue";
+import CreateGoalStep from "./create/CreateGoalStep.vue";
+import { useUserStore } from "@/stores/user";
 
 const STEP_LABELS = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"];
 const BANNER_CHIPS = ["商城+搜索等全域投放", "智能生成素材", "智能出价", "实时监控+优化"];
-const LOCKED_SEGS = ["破圈尖货", "跑量优价", "新品", "搜索趋势品"];
-const SEG_NOTE = "当前商品数据没有该分类";
-const ANALYSIS_TITLES = ["利润空间评估", "素材潜力评估", "市场竞争评估", "投放时机评估", "综合投放潜力"];
 const SCENE_CHIPS = ["自运营", "合作达人", "合作机构", "联盟"];
 
 interface AwemeOpt {
@@ -320,27 +151,25 @@ interface AwemeOpt {
 }
 
 const wizard = useWizardStore();
+const user = useUserStore();
 const accounts = ref<Awaited<ReturnType<typeof listAccounts>>>([]);
 const products = ref<ProductVo[]>([]);
 const productsLoaded = ref(false);
-const keyword = ref("");
+const productsLoadError = ref(false);
+let productsRequest = 0;
 const awemeKey = ref("");
 const saving = ref(false);
 const task = ref<TaskVo | null>(null);
 const confirmed = ref(false);
-const analysisOpen = ref(false);
-const listExpanded = ref(true);
-const recommendOpen = ref(false);
-const recommendShown = ref(false);
-const recommendItems = ref<ProductVo[]>([]);
 const accountOpen = ref(false);
 const selectWarn = ref("");
 const budgetText = ref("600");
 const roiText = ref("5.12");
 const durationMode = ref<"long" | "custom">("long");
-const customStart = ref(shiftDate(1));
-const customEnd = ref(shiftDate(31));
+const customStart = ref(shiftDate(0));
+const customEnd = ref(shiftDate(30));
 let pollTimer: number | undefined;
+let modeMessage: ReturnType<typeof ElMessage> | undefined;
 
 const awemeOptions = computed<AwemeOpt[]>(() =>
   accounts.value.flatMap((a) =>
@@ -358,6 +187,8 @@ const awemeOptions = computed<AwemeOpt[]>(() =>
 
 const currentAweme = computed(() => awemeOptions.value.find((o) => o.key === awemeKey.value));
 const canSwitch = computed(() => wizard.step <= 2);
+// Catalog selection, ad drafts and creative generation all accept Qianchuan IDs.
+const selectedQcProductIds = computed(() => wizard.products.map((p) => p.qcProductId));
 const accountChips = computed(() => {
   const aw = currentAweme.value;
   if (!aw) return [];
@@ -366,13 +197,12 @@ const accountChips = computed(() => {
   if (aw.sceneHint && SCENE_CHIPS.includes(aw.sceneHint)) chips.push(aw.sceneHint);
   return chips;
 });
-const selectedNames = computed(() => wizard.products.map((p) => p.name).join("、"));
 const budgetErrorText = computed(() => budgetError(budgetText.value));
 const budgetWarnText = computed(() => budgetWarn(budgetText.value));
 const roiErrorText = computed(() => (wizard.smartBidType === "SMART_BID_CUSTOM" ? roiError(roiText.value) : ""));
 const estimateBudget = computed(() => {
   const n = Number(budgetText.value);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n : 200;
 });
 const orderLo = computed(() => Math.max(1, Math.round(estimateBudget.value * 0.015)));
 const orderHi = computed(() => Math.max(orderLo.value + 1, Math.round(estimateBudget.value * 0.02)));
@@ -422,9 +252,6 @@ function roiError(raw: string) {
   return "";
 }
 
-function cardPrice(p: ProductVo) {
-  return yuan(p.userPrice != null ? p.userPrice : p.price);
-}
 
 function defaultName() {
   const now = new Date();
@@ -433,6 +260,7 @@ function defaultName() {
 }
 
 function chooseAweme(key: string) {
+  if (saving.value) return;
   accountOpen.value = false;
   awemeKey.value = key;
   onAwemeChange(key);
@@ -454,10 +282,6 @@ function onAwemeChange(key: string) {
   wizard.taskId = "";
   wizard.packageId = "";
   wizard.step = 1;
-  analysisOpen.value = false;
-  listExpanded.value = true;
-  recommendOpen.value = false;
-  recommendShown.value = false;
   task.value = null;
   confirmed.value = false;
   selectWarn.value = "";
@@ -465,16 +289,24 @@ function onAwemeChange(key: string) {
 }
 
 async function loadProducts() {
-  if (!wizard.awemeId) return;
+  const request = ++productsRequest;
+  const awemeId = wizard.awemeId;
+  products.value = [];
+  productsLoadError.value = false;
   productsLoaded.value = false;
+  if (!awemeId) { productsLoaded.value = true; return; }
   try {
-    products.value = await listProducts(wizard.awemeId, keyword.value.trim() || undefined);
+    const result = await listProducts(awemeId);
+    if (request === productsRequest) products.value = result;
+  } catch {
+    if (request === productsRequest) productsLoadError.value = true;
   } finally {
-    productsLoaded.value = true;
+    if (request === productsRequest) productsLoaded.value = true;
   }
 }
 
 function removeProduct(productId: string) {
+  if (saving.value) return;
   wizard.productIds = wizard.productIds.filter((id) => id !== productId);
   wizard.products = wizard.products.filter((p) => p.productId !== productId);
 }
@@ -485,38 +317,20 @@ function toggleProduct(p: ProductVo) {
     removeProduct(p.productId);
     return;
   }
-  if (wizard.productIds.length >= 20) {
-    ElMessage.warning("最多选择 20 个商品");
+  if (wizard.productIds.length >= 10) {
+    ElMessage.warning("最多选择 10 个商品");
     return;
   }
   wizard.productIds.push(p.productId);
   wizard.products.push(p);
-  if (wizard.productIds.length === 1 && !recommendShown.value) {
-    recommendShown.value = true;
-    const others = products.value.filter((x) => x.productId !== p.productId);
-    if (others.length > 0) {
-      recommendItems.value = others.slice(0, 4);
-      recommendOpen.value = true;
-    }
-  }
 }
 
-function confirmGoods() {
-  if (wizard.productIds.length === 0) return;
-  if (analysisOpen.value) {
-    analysisOpen.value = false;
-    listExpanded.value = true;
-    return;
-  }
-  analysisOpen.value = true;
-  listExpanded.value = false;
-}
 
 async function toStep2() {
-  if (wizard.productIds.length === 0) return;
+  if (wizard.productIds.length === 0 || saving.value) return;
   saving.value = true;
   try {
-    const res = await selectProducts(wizard.awemeId, [...wizard.productIds]);
+    const res = await selectProducts(wizard.awemeId, [...selectedQcProductIds.value]);
     selectWarn.value = res.warn || "";
     if (res.warn) ElMessage.warning(res.warn);
     wizard.step = 2;
@@ -528,8 +342,6 @@ async function toStep2() {
 }
 
 function backToProducts() {
-  analysisOpen.value = false;
-  listExpanded.value = true;
   wizard.step = 1;
 }
 
@@ -541,12 +353,17 @@ function pickMode(mode: "SMART_BID_CUSTOM" | "SMART_BID_CONSERVATIVE") {
     wizard.roi2Goal = 5.12;
     budgetText.value = "600";
     roiText.value = "5.12";
-    ElMessage.success("已切换为控成本投放，日预算与目标已回填系统推荐值");
+    showModeMessage("已切换为控成本投放，日预算与目标已回填系统推荐值");
   } else {
     wizard.dailyBudget = 200;
     budgetText.value = "200";
-    ElMessage.success("已切换为放量投放，日预算与目标已回填系统推荐值");
+    showModeMessage("已切换为放量投放，日预算与目标已回填系统推荐值");
   }
+}
+
+function showModeMessage(message: string) {
+  modeMessage?.close();
+  modeMessage = ElMessage.success({ message, duration: 2400 });
 }
 
 function draftBody() {
@@ -557,13 +374,13 @@ function draftBody() {
     smartBidType: wizard.smartBidType,
     dailyBudget: wizard.dailyBudget,
     roi2Goal: wizard.smartBidType === "SMART_BID_CUSTOM" ? wizard.roi2Goal : undefined,
-    productIds: [...wizard.productIds],
+    productIds: [...selectedQcProductIds.value],
     packageId: wizard.packageId || undefined,
   };
 }
 
 async function toStep3() {
-  if (durationMode.value === "custom") return;
+  if (saving.value || durationMode.value === "custom") return;
   if (budgetErrorText.value) return;
   if (wizard.smartBidType === "SMART_BID_CUSTOM" && roiErrorText.value) return;
   wizard.dailyBudget = Number(budgetText.value);
@@ -588,7 +405,7 @@ function backToGoal() {
 }
 
 async function startGenerate() {
-  const res = await generateCreatives(wizard.planId, [...wizard.productIds]);
+  const res = await generateCreatives(wizard.planId, [...selectedQcProductIds.value]);
   wizard.taskId = res.taskId;
   stopPoll();
   pollTimer = window.setInterval(pollTask, 2000);
@@ -645,7 +462,7 @@ async function onConfirm() {
 }
 
 async function onPublish() {
-  if (wizard.planName.length < 1 || wizard.planName.length > 30) {
+  if (wizard.planName.trim().length < 1 || wizard.planName.length > 30) {
     ElMessage.warning("计划名称须为 1–30 字");
     return;
   }
@@ -668,10 +485,6 @@ function again() {
   wizard.reset();
   confirmed.value = false;
   task.value = null;
-  analysisOpen.value = false;
-  listExpanded.value = true;
-  recommendOpen.value = false;
-  recommendShown.value = false;
   durationMode.value = "long";
   budgetText.value = "600";
   roiText.value = "5.12";
@@ -688,11 +501,16 @@ onMounted(async () => {
   const first = awemeOptions.value[0];
   if (first) {
     awemeKey.value = first.key;
+    const sameAweme = wizard.awemeId === first.awemeId;
     onAwemeChange(first.key);
+    if (sameAweme) await loadProducts();
   }
 });
 
-onUnmounted(stopPoll);
+onUnmounted(() => {
+  stopPoll();
+  modeMessage?.close();
+});
 </script>
 
 <style scoped>
@@ -702,6 +520,9 @@ onUnmounted(stopPoll);
   padding: 20px 24px 48px;
   color: #1a1b2e;
 }
+/* Keep step 1 edge-to-edge; the remaining steps retain their existing layout. */
+.wizard.wizard--products { margin: 0; padding: 0; }
+.wizard:not(.wizard--products) { margin: 0; }
 .banner {
   background: var(--create-banner);
   color: #fff;

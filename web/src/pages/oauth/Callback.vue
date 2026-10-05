@@ -3,13 +3,13 @@
     <template v-if="ok">
       <h1>授权成功</h1>
       <p>灵投已获得广告投放授权。浏览器不会保存千川访问令牌。</p>
-      <el-button type="primary" @click="$router.push('/accounts')">返回账户管理</el-button>
+      <el-button type="primary" @click="$router.push('/accounts?tab=oauth')">返回广告投放授权</el-button>
       <el-button @click="$router.push('/campaigns/create')">立即开始投放</el-button>
     </template>
     <template v-else>
       <h1>授权失败</h1>
       <p>{{ message }}</p>
-      <el-button type="primary" @click="$router.push('/accounts')">重新授权</el-button>
+      <el-button type="primary" @click="$router.push('/accounts?tab=oauth&modal=add')">重新授权</el-button>
     </template>
   </div>
 </template>

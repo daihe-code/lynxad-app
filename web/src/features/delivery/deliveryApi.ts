@@ -27,9 +27,26 @@ export interface PlanListVo {
   lingtou: boolean;
   coverUrl?: string;
   guarantee?: string;
-  costYuan?: number;
-  gmvYuan?: number;
-  roi?: number;
+  costYuan?: number | null;
+  gmvYuan?: number | null;
+  roi?: number | null;
+  smartBidType?: string | null;
+  budget?: number | null;
+  roi2Goal?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  convert?: number | null;
+  snapshotTs?: string | null;
+  createdAt?: string | null;
+  deliveryPlatform?: 'ALL' | 'STANDARD' | null;
+  products?: { id: string; name: string; imageUrl?: string | null }[];
+  comparison?: {
+    costChangePct?: number | null;
+    convertChangePct?: number | null;
+    roiChange?: number | null;
+    roiChangePct?: number | null;
+    previousSnapshotTs?: string;
+  } | null;
 }
 
 export interface PageResult<T> {

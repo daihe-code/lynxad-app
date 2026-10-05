@@ -1,6 +1,7 @@
 package com.lynx.ad.modules.identity.api.dto;
 
 import java.util.List;
+import java.time.Instant;
 
 public record AccountVo(
         String accountId,
@@ -9,4 +10,7 @@ public record AccountVo(
         String platform,
         String status,
         List<AwemeVo> awemes,
-        String authorizedByUserId) {}
+        String authorizedByUserId,
+        Instant authorizedAt,
+        Instant tokenExpiresAt,
+        Instant refreshExpiresAt) {}

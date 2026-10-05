@@ -99,11 +99,14 @@ public class LibraryQueryService {
                 .filter(i -> inRange(i.createdAt, start, end))
                 .toList();
         List<Item> searched = typed.stream().filter(i -> matchQ(i, q)).toList();
-        int usedCount = (int) searched.stream().filter(i -> i.used).count();
+        int usedCount = (int) searched.stream().filter(i -> "USED".equals(statusOf(i))).count();
+        int unusedCount = (int) searched.stream().filter(i -> "UNUSED".equals(statusOf(i))).count();
+        int reviewingCount = (int) searched.stream().filter(i -> "REVIEWING".equals(statusOf(i))).count();
+        int rejectedCount = (int) searched.stream().filter(i -> "REJECTED".equals(statusOf(i))).count();
         LibraryResponse.StatusCounts statuses =
-                new LibraryResponse.StatusCounts(searched.size(), usedCount, searched.size() - usedCount);
+                new LibraryResponse.StatusCounts(searched.size(), usedCount, unusedCount, reviewingCount, rejectedCount);
         List<Item> filtered = searched.stream()
-                .filter(i -> "ALL".equals(st) || ("USED".equals(st) && i.used) || ("UNUSED".equals(st) && !i.used))
+                .filter(i -> "ALL".equals(st) || st.equals(statusOf(i)))
                 .sorted(Comparator.comparing((Item i) -> i.createdAt).reversed().thenComparing(i -> i.objectId, Comparator.reverseOrder()))
                 .toList();
         int fromIdx = Math.min((pg - 1) * size, filtered.size());
@@ -170,7 +173,9 @@ public class LibraryQueryService {
                         art.videoId().map(v -> v.value()).orElse(pkg.id().value()),
                         art.coverImageId().map(c -> c.value()).orElse(null),
                         poster,
-                        play));
+                        play,
+                        null,
+                        null));
             }
         }
         return items;
@@ -198,7 +203,9 @@ public class LibraryQueryService {
                         m.objectId(),
                         null,
                         m.posterUrl(),
-                        m.url()));
+                        m.url(),
+                        m.width(),
+                        m.height()));
             }
         }
         return items;
@@ -234,6 +241,13 @@ public class LibraryQueryService {
     private static boolean used(Item item, Set<String> keys) {
         return (item.objectId != null && keys.contains(item.objectId))
                 || (item.materialId != null && keys.contains(item.materialId));
+    }
+
+    private static String statusOf(Item item) {
+        if ("REVIEWING".equals(item.reviewBadge) || "REJECTED".equals(item.reviewBadge)) {
+            return item.reviewBadge;
+        }
+        return item.used ? "USED" : "UNUSED";
     }
 
     private static boolean inRange(Instant createdAt, LocalDate start, LocalDate end) {
@@ -272,7 +286,9 @@ public class LibraryQueryService {
                 item.materialId,
                 item.objectId,
                 item.posterUrl,
-                item.playUrl);
+                item.playUrl,
+                item.width,
+                item.height);
     }
 
     private static String productIdOf(Item item) {
@@ -298,7 +314,7 @@ public class LibraryQueryService {
         return new LibraryResponse(
                 bound,
                 new LibraryResponse.TabCounts(0, 0, 0),
-                new LibraryResponse.StatusCounts(0, 0, 0),
+                new LibraryResponse.StatusCounts(0, 0, 0, 0, 0),
                 new LibraryResponse.PageInfo(page, size, 0),
                 List.of());
     }
@@ -320,6 +336,8 @@ public class LibraryQueryService {
         final String coverImageId;
         final String posterUrl;
         final String playUrl;
+        final Integer width;
+        final Integer height;
 
         private Item(
                 String id,
@@ -337,7 +355,9 @@ public class LibraryQueryService {
                 String objectId,
                 String coverImageId,
                 String posterUrl,
-                String playUrl) {
+                String playUrl,
+                Integer width,
+                Integer height) {
             this.id = id;
             this.type = type;
             this.source = source;
@@ -354,6 +374,8 @@ public class LibraryQueryService {
             this.coverImageId = coverImageId;
             this.posterUrl = posterUrl;
             this.playUrl = playUrl;
+            this.width = width;
+            this.height = height;
         }
     }
 }

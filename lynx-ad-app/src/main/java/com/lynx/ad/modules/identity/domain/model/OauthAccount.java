@@ -26,6 +26,7 @@ public class OauthAccount {
     private String status;
     private final List<Aweme> awemes;
     private final String authorizedByUserId;
+    private Instant authorizedAt;
 
     public OauthAccount(
             AccountId id,
@@ -122,8 +123,26 @@ public class OauthAccount {
         this.status = "UNBOUND";
     }
 
+    /** Soft removal keeps account IDs referenced by historical plans and audit records. */
+    public void remove() {
+        this.status = "DELETED";
+    }
+
+    public boolean canRemove(Instant now) {
+        return !"ACTIVE".equals(status) || (refreshExpiresAt != null && !refreshExpiresAt.isAfter(now));
+    }
+
+    public OauthAccount withAuthorizedAt(Instant value) {
+        this.authorizedAt = value;
+        return this;
+    }
+
+    public Instant authorizedAt() {
+        return authorizedAt;
+    }
+
     public boolean needsRefresh(Instant now) {
-        return tokenExpiresAt != null && !now.plus(REFRESH_LEAD).isBefore(tokenExpiresAt) && !"UNUSABLE".equals(status);
+        return "ACTIVE".equals(status) && tokenExpiresAt != null && !now.plus(REFRESH_LEAD).isBefore(tokenExpiresAt);
     }
 
     public void replaceTokens(EncryptedToken access, EncryptedToken refresh, Instant exp) {

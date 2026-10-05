@@ -7,7 +7,9 @@ import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.modules.delivery.domain.model.AdPlan;
 import com.lynx.ad.modules.delivery.domain.model.PlanName;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface AdPlanRepository {
 
@@ -20,6 +22,12 @@ public interface AdPlanRepository {
     Optional<AdPlan> findByQcPlanId(TenantId tenantId, QcPlanId qcPlanId);
 
     List<AdPlan> findByTenant(TenantId tenantId);
+
+    default Map<String, ListMetadata> listMetadataByTenant(TenantId tenantId) {
+        return Map.of();
+    }
+
+    record ListMetadata(Instant createdAt, String deliveryPlatform) {}
 
     List<AdPlan> findPendingAudit();
 

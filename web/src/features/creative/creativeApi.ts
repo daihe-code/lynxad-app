@@ -37,12 +37,14 @@ export interface LibraryItemVo {
   objectId: string;
   posterUrl: string;
   playUrl: string;
+  width?: number | null;
+  height?: number | null;
 }
 
 export interface LibraryResponse {
   qianchuanBound: boolean;
   tabCounts: { video: number; image: number; carousel: number };
-  statusCounts: { all: number; used: number; unused: number };
+  statusCounts: { all: number; used: number; unused: number; reviewing?: number; rejected?: number };
   pageInfo: { page: number; pageSize: number; total: number };
   items: LibraryItemVo[];
 }

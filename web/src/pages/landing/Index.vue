@@ -1,381 +1,814 @@
 <template>
-  <LandingLayout>
+  <div class="home-page">
+<svg class="absolute h-0 w-0 overflow-hidden" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+
+      <symbol id="lynx-mark" viewBox="0 0 1300 935">
+        <g fill="none" stroke="currentColor" stroke-linecap="round">
+          <path d="M1223.8 855.9C1219.3 837.9 1208.2 783 1196.8 747.6C1185.4 712.3 1170.6 677.8 1155.6 643.8C1140.7 609.7 1124.4 576.1 1107.2 543.1C1090 510.1 1072 477.5 1052.5 445.8C1033 414.1 1012.4 382.9 990.4 353C968.3 323 945.2 293.5 920.4 265.8C895.7 238.1 870.2 210.1 841.8 186.6C813.4 163.1 781.9 143.6 750 125C718 106.4 683.3 75 650 75C616.7 75 582 106.4 550 125C518.1 143.6 486.6 163.1 458.2 186.6C429.8 210.1 404.3 238.1 379.6 265.8C354.8 293.5 331.7 323 309.6 353C287.6 382.9 267 414.1 247.5 445.8C228 477.5 210 510.1 192.8 543.1C175.6 576.1 159.3 609.7 144.4 643.8C129.4 677.8 114.6 712.3 103.2 747.6C91.8 783 80.7 837.9 76.2 855.9" stroke-width="150"/>
+          <path d="M82.8 175.9L285 455" stroke-width="58"/>
+          <path d="M1217.2 175.9L1015 455" stroke-width="58"/>
+        </g>
+        <circle cx="440" cy="559" r="82.5" fill="currentColor"/>
+        <circle cx="860" cy="559" r="82.5" fill="currentColor"/>
+      </symbol>
+
+      <symbol id="ic-trend-down" viewBox="0 0 24 24"><path d="M22 17l-8.5-8.5-5 5L2 7"/><path d="M16.5 17H22v-5.5"/></symbol>
+      <symbol id="ic-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4"/><path d="M12 17h.01"/></symbol>
+      <symbol id="ic-users" viewBox="0 0 24 24"><path d="M16 20.5v-1.6a4 4 0 0 0-4-4H7.4a4 4 0 0 0-4 4v1.6"/><circle cx="9.7" cy="7.4" r="3.6"/><path d="M21 20.5v-1.6a4 4 0 0 0-3-3.86"/><path d="M15.6 3.9a4 4 0 0 1 0 7.8"/></symbol>
+      <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M3 20.2h18"/><rect x="4.6" y="11.4" width="3.4" height="6.4" rx="1.2"/><rect x="10.3" y="6.6" width="3.4" height="11.2" rx="1.2"/><rect x="16" y="13.6" width="3.4" height="4.2" rx="1.2"/></symbol>
+      <symbol id="ic-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="ic-sparkles" viewBox="0 0 24 24"><path d="M11 3.2l1.75 4.55L17.3 9.5l-4.55 1.75L11 15.8 9.25 11.25 4.7 9.5l4.55-1.75L11 3.2z"/><path d="M18.2 14.6l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1z"/></symbol>
+      <symbol id="ic-eye" viewBox="0 0 24 24"><path d="M2.6 12S6.1 5.8 12 5.8 21.4 12 21.4 12 17.9 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+      <symbol id="ic-wallet" viewBox="0 0 24 24"><path d="M3.4 7.6A2.6 2.6 0 0 1 6 5h11.4a2 2 0 0 1 2 2v1"/><rect x="3.4" y="7.6" width="17.2" height="11.6" rx="2.6"/><path d="M16.4 13.3h1.8"/></symbol>
+      <symbol id="ic-pulse" viewBox="0 0 24 24"><path d="M2 12.2h4l2.6-6.4 4.1 12.4 2.6-6h6.7"/></symbol>
+      <symbol id="ic-shield" viewBox="0 0 24 24"><path d="M12 2.8l7.6 3v6.1c0 4.5-3.2 8-7.6 9.3-4.4-1.3-7.6-4.8-7.6-9.3V5.8l7.6-3z"/><path d="M8.9 12.1l2.2 2.2 4.1-4.5"/></symbol>
+      <symbol id="ic-bottle" viewBox="0 0 24 24"><path d="M9.4 2.8h5.2v2.4c0 .6.3 1.2.7 1.6A4.8 4.8 0 0 1 17 10.4v8a2.8 2.8 0 0 1-2.8 2.8H9.8A2.8 2.8 0 0 1 7 18.4v-8a4.8 4.8 0 0 1 1.7-3.6c.4-.4.7-1 .7-1.6V2.8z"/><path d="M7.1 12.6h9.8"/></symbol>
+      <symbol id="ic-pin" viewBox="0 0 24 24"><path d="M20.2 10.6c0 5.2-8.2 11.2-8.2 11.2S3.8 15.8 3.8 10.6a8.2 8.2 0 1 1 16.4 0z"/><circle cx="12" cy="10.4" r="2.8"/></symbol>
+      <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4.8 12.4l4.8 4.8L19.4 7"/></symbol>
+      <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6"/><path d="M20.4 4.4V10H15"/></symbol>
+      <symbol id="ic-layers" viewBox="0 0 24 24"><path d="M12 3l8.6 4.3L12 11.6 3.4 7.3 12 3z"/><path d="M3.4 12.2L12 16.5l8.6-4.3"/><path d="M3.4 16.6L12 20.9l8.6-4.3"/></symbol>
+      <symbol id="ic-pause" viewBox="0 0 24 24"><rect x="6.4" y="4.8" width="4" height="14.4" rx="1.4" fill="currentColor" stroke="none"/><rect x="13.6" y="4.8" width="4" height="14.4" rx="1.4" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="ic-x" viewBox="0 0 24 24"><path d="M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8"/></symbol>
+      <symbol id="ic-chevron" viewBox="0 0 24 24"><path d="M6.4 9.4l5.6 5.6 5.6-5.6"/></symbol>
+      <symbol id="ic-phone" viewBox="0 0 24 24"><path d="M21 16.5v2.8a1.9 1.9 0 0 1-2.1 1.9 18.6 18.6 0 0 1-8.1-2.9 18.3 18.3 0 0 1-5.6-5.6A18.6 18.6 0 0 1 2.3 4.5 1.9 1.9 0 0 1 4.2 2.4h2.8a1.9 1.9 0 0 1 1.9 1.6c.1.9.3 1.8.6 2.7a1.9 1.9 0 0 1-.4 2l-1.2 1.2a15 15 0 0 0 5.6 5.6l1.2-1.2a1.9 1.9 0 0 1 2-.4c.9.3 1.8.5 2.7.6a1.9 1.9 0 0 1 1.6 1.9z"/></symbol>
+      <symbol id="ic-shop" viewBox="0 0 24 24"><path d="M4.4 10v9.1a1.4 1.4 0 0 0 1.4 1.4h12.4a1.4 1.4 0 0 0 1.4-1.4V10"/><path d="M2.9 6.4 4 3.9a1.1 1.1 0 0 1 1-.7h14a1.1 1.1 0 0 1 1 .7l1.1 2.5a2.5 2.5 0 0 1-4.4 1.3 2.5 2.5 0 0 1-4.4 0 2.5 2.5 0 0 1-4.4 0 2.5 2.5 0 0 1-4.5-1.3z"/><path d="M9.6 20.5v-4.9a1.1 1.1 0 0 1 1.1-1.1h2.6a1.1 1.1 0 0 1 1.1 1.1v4.9"/></symbol>
+      <symbol id="ic-home" viewBox="0 0 24 24"><path d="M3.6 10.4 12 3.6l8.4 6.8"/><path d="M5.6 9.4V19a1.4 1.4 0 0 0 1.4 1.4h10a1.4 1.4 0 0 0 1.4-1.4V9.4"/><path d="M9.7 20.4v-4.6a1.1 1.1 0 0 1 1.1-1.1h2.4a1.1 1.1 0 0 1 1.1 1.1v4.6"/></symbol>
+      <symbol id="ic-mail" viewBox="0 0 24 24"><rect x="2.6" y="5" width="18.8" height="14" rx="2.6"/><path d="M3.4 6.6l8.6 6.2 8.6-6.2"/></symbol>
+    </svg>
+
+    <header class="sticky top-0 z-40 h-header border-b border-line/70 bg-white/90 backdrop-blur-md">
+      <div class="container-page relative flex h-full items-center">
+        <router-link to="/#top" class="flex shrink-0 items-center gap-2" aria-label="灵投智营 · 返回首页" @click="menuOpen = false">
+          <svg class="h-[17px] w-[23.6px] shrink-0 text-primary" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
+          <span class="text-[18px] font-semibold tracking-tight text-ink">灵投智营</span>
+        </router-link>
+
+        <nav class="absolute left-1/2 hidden -translate-x-1/2 items-center gap-7 lg:flex" aria-label="主导航">
+          <router-link class="nav-link" to="/#features" @click="menuOpen = false">产品功能</router-link>
+          <router-link class="nav-link" to="/#industries" @click="menuOpen = false">解决方案</router-link>
+          <router-link class="nav-link" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
+          <router-link class="nav-link" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
+        </nav>
+
+        <div class="ml-auto flex items-center gap-2 sm:gap-3">
+          <router-link class="btn btn--outline btn--md hidden sm:inline-flex" to="/login">登录</router-link>
+          <a class="btn btn--primary btn--md" href="#cta" @click.prevent="goTrial">免费试用</a>
+
+          <button class="btn btn--outline btn--md lg:hidden" type="button"
+                  @click="menuOpen = !menuOpen" :aria-expanded="menuOpen" aria-controls="mobile-nav" aria-label="展开导航">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 7h17M3.5 12h17M3.5 17h17"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <nav id="mobile-nav" v-show="menuOpen" class="container-page border-t border-line bg-white pb-4 pt-2 lg:hidden" aria-label="移动端导航">
+        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#features" @click="menuOpen = false">产品功能</router-link>
+        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#industries" @click="menuOpen = false">解决方案</router-link>
+        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
+        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
+        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/login">登录</router-link>
+      </nav>
+    </header>
+
     <main id="top">
-      <section class="hero">
-        <div class="wrap hero__grid">
-          <div class="hero__copy">
-            <span class="pill">智能广告投放专家</span>
-            <h1>灵投，<em>让广告投出效果</em></h1>
-            <p>用更小的广告投放成本，带来更多的客户，让生意增长<br />AI 自动接管选品、素材、投放、盯盘与优化全流程</p>
-            <button class="cta" type="button" @click="goLogin">免费试用 7 天</button>
-            <dl class="trust">
-              <div><dt>7 天</dt><dd>免费试用</dd></div>
-              <div><dt>无忧</dt><dd>不满意随时退</dd></div>
-              <div><dt>官方</dt><dd>直连抖音巨量平台</dd></div>
+
+    <section class="bg-hero">
+      <div class="container-page flex items-center py-16 lg:min-h-hero lg:py-0">
+        <div class="grid w-full items-center gap-14 lg:grid-cols-[minmax(0,580px)_minmax(0,540px)] lg:justify-between lg:gap-8">
+
+          <div class="mx-auto max-w-[580px] text-center">
+            <span class="badge-pill bg-white text-primary-ink shadow-[0_2px_10px_-4px_rgba(87,92,246,.35)]">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-sparkles"/></svg>
+              智能广告投放专家
+            </span>
+
+            <h1 class="mt-5 text-[34px] font-bold leading-[1.12] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
+              灵投，<span class="text-primary">让广告投出效果</span>
+            </h1>
+
+            <p class="mt-5 text-[16px] leading-[1.75] text-ink-2">
+              用更小的广告投放成本，带来更多的客户，让生意增长<br class="hidden sm:block">
+              AI 自动接管选品、素材、投放、盯盘与优化全流程
+            </p>
+
+            <div class="mt-9 flex justify-center">
+              <a class="btn btn--primary btn--lg px-10" href="#cta"  @click.prevent="goTrial">免费试用 7 天</a>
+            </div>
+
+            <dl class="mt-11 grid grid-cols-3 gap-x-2 text-center sm:flex sm:flex-wrap sm:justify-center sm:gap-x-14 sm:gap-y-6">
+              <div>
+                <dt class="tnum text-[24px] font-bold leading-none text-primary">7 天</dt>
+                <dd class="mt-2 text-[14px] text-ink-3">免费试用</dd>
+              </div>
+              <div>
+                <dt class="text-[24px] font-bold leading-none text-primary">无忧</dt>
+                <dd class="mt-2 text-[14px] text-ink-3">不满意随时退</dd>
+              </div>
+              <div>
+                <dt class="text-[24px] font-bold leading-none text-primary">官方</dt>
+                <dd class="mt-2 text-[14px] text-ink-3">直连抖音巨量平台</dd>
+              </div>
             </dl>
           </div>
-          <div class="device">
-            <div class="device__frame">
-              <div class="dots"><i /><i /><i /></div>
-              <div class="shots">
-                <figure v-for="shot in shots" :key="shot.alt">
-                  <img :src="shot.src" :alt="shot.alt" />
-                  <figcaption><span>{{ shot.label }}</span><span>CTR XX.XX%</span></figcaption>
-                </figure>
+
+          <div class="relative mx-auto w-full max-w-[540px]">
+            <div class="relative ml-auto aspect-[540/660] w-full max-w-[540px]">
+
+              <div class="h-full w-full rounded-[22px] bg-dark p-[11px] shadow-device">
+                <div class="flex h-full w-full flex-col overflow-hidden rounded-[14px] bg-white">
+
+                  <div class="flex shrink-0 items-center gap-1.5 px-3.5 py-3">
+                    <span class="h-2 w-2 rounded-full bg-[#FF5F57]"></span>
+                    <span class="h-2 w-2 rounded-full bg-[#FEBC2E]"></span>
+                    <span class="h-2 w-2 rounded-full bg-[#28C840]"></span>
+                  </div>
+
+                  <div class="grid flex-1 grid-cols-2 gap-x-3 gap-y-2 px-3.5 pb-3.5">
+                    <figure class="flex min-h-0 flex-col">
+                      <img class="min-h-0 w-full flex-1 rounded-[8px] object-cover" :src="hero1" alt="手冲咖啡与甜点素材示例" loading="lazy" decoding="async">
+                      <figcaption class="mt-1.5 flex items-center justify-between text-[9px] leading-none text-ink-3"><span>食品饮料</span><span class="tnum font-medium text-primary-ink">CTR XX.XX%</span></figcaption>
+                    </figure>
+                    <figure class="flex min-h-0 flex-col">
+                      <img class="min-h-0 w-full flex-1 rounded-[8px] object-cover" :src="hero2" alt="行李箱出行场景素材示例" loading="lazy" decoding="async">
+                      <figcaption class="mt-1.5 flex items-center justify-between text-[9px] leading-none text-ink-3"><span>箱包出行</span><span class="tnum font-medium text-primary-ink">CTR XX.XX%</span></figcaption>
+                    </figure>
+                    <figure class="flex min-h-0 flex-col">
+                      <img class="min-h-0 w-full flex-1 rounded-[8px] object-cover" :src="hero3" alt="复古汽车素材示例" loading="lazy" decoding="async">
+                      <figcaption class="mt-1.5 flex items-center justify-between text-[9px] leading-none text-ink-3"><span>汽车用品</span><span class="tnum font-medium text-primary-ink">CTR XX.XX%</span></figcaption>
+                    </figure>
+                    <figure class="flex min-h-0 flex-col">
+                      <img class="min-h-0 w-full flex-1 rounded-[8px] object-cover" :src="hero4" alt="服装挂架素材示例" loading="lazy" decoding="async">
+                      <figcaption class="mt-1.5 flex items-center justify-between text-[9px] leading-none text-ink-3"><span>服饰鞋包</span><span class="tnum font-medium text-primary-ink">CTR XX.XX%</span></figcaption>
+                    </figure>
+                  </div>
+                </div>
+              </div>
+
+              <div class="absolute -top-5 -right-3 flex items-center gap-2.5 rounded-[14px] border border-line/70 bg-white py-2.5 pl-2.5 pr-4 shadow-float">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7C6CF7] to-[#575CF6] text-white">
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-sparkles"/></svg>
+                </span>
+                <span class="block">
+                  <span class="block text-[10px] leading-none text-ink-3">AI 优化效率</span>
+                  <span class="tnum mt-1.5 block text-[16px] font-bold leading-none text-ink">+XX.XX%</span>
+                </span>
+              </div>
+
+              <div class="absolute -bottom-6 -left-5 w-[62%] max-w-[300px] rounded-[16px] border border-line/70 bg-white p-3.5 shadow-float">
+                <div class="text-[10px] leading-none text-ink-3">今日消耗 / 成交</div>
+                <div class="mt-2 flex items-end justify-between gap-2">
+                  <div>
+                    <div class="tnum text-[21px] font-bold leading-none text-success">¥XX.XX</div>
+                    <div class="tnum mt-1.5 text-[10px] leading-none text-ink-3">ROI XX.XX · 成交 XX 单</div>
+                  </div>
+                  <span class="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] bg-dark text-white">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-pause"/></svg>
+                  </span>
+                </div>
               </div>
             </div>
-            <aside class="float float--top">AI 优化效率<strong>+XX.XX%</strong></aside>
-            <aside class="float float--bottom">今日消耗 / 成交<strong>¥XX.XX</strong><small>ROI XX.XX · 成交 XX 单</small></aside>
           </div>
-        </div>
-      </section>
 
-      <section class="block">
-        <div class="wrap">
-          <h2>你是不是也这样？</h2>
-          <p class="lead">中小微企业做广告投放，几乎都会卡在这四件事上</p>
-          <div class="grid grid--4">
-            <article v-for="item in pains" :key="item.title">
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.body }}</p>
-            </article>
-          </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section id="features" class="block block--panel">
-        <div class="wrap">
-          <span class="pill pill--mint">全流程托管</span>
-          <h2>灵投接管投放全流程<br />你只需专注生意</h2>
-          <p class="lead">从选品到复盘，六个环节都由 AI 自动跑，你只需要看结果</p>
-          <div class="grid grid--3">
-            <article v-for="item in features" :key="item.title">
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.body }}</p>
-            </article>
-          </div>
+    <section class="bg-white pt-[70px] pb-[100px]">
+      <div class="container-page">
+        <div class="text-center">
+          <h2 class="sec-title">你是不是也这样？</h2>
+          <p class="sec-sub mt-3">中小微企业做广告投放，几乎都会卡在这四件事上</p>
         </div>
-      </section>
 
-      <section id="industries" class="block">
-        <div class="wrap">
-          <span class="pill">行业方案</span>
-          <h2>懂你的行业<br />更懂你的生意</h2>
-          <p class="lead">针对不同行业特性，提供定制化的投放策略和解决方案</p>
-          <div class="grid grid--2">
-            <article class="industry industry--a">
-              <h3>成长型电商</h3>
-              <p>面向中小电商商家，智能选品、素材生成、全域投放一体化，低成本获取精准流量；从日销百元到万元的成长路径清晰可见。</p>
-              <div class="tags"><span>智能选品</span><span>素材工厂</span><span>全域投放</span></div>
-              <p class="roi">历史平均 ROI 提升 <b>38%</b></p>
-            </article>
-            <article class="industry industry--b">
-              <h3>本地生活</h3>
-              <p>面向餐饮、烘焙、美容等本地商家，基于 LBS 精准触达周边 3-5 公里客群，提升到店转化；团购核销、到店引流一站式搞定。</p>
-              <div class="tags"><span>LBS 定向</span><span>到店核销</span><span>团购优化</span></div>
-              <p class="roi">历史平均 ROI 提升 <b>52%</b></p>
-            </article>
-          </div>
+        <div class="mt-[54px] grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-pink text-accent-pink">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-trend-down"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">投了没效果</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">预算花完了，订单却没几单；出价来回调，ROI 还是一路往下掉，一个月下来都不知道钱到底花在哪里。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-purple text-accent-purple">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-help"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">不会投不敢投</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">千川后台太复杂，出价、定向、素材、落地页样样都要学；身边没人带，自己试错一轮成本太高。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-indigo text-accent-indigo">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-users"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">找专业团队不划算</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">代运营一个月报价几千上万，沟通成本也高；预算不大的商家根本请不动，请了也未必盯得过来。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-sky text-accent-sky">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-chart"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">广告数据看不懂</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">报表里几十个指标，不知道该看哪个、该调哪个；看完还是不知道下一步该做什么动作。</p>
+          </article>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="block block--data">
-        <div class="wrap data">
+    <section id="features" class="bg-panel pt-[56px] pb-[140px]">
+      <div class="container-page">
+        <div class="text-center">
+          <span class="badge-pill bg-[rgb(var(--a-mint-bg))] text-[rgb(var(--a-mint))]">全流程托管</span>
+          <h2 class="sec-title mt-4">灵投接管投放全流程<br>你只需专注生意</h2>
+          <p class="sec-sub mt-3">从选品到复盘，六个环节都由 AI 自动跑，你只需要看结果</p>
+        </div>
+
+        <div class="mt-[56px] grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-indigo text-accent-indigo">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-target"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">智能选品</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">结合类目大盘走势与商品自身潜力，自动挑出真正值得投放的品，冷启动不再凭感觉做决策。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-purple text-accent-purple">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-sparkles"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">素材智能生成</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">一条商品链接批量产出短视频与图文素材，脚本、画面、口播一次到位，不用再等设计排期。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-sky text-accent-sky">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-eye"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">智能盯盘优化</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">7×24 小时盯着账户跑量，计划跑偏自动拉回，预算始终花在能出单的时段和人群上。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-amber text-accent-amber">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-wallet"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">智能预算调配</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">按实时投产比自动加减预算，好计划加码、差计划止损，不用每天早起手动改出价。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-mint text-accent-mint">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-pulse"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">账户智能诊断</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">一键体检全部在投计划，定位消耗跑不出去、转化成本偏高的真实原因，并给出调整建议。</p>
+          </article>
+
+          <article class="card card--lift p-8">
+            <span class="icon-tile bg-tint-pink text-accent-pink">
+              <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-shield"/></svg>
+            </span>
+            <h3 class="mt-6 text-[18px] font-semibold text-ink">智能审核修复</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-ink-2">投放内容先过一遍合规校验，违规词与风险画面提前拦下，避免账户被限流影响整体跑量。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="industries" class="bg-white pt-[64px] pb-[80px]">
+      <div class="container-page">
+        <div class="text-center">
+          <span class="badge-pill bg-[rgb(var(--a-sky-bg))] text-[rgb(var(--a-sky))]">行业方案</span>
+          <h2 class="sec-title mt-4">懂你的行业<br>更懂你的生意</h2>
+          <p class="sec-sub mt-3">针对不同行业特性，提供定制化的投放策略和解决方案</p>
+        </div>
+
+        <div class="mt-[56px] grid gap-5 lg:grid-cols-2">
+
+          <article class="rounded-panel bg-[rgb(var(--c-ind-1-bg))] p-9">
+            <div class="flex items-center gap-3.5">
+              <span class="icon-tile h-11 w-11 rounded-[12px] bg-[rgb(var(--c-ind-1-chip))] text-[rgb(var(--c-ind-1-ink))]">
+                <svg class="h-[22px] w-[22px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-shop"/></svg>
+              </span>
+              <h3 class="text-[20px] font-semibold text-ink">成长型电商</h3>
+            </div>
+            <p class="mt-5 text-[15px] leading-[1.75] text-ink-2">面向中小电商商家，智能选品、素材生成、全域投放一体化，低成本获取精准流量；<br>从日销百元到万元的成长路径清晰可见；</p>
+            <div class="mt-6 flex flex-wrap gap-2.5">
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-1-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">智能选品</span>
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-1-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">素材工厂</span>
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-1-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">全域投放</span>
+            </div>
+            <p class="mt-7 text-[14px] text-ink-3">历史平均 ROI 提升
+              <span class="tnum ml-2.5 align-middle text-[32px] font-bold leading-none text-[rgb(var(--c-ind-1-ink))]">38%</span>
+            </p>
+          </article>
+
+          <article class="rounded-panel bg-[rgb(var(--c-ind-2-bg))] p-9">
+            <div class="flex items-center gap-3.5">
+              <span class="icon-tile h-11 w-11 rounded-[12px] bg-[rgb(var(--c-ind-2-chip))] text-[rgb(var(--c-ind-2-ink))]">
+                <svg class="h-[22px] w-[22px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-home"/></svg>
+              </span>
+              <h3 class="text-[20px] font-semibold text-ink">本地生活</h3>
+            </div>
+            <p class="mt-5 text-[15px] leading-[1.75] text-ink-2">面向餐饮、烘焙、美容等本地商家，基于 LBS 精准触达周边 3-5 公里客群，提升到店转化；<br>团购核销、到店引流一站式搞定；</p>
+            <div class="mt-6 flex flex-wrap gap-2.5">
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-2-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">LBS 定向</span>
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-2-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">到店核销</span>
+              <span class="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-[rgb(var(--c-ind-2-ink))] shadow-[0_1px_2px_rgba(26,27,46,.05)]">团购优化</span>
+            </div>
+            <p class="mt-7 text-[14px] text-ink-3">历史平均 ROI 提升
+              <span class="tnum ml-2.5 align-middle text-[32px] font-bold leading-none text-[rgb(var(--c-ind-2-ink))]">52%</span>
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-surface py-20">
+      <div class="container-page">
+        <div class="grid items-center gap-12 lg:grid-cols-[minmax(0,540px)_minmax(0,1fr)] lg:gap-16">
+
           <div>
-            <span class="pill">数据看板</span>
-            <h2>数据一目了然<br />决策快人一步</h2>
-            <p class="lead">消耗、成交、投产比、素材表现都在同一屏，每个数字都能追到具体的计划和素材</p>
-            <ul>
-              <li><b>六大核心指标</b><span>消耗、成交金额、ROI、成交订单数、点击率、转化成本，一屏看全。</span></li>
-              <li><b>分钟级自动刷新</b><span>不用守着后台手动拉数据，指标变化即时同步。</span></li>
-              <li><b>向下钻取到计划</b><span>指标异常直接下钻到计划与素材，知道该动哪一条。</span></li>
+            <span class="badge-pill bg-[rgb(var(--a-purple-bg))] text-[rgb(var(--a-purple))]">数据看板</span>
+            <h2 class="sec-title mt-4">数据一目了然<br>决策快人一步</h2>
+            <p class="mt-4 max-w-[500px] text-[16px] leading-[1.75] text-ink-2">消耗、成交、投产比、素材表现都在同一屏，每个数字都能追到具体的计划和素材</p>
+
+            <ul class="mt-8 space-y-6">
+              <li class="flex gap-3.5">
+                <span class="icon-tile h-9 w-9 rounded-[10px] bg-white text-accent-indigo shadow-card">
+                  <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-chart"/></svg>
+                </span>
+                <span>
+                  <b class="block text-[16px] font-semibold text-ink">六大核心指标</b>
+                  <span class="mt-1 block text-[14px] leading-[1.7] text-ink-2">消耗、成交金额、ROI、成交订单数、点击率、转化成本，一屏看全。</span>
+                </span>
+              </li>
+              <li class="flex gap-3.5">
+                <span class="icon-tile h-9 w-9 rounded-[10px] bg-white text-accent-indigo shadow-card">
+                  <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-refresh"/></svg>
+                </span>
+                <span>
+                  <b class="block text-[16px] font-semibold text-ink">分钟级自动刷新</b>
+                  <span class="mt-1 block text-[14px] leading-[1.7] text-ink-2">不用守着后台手动拉数据，指标变化即时同步。</span>
+                </span>
+              </li>
+              <li class="flex gap-3.5">
+                <span class="icon-tile h-9 w-9 rounded-[10px] bg-white text-accent-indigo shadow-card">
+                  <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-layers"/></svg>
+                </span>
+                <span>
+                  <b class="block text-[16px] font-semibold text-ink">向下钻取到计划</b>
+                  <span class="mt-1 block text-[14px] leading-[1.7] text-ink-2">指标异常直接下钻到计划与素材，知道该动哪一条。</span>
+                </span>
+              </li>
             </ul>
           </div>
-          <div class="board">
-            <div class="dots"><i /><i /><i /></div>
-            <div class="metrics">
-              <div><span>消耗</span><strong>¥XX.XX</strong></div>
-              <div><span>成交金额</span><strong>¥XX.XX</strong></div>
-              <div><span>投产比</span><strong>XX.XX</strong></div>
-              <div><span>成交订单</span><strong>XX</strong></div>
+
+          <div class="relative mx-auto w-full max-w-[560px] lg:ml-auto lg:mr-0">
+            <div class="rounded-[20px] bg-dark p-[10px] shadow-device">
+              <div class="rounded-[12px] bg-white px-4 pb-4 pt-3">
+
+                <div class="flex items-center gap-1.5 pb-3">
+                  <span class="h-2 w-2 rounded-full bg-[#FF5F57]"></span>
+                  <span class="h-2 w-2 rounded-full bg-[#FEBC2E]"></span>
+                  <span class="h-2 w-2 rounded-full bg-[#28C840]"></span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  <div class="rounded-[10px] bg-primary-soft-3 p-3">
+                    <div class="text-[10px] leading-none text-ink-3">消耗</div>
+                    <div class="tnum mt-2 text-[19px] font-bold leading-none text-ink">¥XX.XX</div>
+                    <div class="tnum mt-2 text-[10px] leading-none text-success">▲ XX.XX%</div>
+                  </div>
+                  <div class="rounded-[10px] bg-primary-soft-3 p-3">
+                    <div class="text-[10px] leading-none text-ink-3">成交金额</div>
+                    <div class="tnum mt-2 text-[19px] font-bold leading-none text-ink">¥XX.XX</div>
+                    <div class="tnum mt-2 text-[10px] leading-none text-success">▲ XX.XX%</div>
+                  </div>
+                  <div class="rounded-[10px] bg-primary-soft-3 p-3">
+                    <div class="text-[10px] leading-none text-ink-3">投产比</div>
+                    <div class="tnum mt-2 text-[19px] font-bold leading-none text-ink">XX.XX</div>
+                    <div class="tnum mt-2 text-[10px] leading-none text-ink-3">持平</div>
+                  </div>
+                  <div class="rounded-[10px] bg-primary-soft-3 p-3">
+                    <div class="text-[10px] leading-none text-ink-3">成交订单</div>
+                    <div class="tnum mt-2 text-[19px] font-bold leading-none text-ink">XX</div>
+                    <div class="tnum mt-2 text-[10px] leading-none text-success">▲ XX.XX%</div>
+                  </div>
+                </div>
+
+                <div class="mt-3 rounded-[10px] bg-primary-soft-3 p-4">
+                  <div class="text-[11px] font-medium leading-none text-ink-2">近 8 日消耗趋势</div>
+                  <div class="mt-4 flex h-[92px] items-end gap-2">
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:42%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:56%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:38%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:66%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:52%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:74%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary/15" style="height:61%"></span>
+                    <span class="flex-1 rounded-t-[3px] bg-primary" style="height:92%"></span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="chart" aria-hidden="true"><span v-for="n in 8" :key="n" :style="{ height: `${30 + n * 7}%` }" /></div>
-          </div>
-        </div>
-      </section>
 
-      <section class="why">
-        <div class="wrap">
-          <h2>为什么选择灵投？</h2>
-          <p>无需承诺，试试就知道值不值</p>
-          <div class="grid grid--4">
-            <article v-for="item in reasons" :key="item.title">
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.body }}</p>
-            </article>
+            <div class="absolute -bottom-5 right-0 flex w-[58%] max-w-[300px] items-center gap-2.5 rounded-[14px] border border-line/70 bg-white p-3 shadow-float">
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-gradient-to-br from-primary to-[#A165EF] text-white">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-sparkles"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block truncate text-[11px] leading-tight text-ink-3">今日自动优化动作</span>
+                <span class="tnum mt-0.5 block text-[16px] font-bold leading-tight text-ink">XX 笔</span>
+              </span>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section id="pricing" class="block block--price">
-        <div class="wrap">
-          <span class="pill">定价方案</span>
-          <h2>选择适合你的方案</h2>
-          <p class="lead">按月订阅，随时升级或取消，没有隐藏费用</p>
-          <div class="grid grid--3 plans">
-            <article>
-              <h3>基础版</h3>
-              <p class="price">¥299<span>/ 月</span></p>
-              <p>适合刚起步、单账号试水的小微商家。</p>
-              <ul>
-                <li>1 个广告账户</li>
-                <li>智能选品与选品建议</li>
-                <li>每日素材生成 20 条</li>
-                <li>标准数据看板</li>
-              </ul>
-              <button type="button" @click="goLogin">开始免费试用</button>
-            </article>
-            <article class="plan--hot">
-              <span class="badge">推荐</span>
-              <h3>专业版</h3>
-              <p class="price">¥799<span>/ 月</span></p>
-              <p>适合已有稳定出单、需要放量的成长型商家。</p>
-              <ul>
-                <li>5 个广告账户</li>
-                <li>全流程 AI 托管</li>
-                <li>每日素材生成 200 条</li>
-                <li>智能盯盘与自动优化</li>
-                <li>多账户聚合看板</li>
-                <li>专属客户成功对接</li>
-              </ul>
-              <button class="cta" type="button" @click="goLogin">立即开通</button>
-            </article>
-            <article>
-              <h3>定制版</h3>
-              <p class="price">定制</p>
-              <p>适合多品牌、多门店或需要私有化部署的团队。</p>
-              <ul>
-                <li>账户数量不限</li>
-                <li>行业专属策略模板</li>
-                <li>素材生成不设上限</li>
-                <li>私有化部署与数据隔离</li>
-                <li>专属策略顾问陪跑</li>
-                <li>定制报表与对接支持</li>
-              </ul>
-              <button type="button" @click="openContact">联系客服咨询</button>
-            </article>
-          </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section id="faq" class="block">
-        <div class="wrap">
-          <h2>常见问题</h2>
-          <p class="lead">关于灵投智营，你可能想先了解这些</p>
-          <div class="faqs">
-            <details v-for="(item, index) in faqs" :key="item.q" :open="index === 0">
-              <summary>{{ item.q }}</summary>
-              <p>{{ item.a }}</p>
-            </details>
-          </div>
+    <section class="bg-deep pt-[86px] pb-[100px]">
+      <div class="container-page">
+        <div class="text-center">
+          <h2 class="text-[30px] font-bold leading-[1.22] tracking-tight text-white sm:text-[38px]">为什么选择灵投？</h2>
+          <p class="mt-3 text-[16px] leading-[1.75] text-white/60">无需承诺，试试就知道值不值</p>
         </div>
-      </section>
 
-      <section id="cta" class="cta-band">
-        <div class="wrap">
-          <h2>准备好让灵投<br />接管你的广告投放了吗？</h2>
-          <p>7 天免费试用，不满意随时退；先看看效果，再决定要不要继续</p>
-          <div class="cta-band__actions">
-            <button class="cta cta--light" type="button" @click="goLogin">免费试用 7 天</button>
-            <button class="cta cta--glass" type="button" @click="openContact">联系客服咨询</button>
-          </div>
+        <div class="mt-[60px] grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <article class="rounded-card bg-deep-card p-8">
+            <h3 class="text-gradient-1 text-[18px] font-semibold">7 天免费试用</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">注册即可开通全部功能，免费试用 7 天，期间不限制功能，也不需要先付费。</p>
+          </article>
+          <article class="rounded-card bg-deep-card p-8">
+            <h3 class="text-gradient-2 text-[18px] font-semibold">效果看得见</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">消耗、成交、ROI 全程透明，每一笔变化都能追溯到具体计划与素材，效果不靠感觉判断。</p>
+          </article>
+          <article class="rounded-card bg-deep-card p-8">
+            <h3 class="text-gradient-3 text-[18px] font-semibold">安全合规</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">官方接口授权，账户信息加密存储，素材先审核后投放，全程不接触你的账号密码。</p>
+          </article>
+          <article class="rounded-card bg-deep-card p-8">
+            <h3 class="text-gradient-4 text-[18px] font-semibold">不满意随时退</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">试用期内如果不满意，按剩余天数无条件退款，不设任何门槛和附加条件。</p>
+          </article>
         </div>
-      </section>
+      </div>
+    </section>
+
+    <section id="pricing" class="bg-price py-20">
+      <div class="container-page">
+        <div class="text-center">
+          <span class="badge-pill bg-[rgb(var(--c-primary-soft))] text-primary-ink">定价方案</span>
+          <h2 class="sec-title mt-4">选择适合你的方案</h2>
+          <p class="sec-sub mt-3">按月订阅，随时升级或取消，没有隐藏费用</p>
+        </div>
+
+        <div class="mt-12 grid items-start gap-5 lg:grid-cols-3">
+
+          <article class="card flex h-full flex-col p-8">
+            <h3 class="text-[17px] font-semibold text-ink">基础版</h3>
+            <p class="mt-4 flex items-baseline gap-1.5">
+              <span class="tnum text-[40px] font-bold leading-none tracking-tight text-ink">¥299</span>
+              <span class="text-[13px] text-ink-3">/ 月</span>
+            </p>
+            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合刚起步、单账号试水的小微商家。</p>
+            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>1 个广告账户</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>智能选品与选品建议</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>每日素材生成 20 条</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>标准数据看板</li>
+            </ul>
+            <div class="mt-auto pt-8">
+              <a class="btn btn--soft btn--md btn--block" href="#cta" @click.prevent="goTrial">开始免费试用</a>
+            </div>
+          </article>
+
+          <article class="relative flex h-full flex-col rounded-panel border-2 border-primary bg-white p-8 shadow-[0_20px_50px_-20px_rgba(87,92,246,.45)] lg:-mt-4 lg:pb-10">
+            <span class="absolute right-6 top-6 rounded-full bg-primary px-3 py-1.5 text-[12px] font-medium leading-none text-white">推荐</span>
+            <h3 class="text-[17px] font-semibold text-ink">专业版</h3>
+            <p class="mt-4 flex items-baseline gap-1.5">
+              <span class="tnum text-[40px] font-bold leading-none tracking-tight text-primary-ink">¥799</span>
+              <span class="text-[13px] text-ink-3">/ 月</span>
+            </p>
+            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合已有稳定出单、需要放量的成长型商家。</p>
+            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>5 个广告账户</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>全流程 AI 托管</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>每日素材生成 200 条</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>智能盯盘与自动优化</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>多账户聚合看板</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>专属客户成功对接</li>
+            </ul>
+            <div class="mt-auto pt-8">
+              <a class="btn btn--primary btn--md btn--block" href="#cta" @click.prevent="goTrial">立即开通</a>
+            </div>
+          </article>
+
+          <article class="card flex h-full flex-col p-8">
+            <h3 class="text-[17px] font-semibold text-ink">定制版</h3>
+            <p class="mt-4 flex items-baseline gap-1.5">
+              <span class="text-[40px] font-bold leading-none tracking-tight text-ink">定制</span>
+            </p>
+            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合多品牌、多门店或需要私有化部署的团队。</p>
+            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>账户数量不限</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>行业专属策略模板</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>素材生成不设上限</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>私有化部署与数据隔离</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>专属策略顾问陪跑</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>定制报表与对接支持</li>
+            </ul>
+            <div class="mt-auto pt-8">
+              <a class="btn btn--soft btn--md btn--block" href="#" @click.prevent="openContact">联系客服咨询</a>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="bg-white py-20">
+      <div class="container-page">
+        <div class="text-center">
+          <h2 class="sec-title">常见问题</h2>
+          <p class="sec-sub mt-3">关于灵投智营，你可能想先了解这些</p>
+        </div>
+
+        <div class="mx-auto mt-10 max-w-[1160px] space-y-3">
+          <details class="faq-item" open>
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">灵投和巨量千川官方后台是什么关系？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              灵投智营是基于巨量千川官方开放接口构建的智能投放工具，通过官方授权访问你的广告账户。它不是后台的替代品，而是帮你把选品、素材、出价、盯盘这些重复动作自动化，你在千川后台里看到的数据和灵投保持一致。
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">用灵投需要自己有投放经验吗？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              不需要。灵投会自动完成选品、生成素材、搭建计划并持续优化，你只需要确认预算和商品，剩下的交给系统。后台也提供每一步的说明，方便你随时了解系统在做什么。
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">我可以随时取消使用灵投服务吗？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              可以。灵投按月订阅，随时可以在账户设置里取消，取消后服务持续到当前周期结束，不会自动续费，也不影响你在千川后台的投放。
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">广告账户授权安全吗？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              授权走巨量引擎官方 OAuth 流程，灵投不会接触你的账号密码。所有凭证加密存储，且可以随时在灵投或巨量引擎后台收回授权。
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">灵投生成的素材会有版权风险吗？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              灵投生成的素材均为原创产出，并会在生成侧做原创度比对与合规校验，投放前再过一遍违规词与风险画面检查，降低限流风险。
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary class="flex items-center gap-4 px-7 py-5">
+              <span class="flex-1 text-[16px] font-medium text-ink">多久能看到投放效果？</span>
+              <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
+            </summary>
+            <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
+              接入账户后当天即可开始投放，通常 3 天左右能跑出稳定的基础数据，7 天可以形成第一轮优化闭环，之后效果会随着数据积累持续改善。
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="cta" class="relative overflow-hidden py-16 lg:py-[80px]">
+
+      <div class="absolute inset-0 -z-10" style="background:
+            radial-gradient(58% 92% at 80% 26%, rgba(139,92,246,.55) 0%, rgba(139,92,246,0) 68%),
+            radial-gradient(70% 120% at 12% 88%, rgba(120,132,255,.42) 0%, rgba(120,132,255,0) 70%),
+            linear-gradient(118deg, #5A5BF4 0%, #4A4CDD 34%, #4543CB 66%, #3634A8 100%);"></div>
+
+      <div class="container-page text-center">
+        <h2 class="mx-auto max-w-[860px] text-[30px] font-bold leading-[1.24] tracking-tight text-white sm:text-[37px] lg:text-[50px]">
+          准备好让灵投<br>接管你的广告投放了吗？
+        </h2>
+        <p class="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.7] text-white/75 sm:text-[16px]">
+          7 天免费试用，不满意随时退；先看看效果，再决定要不要继续
+        </p>
+        <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
+          <a class="btn btn--light btn--lg px-9" href="#"  @click.prevent="goTrial">免费试用 7 天</a>
+          <a class="btn btn--glass btn--lg px-9" href="#" @click.prevent="openContact">联系客服咨询</a>
+        </div>
+      </div>
+    </section>
+
     </main>
 
-    <footer>
-      <div class="wrap foot">
-        <div>
-          <strong>灵投智营</strong>
-          <p>让中小微企业也能获得专家级广告投放效果</p>
+    <footer class="foot-surface">
+      <div class="container-page py-12">
+        <div class="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
+
+          <div>
+            <div class="flex items-center gap-2.5">
+              <span class="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-white text-primary-ink">
+                <svg class="h-4 w-4" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
+              </span>
+              <span class="text-[19px] font-semibold tracking-tight text-white">灵投智营</span>
+            </div>
+            <p class="mt-3 text-[14px] text-white/85">让中小微企业也能获得专家级广告投放效果</p>
+          </div>
+
+          <nav class="flex flex-wrap items-center gap-x-8 gap-y-3" aria-label="页脚导航">
+            <router-link class="text-[14px] text-white/90 transition-colors hover:text-white" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
+            <router-link class="text-[14px] text-white/90 transition-colors hover:text-white" to="/legal/privacy">隐私政策</router-link>
+            <a class="text-[14px] text-white/90 transition-colors hover:text-white" href="#" @click.prevent="openContact">联系我们</a>
+          </nav>
         </div>
-        <nav>
-          <router-link to="/#faq">帮助中心</router-link>
-          <router-link to="/legal/privacy">隐私政策</router-link>
-          <button type="button" @click="openContact">联系我们</button>
-        </nav>
+
+        <hr class="mt-10 border-white/25">
+
+        <p class="mt-7 text-center text-[13px] leading-6 text-white/70">
+          © 2026 灵投智营·智能广告投放专家 &nbsp;|&nbsp; 坤顷科技 &nbsp;|&nbsp; 京ICP备XXXXXXXX号
+        </p>
       </div>
-      <p class="copy">© 2026 灵投智营·智能广告投放专家 &nbsp;|&nbsp; 坤顷科技</p>
     </footer>
-  </LandingLayout>
+
+    <div id="contact-modal" ref="contactModal" v-show="contactOpen" class="fixed inset-0 z-50 contact-modal" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
+
+      <div class="absolute inset-0 bg-[#0A0A1E]/45" @click="closeContact"></div>
+
+      <div class="relative flex min-h-full items-center justify-center p-5" @click.self="closeContact">
+        <div class="animate-modal-in w-full max-w-[458px] rounded-[16px] bg-white p-6 shadow-modal">
+          <div class="flex items-start justify-between gap-4">
+            <h2 id="contact-modal-title" class="text-[16px] font-semibold text-ink">联系我们</h2>
+            <button class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-primary-soft-3 hover:text-ink"
+                    type="button" @click="closeContact" aria-label="关闭弹窗">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><use href="#ic-x"/></svg>
+            </button>
+          </div>
+
+          <div class="mt-5 space-y-1 text-[14px] leading-[1.9] text-ink-2">
+            <p>1.可直接拨打客服电话<span class="tnum font-medium text-primary-ink">{{ contactInfo.phone }}</span>或发邮件至</p>
+            <p><a class="break-anywhere font-medium text-primary-ink hover:underline" :href="`mailto:${contactInfo.email}`">{{ contactInfo.email }}</a>联系我们。</p>
+            <p>2.或者留下您的联系方式：</p>
+          </div>
+
+          <form class="mt-4" @submit.prevent="submitContactForm" novalidate>
+            <label class="sr-only" for="contact-phone">您的联系电话</label>
+            <input id="contact-phone" ref="contactPhone" v-model="phone" name="phone" maxlength="11" :disabled="submitting" :aria-invalid="Boolean(phoneError)" aria-describedby="contact-hint contact-error" type="tel" inputmode="numeric" autocomplete="tel"
+                   class="h-[38px] w-full rounded-[10px] border border-line bg-white px-3.5 text-[13.5px] text-ink placeholder:text-ink-3 focus:border-primary focus:outline-none"
+                   placeholder="请输入您的联系电话" data-field="phone">
+            <p id="contact-hint" class="mt-4 text-[14px] text-ink-2">我们将在12小时内给您回复。</p>
+            <p id="contact-error" v-show="phoneError" class="mt-2 text-[12px] text-danger" role="alert">{{ phoneError }}</p>
+            <p v-if="submitted" class="mt-2 text-[12px] text-success" role="status">已提交，我们会尽快与您联系。</p>
+            <div class="mt-5 flex justify-end">
+              <button class="btn btn--primary h-[34px] px-6 text-[14px]" type="submit" :disabled="submitting">{{ submitting ? "提交中…" : "确定" }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from "vue";
+import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import LandingLayout from "@/layouts/LandingLayout.vue";
 import { useUserStore } from "@/stores/user";
-import { useContactDialog } from "@/features/notify/useContactDialog";
+import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
+import { isCnMobile } from "@/utils/phone";
 import hero1 from "@/assets/landing/hero-1.jpg";
 import hero2 from "@/assets/landing/hero-2.jpg";
 import hero3 from "@/assets/landing/hero-3.jpg";
 import hero4 from "@/assets/landing/hero-4.jpg";
 
-const DEFAULT_TITLE = "灵投 LynxAd · 替你投出效果";
-const PAGE_TITLE = "灵投智营 · 让广告投出效果｜智能广告投放专家";
-
-const shots = [
-  { src: hero1, alt: "手冲咖啡与甜点素材示例", label: "食品饮料" },
-  { src: hero2, alt: "行李箱出行场景素材示例", label: "箱包出行" },
-  { src: hero3, alt: "复古汽车素材示例", label: "汽车用品" },
-  { src: hero4, alt: "服装挂架素材示例", label: "服饰鞋包" },
-];
-
-const pains = [
-  { title: "投了没效果", body: "预算花完了，订单却没几单；出价来回调，ROI 还是一路往下掉，一个月下来都不知道钱到底花在哪里。" },
-  { title: "不会投不敢投", body: "千川后台太复杂，出价、定向、素材、落地页样样都要学；身边没人带，自己试错一轮成本太高。" },
-  { title: "找专业团队不划算", body: "代运营一个月报价几千上万，沟通成本也高；预算不大的商家根本请不动，请了也未必盯得过来。" },
-  { title: "广告数据看不懂", body: "报表里几十个指标，不知道该看哪个、该调哪个；看完还是不知道下一步该做什么动作。" },
-];
-
-const features = [
-  { title: "智能选品", body: "结合类目大盘走势与商品自身潜力，自动挑出真正值得投放的品，冷启动不再凭感觉做决策。" },
-  { title: "素材智能生成", body: "一条商品链接批量产出短视频与图文素材，脚本、画面、口播一次到位，不用再等设计排期。" },
-  { title: "智能盯盘优化", body: "7×24 小时盯着账户跑量，计划跑偏自动拉回，预算始终花在能出单的时段和人群上。" },
-  { title: "智能预算调配", body: "按实时投产比自动加减预算，好计划加码、差计划止损，不用每天早起手动改出价。" },
-  { title: "账户智能诊断", body: "一键体检全部在投计划，定位消耗跑不出去、转化成本偏高的真实原因，并给出调整建议。" },
-  { title: "智能审核修复", body: "投放内容先过一遍合规校验，违规词与风险画面提前拦下，避免账户被限流影响整体跑量。" },
-];
-
-const reasons = [
-  { title: "7 天免费试用", body: "注册即可开通全部功能，免费试用 7 天，期间不限制功能，也不需要先付费。" },
-  { title: "效果看得见", body: "消耗、成交、ROI 全程透明，每一笔变化都能追溯到具体计划与素材，效果不靠感觉判断。" },
-  { title: "安全合规", body: "官方接口授权，账户信息加密存储，素材先审核后投放，全程不接触你的账号密码。" },
-  { title: "不满意随时退", body: "试用期内如果不满意，按剩余天数无条件退款，不设任何门槛和附加条件。" },
-];
-
-const faqs = [
-  { q: "灵投和巨量千川官方后台是什么关系？", a: "灵投智营是基于巨量千川官方开放接口构建的智能投放工具，通过官方授权访问你的广告账户。它不是后台的替代品，而是帮你把选品、素材、出价、盯盘这些重复动作自动化，你在千川后台里看到的数据和灵投保持一致。" },
-  { q: "用灵投需要自己有投放经验吗？", a: "不需要。灵投会自动完成选品、生成素材、搭建计划并持续优化，你只需要确认预算和商品，剩下的交给系统。后台也提供每一步的说明，方便你随时了解系统在做什么。" },
-  { q: "我可以随时取消使用灵投服务吗？", a: "可以。灵投按月订阅，随时可以在账户设置里取消，取消后服务持续到当前周期结束，不会自动续费，也不影响你在千川后台的投放。" },
-  { q: "广告账户授权安全吗？", a: "授权走巨量引擎官方 OAuth 流程，灵投不会接触你的账号密码。所有凭证加密存储，且可以随时在灵投或巨量引擎后台收回授权。" },
-  { q: "灵投生成的素材会有版权风险吗？", a: "灵投生成的素材均为原创产出，并会在生成侧做原创度比对与合规校验，投放前再过一遍违规词与风险画面检查，降低限流风险。" },
-  { q: "多久能看到投放效果？", a: "接入账户后当天即可开始投放，通常 3 天左右能跑出稳定的基础数据，7 天可以形成第一轮优化闭环，之后效果会随着数据积累持续改善。" },
-];
-
 const router = useRouter();
 const user = useUserStore();
-const { open: openContact } = useContactDialog();
+const menuOpen = ref(false);
+const contactOpen = ref(false), submitting = ref(false), submitted = ref(false);
+const phone = ref(""), phoneError = ref("");
+const contactInfo = reactive({ phone: "18801061264", email: "lynxAd@163.com" });
+const contactModal = ref<HTMLElement | null>(null);
+const contactPhone = ref<HTMLInputElement | null>(null);
+let lastFocus: HTMLElement | null = null;
+let previousOverflow = "", previousTitle = "";
+let description: HTMLMetaElement | null = null;
+let previousDescription: string | null = null;
+let ownsDescription = false;
+let contactSession = 0;
+let disposed = false;
 
-onMounted(() => {
-  document.title = PAGE_TITLE;
-});
-onUnmounted(() => {
-  document.title = DEFAULT_TITLE;
-});
-
-function goLogin() {
+function goTrial() {
   router.push(user.isLoggedIn ? "/subscription" : "/login");
 }
+
+async function openContact() {
+  const session = ++contactSession;
+  lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  phone.value = "";
+  phoneError.value = "";
+  submitted.value = false;
+  contactOpen.value = true;
+  await nextTick();
+  contactPhone.value?.focus();
+  try {
+    const info = await fetchContactInfo();
+    if (disposed || session !== contactSession) return;
+    contactInfo.phone = info.phone || "18801061264";
+    contactInfo.email = info.email || "lynxAd@163.com";
+  } catch { /* Keep the contact details from the supplied home page. */ }
+}
+
+function closeContact() { contactSession++; contactOpen.value = false; }
+
+async function submitContactForm() {
+  if (submitting.value) return;
+  if (!isCnMobile(phone.value.trim())) {
+    phoneError.value = "请填写正确的手机号，方便我们联系您。";
+    submitted.value = false;
+    contactPhone.value?.focus();
+    return;
+  }
+  phoneError.value = "";
+  submitted.value = false;
+  submitting.value = true;
+  const session = contactSession;
+  try {
+    await submitContact(phone.value.trim());
+    if (disposed || session !== contactSession) return;
+    submitted.value = true;
+    phone.value = "";
+  } catch { /* The API interceptor presents the request error. */ }
+  finally { submitting.value = false; }
+}
+
+watch(contactOpen, open => {
+  if (open) {
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = previousOverflow;
+    lastFocus?.focus({ preventScroll: true });
+  }
+});
+
+function handleKeydown(event: KeyboardEvent) {
+  if (!contactOpen.value) {
+    if (event.key === "Escape") menuOpen.value = false;
+    return;
+  }
+  if (event.key === "Escape") { event.preventDefault(); closeContact(); return; }
+  if (event.key !== "Tab") return;
+  const items = Array.from(contactModal.value?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled])') || []);
+  const first = items[0], last = items[items.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+}
+
+onMounted(() => {
+  previousTitle = document.title;
+  document.title = "灵投智营 · 让广告投出效果｜智能广告投放专家";
+  description = document.querySelector('meta[name="description"]');
+  if (!description) {
+    description = document.createElement("meta");
+    description.name = "description";
+    document.head.appendChild(description);
+    ownsDescription = true;
+  }
+  previousDescription = description.getAttribute("content");
+  description.content = "灵投智营用 AI 全自动接管选品、素材生成、投放盯盘与优化，用更小的广告投放成本带来更多的客户，让中小微企业也能获得专家级广告投放效果。";
+  document.addEventListener("keydown", handleKeydown);
+  if (new URLSearchParams(location.search).get("modal") === "contact") openContact();
+});
+
+onUnmounted(() => {
+  disposed = true;
+  document.removeEventListener("keydown", handleKeydown);
+  if (contactOpen.value) document.body.style.overflow = previousOverflow;
+  document.title = previousTitle;
+  if (ownsDescription) description?.remove();
+  else if (previousDescription !== null) description?.setAttribute("content", previousDescription);
+  else description?.removeAttribute("content");
+});
 </script>
 
-<style scoped>
-#features, #industries, #pricing, #faq, #cta, #top { scroll-margin-top: 72px; }
-.wrap { width: min(1200px, calc(100% - 48px)); margin: 0 auto; }
-h2 { margin: 16px 0 0; color: #1a1b2e; font-size: 38px; line-height: 1.22; letter-spacing: -0.02em; text-align: center; }
-.lead { margin: 12px auto 0; max-width: 640px; color: #7c7f99; font-size: 16px; line-height: 1.75; text-align: center; }
-.pill { display: inline-flex; padding: 6px 12px; border-radius: 999px; background: #fff; color: #4348db; font-size: 13px; font-weight: 600; }
-.pill--mint { background: #e8f8f1; color: #12b76a; }
-.block { padding: 80px 0; text-align: center; }
-.block--panel { background: #f7f7ff; }
-.block--data { background: #faf9ff; text-align: left; }
-.block--price { background: #f5f5ff; }
-.grid { display: grid; gap: 20px; margin-top: 48px; text-align: left; }
-.grid article { padding: 32px; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px -18px rgba(26, 27, 46, 0.25); }
-.grid h3 { margin: 0; color: #1a1b2e; font-size: 18px; }
-.grid p, .grid li { color: #4e5069; font-size: 14px; line-height: 1.7; }
-.hero { background: #eef0fd; }
-.hero__grid { display: grid; gap: 48px; align-items: center; padding: 72px 0; }
-.hero__copy { text-align: center; }
-.hero h1 { margin: 20px 0 0; color: #1a1b2e; font-size: 52px; line-height: 1.12; }
-.hero h1 em { color: #575cf6; font-style: normal; }
-.hero__copy > p { margin: 20px 0 0; color: #4e5069; font-size: 16px; line-height: 1.75; }
-.cta {
-  height: 48px; margin-top: 28px; padding: 0 36px; border: 0; border-radius: 12px; cursor: pointer;
-  background: linear-gradient(90deg, #575cf6, #3b82f6); color: #fff; font-size: 16px; font-weight: 600;
-}
-.trust { display: flex; justify-content: center; gap: 48px; margin: 40px 0 0; }
-.trust dt { color: #575cf6; font-size: 24px; font-weight: 700; }
-.trust dd { margin: 8px 0 0; color: #7c7f99; font-size: 14px; }
-.device { position: relative; }
-.device__frame, .board { border-radius: 20px; background: #1e1e38; padding: 10px; }
-.dots { display: flex; gap: 6px; padding: 8px 6px; }
-.dots i { width: 8px; height: 8px; border-radius: 99px; background: #ff5f57; }
-.dots i:nth-child(2) { background: #febc2e; }
-.dots i:nth-child(3) { background: #28c840; }
-.shots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 6px 8px; background: #fff; border-radius: 12px; }
-.shots img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; }
-.shots figcaption { display: flex; justify-content: space-between; margin-top: 6px; color: #7c7f99; font-size: 11px; }
-.float { position: absolute; padding: 12px 14px; border-radius: 14px; background: #fff; box-shadow: 0 12px 30px rgba(26, 27, 46, 0.12); font-size: 12px; color: #7c7f99; }
-.float strong { display: block; margin-top: 4px; color: #1a1b2e; font-size: 16px; }
-.float--top { top: -12px; right: -8px; }
-.float--bottom { left: -8px; bottom: -16px; }
-.industry--a { background: #eef3ff; }
-.industry--b { background: #f3eefe; }
-.tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.tags span { padding: 6px 12px; border-radius: 999px; background: #fff; color: #4348db; font-size: 13px; }
-.roi b { margin-left: 8px; color: #4348db; font-size: 32px; }
-.data { display: grid; gap: 40px; align-items: center; }
-.data .lead, .data h2 { text-align: left; margin-left: 0; }
-.data ul { margin: 28px 0 0; padding: 0; list-style: none; }
-.data li { margin-top: 18px; }
-.data b, .data span { display: block; }
-.board { background: #1e1e38; }
-.metrics, .chart { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: #fff; }
-.metrics { grid-template-columns: repeat(4, 1fr); }
-.metrics span { color: #7c7f99; font-size: 12px; }
-.chart { grid-template-columns: repeat(8, 1fr); align-items: end; height: 120px; margin-top: 8px; }
-.chart span { display: block; border-radius: 3px 3px 0 0; background: rgba(87, 92, 246, 0.2); }
-.chart span:last-child { background: #575cf6; }
-.why { padding: 86px 0 100px; background: #1e1e38; text-align: center; }
-.why h2, .why > .wrap > p { color: #fff; }
-.why article { background: #2a2a48; }
-.why h3 { color: #fff; }
-.why p { color: rgba(255, 255, 255, 0.65); }
-.plans article { display: flex; flex-direction: column; }
-.plans ul { margin: 20px 0; padding: 0; list-style: none; }
-.price { color: #1a1b2e; font-size: 40px; font-weight: 700; }
-.price span { margin-left: 6px; color: #7c7f99; font-size: 13px; font-weight: 400; }
-.plans button { margin-top: auto; height: 40px; border: 0; border-radius: 10px; background: #eeeefe; color: #4348db; font-weight: 600; cursor: pointer; }
-.plan--hot { border: 2px solid #575cf6; }
-.badge { align-self: flex-end; padding: 4px 10px; border-radius: 999px; background: #575cf6; color: #fff; font-size: 12px; }
-.faqs { max-width: 920px; margin: 40px auto 0; text-align: left; }
-.faqs details { margin-top: 12px; border-radius: 12px; background: #f7f8fe; }
-.faqs summary { padding: 20px 24px; color: #1a1b2e; font-weight: 600; cursor: pointer; }
-.faqs p { margin: 0; padding: 0 24px 20px; }
-.cta-band {
-  padding: 80px 0; text-align: center; color: #fff;
-  background:
-    radial-gradient(58% 92% at 80% 26%, rgba(139, 92, 246, 0.55), transparent 68%),
-    linear-gradient(118deg, #5a5bf4 0%, #4a4cdd 34%, #4543cb 66%, #3634a8 100%);
-}
-.cta-band h2 { color: #fff; font-size: 44px; }
-.cta--light { background: #fff; color: #4348db; }
-.cta--glass { margin-left: 12px; background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.45); }
-footer { padding: 28px 0 36px; background: #4645cc; color: rgba(255, 255, 255, 0.85); }
-.foot { display: flex; justify-content: space-between; gap: 24px; }
-.foot strong { color: #fff; font-size: 19px; }
-.foot nav { display: flex; gap: 28px; align-items: center; }
-.foot a, .foot button { border: 0; background: transparent; color: rgba(255, 255, 255, 0.9); font-size: 14px; cursor: pointer; text-decoration: none; }
-.copy { margin: 28px 0 0; text-align: center; font-size: 13px; }
-@media (min-width: 900px) {
-  .hero__grid, .data { grid-template-columns: 1.1fr 0.9fr; }
-  .grid--4 { grid-template-columns: repeat(4, 1fr); }
-  .grid--3 { grid-template-columns: repeat(3, 1fr); }
-  .grid--2 { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 720px) {
-  .hero h1, .cta-band h2, h2 { font-size: 32px; }
-  .trust, .foot, .metrics { display: grid; grid-template-columns: 1fr 1fr; }
-}
-</style>
+<style scoped src="./home.css"></style>

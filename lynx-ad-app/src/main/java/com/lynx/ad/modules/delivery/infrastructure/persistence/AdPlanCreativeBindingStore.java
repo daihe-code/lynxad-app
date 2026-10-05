@@ -10,6 +10,9 @@ import com.lynx.ad.modules.delivery.domain.model.PlanCreativeBinding;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
 
@@ -57,6 +60,17 @@ public class AdPlanCreativeBindingStore {
             }
         }
         return keys;
+    }
+
+    public Map<String, List<String>> productIdsByPlan(List<String> planIds) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        if (planIds.isEmpty()) return result;
+        for (AdPlanCreativePo row : mapper.selectList(
+                new LambdaQueryWrapper<AdPlanCreativePo>().in(AdPlanCreativePo::getAdPlanId, planIds))) {
+            List<String> ids = result.computeIfAbsent(row.getAdPlanId(), key -> new ArrayList<>());
+            if (row.getProductId() != null && !ids.contains(row.getProductId())) ids.add(row.getProductId());
+        }
+        return result;
     }
 }
 

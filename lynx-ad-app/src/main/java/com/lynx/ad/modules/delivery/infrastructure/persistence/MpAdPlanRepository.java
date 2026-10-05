@@ -26,6 +26,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
@@ -51,6 +53,7 @@ class AdPlanPo {
     private String rejectReason;
     private String source;
     private Instant createdAt;
+    private String deliveryPlatform;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -88,6 +91,8 @@ class AdPlanPo {
     public void setSource(String source) { this.source = source; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public String getDeliveryPlatform() { return deliveryPlatform; }
+    public void setDeliveryPlatform(String deliveryPlatform) { this.deliveryPlatform = deliveryPlatform; }
 }
 
 @Mapper
@@ -110,6 +115,8 @@ public class MpAdPlanRepository implements AdPlanRepository {
             po = new AdPlanPo();
             po.setId(plan.id().value());
             po.setCreatedAt(Instant.now());
+            // The current local creation flow is 商品全域投放.
+            po.setDeliveryPlatform(plan.source() == PlanSource.LINGTOU ? "ALL" : null);
         }
         po.setTenantId(plan.tenantId().value());
         po.setOauthAccountId(plan.accountId() == null ? null : plan.accountId().value());
@@ -167,6 +174,15 @@ public class MpAdPlanRepository implements AdPlanRepository {
         return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getTenantId, tenantId.value())).stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    @Override
+    public Map<String, ListMetadata> listMetadataByTenant(TenantId tenantId) {
+        return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>()
+                        .select(AdPlanPo::getId, AdPlanPo::getCreatedAt, AdPlanPo::getDeliveryPlatform)
+                        .eq(AdPlanPo::getTenantId, tenantId.value()))
+                .stream().collect(Collectors.toMap(AdPlanPo::getId,
+                        row -> new ListMetadata(row.getCreatedAt(), row.getDeliveryPlatform())));
     }
 
     @Override

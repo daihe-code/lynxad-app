@@ -164,6 +164,9 @@ public class OauthCommandService {
 
     public void refresh(TenantId tenantId, AccountId id) {
         OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
+        if (!"ACTIVE".equals(account.status())) {
+            throw new BizException(1211, "授权已取消或失效，请重新授权");
+        }
         try {
             applyPortRefresh(account);
             repository.save(account);
@@ -178,6 +181,9 @@ public class OauthCommandService {
     }
 
     public void applyPortRefresh(OauthAccount account) {
+        if (!"ACTIVE".equals(account.status())) {
+            throw new BizException(1211, "授权已取消或失效，请重新授权");
+        }
         OauthTokenPort port = tokenPort.getIfAvailable();
         if (port == null) {
             throw new BizException(1205, "千川授权未配置");
@@ -194,9 +200,23 @@ public class OauthCommandService {
 
     public void unbind(TenantId tenantId, AccountId id) {
         OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
+        if ("DELETED".equals(account.status())) {
+            throw new BizException(1201, "授权账户不存在");
+        }
         account.unbind();
         repository.save(account);
-        recordOauth(tenantId, account.id().value(), account.accountName(), null);
+        recordOauth(tenantId, account.id().value(), "取消广告账户授权「" + account.accountName() + "」", null);
+    }
+
+    public void remove(TenantId tenantId, AccountId id) {
+        OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
+        if (!account.canRemove(Instant.now())) {
+            throw new BizException(1211, "请先取消有效授权再删除记录");
+        }
+        if ("DELETED".equals(account.status())) return;
+        account.remove();
+        repository.save(account);
+        recordOauth(tenantId, account.id().value(), "删除失效授权记录「" + account.accountName() + "」", null);
     }
 
     private void assertAccountLimit(TenantId tenantId) {

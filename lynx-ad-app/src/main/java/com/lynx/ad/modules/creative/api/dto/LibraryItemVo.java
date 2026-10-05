@@ -15,4 +15,6 @@ public record LibraryItemVo(
         String materialId,
         String objectId,
         String posterUrl,
-        String playUrl) {}
+        String playUrl,
+        Integer width,
+        Integer height) {}

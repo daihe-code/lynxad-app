@@ -13,9 +13,16 @@ import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.domain.port.OceanPlanRow;
 import com.lynx.ad.modules.dataops.domain.model.MetricSnapshot;
 import com.lynx.ad.modules.dataops.domain.port.MetricSnapshotRepository;
+import com.lynx.ad.modules.dataops.domain.port.SnapshotPair;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
+import com.lynx.ad.modules.catalog.domain.port.ProductRepository;
+import com.lynx.ad.modules.catalog.domain.model.Product;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.AdPlanCreativeBindingStore;
+import java.util.Map;
+import java.util.HashMap;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -30,30 +37,48 @@ public class PlanQueryService {
     private final OauthAccountRepository oauthAccountRepository;
     private final QianchuanCredentialFacade credentialFacade;
     private final MetricSnapshotRepository snapshotRepository;
+    private final ProductRepository productRepository;
+    private final AdPlanCreativeBindingStore bindingStore;
 
     public PlanQueryService(
             AdPlanRepository planRepository,
             AdListPort adListPort,
             OauthAccountRepository oauthAccountRepository,
             QianchuanCredentialFacade credentialFacade,
-            MetricSnapshotRepository snapshotRepository) {
+            MetricSnapshotRepository snapshotRepository,
+            ProductRepository productRepository,
+            AdPlanCreativeBindingStore bindingStore) {
         this.planRepository = planRepository;
         this.adListPort = adListPort;
         this.oauthAccountRepository = oauthAccountRepository;
         this.credentialFacade = credentialFacade;
         this.snapshotRepository = snapshotRepository;
+        this.productRepository = productRepository;
+        this.bindingStore = bindingStore;
     }
 
     public PageResult<PlanListVo> list(TenantId tenantId, int pageNum, int pageSize) {
         List<AdPlan> local = planRepository.findByTenant(tenantId);
+        var metadata = planRepository.listMetadataByTenant(tenantId);
         Set<String> localQc = new HashSet<>();
         List<PlanListVo> rows = new ArrayList<>();
-        var latest = snapshotRepository.listLatestByTenant(tenantId).stream()
-                .filter(s -> s.planId() != null)
-                .collect(java.util.stream.Collectors.toMap(s -> s.planId().value(), s -> s, (a, b) -> a));
+        var boundProducts = bindingStore.productIdsByPlan(local.stream().map(p -> p.id().value()).toList());
+        Map<String, List<Product>> productsByAweme = new HashMap<>();
+        var latest = snapshotRepository.listLatestPairsByTenant(tenantId);
         for (AdPlan plan : local) {
+            var meta = metadata.get(plan.id().value());
             plan.qcPlanId().ifPresent(id -> localQc.add(id.value()));
-            MetricSnapshot snap = latest.get(plan.id().value());
+            SnapshotPair pair = latest.get(plan.id().value());
+            MetricSnapshot snap = pair == null ? null : pair.current();
+            List<String> productIds = boundProducts.getOrDefault(plan.id().value(),
+                    plan.productIds().stream().map(p -> p.value()).toList());
+            var catalog = productIds.isEmpty() ? List.<Product>of()
+                    : productsByAweme.computeIfAbsent(plan.awemeId().value(),
+                            key -> productRepository.findByAweme(tenantId, plan.awemeId()));
+            var products = productIds.stream().map(id -> catalog.stream()
+                    .filter(p -> p.qcProductId().value().equals(id)).findFirst()
+                    .map(p -> new PlanListVo.ProductSummary(id, p.name(), p.imageUrl()))
+                    .orElse(new PlanListVo.ProductSummary(id, id, null))).toList();
             rows.add(new PlanListVo(
                     plan.id().value(),
                     plan.name().text(),
@@ -63,9 +88,19 @@ public class PlanQueryService {
                     plan.source() == PlanSource.LINGTOU,
                     plan.bindings().isEmpty() ? null : "agg-cover",
                     "展示字段",
-                    snap == null ? BigDecimal.ZERO : snap.cost().amount(),
-                    snap == null ? BigDecimal.ZERO : snap.gmv().amount(),
-                    snap == null || snap.roi() == null ? BigDecimal.ZERO : snap.roi().value()));
+                    snap == null ? null : snap.cost().amount(),
+                    snap == null ? null : snap.gmv().amount(),
+                    snap == null || snap.roi() == null ? null : snap.roi().value(),
+                    plan.setting().bidType().oceanValue(),
+                    plan.setting().dailyBudget().amount(),
+                    plan.setting().roi2Goal().map(r -> r.value()).orElse(null),
+                    plan.setting().schedule() == null ? null : plan.setting().schedule().startDate(),
+                    plan.setting().schedule() == null ? null : plan.setting().schedule().endDate(),
+                    snap == null ? null : snap.convert(),
+                    snap == null ? null : snap.ts(),
+                    products,
+                    comparison(pair), meta == null ? null : meta.createdAt(),
+                    meta == null ? null : meta.deliveryPlatform()));
         }
         oauthAccountRepository.findByTenant(tenantId).stream().findFirst().ifPresent(acc -> {
             try {
@@ -82,9 +117,11 @@ public class PlanQueryService {
                                     false,
                                     row.coverUrl(),
                                     row.guarantee(),
-                                    BigDecimal.ZERO,
-                                    BigDecimal.ZERO,
-                                    BigDecimal.ZERO));
+                                    null,
+                                    null,
+                                    null,
+                                    row.bidType().oceanValue(), row.budget().amount(), null,
+                                    null, null, null, null, List.of(), null, null, null));
                         }
                     }
                 }
@@ -123,4 +160,22 @@ public class PlanQueryService {
     }
 
     public record PageResult<T>(List<T> records, long total, int pageNum, int pageSize) {}
+
+    private static PlanListVo.MetricComparison comparison(SnapshotPair pair) {
+        if (pair == null || pair.current() == null || pair.previous() == null) return null;
+        MetricSnapshot current = pair.current(), previous = pair.previous();
+        BigDecimal roiChange = current.roi() == null || previous.roi() == null ? null
+                : current.roi().value().subtract(previous.roi().value());
+        return new PlanListVo.MetricComparison(
+                percentChange(current.cost().amount(), previous.cost().amount()),
+                percentChange(BigDecimal.valueOf(current.convert()), BigDecimal.valueOf(previous.convert())),
+                roiChange, previous.ts(), current.roi() == null || previous.roi() == null ? null
+                        : percentChange(current.roi().value(), previous.roi().value()));
+    }
+
+    private static BigDecimal percentChange(BigDecimal current, BigDecimal previous) {
+        if (previous.signum() <= 0) return null;
+        return current.subtract(previous).multiply(BigDecimal.valueOf(100))
+                .divide(previous, 2, RoundingMode.HALF_UP);
+    }
 }

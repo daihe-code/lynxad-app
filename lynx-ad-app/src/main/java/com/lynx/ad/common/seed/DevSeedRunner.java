@@ -15,6 +15,7 @@ import com.lynx.ad.modules.delivery.domain.model.AdPlan;
 import com.lynx.ad.modules.delivery.domain.model.AudienceJson;
 import com.lynx.ad.modules.delivery.domain.model.DeliverySetting;
 import com.lynx.ad.modules.delivery.domain.model.PlanName;
+import com.lynx.ad.modules.delivery.domain.model.RoiGoal;
 import com.lynx.ad.modules.delivery.domain.model.Schedule;
 import com.lynx.ad.modules.delivery.domain.model.SmartBidType;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
@@ -27,6 +28,7 @@ import com.lynx.ad.modules.tenant.domain.model.User;
 import com.lynx.ad.modules.tenant.domain.port.TenantRepository;
 import com.lynx.ad.modules.tenant.domain.port.UserRepository;
 import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -125,7 +127,7 @@ public class DevSeedRunner implements CommandLineRunner {
                 accountId,
                 aweme,
                 new PlanName(name),
-                new DeliverySetting(SmartBidType.CONSERVATIVE, Money.ofYuan(300), Optional.empty(), Schedule.fromNow(), AudienceJson.empty()),
+                new DeliverySetting(SmartBidType.CONSERVATIVE, Money.ofYuan(300), Optional.of(new RoiGoal(new BigDecimal("4"))), Schedule.fromNow(), AudienceJson.empty()),
                 List.of(new QcProductId("qp01")));
         if (lingtou && !rejected) {
             plan.publish(stubPkg());

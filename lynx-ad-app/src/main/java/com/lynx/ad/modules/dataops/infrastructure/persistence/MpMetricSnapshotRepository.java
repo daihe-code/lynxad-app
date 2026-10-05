@@ -12,7 +12,6 @@ import com.lynx.ad.modules.dataops.domain.model.Roi;
 import com.lynx.ad.modules.dataops.domain.port.MetricSnapshotRepository;
 import com.lynx.ad.modules.dataops.domain.port.SnapshotPair;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -80,20 +79,31 @@ public class MpMetricSnapshotRepository implements MetricSnapshotRepository {
 
     @Override
     public List<MetricSnapshot> listLatestByTenant(TenantId tenantId) {
+        return listLatestPairsByTenant(tenantId).values().stream()
+                .map(SnapshotPair::current)
+                .sorted(Comparator.comparing(MetricSnapshot::ts).reversed())
+                .toList();
+    }
+
+    @Override
+    public Map<String, SnapshotPair> listLatestPairsByTenant(TenantId tenantId) {
         List<MetricSnapshotPo> rows = mapper.selectList(new LambdaQueryWrapper<MetricSnapshotPo>()
                 .eq(MetricSnapshotPo::getTenantId, tenantId.value())
                 .orderByDesc(MetricSnapshotPo::getSnapshotTs)
                 .orderByDesc(MetricSnapshotPo::getId));
-        Map<String, MetricSnapshot> latest = new LinkedHashMap<>();
+        Map<String, SnapshotPair> pairs = new LinkedHashMap<>();
         for (MetricSnapshotPo po : rows) {
             if (po.getAdPlanId() == null) {
                 continue;
             }
-            latest.putIfAbsent(po.getAdPlanId(), toDomain(po));
+            SnapshotPair pair = pairs.get(po.getAdPlanId());
+            if (pair == null) {
+                pairs.put(po.getAdPlanId(), new SnapshotPair(toDomain(po), null));
+            } else if (pair.previous() == null && po.getSnapshotTs().isBefore(pair.current().ts())) {
+                pairs.put(po.getAdPlanId(), new SnapshotPair(pair.current(), toDomain(po)));
+            }
         }
-        List<MetricSnapshot> out = new ArrayList<>(latest.values());
-        out.sort(Comparator.comparing(MetricSnapshot::ts).reversed());
-        return out;
+        return pairs;
     }
 
     private MetricSnapshot toDomain(MetricSnapshotPo po) {

@@ -41,7 +41,7 @@ lynx:
     crypto:
       aes-key: "dev-only-aes256-key-32bytes!!!!"
     oauth:
-      web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI:http://localhost:5173/oauth/callback}
+      web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI:http://localhost:5174/oauth/callback}
       qianchuan:
         app-id: ${QIANCHUAN_APPID:}
         app-secret: ${QIANCHUAN_SECRET:}

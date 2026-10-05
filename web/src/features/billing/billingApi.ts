@@ -75,6 +75,10 @@ export function createOrder(planCode: string) {
   return apiPost<OrderView>("/api/v1/billing/orders", { planCode });
 }
 
+export function getPendingOrder() {
+  return apiGet<OrderView | null>("/api/v1/billing/orders/pending");
+}
+
 export function closeOrder(orderId: string) {
   return apiPost<OrderView>(`/api/v1/billing/orders/${orderId}/close`, {});
 }
