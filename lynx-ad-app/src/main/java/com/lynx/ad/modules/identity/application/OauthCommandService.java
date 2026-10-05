@@ -195,7 +195,7 @@ public class OauthCommandService {
         EncryptedToken refresh = result.refreshTokenPlain() == null
                 ? account.refreshToken()
                 : new EncryptedToken(encryptor.encrypt(result.refreshTokenPlain()));
-        account.replaceTokens(access, refresh, accessExp);
+        account.replaceTokens(access, refresh, accessExp, result.refreshExpiresAt());
     }
 
     public void unbind(TenantId tenantId, AccountId id) {

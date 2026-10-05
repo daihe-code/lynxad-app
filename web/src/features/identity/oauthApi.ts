@@ -47,6 +47,25 @@ export function removeAccount(id: string) {
   return apiPost<void>(`/api/v1/identity/accounts/${id}/remove`);
 }
 
+function isAuthorizedQianchuanAccount(account: AccountVo): boolean {
+  return account.platform === "QIANCHUAN"
+    && account.status === "ACTIVE"
+    && (!account.refreshExpiresAt || Date.parse(account.refreshExpiresAt) > Date.now());
+}
+
+export function hasQianchuanAuthorization(accounts: AccountVo[] | undefined): boolean {
+  return (accounts ?? []).some(isAuthorizedQianchuanAccount);
+}
+
 export function hasUsableAweme(accounts: AccountVo[] | undefined) {
-  return (accounts ?? []).some((a) => a.status === "ACTIVE" && a.awemes?.length);
+  return (accounts ?? []).some((a) => isAuthorizedQianchuanAccount(a) && a.awemes?.length);
+}
+
+/** Authorization takes priority over any destination supplied by a login entry. */
+export async function loginLandingPath(): Promise<"/campaigns" | "/authorization"> {
+  try {
+    return hasQianchuanAuthorization(await listAccounts()) ? "/campaigns" : "/authorization";
+  } catch {
+    return "/authorization";
+  }
 }

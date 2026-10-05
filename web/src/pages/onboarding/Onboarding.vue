@@ -89,6 +89,7 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { isValidPassword, PASSWORD_HINT } from "@/utils/password";
+import { loginLandingPath } from "@/features/identity/oauthApi";
 
 const user = useUserStore();
 const router = useRouter();
@@ -133,7 +134,7 @@ async function submit() {
   try {
     await user.onboard({ ...form });
     ElMessage.success("试用已开通");
-    router.replace("/accounts");
+    await router.replace(await loginLandingPath());
   } finally {
     loading.value = false;
   }

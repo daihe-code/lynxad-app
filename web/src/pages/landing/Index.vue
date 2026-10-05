@@ -51,8 +51,13 @@
         </nav>
 
         <div class="ml-auto flex items-center gap-2 sm:gap-3">
-          <router-link class="btn btn--outline btn--md hidden sm:inline-flex" to="/login">登录</router-link>
-          <a class="btn btn--primary btn--md" href="#cta" @click.prevent="goTrial">免费试用</a>
+          <router-link v-if="user.isLoggedIn" class="btn btn--outline btn--md home-user hidden sm:inline-flex" to="/accounts" :aria-label="`账户信息，当前登录用户：${userName}`" :title="userName">
+            <span class="home-user-avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2z"/></svg></span>
+            <span class="home-user-name">{{ userName }}</span>
+          </router-link>
+          <router-link v-else class="btn btn--outline btn--md hidden sm:inline-flex" to="/login">登录</router-link>
+          <router-link v-if="user.isLoggedIn" class="btn btn--primary btn--md" to="/campaigns" @click="menuOpen = false">进入工作台</router-link>
+          <a v-else class="btn btn--primary btn--md" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用</a>
 
           <button class="btn btn--outline btn--md lg:hidden" type="button"
                   @click="menuOpen = !menuOpen" :aria-expanded="menuOpen" aria-controls="mobile-nav" aria-label="展开导航">
@@ -66,7 +71,8 @@
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#industries" @click="menuOpen = false">解决方案</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
-        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/login">登录</router-link>
+        <router-link v-if="user.isLoggedIn" class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/accounts" @click="menuOpen = false">{{ userName }} · 账户信息</router-link>
+        <router-link v-else class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/login" @click="menuOpen = false">登录</router-link>
       </nav>
     </header>
 
@@ -92,7 +98,7 @@
             </p>
 
             <div class="mt-9 flex justify-center">
-              <a class="btn btn--primary btn--lg px-10" href="#cta"  @click.prevent="goTrial">免费试用 7 天</a>
+              <a class="btn btn--primary btn--lg px-10" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 7 天</a>
             </div>
 
             <dl class="mt-11 grid grid-cols-3 gap-x-2 text-center sm:flex sm:flex-wrap sm:justify-center sm:gap-x-14 sm:gap-y-6">
@@ -481,7 +487,7 @@
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>标准数据看板</li>
             </ul>
             <div class="mt-auto pt-8">
-              <a class="btn btn--soft btn--md btn--block" href="#cta" @click.prevent="goTrial">开始免费试用</a>
+              <a class="btn btn--soft btn--md btn--block" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">开始免费试用</a>
             </div>
           </article>
 
@@ -502,7 +508,7 @@
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>专属客户成功对接</li>
             </ul>
             <div class="mt-auto pt-8">
-              <a class="btn btn--primary btn--md btn--block" href="#cta" @click.prevent="goTrial">立即开通</a>
+              <a class="btn btn--primary btn--md btn--block" href="#cta" @click.prevent="goSubscription">立即开通</a>
             </div>
           </article>
 
@@ -615,7 +621,7 @@
           7 天免费试用，不满意随时退；先看看效果，再决定要不要继续
         </p>
         <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
-          <a class="btn btn--light btn--lg px-9" href="#"  @click.prevent="goTrial">免费试用 7 天</a>
+          <a class="btn btn--light btn--lg px-9" href="#" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 7 天</a>
           <a class="btn btn--glass btn--lg px-9" href="#" @click.prevent="openContact">联系客服咨询</a>
         </div>
       </div>
@@ -691,10 +697,11 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
+import { loginLandingPath } from "@/features/identity/oauthApi";
 import { isCnMobile } from "@/utils/phone";
 import hero1 from "@/assets/landing/hero-1.jpg";
 import hero2 from "@/assets/landing/hero-2.jpg";
@@ -702,8 +709,11 @@ import hero3 from "@/assets/landing/hero-3.jpg";
 import hero4 from "@/assets/landing/hero-4.jpg";
 
 const router = useRouter();
+const route = useRoute();
 const user = useUserStore();
+const userName = computed(() => user.me?.nickname || user.me?.phone || "已登录");
 const menuOpen = ref(false);
+const checkingTrial = ref(false);
 const contactOpen = ref(false), submitting = ref(false), submitted = ref(false);
 const phone = ref(""), phoneError = ref("");
 const contactInfo = reactive({ phone: "18801061264", email: "lynxAd@163.com" });
@@ -717,11 +727,33 @@ let ownsDescription = false;
 let contactSession = 0;
 let disposed = false;
 
-function goTrial() {
-  router.push(user.isLoggedIn ? "/subscription" : "/login");
+async function goTrial() {
+  if (checkingTrial.value) return;
+  menuOpen.value = false;
+  if (!user.isLoggedIn) {
+    await router.push("/login");
+    return;
+  }
+  checkingTrial.value = true;
+  try {
+    const destination = await loginLandingPath();
+    if (!disposed) await router.push(destination);
+  } finally {
+    checkingTrial.value = false;
+  }
+}
+
+function goSubscription() {
+  menuOpen.value = false;
+  router.push(user.isLoggedIn ? "/subscription" : { path: "/login", query: { redirect: "/subscription" } });
 }
 
 async function openContact() {
+  menuOpen.value = false;
+  if (!user.isLoggedIn) {
+    await router.push({ path: "/login", query: { redirect: "/?modal=contact" } });
+    return;
+  }
   const session = ++contactSession;
   lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   phone.value = "";
@@ -784,7 +816,7 @@ function handleKeydown(event: KeyboardEvent) {
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
 
-onMounted(() => {
+onMounted(async () => {
   previousTitle = document.title;
   document.title = "灵投智营 · 让广告投出效果｜智能广告投放专家";
   description = document.querySelector('meta[name="description"]');
@@ -797,7 +829,16 @@ onMounted(() => {
   previousDescription = description.getAttribute("content");
   description.content = "灵投智营用 AI 全自动接管选品、素材生成、投放盯盘与优化，用更小的广告投放成本带来更多的客户，让中小微企业也能获得专家级广告投放效果。";
   document.addEventListener("keydown", handleKeydown);
-  if (new URLSearchParams(location.search).get("modal") === "contact") openContact();
+  if (user.isLoggedIn && !user.me) {
+    try {
+      await user.loadMe();
+    } catch (error) {
+      const authError = error as { code?: number; response?: { status?: number } } | null;
+      // A temporary service error must not discard a saved login session.
+      if (!localStorage.getItem("lynx.token") || authError?.code === 401 || authError?.response?.status === 401) user.logout();
+    }
+  }
+  if (!disposed && route.query.modal === "contact") await openContact();
 });
 
 onUnmounted(() => {

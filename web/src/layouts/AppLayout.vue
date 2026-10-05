@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="{ 'campaign-shell': route.path === '/campaigns' || isReference, 'create-shell': isCreate, 'asset-shell': isAsset, 'account-shell': isAccount, 'reference-header': usesReferenceHeader }">
+  <div class="app-shell" :class="{ 'campaign-shell': route.path === '/campaigns' || isReference, 'create-shell': isCreate, 'asset-shell': isAsset, 'account-shell': isAccount, 'reference-content': isReference, 'reference-header': usesReferenceHeader }">
     <header class="topbar">
       <div class="topbar-inner">
       <div class="left">
@@ -51,7 +51,8 @@
     <main class="main">
       <router-view />
     </main>
-    <footer v-if="!isReference" class="foot">
+    <div v-if="route.path === '/campaigns'" class="campaign-reference reference-footer-only"><ReferenceFooter /></div>
+    <footer v-if="!isReference && route.path !== '/campaigns'" class="foot">
       <span>© 2026 灵投 LynxAd · 智能投放平台</span>
       <span>
         <a href="#" @click.prevent="onHelp">帮助中心</a>
@@ -74,13 +75,15 @@ import { listInbox, readInbox, type InboxMessage } from "@/features/tenant/inbox
 import { WATCHER_TYPES } from "@/features/agentops/agentopsApi";
 import { getPlan } from "@/features/delivery/deliveryApi";
 import "@/pages/campaigns/campaign-ui.css";
+import ReferenceFooter from "@/pages/campaigns/reference/ReferenceFooter.vue";
+import "@/pages/campaigns/reference/reference.css";
 
 const user = useUserStore();
 const route = useRoute();
 const isCreate = computed(() => route.path === "/campaigns/create");
 const isAsset = computed(() => route.path === "/creatives");
 const isAccount = computed(() => route.path === "/accounts" || route.path === "/subscription");
-const isReference = computed(() => isCreate.value || isAsset.value || isAccount.value);
+const isReference = computed(() => isCreate.value || isAsset.value || isAccount.value || route.path.startsWith('/campaigns/') || route.path.startsWith('/authorization') || route.path === '/oauth/callback' || route.path === '/analytics');
 // Navigation styling is shared independently of each page’s content layout.
 const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns"));
 const navOpen = ref(false);
@@ -90,7 +93,7 @@ const inbox = ref<InboxMessage[]>([]);
 const unread = computed(() => inbox.value.filter((i) => i.unread).length);
 const active = computed(() => {
   if (route.path.startsWith("/creatives")) return "/creatives";
-  if (route.path.startsWith("/analytics")) return "/analytics";
+  if (route.path.startsWith("/analytics")) return "/campaigns";
   if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription")) return "/accounts";
   return "/campaigns";
 });
@@ -140,6 +143,7 @@ onMounted(loadInbox);
   flex-direction: column;
 }
 .campaign-shell { background: #f7f7ff; --el-color-primary: #575cf6; }
+.reference-footer-only { min-height: 0; }
 .user-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #7962f7; }
 .campaign-shell .main { padding: 20px 24px 40px; }
 .campaign-shell .foot { background: #1a1a32; font-size: 12px; padding: 24px; color: #a7a2bc; }
@@ -232,7 +236,7 @@ onMounted(loadInbox);
 .reference-header .create-user { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 999px; padding: 4px 12px 4px 4px; font-family: inherit; font-size: 15px; font-weight: 500; line-height: 1; color: #1a1b2e; cursor: pointer; }
 .reference-header .user-avatar { background: linear-gradient(135deg,#575cf6,#a165ef); }
 .reference-header .account-caret { margin-left: 4px; width: 14px; height: 14px; color: #7c7f99; }
-:is(.create-shell, .asset-shell, .account-shell) .main { padding: 0; }
+:is(.create-shell, .asset-shell, .account-shell, .reference-content) .main { padding: 0; }
 @media (max-width: 950px) {
   :is(.create-shell, .asset-shell, .account-shell) .main { padding: 0; }
 }

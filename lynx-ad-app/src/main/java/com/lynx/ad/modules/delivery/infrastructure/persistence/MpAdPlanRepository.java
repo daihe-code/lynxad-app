@@ -102,9 +102,11 @@ interface AdPlanMapper extends BaseMapper<AdPlanPo> {}
 public class MpAdPlanRepository implements AdPlanRepository {
 
     private final AdPlanMapper mapper;
+    private final AdPlanCreativeBindingStore bindingStore;
 
-    public MpAdPlanRepository(AdPlanMapper mapper) {
+    public MpAdPlanRepository(AdPlanMapper mapper, AdPlanCreativeBindingStore bindingStore) {
         this.mapper = mapper;
+        this.bindingStore = bindingStore;
     }
 
     @Override
@@ -213,7 +215,8 @@ public class MpAdPlanRepository implements AdPlanRepository {
                 PlanStatus.valueOf(po.getStatus()),
                 po.getSource() == null ? PlanSource.LINGTOU : PlanSource.valueOf(po.getSource()),
                 setting,
-                List.of(),
+                bindingStore.productIdsByPlan(List.of(po.getId())).getOrDefault(po.getId(), List.of()).stream()
+                        .map(com.lynx.ad.common.domain.Ids.QcProductId::new).toList(),
                 po.getQcPlanId() == null ? null : new QcPlanId(po.getQcPlanId()),
                 po.getQcStatus(),
                 po.getRejectReason(),

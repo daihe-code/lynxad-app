@@ -1,6 +1,6 @@
 <template>
   <section class="acct-card" :aria-busy="loading">
-    <div class="acct-card__hd"><div class="authstat"><span class="authstat__i"><i class="authstat__d authstat__d--ok" />已授权 <b>{{ activeCount }}</b> 个账户</span><span class="authstat__i"><i class="authstat__d authstat__d--off" />已失效 / 取消 <b>{{ accounts.length - activeCount }}</b> 个</span></div><button class="btn-modal-primary account-add-auth" @click="open({ modal: 'add' })"><AccountIcon name="plus" /> 添加新授权</button></div>
+    <div class="acct-card__hd"><div class="authstat"><span class="authstat__i"><i class="authstat__d authstat__d--ok" />已授权 <b>{{ activeCount }}</b> 个账户</span><span class="authstat__i"><i class="authstat__d authstat__d--off" />已失效 <b>{{ expiredCount }}</b> 个</span><span class="authstat__i"><i class="authstat__d authstat__d--off" />已取消 <b>{{ cancelledCount }}</b> 个</span></div><button class="btn-modal-primary account-add-auth" @click="open({ modal: 'add' })"><AccountIcon name="plus" /> 添加新授权</button></div>
     <div v-if="loading" class="nodata" role="status">正在加载授权账户…</div>
     <div v-else-if="loadError" class="nodata"><p>{{ loadError }}</p><button class="obtn mt-[18px]" @click="load">重新加载</button></div>
     <div v-else-if="!accounts.length" class="nodata"><span class="nodata__ic"><AccountIcon name="douyin" /></span><p class="nodata__t">暂无广告账户授权</p><p class="nodata__d">添加授权后即可管理账户与投放计划</p></div>
@@ -43,16 +43,18 @@ import { computed, onMounted, ref, useId, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';
-import { listAccounts, mockBind, oauthUrl, refreshAccount, unbindAccount, removeAccount, type AccountVo } from '@/features/identity/oauthApi';
+import { listAccounts, mockBind, refreshAccount, unbindAccount, removeAccount, type AccountVo } from '@/features/identity/oauthApi';
 import AccountIcon from './AccountIcon.vue';
 import AccountModal from './AccountModal.vue';
 import { date } from './accountFormat';
 const route = useRoute(), router = useRouter(), user = useUserStore(), formId = useId();
 const accounts = ref<AccountVo[]>([]), loading = ref(true), loadError = ref(''), error = ref(''), busyId = ref(''), authorizing = ref(false);
 function active(account: AccountVo) { return account.status === 'ACTIVE' && (!account.refreshExpiresAt || new Date(account.refreshExpiresAt).getTime() > Date.now()); }
-function status(account: AccountVo) { return account.status === 'UNBOUND' ? '已取消' : active(account) ? '授权有效' : '已过期'; }
+function status(account: AccountVo) { return account.status === 'UNBOUND' ? '已取消' : active(account) ? '授权有效' : account.status === 'ACTIVE' ? '已过期' : '已失效'; }
 function scope(account: AccountVo) { return account.platform === 'LOCAL' ? '本地推' : '全域投放'; }
 const activeCount = computed(() => accounts.value.filter(active).length);
+const cancelledCount = computed(() => accounts.value.filter(a => a.status === 'UNBOUND').length);
+const expiredCount = computed(() => accounts.value.filter(a => a.status !== 'UNBOUND' && !active(a)).length);
 const detail = computed(() => accounts.value.find(a => a.accountId === route.query.detail));
 const target = computed(() => accounts.value.find(a => a.accountId === (route.query.cancel || route.query.del)));
 const detailRows = computed(() => detail.value ? [['广告账户ID', detail.value.advertiserId], ['投放权限', scope(detail.value)], ['授权时间', date(detail.value.authorizedAt)], ['到期时间', date(detail.value.refreshExpiresAt)], ['关联抖音号', detail.value.awemes.map(a => a.name).join('、') || '—'], ['授权状态', status(detail.value)]] : []);
@@ -92,11 +94,7 @@ async function authorize(demo: boolean) { if (authorizing.value)
         ElMessage.success('演示授权成功');
     }
     else {
-        const result = await oauthUrl();
-        const url = new URL(result.url);
-        if (!['https:', 'http:'].includes(url.protocol))
-            throw new Error('invalid URL');
-        window.location.assign(url.href);
+        await router.push("/authorization/authorizing?start=1");
     }
 }
 catch {

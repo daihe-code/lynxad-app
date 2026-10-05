@@ -24,7 +24,7 @@
       <div class="section-heading"><h2 id="plans-title">投放计划列表</h2><router-link class="analytics-link" to="/analytics">数据分析 <el-icon><ArrowRight /></el-icon></router-link></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
-          <el-button type="primary" :disabled="!user.trialActive" @click="$router.push('/campaigns/create')"><el-icon><Plus /></el-icon>创建投放计划</el-button>
+          <el-button type="primary" :disabled="!user.trialActive" @click="$router.push('/campaigns/manage/create')"><el-icon><Plus /></el-icon>创建投放计划</el-button>
           <el-input v-model="keyword" class="search-input" clearable placeholder="搜索计划名称 / 商品名称 / 计划ID" aria-label="搜索计划名称或 ID"><template #prefix><el-icon><Search /></el-icon></template></el-input>
           <el-select v-model="status" class="status-select" placeholder="全部状态" aria-label="计划状态" popper-class="campaign-dropdown"><el-option label="全部状态" value="" /><el-option v-for="(label, value) in PLAN_STATUS" :key="value" :label="label" :value="value" /></el-select>
         </div>
@@ -86,7 +86,7 @@
               <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" label="支付 ROI" /></div></td>
               <td v-if="showTools" class="tools-cell"><button v-for="tool in tools" :key="tool" :disabled="!canManage(row) || row.status !== 'DELIVERING'" @click="openOperation(tool, row)">{{ tool }}<span>+</span></button></td>
               <td class="actions-cell">
-                <template v-if="row.source !== 'EXTERNAL'"><router-link :to="`/campaigns/${row.planId}`">详情</router-link><button :disabled="!canManage(row)" @click="openOperation('修改计划', row)">修改</button><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button></template>
+                <template v-if="row.source !== 'EXTERNAL'"><router-link :to="`/campaigns/${row.planId}/analysis`">查看详情</router-link><router-link :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button></template>
                 <el-tooltip v-else content="外部计划请前往千川查看和管理" popper-class="campaign-tooltip"><span class="muted">外部计划</span></el-tooltip>
               </td>
             </tr>
@@ -309,4 +309,14 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; }.metric { padding: 16px; }.metric strong { font-size: 22px; } }
 @media (max-width: 700px) { .title-row { align-items: flex-start; flex-direction: column; gap: 16px; }.title-group { flex-wrap: wrap; gap: 12px; }h1 { font-size: 21px; }.panel { padding: 20px 16px; border-radius: 18px; }.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.metric strong { font-size: 20px; }.toolbar-left { width: 100%; }.search-input { width: 100%; order: 3; }.toolbar-right { flex-wrap: wrap; }.pager { flex-wrap: wrap; justify-content: flex-start; }.pager :deep(.el-pagination) { flex-wrap: wrap; row-gap: 10px; } }
+.plan-info-cell .plan-name { color: #7c7f99; }
+tr:hover .plan-info-cell .plan-name, tr:focus-within .plan-info-cell .plan-name { color: #575cf6; }
+.goods-thumb { width: 0; opacity: 0; overflow: hidden; transition: width .18s, opacity .18s; }
+.product-trigger { gap: 0; }
+tr:hover .goods-thumb, tr:focus-within .goods-thumb { width: 26px; height: 26px; opacity: 1; }
+tr:hover .product-trigger, tr:focus-within .product-trigger { gap: 8px; }
+.goods-thumb .el-image { width: 26px; height: 26px; }
+.bid-edit { max-width: 0; opacity: 0; overflow: hidden; padding: 0; transition: max-width .18s, opacity .18s; }
+tr:hover .bid-edit, tr:focus-within .bid-edit { max-width: 120px; opacity: 1; }
+@media (hover: none) { .goods-thumb { width: 26px; height: 26px; opacity: 1; } .product-trigger { gap: 8px; } .bid-edit { max-width: 120px; opacity: 1; } }
 </style>

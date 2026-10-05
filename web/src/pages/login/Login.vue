@@ -230,6 +230,7 @@
 import { nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { sendSms } from "@/features/tenant/authApi";
+import { loginLandingPath } from "@/features/identity/oauthApi";
 import { useUserStore } from "@/stores/user";
 import { isCnMobile } from "@/utils/phone";
 
@@ -341,8 +342,8 @@ async function onPasswordLogin() {
 }
 async function afterLogin() {
   if (user.needOnboarding) { await router.replace("/onboarding"); return; }
-  const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/campaigns";
-  await router.replace(redirect);
+  const destination = await loginLandingPath();
+  if (!disposed) await router.replace(destination);
 }
 </script>
 

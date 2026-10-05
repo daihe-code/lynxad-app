@@ -14,7 +14,6 @@ const router = createRouter({
     { path: "/", component: () => import("@/pages/landing/Index.vue"), meta: { public: true } },
     { path: "/login", component: () => import("@/pages/login/Login.vue"), meta: { public: true } },
     { path: "/onboarding", component: () => import("@/pages/onboarding/Onboarding.vue"), meta: { auth: true } },
-    { path: "/oauth/callback", component: () => import("@/pages/oauth/Callback.vue"), meta: { public: true } },
     { path: "/legal/terms", component: () => import("@/pages/legal/Terms.vue"), meta: { public: true } },
     { path: "/legal/privacy", component: () => import("@/pages/legal/Privacy.vue"), meta: { public: true } },
     {
@@ -24,8 +23,28 @@ const router = createRouter({
       children: [
         { path: "", component: () => import("@/pages/campaigns/List.vue") },
         { path: "create", component: () => import("@/pages/campaigns/Create.vue"), meta: { requireAweme: true } },
+        { path: "manage/create", component: () => import("@/pages/campaigns/reference/PlanForm.vue"), meta: { requireAweme: true } },
+        { path: ":id/analysis", component: () => import("@/pages/campaigns/reference/PlanAnalysis.vue") },
+        { path: ":id/edit", component: () => import("@/pages/campaigns/reference/PlanForm.vue") },
+        { path: ":id/result", component: () => import("@/pages/campaigns/reference/PlanResult.vue") },
+        { path: ":id/overview", component: () => import("@/pages/campaigns/reference/PlanOverview.vue") },
         { path: ":id", component: () => import("@/pages/campaigns/Detail.vue") },
       ],
+    },
+    {
+      path: "/authorization",
+      component: () => import("@/layouts/AppLayout.vue"),
+      meta: { auth: true },
+      children: [
+        { path: "", component: () => import("@/pages/authorization/Authorization.vue") },
+        { path: "authorizing", component: () => import("@/pages/authorization/Authorization.vue") },
+      ],
+    },
+    {
+      path: "/oauth",
+      component: () => import("@/layouts/AppLayout.vue"),
+      meta: { auth: true },
+      children: [{ path: "callback", component: () => import("@/pages/authorization/Authorization.vue") }],
     },
     {
       path: "/creatives",
@@ -95,7 +114,7 @@ router.beforeEach(async (to) => {
     if (to.meta.requireAweme) {
       const accounts = await listAccounts();
       if (!hasUsableAweme(accounts)) {
-        return "/accounts";
+        return { path: "/authorization", query: { redirect: to.fullPath } };
       }
     }
   }

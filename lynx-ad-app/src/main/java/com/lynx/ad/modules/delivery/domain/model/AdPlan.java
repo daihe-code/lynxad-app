@@ -99,6 +99,14 @@ public class AdPlan {
         this.setting = setting;
     }
 
+    public void replaceProducts(List<QcProductId> next) {
+        if (status != PlanStatus.DRAFT && status != PlanStatus.REJECTED) {
+            throw new DomainException(1403, "当前状态不可修改推广商品");
+        }
+        productIds.clear();
+        productIds.addAll(next == null ? List.of() : next);
+    }
+
     public void publish(CreativePackage pkg) {
         if (pkg == null || !pkg.isConfirmed()) {
             throw new DomainException(1403, "请先确认素材包");

@@ -145,10 +145,13 @@ public class OauthAccount {
         return "ACTIVE".equals(status) && tokenExpiresAt != null && !now.plus(REFRESH_LEAD).isBefore(tokenExpiresAt);
     }
 
-    public void replaceTokens(EncryptedToken access, EncryptedToken refresh, Instant exp) {
+    public void replaceTokens(EncryptedToken access, EncryptedToken refresh, Instant exp, Instant refreshExp) {
         this.accessToken = access;
         this.refreshToken = refresh;
         this.tokenExpiresAt = exp;
+        if (refreshExp != null) {
+            this.refreshExpiresAt = refreshExp;
+        }
         this.status = "ACTIVE";
     }
 

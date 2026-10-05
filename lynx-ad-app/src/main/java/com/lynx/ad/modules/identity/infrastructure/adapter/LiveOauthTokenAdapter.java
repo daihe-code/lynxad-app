@@ -74,16 +74,20 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
 
     private OauthTokenResult toResult(JsonNode data, boolean loadCatalog) {
         String access = text(data, "access_token");
-        String refresh = text(data, "refresh_token");
+        String refresh = loadCatalog ? text(data, "refresh_token") : data.path("refresh_token").asText("");
+        if (refresh.isBlank()) refresh = null;
         long expiresIn = data.path("expires_in").asLong(86400);
-        Instant accessExp = Instant.now().plusSeconds(Math.max(expiresIn, 60));
+        Instant issuedAt = Instant.now();
+        Instant accessExp = issuedAt.plusSeconds(Math.max(expiresIn, 60));
+        long refreshExpiresIn = data.path("refresh_token_expires_in").asLong(-1);
+        Instant refreshExp = refreshExpiresIn < 0 ? null : issuedAt.plusSeconds(refreshExpiresIn);
         String advertiserId = firstAdvertiser(data);
         String name = data.path("advertiser_name").asText("千川账户");
         List<AwemeDraft> awemes = loadCatalog ? loadAwemes(access, advertiserId) : List.of();
         if (advertiserId.isBlank()) {
             throw new BizException(1205, "换票失败");
         }
-        return new OauthTokenResult(advertiserId, name, access, refresh, accessExp, accessExp.plusSeconds(86400), awemes);
+        return new OauthTokenResult(advertiserId, name, access, refresh, accessExp, refreshExp, awemes);
     }
 
     private List<AwemeDraft> loadAwemes(String accessToken, String advertiserId) {

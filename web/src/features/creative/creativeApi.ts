@@ -4,6 +4,7 @@ export interface PackageItemVo {
   productId: string;
   playUrl?: string;
   posterUrl?: string;
+  titles?: string[];
 }
 
 export interface TaskVo {

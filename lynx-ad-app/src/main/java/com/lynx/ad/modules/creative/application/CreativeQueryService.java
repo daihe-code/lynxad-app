@@ -52,7 +52,8 @@ public class CreativeQueryService {
                 .map(i -> new PackageItemVo(
                         i.productId().value(),
                         i.videoObjectKey() == null ? null : storagePort.getUrl(tenantId, i.videoObjectKey()),
-                        i.coverObjectKey() == null ? null : storagePort.getUrl(tenantId, i.coverObjectKey())))
+                        i.coverObjectKey() == null ? null : storagePort.getUrl(tenantId, i.coverObjectKey()),
+                        i.titles().stream().map(title -> title.text()).toList()))
                 .toList();
     }
 }

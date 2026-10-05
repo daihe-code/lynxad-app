@@ -5,7 +5,6 @@ import com.lynx.ad.agents.plan.PlanAgent;
 import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.AwemeId;
 import com.lynx.ad.common.domain.Ids.IdempotencyKey;
-import com.lynx.ad.common.domain.Ids.PackageId;
 import com.lynx.ad.common.domain.Ids.PlanId;
 import com.lynx.ad.common.domain.Ids.QcPlanId;
 import com.lynx.ad.common.domain.Ids.QcProductId;
@@ -112,6 +111,7 @@ public class PlanCommandService {
         List<QcProductId> pids = cmd.productIds() == null ? List.of() : cmd.productIds().stream().map(QcProductId::new).toList();
         AdPlan plan = AdPlan.draft(tenantId, new AccountId(cmd.accountId()), new AwemeId(cmd.awemeId()), name, setting, pids);
         planRepository.save(plan);
+        saveDraftProducts(plan);
         recordPlan(tenantId, plan.id().value(), plan.name().text());
         Credential cred = credentialFacade.get(new AccountId(cmd.accountId()));
         var budget = suggestBudgetPort.suggest(cred, plan.awemeId(), setting.dailyBudget());
@@ -126,11 +126,22 @@ public class PlanCommandService {
     public PlanVo updateDraft(TenantId tenantId, PlanId id, PlanDraftRequest cmd) {
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan = require(tenantId, id);
+        if (plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DRAFT
+                && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
+            throw new BizException(1403, "已提交平台的计划暂不支持在线修改");
+        }
+        if (!plan.accountId().value().equals(cmd.accountId()) || !plan.awemeId().value().equals(cmd.awemeId())) {
+            throw new BizException(1403, "草稿不可切换广告账户或抖音号，请新建计划");
+        }
         PlanName name = new PlanName(cmd.name());
         namePolicy.assertUnique(planRepository.existsUnfinishedName(tenantId, plan.awemeId(), name, Optional.of(id)));
         plan.rename(name);
-        plan.updateSetting(settingOf(cmd));
+        DeliverySetting requested = settingOf(cmd);
+        plan.updateSetting(new DeliverySetting(requested.bidType(), requested.dailyBudget(),
+                requested.roi2Goal(), plan.setting().schedule(), requested.audience()));
+        plan.replaceProducts(cmd.productIds() == null ? List.of() : cmd.productIds().stream().map(QcProductId::new).toList());
         planRepository.save(plan);
+        saveDraftProducts(plan);
         recordPlan(tenantId, plan.id().value(), plan.name().text());
         return toVo(plan);
     }
@@ -148,12 +159,8 @@ public class PlanCommandService {
                 throw new BizException(9999, "幂等回放失败");
             }
         }
-        boolean confirmed = cmdPackageConfirmed(tenantId, plan);
-        publishPolicy.assertPublishable(plan, true, confirmed, Math.max(1, plan.productIds().size()));
         CreativePackage pkg = resolvePackage(tenantId, plan);
-        if (!pkg.isConfirmed()) {
-            pkg.confirm();
-        }
+        publishPolicy.assertPublishable(plan, true, pkg.isConfirmed(), plan.productIds().size());
         if (plan.status() == com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
             plan.revertToDraft();
         }
@@ -211,18 +218,12 @@ public class PlanCommandService {
         planRepository.save(plan);
     }
 
-    private boolean cmdPackageConfirmed(TenantId tenantId, AdPlan plan) {
-        return creativeTaskRepository.listByTenant(tenantId).stream()
-                .anyMatch(t -> t.currentPackage().isPresent() && t.currentPackage().get().isConfirmed());
-    }
-
     private CreativePackage resolvePackage(TenantId tenantId, AdPlan plan) {
         return creativeTaskRepository.listByTenant(tenantId).stream()
                 .filter(t -> t.planId().map(p -> p.equals(plan.id())).orElse(false))
                 .flatMap(t -> t.currentPackage().stream())
-                .findFirst()
-                .or(() -> creativeTaskRepository.findPackage(tenantId, new PackageId(plan.id().value())))
-                .orElseGet(() -> stubConfirmed(plan));
+                .max(java.util.Comparator.comparing(CreativePackage::createdAt))
+                .orElseThrow(() -> new BizException(1503, "当前计划尚未生成素材包，请先准备并确认素材"));
     }
 
     private List<PlanCreativeBinding> toBindings(CreativePackage pkg) {
@@ -237,15 +238,11 @@ public class PlanCommandService {
                 .toList();
     }
 
-    private CreativePackage stubConfirmed(AdPlan plan) {
-        CreativePackage pkg = CreativePackage.of(List.of(new com.lynx.ad.modules.creative.domain.model.CreativeArtifact(
-                plan.productIds().isEmpty() ? new QcProductId("qp01") : plan.productIds().get(0),
-                List.of(new com.lynx.ad.modules.creative.domain.model.AdTitle(
-                        "烘焙好物", com.lynx.ad.modules.creative.domain.model.TitleType.CUSTOM)),
-                Optional.empty(),
-                Optional.empty())));
-        pkg.confirm();
-        return pkg;
+    private void saveDraftProducts(AdPlan plan) {
+        // Keep draft selections across reloads without pretending any media is already bound.
+        bindingStore.upsert(plan.id(), plan.productIds().stream()
+                .map(productId -> new PlanCreativeBinding(null, productId, null, null, List.of()))
+                .toList());
     }
 
     private void recordPlan(TenantId tenantId, String planId, String name) {
