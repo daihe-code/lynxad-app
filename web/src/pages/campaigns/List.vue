@@ -33,7 +33,7 @@
           <el-popover placement="bottom-end" :width="290" trigger="click" popper-class="campaign-popover">
             <template #reference><el-button class="square-button" aria-label="列表设置"><el-icon><Operation /></el-icon></el-button></template>
             <div class="popup-heading"><strong>列表设置</strong><span>即时生效</span></div>
-            <div class="column-setting"><span>控调工具列<small>显示计划的快捷操作</small></span><el-switch v-model="showTools" aria-label="显示控调工具" /></div>
+            <div class="column-setting"><span>调控工具列<small>显示计划的快捷操作</small></span><el-switch v-model="showTools" aria-label="显示调控工具" /></div>
             <div class="column-setting"><span>每页条数</span><el-select v-model="pageSize" style="width: 124px" aria-label="每页条数" popper-class="campaign-dropdown"><el-option v-for="size in [10, 20, 50]" :key="size" :label="`${size} 条 / 页`" :value="size" /></el-select></div>
             <div class="column-setting"><span>行间距</span><div class="density-options"><button :class="{ active: !compact }" :aria-pressed="!compact" @click="compact = false">舒适</button><button :class="{ active: compact }" :aria-pressed="compact" @click="compact = true">紧凑</button></div></div>
             <p class="settings-hint">显示偏好会保存在当前浏览器中。</p>
@@ -55,7 +55,7 @@
             <th><el-checkbox :model-value="allPageSelected" :indeterminate="somePageSelected && !allPageSelected" aria-label="选择本页全部计划" @change="togglePageSelection" /></th>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
             <th v-for="column in metricColumns" :key="column.field"><button class="sort-heading" @click="toggleSort(column.field)">{{ column.label }}<el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></th>
-            <th v-if="showTools">控调工具</th><th>操作</th>
+            <th v-if="showTools">调控工具</th><th>操作</th>
           </tr></thead>
           <tbody>
             <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">

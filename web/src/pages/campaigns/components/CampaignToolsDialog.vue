@@ -1,7 +1,7 @@
 <template>
   <el-dialog v-model="open" width="720px" class="campaign-dialog campaign-tools-dialog" modal-class="campaign-overlay" :close-on-click-modal="false" align-center destroy-on-close>
-    <template #header><div class="tools-header"><h2>控调工具</h2><span :title="plan?.name">· {{ plan?.name }}</span></div></template>
-    <div class="tools-cards" role="tablist" aria-label="选择控调工具">
+    <template #header><div class="tools-header"><h2>调控工具</h2><span :title="plan?.name">· {{ plan?.name }}</span></div></template>
+    <div class="tools-cards" role="tablist" aria-label="选择调控工具">
       <div v-for="tool in tools" :key="tool.key" class="tool-card" :class="{ active: activeTool === tool.key }">
         <button :id="`control-tab-${tool.key}`" class="tool-pick" type="button" role="tab" :aria-selected="activeTool === tool.key" aria-controls="control-parameters" :tabindex="activeTool === tool.key ? 0 : -1" @click="activeTool = tool.key" @keydown="moveTab($event, tool.key)">
           <strong><svg v-if="tool.key === '一键起量'" class="bolt-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h6l-1 8 9-13h-6z" /></svg><svg v-else-if="tool.key === '素材追投'" class="tool-video-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m10 9 5 3-5 3z" /></svg><el-icon v-else><component :is="tool.icon" /></el-icon>{{ tool.key }}</strong><span>· {{ tool.description }}</span><span>· {{ tool.condition }}</span>
