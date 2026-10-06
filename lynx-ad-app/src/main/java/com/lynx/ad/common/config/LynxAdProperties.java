@@ -740,6 +740,12 @@ public class LynxAdProperties {
     }
 
     public static class DeliveryApi {
+        private String managementBaseUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/";
+        private String compensateStatusUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/ad/compensate_status/get/";
+        public String getManagementBaseUrl() { return managementBaseUrl; }
+        public void setManagementBaseUrl(String value) { managementBaseUrl = value; }
+        public String getCompensateStatusUrl() { return compensateStatusUrl; }
+        public void setCompensateStatusUrl(String value) { compensateStatusUrl = value; }
         private String suggestBudgetUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/budget/";
         private String suggestRoiUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/roi/";
         private String adCreateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/create/";

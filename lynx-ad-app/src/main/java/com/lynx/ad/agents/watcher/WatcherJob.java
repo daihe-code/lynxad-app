@@ -39,7 +39,7 @@ public class WatcherJob {
             return;
         }
         var plan = planRepository.findByIdOnly(planId).orElse(null);
-        if (plan == null) {
+        if (plan == null || plan.source() == com.lynx.ad.modules.delivery.domain.model.PlanSource.EXTERNAL) {
             return;
         }
         boolean pause = "ABNORMAL_PAUSE".equals(plan.qcStatus());

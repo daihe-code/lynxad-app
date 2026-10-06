@@ -5,28 +5,30 @@
       <div class="title-actions">
         <el-popover :width="310" trigger="click" placement="bottom-end" popper-class="campaign-popover">
           <template #reference><button class="snapshot-label" type="button" aria-label="查看统计口径"><el-icon><Calendar /></el-icon>最新数据<span v-if="snapshotDate"> · {{ snapshotDate }}</span><el-icon><ArrowDown /></el-icon></button></template>
-          <div class="popup-heading"><strong>统计口径</strong><el-icon><Calendar /></el-icon></div><div class="snapshot-info"><span>统计时间</span><strong>{{ snapshotDate || '暂无统计快照' }}</strong><p>概览和列表展示各计划最近一次同步的统计数据。</p><div class="snapshot-note">历史日期范围查询待接入</div></div>
+          <div class="popup-heading"><strong>统计口径</strong><el-icon><Calendar /></el-icon></div><div class="snapshot-info"><span>统计时间</span><strong>{{ snapshotDate || '暂无统计快照' }}</strong><p>概览和列表展示各计划最近一次同步的统计数据。</p><div class="snapshot-note">千川数据为今日累计；增长率与昨日全天比较。模拟数据与上次快照比较。</div></div>
         </el-popover>
-        <el-button class="square-button" :loading="loading" aria-label="刷新数据" @click="load"><el-icon><Refresh /></el-icon></el-button>
+        <el-button class="square-button" :loading="syncing" aria-label="刷新数据" @click="syncRemote"><el-icon><Refresh /></el-icon></el-button>
       </div>
     </div>
     <el-alert v-if="!user.trialActive" class="trial-alert" type="warning" show-icon :closable="false" title="试用已结束，工作台只读。仍可查看历史计划与报表。" />
+    <el-alert v-if="loadFailed && records.length" type="warning" :closable="false" title="列表加载失败，当前保留上次加载的数据，请重试" /><el-alert v-if="syncWarning" type="warning" show-icon :closable="false" :title="syncWarning" />
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
-      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2><span>最新统计快照</span></div>
+      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2><span>当前筛选范围 · {{ summaryCoverage }}</span></div>
       <div class="metrics">
-        <article class="metric metric-cost"><span>广告消耗（元）</span><strong>{{ summary ? money(summary.cost) : '—' }}</strong><small>暂无昨日对比</small></article>
-        <article class="metric metric-orders"><span>成交订单数（单）</span><strong>{{ summary ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>暂无昨日对比</small></article>
-        <article class="metric metric-gmv"><span>成交金额（元）</span><strong>{{ summary ? money(summary.gmv) : '—' }}</strong><small>暂无昨日对比</small></article>
-        <article class="metric metric-roi"><span>支付 ROI</span><strong>{{ summary && summary.cost > 0 ? roiText(summary.gmv / summary.cost) : '—' }}</strong><small>成交金额 / 广告消耗</small></article>
+        <article class="metric metric-cost"><span>广告消耗（元）</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-orders"><span>成交订单数（单）</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-gmv"><span>成交金额（元）</span><strong>{{ summary?.gmv != null ? money(summary.gmv) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-roi"><span>支付 ROI</span><strong>{{ roiText(summary?.roi) }}</strong><small>汇总成交金额 / 汇总消耗</small></article>
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
       <div class="section-heading"><h2 id="plans-title">投放计划列表</h2><router-link class="analytics-link" to="/analytics">数据分析 <el-icon><ArrowRight /></el-icon></router-link></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
-          <el-button type="primary" :disabled="!user.trialActive" @click="$router.push('/campaigns/manage/create')"><el-icon><Plus /></el-icon>创建投放计划</el-button>
+          <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
           <el-input v-model="keyword" class="search-input" clearable placeholder="搜索计划名称 / 商品名称 / 计划ID" aria-label="搜索计划名称或 ID"><template #prefix><el-icon><Search /></el-icon></template></el-input>
           <el-select v-model="status" class="status-select" placeholder="全部状态" aria-label="计划状态" popper-class="campaign-dropdown"><el-option label="全部状态" value="" /><el-option v-for="(label, value) in PLAN_STATUS" :key="value" :label="label" :value="value" /></el-select>
+          <el-select v-model="accountId" class="status-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown"><el-option label="全部广告账户" value="" /><el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId" /></el-select>
         </div>
         <div class="toolbar-right">
           <el-button :aria-expanded="filtersExpanded" aria-controls="campaign-extra-filters" @click="filtersExpanded = !filtersExpanded"><el-icon><Filter /></el-icon>更多筛选</el-button>
@@ -61,7 +63,7 @@
             <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">
               <td><el-checkbox v-model="selectedIds" :value="row.planId" :aria-label="`选择计划 ${row.name}`" /></td>
               <td class="plan-info-cell">
-                <router-link v-if="row.source !== 'EXTERNAL'" class="plan-name" :to="`/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link><span v-else class="plan-name" :title="row.name">{{ row.name }}</span>
+                <router-link class="plan-name" :to="`/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <div class="product-line">
                   <el-popover v-if="row.products?.length" placement="bottom-start" :width="330" trigger="click" popper-class="campaign-popover">
@@ -76,27 +78,26 @@
               <td><span class="status-pill" :class="row.status.toLowerCase()"><i></i>{{ PLAN_STATUS[row.status] || row.status }}</span></td>
               <td class="settings-cell">
                 <div><span>日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div class="roi-setting"><span>净成交ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div class="bid-mode"><span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span><button v-if="canManage(row) && alternateBidType(row)" class="bid-edit" :aria-label="`切换 ${row.name} 为${alternateBidType(row)?.label}`" @click="openOperation('切换投放方式', row, alternateBidType(row)?.value)"><el-icon><Switch /></el-icon><span>{{ alternateBidType(row)?.label }}</span></button></div>
+                <div class="roi-setting"><span>净成交ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><button v-if="canManage(row) && row.smartBidType === 'SMART_BID_CUSTOM'" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div class="bid-mode"><span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span></div>
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ shortDate(row.startDate) }} ~ {{ row.endDate ? shortDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><div v-if="row.costYuan != null" class="metric-change-line"><MetricDelta :value="row.comparison?.costChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" label="消耗" /></div></td>
-              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="row.convert != null" class="metric-change-line"><MetricDelta :value="row.comparison?.convertChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" label="成交订单" /></div></td>
+              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><div v-if="row.costYuan != null" class="metric-change-line"><MetricDelta :value="row.comparison?.costChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="消耗" /></div></td>
+              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="row.convert != null" class="metric-change-line"><MetricDelta :value="row.comparison?.convertChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="成交订单" /></div></td>
               <td class="number-cell gmv-cell"><strong>{{ yuan(row.gmvYuan) }}</strong></td>
-              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" label="支付 ROI" /></div></td>
-              <td v-if="showTools" class="tools-cell"><button v-for="tool in tools" :key="tool" :disabled="!canManage(row) || row.status !== 'DELIVERING'" @click="openOperation(tool, row)">{{ tool }}<span>+</span></button></td>
+              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="支付 ROI" /></div></td>
+              <td v-if="showTools" class="tools-cell"><button v-for="tool in tools" :key="tool" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}<span>+</span></button></td>
               <td class="actions-cell">
-                <template v-if="row.source !== 'EXTERNAL'"><router-link :to="`/campaigns/${row.planId}/analysis`">查看详情</router-link><router-link :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button></template>
-                <el-tooltip v-else content="外部计划请前往千川查看和管理" popper-class="campaign-tooltip"><span class="muted">外部计划</span></el-tooltip>
+                <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link><button v-if="canManage(row)" @click="openOperation('修改计划', row)">修改</button><router-link v-else-if="row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status)" :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
               </td>
             </tr>
             <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 11 : 10" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
           </tbody>
         </table>
       </div>
-      <div class="pager"><span>共 {{ filtered.length }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="filtered.length" :page-size="pageSize" v-model:current-page="pageNum" /></div>
+      <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
-    <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" :initial-bid-type="operationBidType" />
+    <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" :initial-bid-type="operationBidType" @saved="load" />
     <el-dialog v-model="confirmOpen" :title="confirmPlan?.status === 'DELIVERING' ? '暂停计划提醒' : '启用投放计划'" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!actingId" :show-close="!actingId" :before-close="closeConfirmation">
       <div class="confirmation-intro"><span class="confirmation-icon" :class="{ resume: confirmPlan?.status === 'PAUSED' }"><el-icon><component :is="confirmPlan?.status === 'DELIVERING' ? VideoPause : VideoPlay" /></el-icon></span><div><strong>{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停该计划？' : '确认恢复该计划的投放？' }}</strong><p>{{ confirmPlan?.status === 'DELIVERING' ? '暂停后计划将停止投放，可在列表中重新启用。' : '启用后计划将恢复投放，请确认当前预算和目标。' }}</p></div></div>
       <div class="confirmation-plan"><strong>{{ confirmPlan?.name }}</strong><span>ID：{{ confirmPlan?.qcPlanId || confirmPlan?.planId }}</span><div><span>日预算 <b>{{ yuan(confirmPlan?.budget) }}</b></span><span>ROI 目标 <b>{{ roiText(confirmPlan?.roi2Goal) }}</b></span></div></div>
@@ -106,19 +107,29 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, ArrowRight, Calendar, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, Switch, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, ArrowRight, Calendar, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
-import { actPlan, listPlans, type PlanListVo } from '@/features/delivery/deliveryApi';
+import { actPlan, listPlans, syncPlans, type PlanListVo, type PageResult } from '@/features/delivery/deliveryApi';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
-import { listInsightReports } from '@/features/insight/insightApi';
+import { useWizardStore } from '@/stores/wizard';
+import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { BID_TYPE, PLAN_STATUS, roiText, yuan } from '@/utils/labels';
 
 const user = useUserStore();
+const router = useRouter(), wizard = useWizardStore();
+function startCreate() {
+  if (!user.trialActive) return;
+  wizard.reset();
+  void router.push('/campaigns/create');
+}
 const loading = ref(false), summaryLoading = ref(false), loadFailed = ref(false);
+const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = ref('');
+const accounts = ref<AccountVo[]>([]);
 const keyword = ref(''), status = ref(''), bidType = ref('');
 const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(7);
 const records = ref<PlanListVo[]>([]), selectedIds = ref<string[]>([]);
@@ -127,7 +138,8 @@ const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = re
 type SortField = 'costYuan' | 'gmvYuan' | 'convert' | 'roi';
 const metricColumns: { field: SortField; label: string }[] = [{ field: 'costYuan', label: '广告消耗' }, { field: 'convert', label: '成交订单' }, { field: 'gmvYuan', label: '成交金额' }, { field: 'roi', label: '支付 ROI' }];
 const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
-const summary = ref<{ cost: number; gmv: number; orders: number } | null>(null);
+const summary = ref<PageResult<PlanListVo>['summary']>();
+const summaryCoverage = computed(() => summary.value ? `${summary.value.covered}/${summary.value.plans} 个计划有统计数据` : '暂无统计数据');
 const snapshotDate = ref(''), actingId = ref('');
 const tools = ['一键起量', '素材追投', '搜索抢首屏'];
 const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<PlanListVo | null>(null);
@@ -141,39 +153,20 @@ const money = (value: number) => value.toLocaleString('zh-CN', { minimumFraction
 const budgetText = (value?: number | null) => value == null ? '—' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 const goalText = (value?: number | null) => value == null ? '—' : Number(value).toString();
 const shortDate = (date: string) => date.slice(5, 10);
-function alternateBidType(row: PlanListVo) { return row.smartBidType === 'SMART_BID_CONSERVATIVE' ? { value: 'SMART_BID_CUSTOM', label: '控成本投放' } : row.smartBidType === 'SMART_BID_CUSTOM' ? { value: 'SMART_BID_CONSERVATIVE', label: '放量投放' } : null; }
 function roiClass(row: PlanListVo) { return row.roi != null && row.roi > 0 ? 'roi-good' : ''; }
-const canManage = (row: PlanListVo) => user.trialActive && row.source !== 'EXTERNAL';
+const canManage = (row: PlanListVo) => user.trialActive && row.canEdit === true;
 const alertsOf = (id: string) => openByPlan.value[id] || [];
-const shanghaiDay = (date: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date);
-function createdInRange(row: PlanListVo) {
-  if (!createdWithin.value) return true;
-  if (!row.createdAt) return false;
-  const created = new Date(row.createdAt);
-  if (!Number.isFinite(created.getTime())) return false;
-  const today = shanghaiDay(new Date());
-  const firstDay = new Date(`${today}T00:00:00+08:00`).getTime() - (createdWithin.value - 1) * 86400000;
-  const day = shanghaiDay(created);
-  return day >= shanghaiDay(new Date(firstDay)) && day <= today;
-}
-const filtered = computed(() => {
-  const q = keyword.value.trim().toLowerCase();
-  const rows = records.value.filter(r => (!q || [r.name, r.planId, r.qcPlanId || '', ...(r.products || []).map(p => p.name)].some(v => v.toLowerCase().includes(q))) && (!status.value || r.status === status.value) && (!deliveryPlatform.value || r.deliveryPlatform === deliveryPlatform.value) && (!bidType.value || r.smartBidType === bidType.value) && createdInRange(r));
-  const field = sortField.value;
-  if (field) rows.sort((a, b) => {
-    if (field === 'name') return a.name.localeCompare(b.name, 'zh-CN', { numeric: true }) * (sortDescending.value ? -1 : 1);
-    if (a[field] == null) return b[field] == null ? 0 : 1;
-    if (b[field] == null) return -1;
-    return (Number(a[field]) - Number(b[field])) * (sortDescending.value ? -1 : 1);
-  });
-  return rows;
-});
-const pagedRows = computed(() => filtered.value.slice((pageNum.value - 1) * pageSize.value, pageNum.value * pageSize.value));
+const filtered = computed(() => records.value);
+const pagedRows = computed(() => records.value);
 const allPageSelected = computed(() => pagedRows.value.length > 0 && pagedRows.value.every(r => selectedIds.value.includes(r.planId)));
 const somePageSelected = computed(() => pagedRows.value.some(r => selectedIds.value.includes(r.planId)));
-watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize], () => { pageNum.value = 1; selectedIds.value = []; });
-watch(() => filtered.value.length, () => { pageNum.value = Math.min(pageNum.value, Math.max(1, Math.ceil(filtered.value.length / pageSize.value))); });
-function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; }
+let loadTimer: ReturnType<typeof setTimeout> | undefined;
+let requestVersion = 0;
+function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
+watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending], () => { pageNum.value = 1; selectedIds.value = []; scheduleLoad(); });
+watch(pageNum, scheduleLoad);
+onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; });
+function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function togglePageSelection(checked: boolean | string | number) {
   const ids = new Set(selectedIds.value);
@@ -187,35 +180,37 @@ function remainingDays(date: string) {
 }
 function openOperation(title: string, row: PlanListVo, bidType?: string) { operationKind.value = title; operationPlan.value = row; operationBidType.value = bidType; operationOpen.value = true; }
 async function load() {
-  if (loading.value || summaryLoading.value) return;
+  const version = ++requestVersion;
   loading.value = true; summaryLoading.value = true; loadFailed.value = false;
   const plansTask = (async () => {
     try {
-      const first = await listPlans(1, 100);
-      const all = [...first.records];
-      const count = Math.ceil(first.total / first.pageSize);
-      for (let page = 2; page <= count; page++) all.push(...(await listPlans(page, first.pageSize)).records);
-      records.value = [...new Map(all.map(r => [r.planId, r])).values()];
+      const result = await listPlans(pageNum.value, pageSize.value, queryFilters());
+      if (version !== requestVersion) return;
+      records.value = result.records; total.value = result.total; summary.value = result.summary;
+      snapshotDate.value = result.summary?.snapshotTs ? new Date(result.summary.snapshotTs).toLocaleString('zh-CN') : '';
       selectedIds.value = selectedIds.value.filter(id => records.value.some(r => r.planId === id));
-    } catch { loadFailed.value = true; records.value = []; selectedIds.value = []; }
-    finally { loading.value = false; }
-  })();
-  const summaryTask = (async () => {
-    try {
-      const accounts = await listInsightReports('account');
-      summary.value = accounts.reduce((s, r) => ({ cost: s.cost + Number(r.cost || 0), gmv: s.gmv + Number(r.gmv || 0), orders: s.orders + Number(r.convert || 0) }), { cost: 0, gmv: 0, orders: 0 });
-      const timestamps = accounts.map(r => r.snapshotTs).filter((ts): ts is string => !!ts).sort();
-      snapshotDate.value = timestamps.length ? new Date(timestamps[timestamps.length - 1]!).toLocaleDateString('zh-CN') : '';
-    } catch { summary.value = null; snapshotDate.value = ''; }
-    finally { summaryLoading.value = false; }
+    } catch { if (version === requestVersion) loadFailed.value = true; }
+    finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
   })();
   const alertsTask = (async () => {
     const actions = await listActions().catch(() => []);
     const grouped: Record<string, string[]> = {};
     for (const row of actions) if (row.open) { const list = grouped[row.planId] ||= []; if (!list.includes(row.type)) list.push(row.type); }
-    openByPlan.value = grouped;
+    if (version === requestVersion) openByPlan.value = grouped;
   })();
-  await Promise.all([plansTask, summaryTask, alertsTask]);
+  await Promise.all([plansTask, alertsTask]);
+}
+function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value }; }
+async function syncRemote() {
+  if (syncing.value) return;
+  syncing.value = true;
+  try {
+    const result = await syncPlans(accountId.value || undefined);
+    syncWarning.value = result.accounts.flatMap(a => a.warnings.map(w => `${accounts.value.find(x => x.accountId === a.accountId)?.accountName || a.accountId}：${w}`)).join('；');
+    if (!syncWarning.value) ElMessage.success(result.accounts.length ? '账户计划已同步' : '没有可同步的有效授权账户');
+    await load();
+  } catch { /* Keep local records and let the API interceptor display the error. */ }
+  finally { syncing.value = false; }
 }
 function onAct(row: PlanListVo) {
   if (actingId.value || !canManage(row)) return;
@@ -231,8 +226,14 @@ async function confirmAction() {
   catch { /* API interceptor displays the error. */ }
   finally { actingId.value = ''; }
 }
-function exportRows() {
-  const rows = selectedIds.value.length ? filtered.value.filter(r => selectedIds.value.includes(r.planId)) : filtered.value;
+async function exportRows() {
+  let rows = selectedIds.value.length ? filtered.value.filter(r => selectedIds.value.includes(r.planId)) : [...records.value];
+  if (!selectedIds.value.length) {
+    try {
+      const first = await listPlans(1, 100, queryFilters()); rows = [...first.records];
+      for (let page = 2; page <= Math.ceil(first.total / 100); page++) rows.push(...(await listPlans(page, 100, queryFilters())).records);
+    } catch { return; }
+  }
   // Neutralize spreadsheet formulas in names and IDs before producing CSV.
   const cell = (value: unknown) => { let s = value == null ? '' : String(value); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return `"${s.replaceAll('"', '""')}"`; };
   const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '开始日期', '结束日期', '广告消耗', '成交订单', '成交金额', '支付ROI'];
@@ -241,7 +242,7 @@ function exportRows() {
   const link = document.createElement('a'); link.href = url; link.download = `投放计划-${new Date().toLocaleDateString('sv-SE')}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   ElMessage.success(`已导出 ${rows.length} 条计划`);
 }
-onMounted(load);
+onMounted(async () => { accounts.value = await listAccounts().catch(() => []); await load(); });
 </script>
 
 <style scoped>

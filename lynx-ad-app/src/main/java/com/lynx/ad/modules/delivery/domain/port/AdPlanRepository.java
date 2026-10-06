@@ -15,6 +15,8 @@ public interface AdPlanRepository {
 
     void save(AdPlan plan);
 
+    boolean discardDraft(TenantId tenantId, PlanId id);
+
     Optional<AdPlan> findById(TenantId tenantId, PlanId id);
 
     boolean existsUnfinishedName(TenantId tenantId, AwemeId awemeId, PlanName name, Optional<PlanId> exclude);

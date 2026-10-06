@@ -1801,10 +1801,15 @@ details[open] .faq-icon:after {
 }
 .contact-modal { overflow-y: auto; overscroll-behavior: contain; }
 
-.home-user { gap: 8px; }
-.home-user-avatar { display: grid; width: 24px; height: 24px; flex-shrink: 0; place-items: center; border-radius: 50%; background: rgb(var(--c-primary)); color: white; }
-.home-user-avatar svg { width: 16px; height: 16px; }
-.home-user-name { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-workspace { display: inline-flex; flex-shrink: 0; align-items: center; gap: 7px; height: 40px; padding: 0 16px; border-radius: 9999px; background: rgb(var(--c-primary-soft)); font-size: 14px; font-weight: 500; line-height: 1; color: rgb(var(--c-primary-ink)); transition: background .16s ease,color .16s ease,box-shadow .16s ease; }
+.home-workspace svg { width: 15px; height: 15px; flex-shrink: 0; }
+.home-workspace:hover { background: rgb(var(--c-primary)); color: #fff; box-shadow: 0 6px 18px -8px rgba(87,92,246,.7); }
+.home-workspace:focus-visible { outline: 2px solid rgb(var(--c-primary)); outline-offset: 2px; }
+@media (max-width: 639px) {
+  header > .container-page { padding-left: 16px; padding-right: 16px; }
+  .home-workspace { height: 36px; padding: 0 13px; font-size: 13px; }
+  .home-nav-toggle { width: 36px; height: 36px; padding: 0; }
+}
 .btn:disabled { opacity: .6; cursor: wait; }
 #top, #features, #industries, #pricing, #faq, #cta { scroll-margin-top: 72px; }
 /* Keep the decorative background behind the banner content and above the page. */

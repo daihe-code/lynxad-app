@@ -1,32 +1,32 @@
 <template>
-  <el-dialog v-model="open" width="720px" class="campaign-dialog campaign-tools-dialog" modal-class="campaign-overlay" :close-on-click-modal="false" align-center destroy-on-close>
+  <el-dialog v-model="open" width="720px" class="campaign-dialog campaign-tools-dialog" modal-class="campaign-overlay" :close-on-click-modal="false" :close-on-press-escape="!submitting" :show-close="!submitting" align-center destroy-on-close>
     <template #header><div class="tools-header"><h2>调控工具</h2><span :title="plan?.name">· {{ plan?.name }}</span></div></template>
     <div class="tools-cards" role="tablist" aria-label="选择调控工具">
       <div v-for="tool in tools" :key="tool.key" class="tool-card" :class="{ active: activeTool === tool.key }">
-        <button :id="`control-tab-${tool.key}`" class="tool-pick" type="button" role="tab" :aria-selected="activeTool === tool.key" aria-controls="control-parameters" :tabindex="activeTool === tool.key ? 0 : -1" @click="activeTool = tool.key" @keydown="moveTab($event, tool.key)">
+        <button :id="`control-tab-${tool.key}`" class="tool-pick" :disabled="submitting" type="button" role="tab" :aria-selected="activeTool === tool.key" aria-controls="control-parameters" :tabindex="activeTool === tool.key ? 0 : -1" @click="activeTool = tool.key" @keydown="moveTab($event, tool.key)">
           <strong><svg v-if="tool.key === '一键起量'" class="bolt-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h6l-1 8 9-13h-6z" /></svg><svg v-else-if="tool.key === '素材追投'" class="tool-video-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m10 9 5 3-5 3z" /></svg><el-icon v-else><component :is="tool.icon" /></el-icon>{{ tool.key }}</strong><span>· {{ tool.description }}</span><span>· {{ tool.condition }}</span>
         </button>
         <el-popover ref="helpPopovers" trigger="click" placement="bottom" :width="310" popper-class="campaign-popover tools-help-popover"><template #reference><button class="tool-help" type="button">{{ tool.helpLabel }}</button></template><strong>{{ tool.key }}原理</strong><p class="principle-text">{{ tool.description }}</p><p class="principle-text">{{ tool.condition }}</p></el-popover>
       </div>
     </div>
-    <section id="control-parameters" role="tabpanel" :aria-labelledby="`control-tab-${activeTool}`">
+    <el-alert v-if="activeTool === '搜索抢首屏'" title="搜索抢首屏专用接口尚未核验，暂不可提交" type="info" :closable="false" show-icon /><section id="control-parameters" role="tabpanel" :aria-labelledby="`control-tab-${activeTool}`">
       <section v-if="activeTool === '素材追投'" class="material-section">
         <h3>追投素材（仅视频）</h3>
         <div class="material-filters">
           <el-input v-model="videoKeyword" clearable placeholder="输入视频名称/ID/后回车搜索" aria-label="搜索追投视频" @keyup.enter="searchVideos"><template #prefix><el-icon><Search /></el-icon></template></el-input>
-          <div class="material-date-filter"><el-icon aria-hidden="true"><Calendar /></el-icon><span>日期范围：</span><el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" range-separator="~" start-placeholder="开始日期" end-placeholder="结束日期" aria-label="素材日期范围" popper-class="campaign-dropdown tools-date-picker" :clearable="false" :disabled-date="futureDate" @change="searchVideos" /></div>
-          <el-select v-model="videoTag" placeholder="标签：" aria-label="素材标签" clearable popper-class="campaign-dropdown"><el-option v-for="tag in tags" :key="tag" :value="tag" :label="tag" /></el-select>
+          <div class="material-date-filter"><el-icon aria-hidden="true"><Calendar /></el-icon><span>范围：当前计划关联素材</span></div>
+          <el-select v-model="videoTag" placeholder="投放状态：" aria-label="素材投放状态" clearable popper-class="campaign-dropdown"><el-option v-for="tag in tags" :key="tag" :value="tag" :label="tag" /></el-select>
         </div>
-        <p class="material-spec"><el-icon><InfoFilled /></el-icon>视频需要为自建素材，且审核通过、全域在投；当前追投资格待核验，暂不可选择。</p>
+        <p class="material-spec"><el-icon><InfoFilled /></el-icon>视频需要为自建素材，且审核通过、全域在投；仅可选择平台确认正在投放且审核通过的自建视频。</p>
         <div class="material-table-wrap" v-loading="videosLoading">
-          <div class="material-table-scroll"><table class="material-table"><colgroup><col style="width:40px"><col><col style="width:88px"><col style="width:94px"><col style="width:74px"><col style="width:110px"></colgroup><thead><tr><th></th><th>视频</th><th>视频类型</th><th>审核状态</th><th>标签</th><th>整体展示次数 <el-icon><Sort /></el-icon></th></tr></thead><tbody>
-            <tr v-for="video in pagedVideos" :key="video.id"><td><el-tooltip content="追投资格待核验，暂不可选择" popper-class="campaign-tooltip"><span><el-checkbox disabled :aria-label="`选择视频 ${video.filename}`" /></span></el-tooltip></td><td><div class="video-info"><span class="video-cover"><el-image v-if="video.posterUrl" :src="video.posterUrl" fit="cover"><template #error><el-icon><VideoCamera /></el-icon></template></el-image><el-icon v-else><VideoCamera /></el-icon></span><div><strong :title="video.filename">{{ video.filename }}</strong><span>素材ID：{{ video.materialId || video.objectId || '—' }}</span></div></div></td><td>自建视频</td><td><span class="video-review" :class="{ rejected: video.reviewBadge === 'REJECTED' }"><el-icon v-if="video.reviewBadge === 'REJECTED'"><WarningFilled /></el-icon>{{ reviewText(video.reviewBadge) }}</span></td><td>{{ tagText(video.category) }}</td><td class="video-impressions">—</td></tr>
+          <div class="material-table-scroll"><table class="material-table"><colgroup><col style="width:40px"><col><col style="width:88px"><col style="width:94px"><col style="width:74px"><col style="width:110px"></colgroup><thead><tr><th></th><th>视频</th><th>视频类型</th><th>审核状态</th><th>投放状态</th><th>整体展示次数 <el-icon><Sort /></el-icon></th></tr></thead><tbody>
+            <tr v-for="video in pagedVideos" :key="video.id"><td><el-tooltip :content="video.reason || '可追投'" popper-class="campaign-tooltip"><span><el-checkbox v-model="selectedVideos" :value="video.id" :disabled="!video.eligible || submitting" :aria-label="`选择视频 ${video.name}`" /></span></el-tooltip></td><td><div class="video-info"><span class="video-cover"><el-image v-if="video.coverUrl" :src="video.coverUrl" fit="cover"><template #error><el-icon><VideoCamera /></el-icon></template></el-image><el-icon v-else><VideoCamera /></el-icon></span><div><strong :title="video.name">{{ video.name }}</strong><span>素材ID：{{ video.id }}</span></div></div></td><td>视频</td><td><span class="video-review" :class="{ rejected: video.auditStatus === 'REJECT' }"><el-icon v-if="video.auditStatus === 'REJECT'"><WarningFilled /></el-icon>{{ reviewText(video.auditStatus) }}</span></td><td>{{ tagText(video.materialStatus) }}</td><td class="video-impressions">{{ video.impressions ?? '—' }}</td></tr>
             <tr v-if="!pagedVideos.length && !videosLoading"><td colspan="6" class="material-empty"><p>{{ videosFailed ? '素材加载失败' : '暂无符合条件的自建视频' }}</p><button v-if="videosFailed" class="tool-help" @click="loadVideos">重新加载</button></td></tr>
           </tbody></table></div>
           <div class="material-pager"><span>共 {{ filteredVideos.length }} 条记录</span><el-pagination v-model:current-page="videoPage" :total="filteredVideos.length" :page-size="10" layout="jumper, prev, pager, next" background /><span>10条/页</span></div>
         </div>
       </section>
-      <el-form ref="formRef" :model="draft" :rules="rules" :validate-on-rule-change="false" label-position="top" class="tools-form" @submit.prevent="submit">
+      <el-form ref="formRef" :model="draft" :rules="rules" :disabled="submitting" :validate-on-rule-change="false" label-position="top" class="tools-form" @submit.prevent="submit">
         <el-form-item prop="budget" class="budget-field"><template #label><span>调控预算(元)</span><el-tooltip :content="budgetHint" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="调控预算说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><el-input v-model="draft.budget" inputmode="decimal" placeholder="请输入" aria-label="调控预算（元）"><template #suffix><span class="input-unit">元</span></template></el-input><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
         <p v-if="!budgetInvalid" class="tool-hint budget-hint">{{ budgetHint }}</p>
         <template v-if="activeTool !== '搜索抢首屏'">
@@ -41,7 +41,7 @@
         <el-form-item label="任务名称" prop="taskName" class="task-name-field"><el-input v-model="draft.taskName" maxlength="50" show-word-limit placeholder="请输入任务名称" aria-label="任务名称" /></el-form-item>
       </el-form>
     </section>
-    <template #footer><span class="tool-submit-note">任务提交待接入</span><el-button @click="open = false">取消</el-button><el-button type="primary" @click="submit">提交</el-button></template>
+    <section class="control-history"><h3>近期调控任务 <el-button text :loading="tasksLoading" @click="loadTasks">刷新</el-button></h3><p v-if="tasksFailed">任务加载失败，请刷新核查</p><p v-else-if="!tasks.length">暂无调控任务</p><div v-for="task in tasks" :key="task.id"><strong>{{ task.name || task.id }}</strong><span>{{ task.task_status || '已提交' }}</span><small>ID：{{ task.id }}</small></div></section><template #footer><span class="tool-submit-note">{{ submittedId ? '已提交：' + submittedId : '预算不得超过原计划日预算' }}</span><el-button :disabled="submitting" @click="open = false">关闭</el-button><el-button type="primary" :loading="submitting" :disabled="activeTool === '搜索抢首屏' || !!submittedId" @click="submit">提交</el-button></template>
   </el-dialog>
 </template>
 
@@ -49,8 +49,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, type FormInstance, type FormItemRule, type PopoverInstance } from 'element-plus';
 import { Calendar, Flag, InfoFilled, Minus, Opportunity, Plus, QuestionFilled, Search, Sort, VideoCamera, WarningFilled } from '@element-plus/icons-vue';
-import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
-import type { PlanListVo } from '@/features/delivery/deliveryApi';
+import { listControlMaterials, listControlTasks, createControlTask, type ControlMaterial, type ControlTask, type PlanListVo } from '@/features/delivery/deliveryApi';
 const props = defineProps<{ modelValue: boolean; kind: string; plan: PlanListVo | null }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) });
@@ -61,50 +60,77 @@ const tools = [
 ];
 type Draft = { budget: string; hours: string; roi: string; taskName: string };
 const drafts = reactive<Record<string, Draft>>(Object.fromEntries(tools.map(t => [t.key, { budget: '', hours: '', roi: '', taskName: '' }])));
-const activeTool = ref('一键起量');
+const activeTool = ref('一键起量'), submitting = ref(false), submittedId = ref(''), requestKey = ref('');
 const draft = computed(() => drafts[activeTool.value]!);
 const formRef = ref<FormInstance>();
 const helpPopovers = ref<PopoverInstance[]>([]);
-const budgetHint = computed(() => activeTool.value === '搜索抢首屏' ? '预算需在原全域投放预算之外额外增加，搜索抢首屏调控预算不得高于 300 元' : '调控预算为额外追加的独立预算，调控预算越高 ROI 下降风险越大，且不提供成本保障，请合理设置');
+const budgetHint = computed(() => activeTool.value === '搜索抢首屏' ? '专用接口尚未核验，暂不可提交' : '调控预算为额外追加的独立预算，不得超过原计划日预算。调控预算越高 ROI 下降风险越大，请合理设置');
 const budgetInvalid = computed(() => !!formRef.value?.fields.find(field => field.prop === 'budget')?.validateMessage);
 function numberRule(validate: (value: string) => string): FormItemRule { return { trigger: 'blur', validator: (_rule, value, callback) => { const error = validate(String(value ?? '').trim()); callback(error ? new Error(error) : undefined); } }; }
 const decimal = (value: string) => /^\d+(\.\d{1,2})?$/.test(value) && Number.isFinite(Number(value));
 const rules = computed(() => ({
-  budget: [numberRule(value => !decimal(value) ? '请输入正确的预算，最多两位小数' : Number(value) <= 100 ? '预算需大于 100 元' : activeTool.value === '搜索抢首屏' && Number(value) > 300 ? '搜索抢首屏调控预算不得高于 300 元' : Number(value) > 999999999.99 ? '预算不得超过 999,999,999.99 元' : '')],
-  hours: [numberRule(value => !decimal(value) || Number(value) < .5 || Number(value) > 24 ? '调控时长范围 0.5-24 小时，请正确填写' : '')],
+  budget: [numberRule(value => !decimal(value) ? '请输入正确的预算，最多两位小数' : Number(value) <= 100 ? '预算需大于 100 元' : Number(value) > Number(props.plan?.budget || 0) ? '调控预算不得超过原计划日预算' : '')],
+  hours: [numberRule(value => !decimal(value) || Number(value) < .5 || Number(value) > 24 || Number(value) % .5 !== 0 ? '调控时长为 0.5–24 小时，步进 0.5 小时' : '')],
   roi: [numberRule(value => !decimal(value) || Number(value) < .01 || Number(value) > 100 ? '支持范围: 0.01-100，最多两位小数' : '')],
   taskName: [{ required: true, whitespace: true, max: 50, message: '请输入 1–50 字的任务名称', trigger: 'blur' }],
 }));
-function moveTab(event: KeyboardEvent, key: string) { if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const index = tools.findIndex(t => t.key === key); activeTool.value = tools[event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3]!.key; nextTick(() => document.getElementById(`control-tab-${activeTool.value}`)?.focus()); }
+function moveTab(event: KeyboardEvent, key: string) { if (submitting.value || !['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const index = tools.findIndex(t => t.key === key); activeTool.value = tools[event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3]!.key; nextTick(() => document.getElementById('control-tab-' + activeTool.value)?.focus()); }
 function stepHours(amount: number) { const current = Number(draft.value.hours); draft.value.hours = String(Math.max(.5, Math.min(24, (Number.isFinite(current) ? current : 0) + amount))); nextTick(() => formRef.value?.validateField('hours').catch(() => {})); }
-function taskName(tool: string) { const parts = Object.fromEntries(new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(p => [p.type, p.value])); return `${parts.year}${parts.month}${parts.day} ${tool} ${parts.hour}:${parts.minute}:${parts.second}`; }
+function taskName(tool: string) { const time = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date()); return time + ' ' + tool; }
 const localDay = (date: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date);
-const videoKeyword = ref(''), videoTag = ref(''), videoPage = ref(1), dateRange = ref<string[]>([]);
-const videos = ref<LibraryItemVo[]>([]), videosLoading = ref(false), videosFailed = ref(false);
+const videoKeyword = ref(''), videoTag = ref(''), videoPage = ref(1), dateRange = ref<string[]>([]), selectedVideos = ref<string[]>([]);
+const videos = ref<ControlMaterial[]>([]), videosLoading = ref(false), videosFailed = ref(false);
+const tasks = ref<ControlTask[]>([]), tasksLoading = ref(false), tasksFailed = ref(false);
 let requestVersion = 0;
-const tags = computed(() => [...new Set(videos.value.map(v => tagText(v.category)).filter(t => t !== '—'))]);
-const filteredVideos = computed(() => videos.value.filter(v => !videoTag.value || tagText(v.category) === videoTag.value));
+const tags = computed(() => [...new Set(videos.value.map(v => tagText(v.materialStatus)))]);
+const filteredVideos = computed(() => videos.value.filter(v => (!videoTag.value || tagText(v.materialStatus) === videoTag.value) && (!videoKeyword.value.trim() || (v.name + v.id).toLowerCase().includes(videoKeyword.value.trim().toLowerCase()))));
 const pagedVideos = computed(() => filteredVideos.value.slice((videoPage.value - 1) * 10, videoPage.value * 10));
-function tagText(category: string) { return ({ VIDEO_VERTICAL: '竖屏视频', VIDEO_LARGE: '横屏视频', VIDEO: '视频' } as Record<string, string>)[category] || category || '—'; }
-function reviewText(review: string) { return ({ REJECTED: '审核不通过', REVIEWING: '审核中', NONE: '暂无审核信息' } as Record<string, string>)[review] || '暂无审核信息'; }
+function tagText(status: string) { return ({ DELIVERY_OK: '投放中', DELIVERY_NOT: '未投放', EXCLUDE: '已排除', DELETED: '已删除' } as Record<string,string>)[status] || status; }
+function reviewText(review: string) { return ({ PASS: '审核通过', REJECT: '审核不通过', IN_PROGRESS: '审核中' } as Record<string,string>)[review] || '暂无审核信息'; }
 function futureDate(date: Date) { return localDay(date) > localDay(new Date()); }
-function searchVideos() { videoPage.value = 1; loadVideos(); }
+function searchVideos() { videoPage.value = 1; }
 async function loadVideos() {
+  if (!props.plan) return;
   const version = ++requestVersion; videosLoading.value = true; videosFailed.value = false;
-  const params = { type: 'VIDEO', from: dateRange.value[0], to: dateRange.value[1], q: videoKeyword.value.trim(), pageSize: 20 };
-  try { const first = await listLibraryFull({ ...params, page: 1 }); const rows = [...first.items]; for (let page = 2; page <= Math.ceil(first.pageInfo.total / first.pageInfo.pageSize); page++) { if (version !== requestVersion) return; rows.push(...(await listLibraryFull({ ...params, page })).items); } if (version === requestVersion) { videos.value = [...new Map(rows.filter(v => v.type === 'VIDEO' && v.source === 'LYNX').map(v => [v.id, v])).values()]; if (!tags.value.includes(videoTag.value)) videoTag.value = ''; } }
+  try { const rows = await listControlMaterials(props.plan.planId); if (version === requestVersion) { videos.value = rows; selectedVideos.value = selectedVideos.value.filter(id => rows.some(v => v.id === id && v.eligible)); } }
   catch { if (version === requestVersion) { videosFailed.value = true; videos.value = []; } }
   finally { if (version === requestVersion) videosLoading.value = false; }
 }
-async function submit() { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; if (activeTool.value === '素材追投') { ElMessage.warning('请选择至少 1 条审核通过且全域在投的自建视频；当前追投资格待核验'); return; } ElMessage.info('参数已通过校验，控调任务提交接口待接入'); }
+async function loadTasks() {
+  if (!props.plan) return;
+  tasksLoading.value = true; tasksFailed.value = false;
+  try { tasks.value = await listControlTasks(props.plan.planId); } catch { tasksFailed.value = true; } finally { tasksLoading.value = false; }
+}
+async function submit() {
+  if (!props.plan || submitting.value || submittedId.value || activeTool.value === '搜索抢首屏') return;
+  const valid = await formRef.value?.validate().catch(() => false); if (!valid) return;
+  if (activeTool.value === '素材追投' && !selectedVideos.value.length) { ElMessage.warning('请选择至少 1 条可追投视频'); return; }
+  if (!requestKey.value) requestKey.value = crypto.randomUUID();
+  submitting.value = true;
+  try {
+    const result = await createControlTask(props.plan.planId, { kind: activeTool.value, name: draft.value.taskName, budget: Number(draft.value.budget), hours: Number(draft.value.hours), materialIds: activeTool.value === '素材追投' ? [...selectedVideos.value] : [], requestKey: requestKey.value });
+    submittedId.value = result.taskId;
+    ElMessage.success(result.taskId.startsWith('mock_') ? '模拟任务已提交' : '调控任务已提交');
+    await loadTasks();
+  } catch { /* Retain the request key: an uncertain result must not create a second task. */ await loadTasks(); }
+  finally { submitting.value = false; }
+}
 watch(videoTag, () => { videoPage.value = 1; });
 watch(() => filteredVideos.value.length, count => { videoPage.value = Math.min(videoPage.value, Math.max(1, Math.ceil(count / 10))); });
-watch(activeTool, () => { helpPopovers.value.forEach(popover => popover.hide()); nextTick(() => formRef.value?.clearValidate()); if (open.value && activeTool.value === '素材追投' && !videosLoading.value) loadVideos(); });
-watch(() => props.modelValue, value => { if (!value) { requestVersion++; videosLoading.value = false; return; } for (const tool of tools) Object.assign(drafts[tool.key]!, { budget: '', hours: '', roi: '', taskName: taskName(tool.key) }); videoKeyword.value = ''; videoTag.value = ''; videoPage.value = 1; videos.value = []; videosFailed.value = false; const today = new Date(); dateRange.value = [localDay(new Date(today.getTime() - 6 * 86400000)), localDay(today)]; activeTool.value = tools.some(t => t.key === props.kind) ? props.kind : '一键起量'; nextTick(() => { formRef.value?.clearValidate(); if (activeTool.value === '素材追投' && !videosLoading.value) loadVideos(); }); }, { immediate: true });
+watch(activeTool, () => { helpPopovers.value.forEach(popover => popover.hide()); submittedId.value = ''; requestKey.value = ''; nextTick(() => formRef.value?.clearValidate()); if (open.value && activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
+watch(() => props.modelValue, value => {
+  if (!value) { requestVersion++; videosLoading.value = false; return; }
+  for (const tool of tools) Object.assign(drafts[tool.key]!, { budget: '', hours: '', roi: '', taskName: taskName(tool.key) });
+  submittedId.value = ''; requestKey.value = ''; selectedVideos.value = []; videoKeyword.value = ''; videoTag.value = ''; videoPage.value = 1; videos.value = []; videosFailed.value = false;
+  const today = new Date(); dateRange.value = [localDay(new Date(today.getTime() - 6 * 86400000)), localDay(today)];
+  activeTool.value = tools.some(t => t.key === props.kind) ? props.kind : '一键起量';
+  void loadTasks(); nextTick(() => { formRef.value?.clearValidate(); if (activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
+}, { immediate: true });
 onBeforeUnmount(() => { requestVersion++; });
 </script>
 
 <style scoped>
+.control-history { margin-top: 24px; color: #7c7f99; font-size: 12px; }.control-history h3 { color: #1a1b2e; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }.control-history > div { border-top: 1px solid #eeeff4; padding: 10px 0; display: flex; gap: 12px; flex-wrap: wrap; }.control-history strong { color: #4e5069; font-weight: 500; flex: 1; }.control-history small { width: 100%; }
 .bolt-icon, .shield-icon, .tool-video-icon { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }.bolt-icon, .tool-video-icon { color: #7c7f99; }.active .bolt-icon, .active .tool-video-icon { color: #575cf6; }.shield-icon { margin-top: 4px; }.task-name-field :deep(.el-input__count-inner) { background: transparent; }
 .material-date-filter { display: flex; align-items: center; border: 1px solid #e6e8f2; border-radius: 10px; padding-left: 10px; width: 310px; flex: 0 1 310px; height: 36px; box-sizing: border-box; }.material-date-filter > .el-icon { color: #7c7f99; margin-right: 6px; font-size: 12px; flex-shrink: 0; }.material-date-filter > span { color: #4e5069; font-size: 12px; white-space: nowrap; }.material-filters .material-date-filter :deep(.el-date-editor) { flex: 1 1 0; min-width: 0; width: 230px; min-height: 34px; height: 34px; background: transparent; border: 0; box-shadow: none; }.material-filters .material-date-filter :deep(.el-range__icon) { display: none; }
 .tools-header { display: flex; gap: 8px; align-items: baseline; padding-right: 30px; min-width: 0; }.tools-header h2 { color: #1a1b2e; font-size: 18px; font-weight: 600; margin: 0; white-space: nowrap; }.tools-header > span { color: #7c7f99; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

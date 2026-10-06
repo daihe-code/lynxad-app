@@ -101,6 +101,13 @@ interface AdPlanMapper extends BaseMapper<AdPlanPo> {}
 @Repository
 public class MpAdPlanRepository implements AdPlanRepository {
 
+    @Override
+    public boolean discardDraft(TenantId tenantId, PlanId id) {
+        return mapper.delete(new LambdaQueryWrapper<AdPlanPo>()
+                .eq(AdPlanPo::getId, id.value()).eq(AdPlanPo::getTenantId, tenantId.value())
+                .eq(AdPlanPo::getStatus, PlanStatus.DRAFT.name()).isNull(AdPlanPo::getQcPlanId)) == 1;
+    }
+
     private final AdPlanMapper mapper;
     private final AdPlanCreativeBindingStore bindingStore;
 
@@ -211,7 +218,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
                 new TenantId(po.getTenantId()),
                 po.getOauthAccountId() == null ? new AccountId("unknown") : new AccountId(po.getOauthAccountId()),
                 new AwemeId(po.getAwemeId()),
-                new PlanName(po.getName()),
+                po.getQcPlanId() != null ? PlanName.fromPlatform(po.getName()) : new PlanName(po.getName()),
                 PlanStatus.valueOf(po.getStatus()),
                 po.getSource() == null ? PlanSource.LINGTOU : PlanSource.valueOf(po.getSource()),
                 setting,

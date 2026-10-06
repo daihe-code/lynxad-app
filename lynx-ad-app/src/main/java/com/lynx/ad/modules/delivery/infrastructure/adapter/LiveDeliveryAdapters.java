@@ -97,21 +97,29 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
 
     @Override
     public void updateStatus(Credential c, QcPlanId id, PlanAction action) {
-        assertConfigured();
+        if (action == PlanAction.FINISH) throw new BizException(1403, "结束计划尚无对应接口，不能替代为删除操作");
         try {
         String body = restClient.exchange(
                 RequestSpec.post(properties.getQianchuan().getDelivery().getAdStatusUrl())
                         .header("Access-Token", c.accessToken())
-                        .json("{\"advertiser_id\":\""
-                                + c.advertiserId().value()
-                                + "\",\"ad_ids\":[\""
-                                + id.value()
-                                + "\"],\"opt_status\":\""
+                        .json("{\"advertiser_id\":"
+                                + LiveAdManagementAdapter.numericId(c.advertiserId().value())
+                                + ",\"ad_ids\":["
+                                + LiveAdManagementAdapter.numericId(id.value())
+                                + "],\"opt_status\":\""
                                 + action.name()
                                 + "\"}")
                         .build(),
                 String.class);
-        oceanJson.dataOrThrow(body, 1406, "启停失败");
+        JsonNode data = oceanJson.dataOrThrow(body, 1406, "启停失败");
+        boolean acknowledged = false;
+        for (JsonNode row : data.path("results")) {
+            if (!id.value().equals(row.path("ad_id").asText())) continue;
+            if (!row.path("flag").asBoolean(false)) throw new BizException(1406,
+                    row.path("error").path("error_message").asText("平台拒绝更新计划状态"));
+            acknowledged = true;
+        }
+        if (!acknowledged) throw new BizException(1406, "平台未确认计划状态，请刷新后核查");
         } catch (BizException ex) {
             throw remapDelivery(ex, "启停失败");
         }
@@ -119,52 +127,44 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
 
     @Override
     public List<OceanPlanRow> list(Credential c, SmartBidType bidType) {
-        assertConfigured();
+        if (bidType != null) return listOne(c, bidType);
         List<OceanPlanRow> merged = new ArrayList<>();
         merged.addAll(listOne(c, SmartBidType.CONSERVATIVE));
         merged.addAll(listOne(c, SmartBidType.CUSTOM));
-        if (bidType == null) {
-            return merged;
-        }
-        return merged.stream().filter(r -> r.bidType() == bidType).toList();
+        return merged;
     }
 
     private List<OceanPlanRow> listOne(Credential c, SmartBidType bidType) {
-        String url = properties.getQianchuan().getDelivery().getAdListUrl()
-                + "?advertiser_id="
-                + c.advertiserId().value()
-                + "&smart_bid_type="
-                + bidType.oceanValue();
-        String body = restClient.exchange(
-                RequestSpec.get(url).header("Access-Token", c.accessToken()).build(), String.class);
-        JsonNode data = oceanJson.dataOrThrow(body, 1406, "列表失败");
-        JsonNode list = data.has("list") ? data.path("list") : data.path("ad_list");
         List<OceanPlanRow> rows = new ArrayList<>();
-        for (JsonNode n : list) {
-            String id = n.path("ad_id").asText(n.path("id").asText(""));
-            if (id.isBlank()) {
-                continue;
+        for (int page=1; page<=1000; page++) {
+            String filtering = java.net.URLEncoder.encode("{\"smart_bid_type\":\""+bidType.oceanValue()+"\"}",java.nio.charset.StandardCharsets.UTF_8);
+            String url = properties.getQianchuan().getDelivery().getAdListUrl()+"?advertiser_id="
+                    +LiveAdManagementAdapter.numericId(c.advertiserId().value())+"&marketing_goal=VIDEO_PROM_GOODS&filtering="+filtering+"&page="+page+"&page_size=20";
+            JsonNode data = oceanJson.dataOrThrow(restClient.exchange(
+                    RequestSpec.get(url).header("Access-Token",c.accessToken()).build(),String.class),1406,"列表失败");
+            JsonNode list=data.path("ad_list");
+            if (!list.isArray()) throw new BizException(1406,"计划列表响应不完整");
+            for (JsonNode payload:list) {
+                JsonNode n=QianchuanPlanMapping.info(payload);
+                String id=QianchuanPlanMapping.id(payload), name=QianchuanPlanMapping.text(n,"name");
+                if(id==null || name==null || name.isBlank()) throw new BizException(1406,"计划列表缺少ID或名称");
+                var budget=QianchuanPlanMapping.number(n,"budget");
+                if(budget==null) throw new BizException(1406,"计划列表缺少日预算，请核查接口返回字段");
+                rows.add(new OceanPlanRow(id,name,QianchuanPlanMapping.text(n,"status"),bidType,
+                        Money.ofYuan(budget),null,null,payload));
             }
-            BigDecimal budget = n.path("budget").isNumber()
-                    ? n.path("budget").decimalValue()
-                    : BigDecimal.ZERO;
-            rows.add(new OceanPlanRow(
-                    id,
-                    n.path("name").asText(""),
-                    n.path("status").asText("DELIVERING"),
-                    SmartBidType.fromOcean(n.path("smart_bid_type").asText(bidType.oceanValue())),
-                    Money.ofYuan(budget),
-                    n.path("cover_url").asText(null),
-                    n.path("guarantee").asText(null)));
+            int total=data.path("page_info").path("total_page").asInt(0);
+            if((total>0 && page>=total) || (total==0 && list.size()<20)) return rows;
+            if(list.isEmpty()) throw new BizException(1406,"计划分页响应不完整");
         }
-        return rows;
+        throw new BizException(1406,"计划数据过多，请分账户同步");
     }
 
     private static BizException remapDelivery(BizException ex, String message) {
         if (ex.code() == 1205 || ex.code() == 1211 || Qianchuan401ReplayCodes.isAuthExpired(ex)) {
             return ex;
         }
-        return new BizException(1406, message);
+        return new BizException(1406, ex.getMessage() == null ? message : ex.getMessage());
     }
 
     private void assertConfigured() {

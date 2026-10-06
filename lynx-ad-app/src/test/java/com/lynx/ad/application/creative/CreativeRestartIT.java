@@ -63,7 +63,7 @@ class CreativeRestartIT extends AbstractContainerIT {
                 .path("data")
                 .path("taskId")
                 .asText();
-        JsonNode task = json(get("/api/v1/creative/creatives/tasks/" + taskId, token)).path("data");
+        JsonNode task = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token);
         assertEquals("SUCCEEDED", task.path("status").asText());
         assertTrue(task.path("packageId").asText().length() > 0);
     }

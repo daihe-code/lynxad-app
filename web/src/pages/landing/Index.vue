@@ -51,15 +51,16 @@
         </nav>
 
         <div class="ml-auto flex items-center gap-2 sm:gap-3">
-          <router-link v-if="user.isLoggedIn" class="btn btn--outline btn--md home-user hidden sm:inline-flex" to="/accounts" :aria-label="`账户信息，当前登录用户：${userName}`" :title="userName">
-            <span class="home-user-avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2z"/></svg></span>
-            <span class="home-user-name">{{ userName }}</span>
-          </router-link>
-          <router-link v-else class="btn btn--outline btn--md hidden sm:inline-flex" to="/login">登录</router-link>
-          <router-link v-if="user.isLoggedIn" class="btn btn--primary btn--md" to="/campaigns" @click="menuOpen = false">进入工作台</router-link>
-          <a v-else class="btn btn--primary btn--md" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用</a>
+          <template v-if="user.isLoggedIn">
+            <a class="home-workspace" href="/campaigns" :aria-busy="checkingTrial" @click.prevent="goTrial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.7"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.7"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.7"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.7"/></svg><span>进入工作台</span></a>
+            <span class="home-account hidden sm:inline-flex"><UserMenu appearance="home" /></span>
+          </template>
+          <template v-else>
+            <router-link class="btn btn--outline btn--md hidden sm:inline-flex" to="/login">登录</router-link>
+            <a class="btn btn--primary btn--md" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用</a>
+          </template>
 
-          <button class="btn btn--outline btn--md lg:hidden" type="button"
+          <button class="btn btn--outline btn--md home-nav-toggle lg:hidden" type="button"
                   @click="menuOpen = !menuOpen" :aria-expanded="menuOpen" aria-controls="mobile-nav" aria-label="展开导航">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 7h17M3.5 12h17M3.5 17h17"/></svg>
           </button>
@@ -700,6 +701,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
+import UserMenu from "@/layouts/UserMenu.vue";
 import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
 import { loginLandingPath } from "@/features/identity/oauthApi";
 import { isCnMobile } from "@/utils/phone";

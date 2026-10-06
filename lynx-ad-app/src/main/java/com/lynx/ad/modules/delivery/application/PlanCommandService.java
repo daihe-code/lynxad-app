@@ -180,11 +180,27 @@ public class PlanCommandService {
     }
 
     @Transactional
+    public void discardDraft(TenantId tenantId, PlanId id) {
+        AdPlan plan = require(tenantId, id);
+        if (plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DRAFT || plan.qcPlanId().isPresent())
+            throw new BizException(1403, "仅可丢弃尚未投放的草稿");
+        if (!planRepository.discardDraft(tenantId, id)) throw new BizException(1404, "计划状态已变化，请刷新后操作");
+        bindingStore.upsert(id, List.of());
+        recordPlan(tenantId, id.value(), "丢弃草稿：" + plan.name().text());
+    }
+
+    @Transactional
     public PlanVo act(TenantId tenantId, PlanId id, PlanAction action) {
+        billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan = require(tenantId, id);
         String before = plan.status().name();
+        if (action == PlanAction.FINISH && plan.qcPlanId().isPresent())
+            throw new BizException(1403, "结束计划尚无对应接口，不能替代为删除操作");
+        if ((action == PlanAction.DISABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELIVERING)
+                || (action == PlanAction.ENABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.PAUSED))
+            throw new BizException(1404, "计划状态已变化，请刷新后操作");
         if (plan.qcPlanId().isPresent()) {
-            adStatusPort.updateStatus(credentialFacade.get(plan.accountId()), plan.qcPlanId().get(), action);
+            adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId, plan.accountId()), plan.qcPlanId().get(), action);
         }
         switch (action) {
             case DISABLE -> plan.pause();
@@ -299,10 +315,10 @@ public class PlanCommandService {
                 plan.awemeId().value(),
                 plan.rejectReason(),
                 plan.source() == com.lynx.ad.modules.delivery.domain.model.PlanSource.LINGTOU,
-                "展示字段",
                 null,
-                java.math.BigDecimal.ZERO,
-                java.math.BigDecimal.ZERO,
-                java.math.BigDecimal.ZERO);
+                null,
+                null,
+                null,
+                null);
     }
 }

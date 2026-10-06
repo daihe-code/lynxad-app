@@ -8,11 +8,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-const props = defineProps<{ value?: number | null; percent?: boolean; previousTs?: string; label: string }>();
+const props = defineProps<{ value?: number | null; percent?: boolean; previousTs?: string; label: string; basis?: string }>();
 const known = computed(() => props.value != null && Number.isFinite(Number(props.value)));
 const direction = computed(() => !known.value ? 'flat' : Number(props.value) >= 0 ? 'up' : 'down');
 const formatted = computed(() => { const n = Math.abs(Number(props.value)); return props.percent ? n.toFixed(1) : n.toFixed(2).replace(/\.?0+$/, ''); });
-const description = computed(() => !known.value ? `${props.label}暂无可比较的历史数据` : `${props.label}较上次同步${Number(props.value) === 0 ? '无变化' : direction.value === 'up' ? '增加' : '减少'} ${formatted.value}${props.percent ? '%' : ''}${props.previousTs ? `（${new Date(props.previousTs).toLocaleString('zh-CN')}）` : ''}`);
+const description = computed(() => !known.value ? `${props.label}暂无可比较的历史数据` : `${props.label}较${props.basis === 'YESTERDAY_FULL_DAY' ? '昨日全天' : '上次同步'}${Number(props.value) === 0 ? '无变化' : direction.value === 'up' ? '增加' : '减少'} ${formatted.value}${props.percent ? '%' : ''}${props.previousTs ? `（${new Date(props.previousTs).toLocaleString('zh-CN')}）` : ''}`);
 </script>
 
 <style scoped>

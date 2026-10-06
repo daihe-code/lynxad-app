@@ -3,3 +3,36 @@
   --create-banner: #565cf0;
   --create-page: #f7f7ff;
 }
+
+.wizard .actionbar .btn-cancel {
+  display: inline-flex;
+  height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: #525570;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .15s;
+}
+
+.wizard .actionbar .btn-cancel:hover:not(:disabled) {
+  color: #1a1b2e;
+}
+
+.wizard .actionbar .btn-cancel:focus-visible {
+  outline: 2px solid var(--create-primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.wizard .actionbar .btn-cancel:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}

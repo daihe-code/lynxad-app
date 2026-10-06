@@ -1,4 +1,13 @@
-import { apiGet, apiPost, apiPostForm } from "@/api/http";
+import { apiDelete, apiGet, apiPost, apiPostForm } from "@/api/http";
+
+export type MaterialType = 'VIDEO' | 'IMAGE';
+export interface MaterialFeedback { reasons: string[]; description: string }
+export function regenerateMaterial(packageId: string, productId: string, type: MaterialType, feedback?: MaterialFeedback) {
+  return apiPost<{ taskId: string }>(`/api/v1/creative/packages/${encodeURIComponent(packageId)}/items/${encodeURIComponent(productId)}/regenerate`, { type, ...feedback });
+}
+export function deleteMaterial(packageId: string, productId: string, type: MaterialType, feedback?: MaterialFeedback) {
+  return apiDelete(`/api/v1/creative/packages/${encodeURIComponent(packageId)}/items/${encodeURIComponent(productId)}?type=${type}`, { data: feedback });
+}
 
 export interface PackageItemVo {
   productId: string;

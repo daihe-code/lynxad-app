@@ -62,8 +62,7 @@ public final class WatcherItSupport {
                 .path("data")
                 .path("taskId")
                 .asText();
-        String packageId = json(mapper, get(mvc, "/api/v1/creative/creatives/tasks/" + taskId, token))
-                .path("data")
+        String packageId = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token)
                 .path("packageId")
                 .asText();
         post(mvc, "/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);

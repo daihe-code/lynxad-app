@@ -26,7 +26,23 @@ public class CreativeTaskPo {
     @TableField(typeHandler = JsonbStringTypeHandler.class)
     private String stepsJson;
 
+    @TableField(typeHandler = JsonbStringTypeHandler.class)
+    private String feedbackJson;
+
+    public String getFeedbackJson() { return feedbackJson; }
+    public void setFeedbackJson(String value) { feedbackJson = value; }
+
     private String packageId;
+    private String regenerationPackageId;
+    private String regenerationType;
+    private Integer regenerationVersion;
+
+    public String getRegenerationPackageId() { return regenerationPackageId; }
+    public void setRegenerationPackageId(String value) { regenerationPackageId = value; }
+    public String getRegenerationType() { return regenerationType; }
+    public void setRegenerationType(String value) { regenerationType = value; }
+    public Integer getRegenerationVersion() { return regenerationVersion; }
+    public void setRegenerationVersion(Integer value) { regenerationVersion = value; }
 
     public String getId() {
         return id;

@@ -2,7 +2,6 @@ import { computed, ref, watch, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import {
   getPlan,
-  listPlans,
   type PlanVo,
   type PlanListVo,
 } from "@/features/delivery/deliveryApi";
@@ -11,10 +10,7 @@ import {
   listActions,
   type AgentActionVo,
 } from "@/features/agentops/agentopsApi";
-import {
-  listInsightReports,
-  type ReportRowVo,
-} from "@/features/insight/insightApi";
+import type { ReportRowVo } from "@/features/insight/insightApi";
 
 export const statusInfo = (status?: string) =>
   ({
@@ -79,19 +75,11 @@ export function usePlanPresentation(id?: () => string) {
     failed.value = false;
     try {
       const base = await getPlan(key);
-      // The list is the existing source for schedule, product and comparison metadata.
-      let meta: PlanListVo | undefined;
-      for (let page = 1; page <= 100; page++) {
-        const result = await listPlans(page, 100);
-        meta = result.records.find((p) => p.planId === key);
-        if (meta || page * 100 >= result.total) break;
-      }
       if (seq !== request) return;
-      plan.value = { ...base, ...meta, status: base.status, name: base.name };
+      plan.value = base;
       const results = await Promise.allSettled([
         listAccounts(),
         listActions(),
-        listInsightReports("plan", [key]),
       ]);
       if (seq !== request) return;
       accounts.value =
@@ -100,10 +88,7 @@ export function usePlanPresentation(id?: () => string) {
         results[1].status === "fulfilled"
           ? results[1].value.filter((a) => a.planId === key)
           : [];
-      report.value =
-        results[2].status === "fulfilled"
-          ? results[2].value.find((r) => r.id === key) || null
-          : null;
+      report.value = null;
     } catch {
       if (seq === request) {
         failed.value = true;
@@ -125,7 +110,7 @@ export function usePlanPresentation(id?: () => string) {
   );
   const account = computed(() =>
     accounts.value.find((a) =>
-      a.awemes?.some((w) => w.awemeId === plan.value?.awemeId),
+      plan.value?.accountId ? a.accountId === plan.value.accountId : a.awemes?.some((w) => w.awemeId === plan.value?.awemeId),
     ),
   );
   const shop = computed(
@@ -137,7 +122,7 @@ export function usePlanPresentation(id?: () => string) {
   );
   const hasData = computed(
     () =>
-      !!(plan.value?.snapshotTs || report.value?.snapshotTs) &&
+      !!plan.value?.snapshotTs &&
       ![
         "DRAFT",
         "SUBMITTING",
@@ -147,14 +132,14 @@ export function usePlanPresentation(id?: () => string) {
       ].includes(plan.value?.status || ""),
   );
   const metrics = computed(() => ({
-    cost: hasData.value ? (plan.value?.costYuan ?? report.value?.cost) : null,
-    gmv: hasData.value ? (plan.value?.gmvYuan ?? report.value?.gmv) : null,
-    roi: hasData.value ? (plan.value?.roi ?? report.value?.roi) : null,
+    cost: hasData.value ? plan.value?.costYuan : null,
+    gmv: hasData.value ? plan.value?.gmvYuan : null,
+    roi: hasData.value ? plan.value?.roi : null,
     orders: hasData.value
-      ? (plan.value?.convert ?? report.value?.convert)
+      ? plan.value?.convert
       : null,
-    impressions: hasData.value ? report.value?.impression : null,
-    clicks: hasData.value ? report.value?.click : null,
+    impressions: null as number | null,
+    clicks: null as number | null,
   }));
   return {
     plan,

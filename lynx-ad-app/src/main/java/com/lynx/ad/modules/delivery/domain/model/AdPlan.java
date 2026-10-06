@@ -157,6 +157,7 @@ public class AdPlan {
     public void apply(PlanStatus next) {
         this.status = next;
     }
+    public void syncPlatformStatus(String value) { this.qcStatus = value; }
 
     public PlanStatus status() {
         return status;

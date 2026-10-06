@@ -16,6 +16,8 @@ import com.lynx.ad.modules.creative.application.CreativeCommandService;
 import com.lynx.ad.modules.creative.application.CreativeQueryService;
 import com.lynx.ad.modules.creative.application.LibraryQueryService;
 import com.lynx.ad.modules.creative.domain.model.CreativeMode;
+import com.lynx.ad.modules.creative.domain.model.MaterialType;
+import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.creative.domain.port.StoragePort;
 import com.lynx.ad.modules.creative.domain.service.MediaTokenSigner;
 import java.time.LocalDate;
@@ -25,6 +27,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -95,6 +98,35 @@ public class CreativeController {
                 file.getInputStream(),
                 file.getOriginalFilename());
         return ApiResponse.ok(new PackageVo(id, false));
+    }
+
+    @RequiresActiveTrial
+    @PostMapping("/api/v1/creative/packages/{id}/items/{productId}/regenerate")
+    public ApiResponse<GenerateResponse> regenerate(@PathVariable String id, @PathVariable String productId,
+            @RequestBody MaterialRequest request) {
+        var taskId = commandService.regenerate(TenantContext.requireTenantId(), new PackageId(id),
+                new QcProductId(productId), materialType(request.type()), new com.lynx.ad.modules.creative.domain.model.MaterialFeedback(request.reasons(), request.description()));
+        return ApiResponse.ok(new GenerateResponse(taskId.value()));
+    }
+
+    @DeleteMapping("/api/v1/creative/packages/{id}/items/{productId}")
+    public ApiResponse<PackageVo> deleteMaterial(@PathVariable String id, @PathVariable String productId,
+            @RequestParam String type, @RequestBody(required = false) FeedbackRequest feedback) {
+        commandService.deleteMaterial(TenantContext.requireTenantId(), new PackageId(id),
+                new QcProductId(productId), materialType(type), feedback == null ? com.lynx.ad.modules.creative.domain.model.MaterialFeedback.empty() : new com.lynx.ad.modules.creative.domain.model.MaterialFeedback(feedback.reasons(), feedback.description()));
+        return ApiResponse.ok(new PackageVo(id, false));
+    }
+
+    public record MaterialRequest(String type, List<String> reasons, String description) {}
+    public record FeedbackRequest(List<String> reasons, String description) {}
+
+    private MaterialType materialType(String type) {
+        try {
+            MaterialType value = MaterialType.valueOf(type == null ? "" : type);
+            if (value == MaterialType.CAROUSEL) throw new IllegalArgumentException();
+            return value;
+        }
+        catch (IllegalArgumentException ex) { throw new BizException(1501, "当前支持视频和图片素材操作"); }
     }
 
     @GetMapping("/api/v1/creative/library")

@@ -12,6 +12,7 @@ import com.lynx.ad.modules.creative.domain.model.PipelineStep;
 import com.lynx.ad.modules.creative.domain.model.StepName;
 import com.lynx.ad.modules.creative.domain.model.StepStatus;
 import com.lynx.ad.modules.creative.domain.model.TitleType;
+import com.lynx.ad.modules.creative.domain.model.MaterialFeedback;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +23,11 @@ final class CreativeJson {
 
     CreativeJson(ObjectMapper mapper) {
         this.mapper = mapper;
+    }
+
+    String feedback(MaterialFeedback value) { return write(value); }
+    MaterialFeedback readFeedback(String value) {
+        return value == null || value.isBlank() ? MaterialFeedback.empty() : read(value, new TypeReference<MaterialFeedback>() {});
     }
 
     String productIds(List<QcProductId> ids) {

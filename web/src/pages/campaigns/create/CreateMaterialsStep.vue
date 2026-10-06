@@ -17,9 +17,13 @@
               <ReferenceIcon name="tipmark" /><span class="tip__text">{{
                 ready
                   ? "素材已生成，点击任意素材可预览投放效果。"
-                  : task?.status === "FAILED"
+                  : generation.ready
+                    ? "素材已生成，正在打开素材预览。"
+                  : generation.failed
                     ? "素材生成未完成，可重试或返回修改投放目标。"
-                    : "素材生成中，请耐心等待，生成结束将有消息提醒。"
+                    : !task && !saving
+                      ? "请先确认需要智能生成素材的商品。"
+                      : "素材生成中，请耐心等待，生成结束将有消息提醒。"
               }}</span>
             </p>
           </div>
@@ -27,14 +31,13 @@
             <div class="gen">
               <div
                 class="gauge"
-                :aria-label="
-                  progress == null
-                    ? '正在生成素材'
-                    : `素材生成进度 ${progress}%`
-                "
-                role="img"
+                :aria-label="`素材生成进度 ${progress}%`"
+                role="progressbar"
+                :aria-valuenow="progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
               >
-                <svg class="gauge__svg" viewBox="0 0 104 104">
+                <svg class="gauge__svg" viewBox="0 0 104 104" aria-hidden="true">
                   <circle class="gauge__track" cx="52" cy="52" r="46" />
                   <circle
                     class="gauge__arc"
@@ -46,20 +49,19 @@
                   /></svg
                 ><span class="gauge__mid"
                   ><span class="gauge__pct"
-                    >{{ progress == null ? "…" : progress
-                    }}<span v-if="progress != null" class="gauge__unit"
+                    >{{ progress }}<span class="gauge__unit"
                       >%</span
                     ></span
                   ><span class="gauge__cap">{{
-                    task?.status === "FAILED" ? "生成失败" : "生成中"
+                    generation.ready ? '已完成' : generation.failed ? (task?.status === 'CANCELLED' ? '已取消' : '生成失败') : !task && !saving ? "待确认" : "生成中"
                   }}</span></span
                 >
               </div>
               <p class="gen__title">
-                {{ task?.errorMsg || "正在生成投放素材，素材越多耗时越长" }}
+                {{ task?.errorMsg || (generation.ready ? '素材生成完成，正在打开素材预览…' : generation.failed ? '素材生成已停止，可重新生成' : !task && !saving ? "选择商品后开始智能生成投放素材" : "正在努力生成素材中，素材越多耗时越长") }}
               </p>
               <p class="gen__desc">
-                生成任务会在后台继续执行。完成后可在当前页面预览，也可前往素材中心查看。
+                {{ !task && !saving ? '确认后仅为勾选的商品生成投放素材。' : '灵投智能分析并生成投放素材，期间你可以正常进行其他操作，任务会在后台继续执行，完成后将有消息提醒。' }}
               </p>
               <div class="gencards">
                 <article
@@ -75,36 +77,35 @@
                       ><ReferenceIcon :name="card.icon" /></span
                     ><span
                       ><span class="gencard__name">{{ card.name }}</span
-                      ><span class="gencard__count">{{
-                        card.label
-                      }}</span></span
+                      ><span class="gencard__count"><template v-if="card.total"><b>{{ card.count }}</b>/{{ card.total }} 已生成</template><template v-else>暂无生成任务</template></span></span
                     >
                   </div>
-                  <div class="gencard__bar">
+                  <div class="gencard__bar" role="progressbar" :aria-label="`${card.name}生成进度`" :aria-valuenow="card.percent" aria-valuemin="0" aria-valuemax="100">
                     <span
                       class="gencard__fill"
                       :class="`gencard__fill--${card.key}`"
-                      :style="{ width: card.done ? '100%' : '0%' }"
+                      :style="{ width: `${card.percent}%` }"
                     />
                   </div>
                   <p class="gencard__foot">
                     <span
-                      v-if="!card.done && card.key === 'video'"
+                      v-if="card.running"
                       class="spinner"
-                    />{{ card.description }}
+                      aria-hidden="true"
+                    /><ReferenceIcon v-else-if="card.done" name="check" class="generation-check" />{{ card.description }}
                   </p>
                 </article>
               </div>
-              <p v-if="task?.steps?.length" class="gen__hint">
-                {{ "正在准备选中商品的素材，请稍候" }}
+              <p class="gen__hint" role="status" aria-live="polite">
+                {{ generation.stage }}
               </p>
               <button
-                v-if="task?.status === 'FAILED' || !task"
+                v-if="generation.failed || !task"
                 class="btn-next-primary"
                 :disabled="saving"
                 @click="emit('retry')"
               >
-                重新生成素材
+                {{ !task ? '选择智能生成商品' : '重新生成素材' }}
               </button>
               <p class="gen__hint">
                 <button class="gen__link" @click="emit('prev')">
@@ -121,7 +122,7 @@
               <div class="srow__body">
                 <div class="seg seg--lg">
                   <button class="seg__item" disabled>
-                    抖音主页频次可见<span class="seg__badge">推荐</span></button
+                    抖音主页单次可见<span class="seg__badge">推荐</span></button
                   ><button class="seg__item" disabled>抖音主页始终可见</button>
                 </div>
                 <p class="srow__hint">
@@ -132,23 +133,12 @@
             <div class="srow">
               <p class="srow__label">素材对应商品</p>
               <div class="srow__body">
-                <select
-                  v-model="productId"
-                  class="pick"
-                  aria-label="素材对应商品"
-                >
-                  <option
-                    v-for="p in selected"
-                    :key="p.qcProductId"
-                    :value="p.qcProductId"
-                  >
-                    {{ p.name }}
-                  </option>
-                </select>
+                <MaterialProductPicker v-model="productId" :products="selected" :ai-product-ids="aiProductIds" />
                 <p class="srow__hint">下拉可切换查询各商品对应素材情况</p>
               </div>
             </div>
             <div class="mblock">
+              <p v-if="missingProducts.length" class="workspace-empty" role="status">以下商品尚无投放素材：{{ missingProducts.map(p => p.name).join('、') }}。请补齐素材后再发布。</p>
               <div class="mblock__head">
                 <p class="mblock__label">素材和标题</p>
                 <p class="mblock__count">
@@ -158,7 +148,7 @@
                 </p>
               </div>
               <p class="mblock__hint">
-                点击素材可预览投放效果，也可上传文件替换对应商品的素材
+                点击素材可预览投放效果，也可重新生成、删除或新增素材
               </p>
               <div class="tabs" role="tablist" aria-label="素材类型">
                 <button
@@ -187,7 +177,8 @@
                       role="listitem"
                       tabindex="0"
                       @click="activeIndex = i"
-                      @keydown.enter="activeIndex = i"
+                      @keydown.enter.self.prevent="activeIndex = i"
+                      @keydown.space.self.prevent="activeIndex = i"
                     >
                       <span class="matrow__thumb"
                         ><img
@@ -206,14 +197,16 @@
                           }}</span
                         ><span class="matrow__meta"
                           >对应商品：{{ item.productId }}</span
-                        ><span class="matrow__tag">智能生成</span></span
+                        ><span class="matrow__tag"><span class="srctag srctag--ai"><ReferenceIcon name="sparkle" />AI 智能生成</span></span></span
                       ><span class="matrow__ops"
-                        ><button
+                        ><button class="iconbtn" type="button"
                           :disabled="saving"
-                          aria-label="替换素材"
-                          @click.stop="openReplacement(item.productId)"
+                          :aria-label="`重新生成${productName(item.productId)}${activeTab === 'video' ? '视频' : '图片'}`"
+                          title="重新生成"
+                          @click.stop="emit('regenerate', item.productId, activeTab === 'video' ? 'VIDEO' : 'IMAGE')"
                         >
-                          <ReferenceIcon name="edit" /></button
+                          <ReferenceIcon name="refresh" /></button
+                        ><button class="iconbtn" type="button" :disabled="saving" :aria-label="`删除${productName(item.productId)}${activeTab === 'video' ? '视频' : '图片'}`" title="删除" @click.stop="emit('delete-material', item.productId, activeTab === 'video' ? 'VIDEO' : 'IMAGE')"><ReferenceIcon name="trash" /></button
                       ></span>
                     </article>
                     <p v-if="!visibleItems.length" class="workspace-empty">
@@ -385,13 +378,15 @@
           上一步</button
         ><button
           class="btn-next-primary"
-          :disabled="saving || !ready || !planName.trim()"
+          :disabled="saving || !ready || !planName.trim() || !!missingProducts.length"
           @click="emit('publish')"
         >
-          {{ saving ? "发布中…" : "发布投放" }}
+          {{ saving ? "处理中…" : "发布投放" }}
         </button>
+        <button class="btn-cancel" type="button" :disabled="saving" @click="emit('cancel')">取消投放</button>
       </div>
     </div>
+    <GenerationConfirmation v-if="generationPickerOpen" :products="selected" :selection="generationSelection" :busy="saving" @confirm="emit('generate', $event)" @selection="emit('generation-selection', $event)" @close="emit('close-generation-picker')" />
     <ReferenceModal
       v-if="modalOpen"
       :title="replacementId ? '替换素材' : '新增素材'"
@@ -494,14 +489,17 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import type { TaskVo } from "@/features/creative/creativeApi";
+import type { MaterialType, TaskVo } from "@/features/creative/creativeApi";
 import type { ProductVo } from "@/features/catalog/catalogApi";
 import { amount, mediaUrl } from "../reference/planPresentation";
 import CreationFrame from "../reference/CreationFrame.vue";
 import ReferenceIcon from "../reference/ReferenceIcon.vue";
 import ReferenceModal from "../reference/ReferenceModal.vue";
+import GenerationConfirmation from './GenerationConfirmation.vue';
+import MaterialProductPicker from './MaterialProductPicker.vue';
+import { generationProgress } from './generationProgress';
 import "../reference/creative-workspace.css";
 const props = defineProps<{
   task: TaskVo | null;
@@ -510,16 +508,25 @@ const props = defineProps<{
   replacementVersion: number;
   planName: string;
   selected: ProductVo[];
+  aiProductIds: string[];
+  generationPickerOpen: boolean;
+  generationSelection: string[];
   account?: { awemeName: string; awemeId: string } | null;
   accountChips: string[];
 }>();
 const emit = defineEmits<{
   "update:planName": [value: string];
   prev: [];
+  cancel: [];
   retry: [];
+  generate: [ids: string[]];
+  'generation-selection': [ids: string[]];
+  'close-generation-picker': [];
   confirm: [];
   publish: [];
   replace: [productId: string, file: File];
+  regenerate: [productId: string, type: MaterialType];
+  'delete-material': [productId: string, type: MaterialType];
 }>();
 const activeTab = ref<"video" | "image" | "article" | "title">("video"),
   productId = ref(""),
@@ -537,7 +544,18 @@ const platforms = ["抖音", "今日头条", "西瓜视频", "抖音火山版", 
     { key: "local", name: "本地上传" },
     { key: "lib", name: "素材库选择" },
   ];
-const ready = computed(() => props.task?.status === "SUCCEEDED");
+const ready = ref(false);
+let completionTimer: number | undefined;
+watch(() => props.task?.status, status => {
+  window.clearTimeout(completionTimer);
+  ready.value = false;
+  // Show the actual 100% result briefly before switching to the preview workspace.
+  if (status === 'SUCCEEDED') completionTimer = window.setTimeout(() => { ready.value = true; }, 500);
+}, { immediate: true });
+onUnmounted(() => window.clearTimeout(completionTimer));
+const missingProducts = computed(() => props.selected.filter(product =>
+  !props.task?.items?.some(item => item.productId === product.qcProductId && (item.playUrl || item.posterUrl)),
+));
 const videoItems = computed(
     () => props.task?.items?.filter((i) => !!i.playUrl) || [],
   ),
@@ -567,40 +585,9 @@ const currentProduct = computed(() =>
     (p) => p.qcProductId === (previewItem.value?.productId || productId.value),
   ),
 );
-const progress = computed(() => {
-  const steps = props.task?.steps || [];
-  if (!steps.length) return null;
-  return Math.round(
-    (steps.filter((s) => /:SUCCEEDED$/.test(s)).length / steps.length) * 100,
-  );
-});
-const generationCards = computed(() => [
-  {
-    key: "video",
-    name: "短视频",
-    icon: "video",
-    label: `${videoItems.value.length}/${props.selected.length} 已生成`,
-    done: ready.value,
-    description:
-      props.task?.status === "FAILED" ? "生成失败" : "正在生成视频素材…",
-  },
-  {
-    key: "image",
-    name: "图片",
-    icon: "image",
-    label: `${imageItems.value.length} 张已生成`,
-    done: ready.value && imageItems.value.length > 0,
-    description: "视频封面及商品卡图片",
-  },
-  {
-    key: "article",
-    name: "图文",
-    icon: "article",
-    label: "暂无生成任务",
-    done: false,
-    description: "当前标准素材包不包含图文",
-  },
-]);
+const generation = computed(() => generationProgress(props.task, props.aiProductIds.length || props.selected.length));
+const progress = computed(() => generation.value.percent);
+const generationCards = computed(() => generation.value.cards);
 function productName(id: string) {
   return props.selected.find((p) => p.qcProductId === id)?.name || id;
 }
@@ -613,6 +600,9 @@ watch(
   { immediate: true },
 );
 watch(productId, () => (activeIndex.value = 0));
+watch(visibleItems, items => {
+  activeIndex.value = Math.min(activeIndex.value, Math.max(0, items.length - 1));
+});
 watch(
   () => props.replacementVersion,
   () => {
@@ -660,6 +650,9 @@ function replace() {
 }
 </script>
 <style scoped>
+.gencard__fill { display:block; }
+.gauge__svg { transform:rotate(-90deg); }
+.generation-check { width:13px; height:13px; flex-shrink:0; }
 .tip > svg {
   width: 17px;
   height: 17px;
@@ -675,7 +668,7 @@ function replace() {
   width: 28px;
   height: 28px;
 }
-.matrow__ops svg,
+.matrow__ops svg { width:15px; height:15px; }
 .addrow svg {
   width: 16px;
   height: 16px;

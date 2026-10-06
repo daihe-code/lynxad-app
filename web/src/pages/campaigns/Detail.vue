@@ -30,6 +30,7 @@
               </p>
             </div>
             <div class="vhead__ops">
+              <button v-if="plan.qcPlanId" class="btn-prev" :disabled="busy" @click="syncCurrent"><ReferenceIcon name="refresh" />同步平台详情</button>
               <router-link
                 class="btn-prev"
                 :to="`/campaigns/manage/create?copy=${plan.planId}`"
@@ -47,8 +48,8 @@
                 />{{
                   plan.status === "DELIVERING" ? "暂停投放" : "恢复投放"
                 }}</button
-              ><router-link
-                v-if="plan.source !== 'EXTERNAL'"
+              ><button v-if="canAct" class="btn-next-primary" @click="operationOpen = true"><ReferenceIcon name="edit" />修改计划</button><router-link
+                v-else-if="plan.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.status)"
                 class="btn-next-primary"
                 :to="`/campaigns/${plan.planId}/edit`"
                 ><ReferenceIcon name="edit" />修改计划</router-link
@@ -213,7 +214,7 @@
         ></template>
       </div>
     </main>
-    <ReferenceFooter /><ReferenceModal
+    <CampaignOperationDialog v-model="operationOpen" kind="修改计划" :plan="plan" @saved="load" /><ReferenceFooter /><ReferenceModal
       v-if="pendingAction"
       :title="pendingAction === 'DISABLE' ? '暂停计划提醒' : '恢复投放确认'"
       :width="460"
@@ -242,7 +243,9 @@
 </template>
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { actPlan } from "@/features/delivery/deliveryApi";
+import { actPlan, syncPlanDetail } from "@/features/delivery/deliveryApi";
+import { GUARANTEE_STATUS } from '@/utils/labels';
+import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import { useUserStore } from "@/stores/user";
 import { ElMessage } from "element-plus";
 import {
@@ -258,14 +261,15 @@ import ReferenceFooter from "./reference/ReferenceFooter.vue";
 import ReferenceModal from "./reference/ReferenceModal.vue";
 import PlanKpis from "./reference/PlanKpis.vue";
 import "./reference/reference.css";
-const { plan, shop, actions, report, metrics, hasData, loading, failed, load } =
+const { plan, shop, account, actions, report, metrics, hasData, loading, failed, load } =
   usePlanPresentation();
 const user = useUserStore(),
   busy = ref(false),
+  operationOpen = ref(false),
   pendingAction = ref<"ENABLE" | "DISABLE" | null>(null);
 const canAct = computed(
   () =>
-    plan.value?.source !== "EXTERNAL" &&
+    !!plan.value?.qcPlanId && account.value?.status === 'ACTIVE' &&
     user.trialActive &&
     ["DELIVERING", "PAUSED"].includes(plan.value?.status || ""),
 );
@@ -303,9 +307,7 @@ const infoGroups = computed(() => {
         ["投放时段", "全时段"],
         [
           "成本保障",
-          p.guarantee === "展示字段"
-            ? "以平台保障规则为准"
-            : p.guarantee || "—",
+          p.guarantee ? GUARANTEE_STATUS[p.guarantee] || p.guarantee : "—",
         ],
         ["当前状态", statusInfo(p.status)[0] || "—"],
       ],
@@ -320,6 +322,13 @@ const infoGroups = computed(() => {
     },
   ];
 });
+async function syncCurrent() {
+  if (!plan.value || busy.value) return;
+  busy.value = true;
+  try { await syncPlanDetail(plan.value.planId); await load(); ElMessage.success('平台详情已同步'); }
+  catch { /* Keep the last successfully loaded details. */ }
+  finally { busy.value = false; }
+}
 function ask(action: "ENABLE" | "DISABLE") {
   if (canAct.value) pendingAction.value = action;
 }

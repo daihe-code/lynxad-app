@@ -112,8 +112,7 @@ class InsightReportIT extends AbstractContainerIT {
                 .path("data")
                 .path("taskId")
                 .asText();
-        String packageId = json(get("/api/v1/creative/creatives/tasks/" + taskId, token))
-                .path("data")
+        String packageId = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token)
                 .path("packageId")
                 .asText();
         post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);

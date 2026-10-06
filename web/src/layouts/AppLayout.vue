@@ -24,25 +24,8 @@
       </div>
       <div class="right">
         <button v-if="usesReferenceHeader" class="nav-toggle" type="button" :aria-label="navOpen ? '收起导航' : '展开导航'" aria-controls="app-navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></button>
-        <el-popover placement="bottom-end" :width="340" trigger="click" :popper-class="route.path === '/campaigns' ? 'campaign-popover campaign-inbox' : ''">
-          <template #reference>
-            <el-badge :value="unread" :hidden="unread === 0">
-              <el-button circle aria-label="消息通知">
-                <el-icon><Bell /></el-icon>
-              </el-button>
-            </el-badge>
-          </template>
-          <div v-if="route.path === '/campaigns'" class="popup-heading"><strong>消息通知</strong><span>{{ unread ? `${unread} 条未读` : '暂无未读' }}</span></div>
-          <div v-if="inbox.length === 0" class="empty"><el-icon v-if="route.path === '/campaigns'"><Bell /></el-icon><span>暂无站内信</span></div>
-          <div class="inbox-list"><button v-for="item in inbox" :key="item.id" class="mail" :class="{ unread: item.unread }" @click="mark(item.id)">
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.body }}</p>
-          </button></div>
-        </el-popover>
-        <el-dropdown v-if="usesReferenceHeader" trigger="click" @command="onLogout">
-          <button type="button" class="create-user" aria-label="用户菜单"><span class="user-avatar"><el-icon><UserFilled /></el-icon></span><span>{{ user.me?.nickname || user.me?.phone || "用户" }}</span></button>
-          <template #dropdown><el-dropdown-menu><el-dropdown-item command="logout">退出登录</el-dropdown-item></el-dropdown-menu></template>
-        </el-dropdown>
+        <NotificationCenter />
+        <UserMenu v-if="usesReferenceHeader" />
         <template v-else><span class="who">{{ user.me?.nickname || user.me?.phone || "用户" }}</span><el-button text @click="onLogout">退出</el-button></template>
       </div>
       </div>
@@ -66,14 +49,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { Bell, UserFilled } from "@element-plus/icons-vue";
+import UserMenu from "./UserMenu.vue";
+import NotificationCenter from "./NotificationCenter.vue";
 import { useUserStore } from "@/stores/user";
-import { listInbox, readInbox, type InboxMessage } from "@/features/tenant/inboxApi";
-import { WATCHER_TYPES } from "@/features/agentops/agentopsApi";
-import { getPlan } from "@/features/delivery/deliveryApi";
 import "@/pages/campaigns/campaign-ui.css";
 import ReferenceFooter from "@/pages/campaigns/reference/ReferenceFooter.vue";
 import "@/pages/campaigns/reference/reference.css";
@@ -89,40 +70,12 @@ const usesReferenceHeader = computed(() => isReference.value || route.path.start
 const navOpen = ref(false);
 watch(() => route.fullPath, () => { navOpen.value = false; });
 const router = useRouter();
-const inbox = ref<InboxMessage[]>([]);
-const unread = computed(() => inbox.value.filter((i) => i.unread).length);
 const active = computed(() => {
   if (route.path.startsWith("/creatives")) return "/creatives";
   if (route.path.startsWith("/analytics")) return "/campaigns";
   if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription")) return "/accounts";
   return "/campaigns";
 });
-
-async function loadInbox() {
-  try {
-    inbox.value = await listInbox();
-  } catch {
-    inbox.value = [];
-  }
-}
-
-async function mark(id: string) {
-  const item = inbox.value.find((i) => i.id === id);
-  await readInbox(id);
-  await loadInbox();
-  const bizType = item?.bizType || "";
-  const bizId = item?.bizId;
-  if (!WATCHER_TYPES.includes(bizType as (typeof WATCHER_TYPES)[number]) || !bizId) {
-    return;
-  }
-  try {
-    await getPlan(bizId);
-    await router.push("/campaigns/" + bizId);
-  } catch {
-    ElMessage.warning("计划不可见");
-    await router.push("/campaigns");
-  }
-}
 
 function onHelp() {
   ElMessage.info("帮助中心即将上线");
@@ -133,7 +86,7 @@ function onLogout() {
   router.push("/login");
 }
 
-onMounted(loadInbox);
+
 </script>
 
 <style scoped>
@@ -144,7 +97,6 @@ onMounted(loadInbox);
 }
 .campaign-shell { background: #f7f7ff; --el-color-primary: #575cf6; }
 .reference-footer-only { min-height: 0; }
-.user-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #7962f7; }
 .campaign-shell .main { padding: 20px 24px 40px; }
 .campaign-shell .foot { background: #1a1a32; font-size: 12px; padding: 24px; color: #a7a2bc; }
 @media (max-width: 950px) {
@@ -196,28 +148,6 @@ onMounted(loadInbox);
 .foot a {
   color: #d1d5db;
 }
-.mail {
-  display: block;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  font-family: inherit;
-  padding: 8px 0;
-  border-bottom: 1px solid #f3f4f6;
-  cursor: pointer;
-}
-.inbox-list { max-height: 360px; overflow-y: auto; }
-.mail p {
-  margin: 4px 0 0;
-  color: #6b7280;
-  font-size: 12px;
-}
-.empty {
-  color: #9ca3af;
-  text-align: center;
-  padding: 12px 0;
-}
 :deep(.el-menu) {
   border-bottom: none;
 }
@@ -233,8 +163,6 @@ onMounted(loadInbox);
 .reference-header :deep(.el-menu-item.is-active) { color: #4348db; font-weight: 500; background: transparent; }
 .reference-header .right { gap: 12px; font-size: 12px; }
 .reference-header .right :deep(.el-button.is-circle) { width: 36px; height: 36px; border: 0; background: transparent; color: #7c7f99; font-size: 21px; }
-.reference-header .create-user { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 999px; padding: 4px 12px 4px 4px; font-family: inherit; font-size: 15px; font-weight: 500; line-height: 1; color: #1a1b2e; cursor: pointer; }
-.reference-header .user-avatar { background: linear-gradient(135deg,#575cf6,#a165ef); }
 .reference-header .account-caret { margin-left: 4px; width: 14px; height: 14px; color: #7c7f99; }
 :is(.create-shell, .asset-shell, .account-shell, .reference-content) .main { padding: 0; }
 @media (max-width: 950px) {
@@ -256,6 +184,4 @@ onMounted(loadInbox);
   .reference-header :deep(.el-menu-item) { justify-content: flex-start; width: 100%; }
 }
 @media (max-width: 639px) { .reference-header .right { gap: 4px; } }
-.reference-header .create-user > span:last-child { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 639px) { .reference-header .create-user > span:last-child { max-width: 70px; } }
 </style>

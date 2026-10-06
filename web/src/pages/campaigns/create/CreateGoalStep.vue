@@ -283,101 +283,40 @@
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步
     </button>
-    <button class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || duration === 'custom'" @click="openConfirm">
+    <button class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || duration === 'custom'" @click="nextStep">
       下一步
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-right"/></svg>
     </button>
+    <button class="btn-cancel" type="button" :disabled="saving" @click="emit('cancel')">取消投放</button>
   </div>
 </div>
-
-<div class="modal" v-if="dialogOpen" id="gen-confirm" role="dialog" aria-modal="true" aria-labelledby="gen-confirm-title" @keydown.esc.prevent="closeConfirm" @keydown.tab="trapFocus">
-  <div class="modal__mask" @click="closeConfirm"></div>
-
-  <div ref="dialogBox" class="modal__box modal__box--lg" tabindex="-1">
-    <div class="modal__head">
-      <h2 class="modal__title" id="gen-confirm-title">素材智能生成确认</h2>
-      <button class="modal__close" type="button" :disabled="saving" @click="closeConfirm" aria-label="关闭">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-close"/></svg>
-      </button>
-    </div>
-
-    <p class="modal__intro">
-      系统将进入素材智能生成环节，会针对已选商品匹配生成最佳投放效果素材！<br>
-      如部分商品已有可用素材（视频、图片、图文）无需系统生成，可选出：
-    </p>
-
-    <div class="mfield mt-[18px]">
-      <p class="mfield__label"><label for="gen-prod">选择商品</label></p>
-      <div class="mfield__ctrl">
-        <div class="msel">
-          <button class="msel__box" id="gen-prod" type="button" @click="productMenu = !productMenu"
-                  :aria-expanded="productMenu" aria-haspopup="listbox">
-            <span class="msel__ph" data-role="prod-text">请选择不需生成素材的商品，不选代表均需生成</span>
-            <svg class="msel__caret" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-caret"/></svg>
-          </button>
-          <div class="msel__menu" role="listbox" aria-multiselectable="true" data-role="prod-menu" v-show="productMenu"
-               aria-label="选择不需生成素材的商品">
-            <button v-for="p in selected" :key="p.productId" class="msel__opt" type="button" role="option" aria-selected="false" disabled title="已有素材复用暂未开放"><span class="msel__box2" aria-hidden="true" /><span class="msel__name">{{ p.name }}</span></button>
-          </div>
-        </div>
-        <div class="spec spec--plain spec--tip">
-          <svg class="spec__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
-          <span>已有素材复用暂未开放，本次将为全部已选商品生成素材</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal__foot">
-      <button class="btn-modal-ghost" type="button" :disabled="saving" @click="closeConfirm">取消</button>
-      <button class="btn-modal-primary" type="button" :disabled="saving" @click="emit('next')">{{ saving ? '处理中…' : '确定' }}</button>
-    </div>
-  </div>
-</div>
-
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import type { ProductVo } from '@/features/catalog/catalogApi';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; selectionWarning: string; demoMode: boolean; selected: ProductVo[]; account?: AccountOption; accounts: AccountOption[]; accountChips: string[] }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[] }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: [] }>();
+const emit = defineEmits<{ mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const accountOpen = ref(false), budgetTouched = ref(false), roiTouched = ref(false);
-const dialogOpen = ref(false), productMenu = ref(false), dialogBox = ref<HTMLElement>();
-let previousOverflow = '';
+
+
 const hint = (message: string) => ElMessage.info(message);
 watch(() => props.mode, () => { budgetTouched.value = false; roiTouched.value = false; });
-watch(dialogOpen, async open => {
-  if (open) { previousOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; await nextTick(); dialogBox.value?.focus(); }
-  else { document.body.style.overflow = previousOverflow; productMenu.value = false; }
-});
-function openConfirm() {
+function nextStep() {
   budgetTouched.value = true; roiTouched.value = true;
   if (props.saving || props.budgetError || props.roiError || duration.value === 'custom') return;
-  accountOpen.value = false; dialogOpen.value = true;
+  accountOpen.value = false;
+  emit('next');
 }
-async function closeConfirm() {
-  if (props.saving) return;
-  dialogOpen.value = false;
-  await nextTick(); document.querySelector<HTMLButtonElement>('.create-goal .btn-next-primary')?.focus();
-}
-function trapFocus(event: KeyboardEvent) {
-  const buttons = dialogBox.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]');
-  if (!buttons?.length) { event.preventDefault(); return; }
-  const first = buttons[0], last = buttons[buttons.length - 1];
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogBox.value)) { event.preventDefault(); last?.focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-}
-onUnmounted(() => { if (dialogOpen.value) document.body.style.overflow = previousOverflow; });
 </script>
 <style scoped src="./create-goal.css"></style>

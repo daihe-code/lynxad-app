@@ -10,10 +10,14 @@ export interface InboxMessage {
   sentAt: string;
 }
 
-export function listInbox() {
-  return apiGet<InboxMessage[]>("/api/v1/tenant/notifications");
+export function listInbox(background = false) {
+  return apiGet<InboxMessage[]>("/api/v1/tenant/notifications", { headers: background ? { 'X-Quiet-Request': 'true' } : {} });
 }
 
 export function readInbox(id: string) {
-  return apiPost<void>(`/api/v1/tenant/notifications/${id}/read`);
+  return apiPost<void>(`/api/v1/tenant/notifications/${encodeURIComponent(id)}/read`);
+}
+
+export function readAllInbox(before: string) {
+  return apiPost<number>('/api/v1/tenant/notifications/read-all', { before });
 }

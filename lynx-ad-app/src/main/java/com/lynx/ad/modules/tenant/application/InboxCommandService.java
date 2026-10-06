@@ -13,6 +13,7 @@ import com.lynx.ad.modules.tenant.domain.model.BizRef;
 import com.lynx.ad.modules.tenant.domain.model.InboxMessage;
 import com.lynx.ad.modules.tenant.domain.port.InboxMessageRepository;
 import java.util.List;
+import java.time.Instant;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -60,5 +61,10 @@ public class InboxCommandService {
                         m.unread(),
                         m.sentAt()))
                 .toList();
+    }
+
+    public int markAllRead(TenantId tenantId, Instant before) {
+        Instant now = Instant.now();
+        return repository.markAllRead(tenantId, before == null || before.isAfter(now) ? now : before);
     }
 }

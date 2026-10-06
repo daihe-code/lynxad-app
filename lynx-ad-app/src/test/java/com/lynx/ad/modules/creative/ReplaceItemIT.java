@@ -55,7 +55,7 @@ class ReplaceItemIT extends AbstractContainerIT {
                 .path("data")
                 .path("taskId")
                 .asText();
-        JsonNode before = json(get("/api/v1/creative/creatives/tasks/" + taskId, token)).path("data");
+        JsonNode before = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token);
         String packageId = before.path("packageId").asText();
         String oldUrl = before.path("items").get(0).path("playUrl").asText();
         MockMultipartFile empty = new MockMultipartFile("file", "empty.mp4", "video/mp4", new byte[0]);

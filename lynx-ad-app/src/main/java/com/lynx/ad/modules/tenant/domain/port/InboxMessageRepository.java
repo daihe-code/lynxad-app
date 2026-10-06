@@ -5,6 +5,7 @@ import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.modules.tenant.domain.model.InboxMessage;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface InboxMessageRepository {
 
@@ -13,4 +14,6 @@ public interface InboxMessageRepository {
     List<InboxMessage> listByTenant(TenantId id);
 
     Optional<InboxMessage> findById(TenantId tenantId, NotificationId id);
+
+    int markAllRead(TenantId tenantId, Instant before);
 }

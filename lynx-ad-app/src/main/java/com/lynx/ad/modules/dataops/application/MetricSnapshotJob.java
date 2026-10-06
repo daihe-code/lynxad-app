@@ -25,6 +25,13 @@ public class MetricSnapshotJob {
     private final ReportPullPort reportPullPort;
     private final WatcherJob watcherJob;
     private final AmountConversion conversion = new AmountConversion();
+    private com.lynx.ad.common.config.LynxAdProperties properties;
+    private com.lynx.ad.modules.delivery.application.PlanSyncService syncService;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void managementSync(com.lynx.ad.common.config.LynxAdProperties properties,
+            com.lynx.ad.modules.delivery.application.PlanSyncService syncService) {
+        this.properties = properties; this.syncService = syncService;
+    }
 
     public MetricSnapshotJob(
             TenantQuerySupport tenantQuery,
@@ -43,10 +50,14 @@ public class MetricSnapshotJob {
     public void snapshot() {
         Instant now = Instant.now();
         for (Tenant tenant : tenantQuery.findAll()) {
+            if (properties != null && !properties.getMock().isQianchuan()) {
+                syncService.sync(tenant.id(), null);
+            }
             for (AdPlan plan : planRepository.findByTenant(tenant.id())) {
-                if (plan.status() != PlanStatus.DELIVERING) {
+                if (plan.status() != PlanStatus.DELIVERING || plan.source() == com.lynx.ad.modules.delivery.domain.model.PlanSource.EXTERNAL) {
                     continue;
                 }
+                try {
                 ReportPullPort.RawOceanReport raw = reportPullPort.pull(plan);
                 snapshotRepository.append(MetricSnapshot.of(
                         plan.tenantId(),
@@ -61,6 +72,9 @@ public class MetricSnapshotJob {
                         Roi.of(raw.roi()),
                         Ctr.of(raw.ctr())));
                 watcherJob.afterSnapshot(plan.id());
+                } catch (RuntimeException ex) {
+                    org.slf4j.LoggerFactory.getLogger(MetricSnapshotJob.class).warn("snapshot unavailable plan={} reason={}",plan.id().value(),ex.getMessage());
+                }
             }
         }
     }

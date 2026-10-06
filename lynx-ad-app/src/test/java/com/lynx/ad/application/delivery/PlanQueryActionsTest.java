@@ -57,7 +57,7 @@ class PlanQueryActionsTest {
                         new QcProductId("p1"),
                         List.of(new com.lynx.ad.modules.creative.domain.model.AdTitle(
                                 "t", com.lynx.ad.modules.creative.domain.model.TitleType.CUSTOM)),
-                        Optional.empty(),
+                        Optional.of(new com.lynx.ad.common.domain.Ids.VideoId("fixture-video")),
                         Optional.empty())));
         pkg.confirm();
         plan.publish(pkg);

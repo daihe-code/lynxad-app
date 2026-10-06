@@ -6,6 +6,10 @@ export const PLAN_STATUS: Record<string, string> = {
   PAUSED: "已暂停",
   FINISHED: "已结束",
   REJECTED: "审核失败",
+  UNKNOWN: "状态待核查",
+};
+export const GUARANTEE_STATUS: Record<string, string> = {
+  IN_EFFECT: '成本保障生效中', INVALID: '成本保障已失效', CONFIRMING: '确认中', PAID: '已到账', ENDED: '已结束', DEFAULT: '暂无保障状态',
 };
 
 export const AWEME_TYPE: Record<string, string> = {

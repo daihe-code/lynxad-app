@@ -36,7 +36,13 @@ public class CreativePackage {
 
     public void confirm() {
         assertTitlesLimit();
-        this.confirmedAt = Instant.now();
+        if (items.isEmpty() || items.stream().anyMatch(item -> !hasMedia(item))) {
+            throw new DomainException(1503, "请为所有投放商品补齐素材后再确认");
+        }
+        if (confirmedAt == null) {
+            this.confirmedAt = Instant.now();
+            this.version++;
+        }
     }
 
     public void replaceItem(QcProductId productId, CreativeArtifact artifact) {
@@ -49,6 +55,41 @@ public class CreativePackage {
 
     public boolean isConfirmed() {
         return confirmedAt != null;
+    }
+
+    public CreativeArtifact requireMedia(QcProductId productId, MaterialType type) {
+        if (type == null || type == MaterialType.CAROUSEL) throw new DomainException(1501, "当前支持视频和图片素材操作");
+        CreativeArtifact item = items.stream().filter(it -> it.productId().equals(productId)).findFirst()
+                .orElseThrow(() -> new DomainException(1504, "商品素材不存在"));
+        if (type == MaterialType.VIDEO ? item.videoObjectKey() == null && item.videoId().isEmpty()
+                : item.coverObjectKey() == null && item.coverImageId().isEmpty()) {
+            throw new DomainException(1504, "该类型素材不存在");
+        }
+        return item;
+    }
+
+    public void changeMedia(QcProductId productId, MaterialType type, CreativeArtifact generated) {
+        CreativeArtifact old = requireMedia(productId, type);
+        boolean video = type == MaterialType.VIDEO;
+        CreativeArtifact next = new CreativeArtifact(old.productId(), old.titles(),
+                video ? generated == null ? java.util.Optional.empty() : generated.videoId() : old.videoId(),
+                video ? old.coverImageId() : generated == null ? java.util.Optional.empty() : generated.coverImageId(),
+                video ? generated == null ? null : generated.videoObjectKey() : old.videoObjectKey(),
+                video ? old.coverObjectKey() : generated == null ? null : generated.coverObjectKey(),
+                generated == null ? old.storageMode() : generated.storageMode(),
+                video && generated != null ? generated.filename() : old.filename(),
+                video && generated != null ? generated.sizeBytes() : old.sizeBytes(),
+                video && generated != null ? generated.durationSec() : old.durationSec(),
+                video && generated != null ? generated.width() : old.width(),
+                video && generated != null ? generated.height() : old.height(),
+                video && generated != null ? generated.imageMode() : old.imageMode(),
+                generated == null ? old.createdAt() : generated.createdAt());
+        replaceItem(productId, next);
+    }
+
+    private boolean hasMedia(CreativeArtifact item) {
+        return item.videoObjectKey() != null || item.coverObjectKey() != null
+                || item.videoId().isPresent() || item.coverImageId().isPresent();
     }
 
     public void assertTitlesLimit() {

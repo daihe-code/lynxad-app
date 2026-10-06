@@ -72,7 +72,8 @@ public class QianchuanRestClient {
         while (true) {
             HttpResponse<String> response = doExchange(spec);
             int status = response.statusCode();
-            if (shouldRetry(status) && attempt < MAX_RETRIES) {
+            // A POST may have committed before a 5xx response; never blindly recreate a task.
+            if (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429) && attempt < MAX_RETRIES) {
                 log.warn("qianchuan retry status={} attempt={}", status, attempt + 1);
                 sleepQuietly(BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
                 attempt++;

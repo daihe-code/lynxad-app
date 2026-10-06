@@ -16,6 +16,8 @@ export const useWizardStore = defineStore("wizard", () => {
   const planName = ref("");
   const taskId = ref("");
   const packageId = ref("");
+  const aiProductIds = ref<string[]>([]);
+  const aiSelectionConfirmed = ref(false);
   const publishStatus = ref("");
   const qcPlanId = ref("");
 
@@ -30,6 +32,8 @@ export const useWizardStore = defineStore("wizard", () => {
     planName.value = "";
     taskId.value = "";
     packageId.value = "";
+    aiProductIds.value = [];
+    aiSelectionConfirmed.value = false;
     publishStatus.value = "";
     qcPlanId.value = "";
   }
@@ -48,6 +52,8 @@ export const useWizardStore = defineStore("wizard", () => {
     planName,
     taskId,
     packageId,
+    aiProductIds,
+    aiSelectionConfirmed,
     publishStatus,
     qcPlanId,
     reset,

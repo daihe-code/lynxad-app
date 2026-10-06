@@ -15,6 +15,9 @@ import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.modules.creative.domain.model.CreativeArtifact;
 import com.lynx.ad.modules.creative.domain.model.CreativeMode;
 import com.lynx.ad.modules.creative.domain.model.CreativePackage;
+import com.lynx.ad.modules.creative.domain.model.MaterialType;
+import com.lynx.ad.modules.creative.domain.model.MaterialFeedback;
+import com.lynx.ad.modules.creative.domain.model.RegenerationTarget;
 import com.lynx.ad.modules.creative.domain.model.CreativeTask;
 import com.lynx.ad.modules.creative.domain.port.CreativeTaskRepository;
 import com.lynx.ad.modules.creative.domain.port.StorageObject;
@@ -30,6 +33,13 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class CreativeCommandService {
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper FEEDBACK_JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private static String feedbackJson(MaterialFeedback feedback) {
+        try { return FEEDBACK_JSON.writeValueAsString(feedback); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException(ex); }
+    }
 
     private final CreativeTaskRepository repository;
     private final CreativePipelinePolicy pipelinePolicy = new CreativePipelinePolicy();
@@ -55,7 +65,7 @@ public class CreativeCommandService {
         pipelinePolicy.rejectReserved(mode);
         CreativeTask task = CreativeTask.submitStandard(tenantId, planId, productIds);
         repository.save(task);
-        creativeAgent.runNow(task.id());
+        creativeAgent.run(task.id());
         recordCreative(tenantId, task.id().value(), "素材任务");
         return task.id();
     }
@@ -65,6 +75,34 @@ public class CreativeCommandService {
         task.cancel();
         repository.save(task);
         recordCreative(tenantId, taskId.value(), "取消素材");
+    }
+
+    public TaskId regenerate(TenantId tenantId, PackageId packageId, QcProductId productId, MaterialType type) {
+        return regenerate(tenantId, packageId, productId, type, MaterialFeedback.empty());
+    }
+
+    public TaskId regenerate(TenantId tenantId, PackageId packageId, QcProductId productId, MaterialType type, MaterialFeedback feedback) {
+        CreativePackage pkg = repository.findPackage(tenantId, packageId).orElseThrow(() -> new BizException(1504, "素材包不存在"));
+        pkg.requireMedia(productId, type);
+        CreativeTask task = CreativeTask.submitStandard(tenantId, Optional.empty(), List.of(productId));
+        task.setRegenerationTarget(new RegenerationTarget(packageId, type, pkg.version()));
+        task.setFeedback(feedback);
+        repository.save(task);
+        creativeAgent.run(task.id());
+        recordCreative(tenantId, task.id().value(), "重新生成素材", feedbackJson(task.feedback()));
+        return task.id();
+    }
+
+    public void deleteMaterial(TenantId tenantId, PackageId packageId, QcProductId productId, MaterialType type) {
+        deleteMaterial(tenantId, packageId, productId, type, MaterialFeedback.empty());
+    }
+
+    public void deleteMaterial(TenantId tenantId, PackageId packageId, QcProductId productId, MaterialType type, MaterialFeedback feedback) {
+        CreativePackage pkg = repository.findPackage(tenantId, packageId).orElseThrow(() -> new BizException(1504, "素材包不存在"));
+        int version = pkg.version();
+        pkg.changeMedia(productId, type, null);
+        repository.savePackageAtVersion(pkg, version);
+        recordCreative(tenantId, packageId.value(), "删除素材", feedbackJson(feedback));
     }
 
     public void confirm(TenantId tenantId, PackageId packageId) {
@@ -108,6 +146,10 @@ public class CreativeCommandService {
     }
 
     private void recordCreative(TenantId tenantId, String objectId, String label) {
+        recordCreative(tenantId, objectId, label, null);
+    }
+
+    private void recordCreative(TenantId tenantId, String objectId, String label, String extra) {
         String jti = null;
         try {
             jti = TenantContext.require().sessionId().orElse(null);
@@ -131,6 +173,6 @@ public class CreativeCommandService {
                 RequestMeta.ip().orElse(null),
                 jti,
                 RequestMeta.userAgent().orElse(null),
-                null));
+                extra));
     }
 }

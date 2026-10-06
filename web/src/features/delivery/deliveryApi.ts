@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "@/api/http";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
 
 export interface PlanVo {
   planId: string;
@@ -16,9 +16,25 @@ export interface PlanVo {
   costYuan?: number;
   gmvYuan?: number;
   roi?: number;
+  accountId?: string;
+  roi2Goal?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  convert?: number | null;
+  snapshotTs?: string | null;
+  products?: PlanListVo['products'];
+  comparison?: PlanListVo['comparison'];
+  createdAt?: string | null;
+  deliveryPlatform?: PlanListVo['deliveryPlatform'];
+  qcStatus?: string | null;
+  platformDetail?: Record<string, unknown> | null;
 }
 
 export interface PlanListVo {
+  accountId?: string;
+  qcStatus?: string | null;
+  canEdit?: boolean;
+  canControl?: boolean;
   planId: string;
   name: string;
   status: string;
@@ -46,6 +62,7 @@ export interface PlanListVo {
     roiChange?: number | null;
     roiChangePct?: number | null;
     previousSnapshotTs?: string;
+    basis?: 'PREVIOUS_SNAPSHOT' | 'YESTERDAY_FULL_DAY';
   } | null;
 }
 
@@ -54,6 +71,7 @@ export interface PageResult<T> {
   total: number;
   pageNum: number;
   pageSize: number;
+  summary?: { cost: number | null; gmv: number | null; orders: number | null; roi: number | null; covered: number; plans: number; snapshotTs: string | null };
 }
 
 export interface PlanDraftRequest {
@@ -75,8 +93,28 @@ export function updateDraft(id: string, body: PlanDraftRequest) {
   return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}`, body);
 }
 
-export function listPlans(pageNum = 1, pageSize = 20) {
-  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize } });
+export function discardDraft(id: string) {
+  return apiDelete(`/api/v1/delivery/plans/${encodeURIComponent(id)}/draft`);
+}
+
+export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean }
+export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}) {
+  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters } });
+}
+
+export function syncPlans(accountId?: string) {
+  return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000 });
+}
+export function syncPlanDetail(id: string) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000 }); }
+export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number }) {
+  return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000 });
+}
+export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
+export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number; duration?: number }
+export function listControlMaterials(id: string) { return apiGet<ControlMaterial[]>(`/api/v1/delivery/plans/${id}/materials`, { timeout: 120000 }); }
+export function listControlTasks(id: string) { return apiGet<ControlTask[]>(`/api/v1/delivery/plans/${id}/control-tasks`, { timeout: 120000 }); }
+export function createControlTask(id: string, body: { kind: string; name: string; budget: number; hours?: number; roi2Goal?: number; materialIds: string[]; requestKey: string }) {
+  return apiPost<{ taskId: string; status: string }>(`/api/v1/delivery/plans/${id}/control-tasks`, body, { timeout: 60000 });
 }
 
 export function getPlan(id: string) {

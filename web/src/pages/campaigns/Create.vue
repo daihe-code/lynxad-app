@@ -1,27 +1,29 @@
 <template>
   <div class="wizard">
-    <CreateProductsStep v-if="wizard.step === 1" :key="awemeKey" :products="products" :selected="wizard.products" :loaded="productsLoaded" :load-error="productsLoadError" :saving="saving" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @select="toggleProduct" @remove="removeProduct" @account="chooseAweme" @retry="loadProducts" @next="toStep2" @cancel="$router.push('/campaigns')" />
+    <CreateProductsStep v-if="wizard.step === 1" :key="awemeKey" :products="products" :selected="wizard.products" :loaded="productsLoaded" :load-error="productsLoadError" :saving="saving" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @select="toggleProduct" @remove="removeProduct" @account="chooseAweme" @retry="loadProducts" @next="toStep2" @cancel="cancelCreation" />
 
-    <CreateGoalStep v-else-if="wizard.step === 2" v-model:budget="budgetText" v-model:roi="roiText" v-model:duration="durationMode" v-model:start="customStart" v-model:end="customEnd" :mode="wizard.smartBidType" :saving="saving" :budget-error="budgetErrorText" :budget-warn="budgetWarnText" :roi-error="roiErrorText" :order-lo="orderLo" :order-hi="orderHi" :selection-warning="selectWarn" :demo-mode="user.demoMode" :selected="wizard.products" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @mode="pickMode" @account="chooseAweme" @prev="backToProducts" @next="toStep3" />
-    <CreateMaterialsStep v-else-if="wizard.step === 3" v-model:plan-name="wizard.planName" :task="task" :saving="saving" :confirmed="confirmed" :replacement-version="replacementVersion" :selected="wizard.products" :account="currentAweme" :account-chips="accountChips" @prev="backToGoal" @retry="retryGenerate" @confirm="onConfirm" @publish="onPublish" @replace="onReplace" />
+    <CreateGoalStep v-else-if="wizard.step === 2" v-model:budget="budgetText" v-model:roi="roiText" v-model:duration="durationMode" v-model:start="customStart" v-model:end="customEnd" :mode="wizard.smartBidType" :saving="saving" :budget-error="budgetErrorText" :budget-warn="budgetWarnText" :roi-error="roiErrorText" :order-lo="orderLo" :order-hi="orderHi" :selection-warning="selectWarn" :demo-mode="user.demoMode" :account="currentAweme" :accounts="awemeOptions" :account-chips="accountChips" @mode="pickMode" @account="chooseAweme" @prev="backToProducts" @next="toStep3" @cancel="cancelCreation" />
+    <CreateMaterialsStep v-else-if="wizard.step === 3" v-model:plan-name="wizard.planName" :task="task" :saving="saving || !!materialTaskId" :confirmed="confirmed" :replacement-version="replacementVersion" :selected="wizard.products" :ai-product-ids="wizard.aiSelectionConfirmed ? wizard.aiProductIds : []" :generation-picker-open="generationPickerOpen" :generation-selection="wizard.aiProductIds" :account="currentAweme" :account-chips="accountChips" @prev="backToGoal" @retry="retryGenerate" @generate="generateSelected" @generation-selection="wizard.aiProductIds = $event" @close-generation-picker="generationPickerOpen = false" @confirm="onConfirm" @publish="onPublish" @replace="onReplace" @regenerate="(productId, type) => openMaterialAction('regenerate', productId, type)" @delete-material="(productId, type) => openMaterialAction('delete', productId, type)" @cancel="cancelCreation" />
     <PlanResult v-else :plan-id="wizard.planId" />
+    <CreationActionDialog v-if="actionDialog" :key="actionDialog.action" :action="actionDialog.action" :busy="saving" @close="actionDialog = null" @save="saveCancelledPlan" @discard="discardCancelledPlan" @confirm="confirmMaterialAction" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { listAccounts, type AwemeVo } from "@/features/identity/oauthApi";
 import { listProducts, selectProducts, type ProductVo } from "@/features/catalog/catalogApi";
-import { confirmPackage, generateCreatives, getCreativeTask, replaceItem, type TaskVo } from "@/features/creative/creativeApi";
-import { createDraft, publishPlan, updateDraft } from "@/features/delivery/deliveryApi";
+import { confirmPackage, deleteMaterial, generateCreatives, getCreativeTask, regenerateMaterial, replaceItem, type MaterialFeedback, type MaterialType, type TaskVo } from "@/features/creative/creativeApi";
+import { createDraft, discardDraft, publishPlan, updateDraft } from "@/features/delivery/deliveryApi";
 import { useWizardStore } from "@/stores/wizard";
 
 import "./create/create-theme.css";
 import CreateProductsStep from "./create/CreateProductsStep.vue";
 import CreateGoalStep from "./create/CreateGoalStep.vue";
 import CreateMaterialsStep from "./create/CreateMaterialsStep.vue";
+import CreationActionDialog from "./create/CreationActionDialog.vue";
 import PlanResult from "./reference/PlanResult.vue";
 import { useUserStore } from "@/stores/user";
 
@@ -40,6 +42,58 @@ interface AwemeOpt {
 const wizard = useWizardStore();
 const user = useUserStore();
 const router = useRouter();
+function cancelCreation() {
+  if (!saving.value && !materialTaskId.value) actionDialog.value = { action: 'cancel' };
+}
+type CreationAction = { action: 'cancel' } | { action: 'regenerate' | 'delete'; productId: string; type: MaterialType };
+const actionDialog = ref<CreationAction | null>(null);
+
+async function saveCancelledPlan() {
+  if (saving.value) return;
+  if (!wizard.accountId || !wizard.awemeId) { ElMessage.warning('请先选择已授权的抖音账号'); return; }
+  if (budgetErrorText.value || roiErrorText.value) {
+    ElMessage.warning(budgetErrorText.value || roiErrorText.value);
+    return;
+  }
+  if (wizard.planName.length > 30) { ElMessage.warning('计划名称须为 1–30 字'); return; }
+  saving.value = true;
+  try {
+    wizard.dailyBudget = Number(budgetText.value);
+    if (wizard.smartBidType === 'SMART_BID_CUSTOM') wizard.roi2Goal = Number(roiText.value);
+    if (!wizard.planName.trim()) wizard.planName = defaultName();
+    if (wizard.planId) await updateDraft(wizard.planId, draftBody());
+    else wizard.planId = (await createDraft(draftBody())).plan.planId;
+    ElMessage.success('投放计划已保存为草稿');
+    await leaveCreation();
+  } catch { /* Keep the dialog and inputs available if saving fails. */ }
+  finally { saving.value = false; }
+}
+
+async function discardCancelledPlan() {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    if (wizard.planId) await discardDraft(wizard.planId);
+    await leaveCreation();
+  } catch { /* Do not leave the page if discarding the draft fails. */ }
+  finally { saving.value = false; }
+}
+
+async function leaveCreation() {
+  const failure = await router.push('/campaigns');
+  if (!failure) wizard.reset();
+}
+
+function openMaterialAction(action: 'regenerate' | 'delete', productId: string, type: MaterialType) {
+  if (!saving.value && !materialTaskId.value && wizard.packageId) actionDialog.value = { action, productId, type };
+}
+
+async function confirmMaterialAction(feedback: MaterialFeedback) {
+  const action = actionDialog.value;
+  if (!action || action.action === 'cancel') return;
+  if (action.action === 'regenerate') await onRegenerate(action.productId, action.type, feedback);
+  else await onDeleteMaterial(action.productId, action.type, feedback);
+}
 const accounts = ref<Awaited<ReturnType<typeof listAccounts>>>([]);
 const products = ref<ProductVo[]>([]);
 const productsLoaded = ref(false);
@@ -49,9 +103,14 @@ const awemeKey = ref("");
 const saving = ref(false);
 const task = ref<TaskVo | null>(null);
 const confirmed = ref(false);
+const generationPickerOpen = ref(false);
 const replacementVersion = ref(0);
 let polling = false;
+let progressUnavailable = false;
 let disposed = false;
+let materialPollTimer: number | undefined;
+let materialPolling = false;
+const materialTaskId = ref('');
 const accountOpen = ref(false);
 const selectWarn = ref("");
 const budgetText = ref(String(wizard.dailyBudget));
@@ -79,6 +138,10 @@ const awemeOptions = computed<AwemeOpt[]>(() =>
 const currentAweme = computed(() => awemeOptions.value.find((o) => o.key === awemeKey.value));
 // Catalog selection, ad drafts and creative generation all accept Qianchuan IDs.
 const selectedQcProductIds = computed(() => wizard.products.map((p) => p.qcProductId));
+watch(selectedQcProductIds, (ids) => {
+  wizard.aiProductIds = [...ids];
+  wizard.aiSelectionConfirmed = false;
+});
 const accountChips = computed(() => {
   const aw = currentAweme.value;
   if (!aw) return [];
@@ -99,9 +162,11 @@ const orderHi = computed(() => Math.max(orderLo.value + 1, Math.round(estimateBu
 
 watch(
   () => wizard.step,
-  (step, prev) => {
+  async (step, prev) => {
     if (prev === 3 && step !== 3) stopPoll();
     if (step > 2) accountOpen.value = false;
+    await nextTick();
+    if (!disposed) window.scrollTo({ top: 0, behavior: "instant" });
   },
 );
 
@@ -275,7 +340,13 @@ async function toStep3() {
     if (wizard.planId) await updateDraft(wizard.planId, draftBody());
     else wizard.planId = (await createDraft(draftBody())).plan.planId;
     wizard.step = 3;
-    await startGenerate();
+    stopPoll();
+    task.value = null;
+    wizard.taskId = "";
+    wizard.packageId = "";
+    confirmed.value = false;
+    wizard.aiSelectionConfirmed = false;
+    generationPickerOpen.value = true;
   } catch {
     /* 接口已提示，留在本步。不回写草稿里的预算建议 */
   } finally {
@@ -285,11 +356,27 @@ async function toStep3() {
 
 function backToGoal() {
   stopPoll();
+  generationPickerOpen.value = false;
   wizard.step = 2;
+}
+
+async function generateSelected(ids: string[]) {
+  if (saving.value) return;
+  const valid = new Set(selectedQcProductIds.value);
+  const selected = [...new Set(ids)].filter(id => valid.has(id));
+  if (!selected.length) return;
+  wizard.aiProductIds = selected;
+  saving.value = true;
+  try {
+    await startGenerate();
+    generationPickerOpen.value = false;
+  } catch { /* Keep selections and the confirmation dialog available for retry. */ }
+  finally { saving.value = false; }
 }
 
 async function retryGenerate() {
   if (saving.value) return;
+  if (!task.value) { generationPickerOpen.value = true; return; }
   saving.value = true;
   try { await startGenerate(); } catch { /* API reports failure; allow retry. */ } finally { saving.value = false; }
 }
@@ -297,8 +384,12 @@ async function retryGenerate() {
 async function startGenerate() {
   task.value = null;
   confirmed.value = false;
-  const res = await generateCreatives(wizard.planId, [...selectedQcProductIds.value]);
+  const res = await generateCreatives(wizard.planId, [...wizard.aiProductIds]);
+  if (disposed || wizard.step !== 3) return;
+  wizard.aiSelectionConfirmed = true;
   wizard.taskId = res.taskId;
+  task.value = { taskId: res.taskId, status: "PENDING", steps: [], items: [] };
+  generationPickerOpen.value = false;
   stopPoll();
   pollTimer = window.setInterval(pollTask, 2000);
   await pollTask();
@@ -311,10 +402,16 @@ async function pollTask() {
   try {
     const next = await getCreativeTask(id);
     if (id !== wizard.taskId || disposed) return;
+    progressUnavailable = false;
     task.value = next;
     if (next.packageId) wizard.packageId = next.packageId;
-    if (next.status === "SUCCEEDED" || next.status === "FAILED") stopPoll();
-  } catch { stopPoll(); ElMessage.warning("素材进度获取失败，请重试"); } finally { polling = false; }
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(next.status)) stopPoll();
+  } catch {
+    if (!disposed && wizard.step === 3 && id === wizard.taskId && !progressUnavailable) {
+      progressUnavailable = true;
+      ElMessage.warning("素材进度暂时获取失败，将自动重试");
+    }
+  } finally { polling = false; }
 }
 
 function stopPoll() {
@@ -340,6 +437,60 @@ async function onReplace(productId: string, file?: File) {
   }
 }
 
+async function onRegenerate(productId: string, type: MaterialType, feedback: MaterialFeedback) {
+  if (saving.value || materialTaskId.value || !wizard.packageId) return;
+  saving.value = true;
+  try {
+    const result = await regenerateMaterial(wizard.packageId, productId, type, feedback);
+    if (disposed) return;
+    materialTaskId.value = result.taskId;
+    actionDialog.value = null;
+    confirmed.value = false;
+    ElMessage.success('已提交重新生成，完成后将替换该素材');
+    materialPollTimer = window.setInterval(pollMaterialTask, 2000);
+    await pollMaterialTask();
+  } catch { /* Keep the current material available if submission fails. */ }
+  finally { saving.value = false; }
+}
+
+async function pollMaterialTask() {
+  if (materialPolling || disposed || !materialTaskId.value) return;
+  materialPolling = true;
+  try {
+    const result = await getCreativeTask(materialTaskId.value);
+    if (disposed) return;
+    if (!['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(result.status)) return;
+    if (result.status === 'SUCCEEDED') {
+      const updated = await getCreativeTask(wizard.taskId);
+      if (disposed) return;
+      task.value = updated;
+      ElMessage.success('素材已重新生成');
+    } else ElMessage.error(result.errorMsg || '重新生成失败，原素材已保留');
+    window.clearInterval(materialPollTimer);
+    materialTaskId.value = '';
+  } catch { /* A temporary query failure must not discard the server-side task. */ }
+  finally { materialPolling = false; }
+}
+
+async function onDeleteMaterial(productId: string, type: MaterialType, feedback: MaterialFeedback) {
+  if (saving.value || materialTaskId.value || !wizard.packageId) return;
+  if (disposed || saving.value || materialTaskId.value) return;
+  saving.value = true;
+  try {
+    await deleteMaterial(wizard.packageId, productId, type, feedback);
+    actionDialog.value = null;
+    confirmed.value = false;
+    if (task.value?.items) {
+      task.value = { ...task.value, items: task.value.items.map(item => item.productId !== productId ? item : {
+        ...item, ...(type === 'VIDEO' ? { playUrl: undefined } : { posterUrl: undefined }),
+      }) };
+    }
+    await pollTask();
+    ElMessage.success('素材已删除');
+  } catch { /* The API reports failure; keep the current list unchanged. */ }
+  finally { saving.value = false; }
+}
+
 async function onConfirm() {
   if (!wizard.packageId) return;
   saving.value = true;
@@ -354,6 +505,10 @@ async function onConfirm() {
 
 async function onPublish() {
   if (saving.value || task.value?.status !== "SUCCEEDED" || !wizard.packageId) return;
+  if (selectedQcProductIds.value.some(id => !task.value?.items?.some(item => item.productId === id && (item.playUrl || item.posterUrl)))) {
+    ElMessage.warning("请为所有投放商品补齐素材后再发布");
+    return;
+  }
   if (wizard.planName.trim().length < 1 || wizard.planName.length > 30) {
     ElMessage.warning("计划名称须为 1–30 字");
     return;
@@ -386,13 +541,15 @@ onMounted(async () => {
     if (sameAweme) await loadProducts();
     if (wizard.step === 3 && wizard.taskId) {
       await pollTask();
-      if (task.value?.status === "RUNNING" || task.value?.status === "PENDING") pollTimer = window.setInterval(pollTask, 2000);
-    }
+      if (!task.value || task.value.status === "RUNNING" || task.value.status === "PENDING") pollTimer = window.setInterval(pollTask, 2000);
+    } else if (wizard.step === 3) generationPickerOpen.value = true;
   }
 });
 
 onUnmounted(() => {
+  disposed = true;
   stopPoll();
+  window.clearInterval(materialPollTimer);
   modeMessage?.close();
 });
 </script>

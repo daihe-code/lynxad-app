@@ -14,6 +14,8 @@ public interface CreativeTaskRepository {
 
     void savePackage(CreativePackage pkg);
 
+    void savePackageAtVersion(CreativePackage pkg, int expectedVersion);
+
     Optional<CreativeTask> findById(TenantId tenantId, TaskId id);
 
     Optional<CreativePackage> findPackage(TenantId tenantId, PackageId id);

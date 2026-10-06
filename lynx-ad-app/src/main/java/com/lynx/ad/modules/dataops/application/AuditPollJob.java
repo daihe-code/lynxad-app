@@ -52,18 +52,23 @@ public class AuditPollJob {
             AuditVerdict verdict = mappingPolicy.verdictOf(raw);
             for (AdPlan plan : planRepository.findPendingAudit()) {
                 planCommandService.markAudit(plan.tenantId(), plan.id(), verdict, verdict == AuditVerdict.REJECT ? "审核拒绝" : null);
-                if (verdict == AuditVerdict.REJECT) {
-                    inboxCommandService.post(plan.tenantId(), "计划审核未通过", "请修改后重新发布", new BizRef("AUDIT_REJECT", plan.id().value()));
-                }
+                postAuditNotice(plan, verdict);
             }
             return;
         }
+        java.util.Map<String,List<OceanPlanRow>> accountRows = new java.util.HashMap<>();
+        java.util.Set<String> failedAccounts = new java.util.HashSet<>();
         for (AdPlan plan : planRepository.findPendingAudit()) {
-            if (plan.qcPlanId().isEmpty()) {
+            if (plan.qcPlanId().isEmpty() || plan.source() == com.lynx.ad.modules.delivery.domain.model.PlanSource.EXTERNAL) {
                 continue;
             }
             try {
-                List<OceanPlanRow> rows = adListPort.list(credentialFacade.get(plan.accountId()), plan.setting().bidType());
+                String accountKey = plan.tenantId().value()+":"+plan.accountId().value();
+                if (failedAccounts.contains(accountKey)) continue;
+                List<OceanPlanRow> rows;
+                try { rows = accountRows.computeIfAbsent(accountKey, key -> adListPort.list(
+                        credentialFacade.getUsableCredential(plan.tenantId(), plan.accountId()), null)); }
+                catch (RuntimeException ex) { failedAccounts.add(accountKey); throw ex; }
                 OceanPlanRow match = rows.stream()
                         .filter(r -> plan.qcPlanId().get().value().equals(r.qcPlanId()))
                         .findFirst()
@@ -72,15 +77,23 @@ public class AuditPollJob {
                     continue;
                 }
                 String st = match.status() == null ? "" : match.status().toUpperCase();
-                if (st.contains("REJECT") || st.contains("FAIL") || st.contains("DENY")) {
+                if (com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanPlanMapping.status(st) == com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
                     planCommandService.markAudit(plan.tenantId(), plan.id(), AuditVerdict.REJECT, "审核拒绝");
-                    inboxCommandService.post(plan.tenantId(), "计划审核未通过", "请修改后重新发布", new BizRef("AUDIT_REJECT", plan.id().value()));
-                } else if (st.contains("DELIVER") || st.contains("OK") || st.contains("ENABLE") || st.contains("ACTIVE")) {
+                    postAuditNotice(plan, AuditVerdict.REJECT);
+                } else if (com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanPlanMapping.status(st) == com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELIVERING) {
                     planCommandService.markAudit(plan.tenantId(), plan.id(), AuditVerdict.PASS, null);
+                    postAuditNotice(plan, AuditVerdict.PASS);
                 }
             } catch (Exception ex) {
                 log.warn("live audit poll failed plan={}", plan.id().value());
             }
         }
+    }
+
+    private void postAuditNotice(AdPlan plan, AuditVerdict verdict) {
+        if (verdict == AuditVerdict.PASS) inboxCommandService.post(plan.tenantId(), "计划审核通过",
+                "你提交的广告投放计划「" + plan.name().text() + "」已通过平台审核，正在投放中。小灵会持续关注它的表现。", new BizRef("AUDIT_PASS", plan.id().value()));
+        else if (verdict == AuditVerdict.REJECT) inboxCommandService.post(plan.tenantId(), "计划审核未通过",
+                "广告投放计划「" + plan.name().text() + "」审核未通过，请查看原因并修改后重新发布。", new BizRef("AUDIT_REJECT", plan.id().value()));
     }
 }

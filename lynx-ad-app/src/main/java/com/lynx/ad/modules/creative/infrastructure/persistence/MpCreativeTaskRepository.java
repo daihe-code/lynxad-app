@@ -1,6 +1,10 @@
 package com.lynx.ad.modules.creative.infrastructure.persistence;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.lynx.ad.common.exception.DomainException;
+import com.lynx.ad.modules.creative.domain.model.MaterialType;
+import com.lynx.ad.modules.creative.domain.model.RegenerationTarget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.domain.Ids.PackageId;
 import com.lynx.ad.common.domain.Ids.PlanId;
@@ -49,9 +53,16 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
         po.setFinishedAt(task.finishedAt());
         po.setProductIdsJson(json.productIds(task.productIds()));
         po.setStepsJson(json.steps(task.steps()));
+        po.setFeedbackJson(json.feedback(task.feedback()));
+        RegenerationTarget target = task.regenerationTarget().orElse(null);
+        if (target != null) {
+            po.setRegenerationPackageId(target.packageId().value());
+            po.setRegenerationType(target.type().name());
+            po.setRegenerationVersion(target.version());
+        }
         if (task.currentPackage().isPresent()) {
             CreativePackage pkg = task.currentPackage().orElseThrow();
-            upsertPackage(pkg, task.tenantId(), task.id());
+            upsertPackage(pkg, task.tenantId(), task.id(), task.regenerationTarget().map(RegenerationTarget::version).orElse(null));
             po.setPackageId(pkg.id().value());
         }
         if (insert) {
@@ -71,7 +82,22 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
         existing.setVersion(pkg.version());
         existing.setConfirmedAt(pkg.confirmedAt());
         existing.setArtifactsJson(json.artifacts(pkg.items()));
-        packageMapper.updateById(existing);
+        packageMapper.update(existing, new LambdaUpdateWrapper<CreativePackagePo>()
+                .eq(CreativePackagePo::getId, pkg.id().value())
+                .set(CreativePackagePo::getConfirmedAt, pkg.confirmedAt()));
+    }
+
+    @Override
+    @Transactional
+    public void savePackageAtVersion(CreativePackage pkg, int expectedVersion) {
+        CreativePackagePo update = new CreativePackagePo();
+        update.setVersion(pkg.version());
+        update.setArtifactsJson(json.artifacts(pkg.items()));
+        int changed = packageMapper.update(update, new LambdaUpdateWrapper<CreativePackagePo>()
+                .eq(CreativePackagePo::getId, pkg.id().value())
+                .eq(CreativePackagePo::getVersion, expectedVersion)
+                .set(CreativePackagePo::getConfirmedAt, null));
+        if (changed != 1) throw new DomainException(1502, "素材已更新，请刷新后重试");
     }
 
     @Override
@@ -112,23 +138,29 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
                 .toList();
     }
 
-    private void upsertPackage(CreativePackage pkg, TenantId tenantId, TaskId taskId) {
+    private void upsertPackage(CreativePackage pkg, TenantId tenantId, TaskId taskId, Integer expectedVersion) {
         CreativePackagePo po = packageMapper.selectById(pkg.id().value());
         boolean insert = po == null;
         if (insert) {
             po = new CreativePackagePo();
             po.setId(pkg.id().value());
             po.setCreatedAt(pkg.createdAt() == null ? Instant.now() : pkg.createdAt());
+            po.setTaskId(taskId.value());
         }
         po.setTenantId(tenantId.value());
-        po.setTaskId(taskId.value());
         po.setVersion(pkg.version());
         po.setConfirmedAt(pkg.confirmedAt());
         po.setArtifactsJson(json.artifacts(pkg.items()));
         if (insert) {
             packageMapper.insert(po);
         } else {
-            packageMapper.updateById(po);
+            if (expectedVersion == null) packageMapper.updateById(po);
+            else if (packageMapper.update(po, new LambdaUpdateWrapper<CreativePackagePo>()
+                    .eq(CreativePackagePo::getId, pkg.id().value())
+                    .eq(CreativePackagePo::getVersion, expectedVersion)
+                    .set(CreativePackagePo::getConfirmedAt, null)) != 1) {
+                throw new DomainException(1502, "素材已更新，本次重新生成未覆盖当前素材，请重试");
+            }
         }
     }
 
@@ -144,7 +176,7 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
                     .last("limit 1"));
             pkg = latest == null ? null : toPackage(latest);
         }
-        return new CreativeTask(
+        CreativeTask task = new CreativeTask(
                 new TaskId(po.getId()),
                 new TenantId(po.getTenantId()),
                 Optional.ofNullable(po.getPlanId()).map(PlanId::new),
@@ -155,6 +187,10 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
                 pkg,
                 po.getErrorMsg(),
                 po.getFinishedAt());
+        if (po.getRegenerationPackageId() != null) task.setRegenerationTarget(new RegenerationTarget(
+                new PackageId(po.getRegenerationPackageId()), MaterialType.valueOf(po.getRegenerationType()), po.getRegenerationVersion()));
+        task.setFeedback(json.readFeedback(po.getFeedbackJson()));
+        return task;
     }
 
     private CreativePackage toPackage(CreativePackagePo po) {

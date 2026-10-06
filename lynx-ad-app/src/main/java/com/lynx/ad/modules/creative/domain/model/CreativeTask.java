@@ -24,6 +24,8 @@ public class CreativeTask {
     private CreativePackage currentPackage;
     private String errorMsg;
     private Instant finishedAt;
+    private RegenerationTarget regenerationTarget;
+    private MaterialFeedback feedback = MaterialFeedback.empty();
 
     public CreativeTask(
             TaskId id,
@@ -96,6 +98,7 @@ public class CreativeTask {
     }
 
     public void fail(String reason) {
+        if (regenerationTarget != null) currentPackage = null;
         this.status = TaskStatus.FAILED;
         this.errorMsg = reason;
         this.finishedAt = Instant.now();
@@ -148,4 +151,11 @@ public class CreativeTask {
     public Instant finishedAt() {
         return finishedAt;
     }
+
+    public Optional<RegenerationTarget> regenerationTarget() { return Optional.ofNullable(regenerationTarget); }
+
+    public void setRegenerationTarget(RegenerationTarget target) { this.regenerationTarget = target; }
+
+    public MaterialFeedback feedback() { return feedback; }
+    public void setFeedback(MaterialFeedback value) { feedback = value == null ? MaterialFeedback.empty() : value; }
 }

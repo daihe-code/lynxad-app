@@ -14,7 +14,7 @@
     >
       <header>
         <h2 :id="titleId">{{ title }}</h2>
-        <button aria-label="关闭弹窗" :disabled="busy" @click="close">
+        <button v-if="showClose !== false" aria-label="关闭弹窗" :disabled="busy" @click="close">
           <ReferenceIcon name="close" />
         </button>
       </header>
@@ -32,7 +32,7 @@
 <script setup lang="ts">
 import { ref, useId, onMounted, onUnmounted } from "vue";
 import ReferenceIcon from "./ReferenceIcon.vue";
-const props = defineProps<{ title: string; width?: number; busy?: boolean }>();
+const props = defineProps<{ title: string; width?: number; busy?: boolean; showClose?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 const titleId = useId(),
   box = ref<HTMLElement>();

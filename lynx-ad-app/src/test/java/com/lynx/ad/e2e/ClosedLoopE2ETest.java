@@ -73,7 +73,7 @@ class ClosedLoopE2ETest extends AbstractContainerIT {
                         token))
                 .path("data");
         String taskId = gen.path("taskId").asText();
-        JsonNode task = json(get("/api/v1/creative/creatives/tasks/" + taskId, token)).path("data");
+        JsonNode task = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token);
         String packageId = task.path("packageId").asText();
         if (packageId != null && !packageId.isBlank()) {
             post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);

@@ -36,13 +36,14 @@ http.interceptors.response.use(
           location.href = "/login";
         }
       }
-      ElMessage.error(body.message || "请求失败");
+      if (res.config.headers['X-Quiet-Request'] !== 'true') ElMessage.error(body.message || "请求失败");
       return Promise.reject(body);
     }
     return res;
   },
   (err) => {
     const status = err?.response?.status;
+    if (err?.config?.headers?.['X-Quiet-Request'] === 'true') return Promise.reject(err);
     if (!err?.response) {
       ElMessage.error("无法连接服务，请确认后端已启动");
     } else if (status >= 500) {
