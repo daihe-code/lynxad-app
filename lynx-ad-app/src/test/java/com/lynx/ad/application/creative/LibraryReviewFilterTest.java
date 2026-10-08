@@ -22,6 +22,41 @@ import org.junit.jupiter.api.Test;
 
 class LibraryReviewFilterTest {
     @Test
+    void uploadedFileKeepsReviewStatusAndDedupIsScopedToTheAuthorizationAccount() {
+        var tenant=new TenantId("tenant-review");
+        var packages=mock(CreativeTaskRepository.class); var materials=mock(MaterialLibraryPort.class); var oauth=mock(OauthQueryService.class);
+        var bindings=mock(PlanCreativeBindingQuery.class); var storage=mock(StoragePort.class);
+        var uploads=mock(com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.class);
+        var accounts=mock(com.lynx.ad.modules.identity.domain.port.OauthAccountRepository.class);
+        var credentials=mock(com.lynx.ad.modules.identity.application.QianchuanCredentialFacade.class);
+        var now=Instant.parse("2026-10-05T00:00:00Z");
+        var asset=new com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Asset("local-id",tenant.value(),"user","request","IMAGE","file.jpg","image/jpeg",1024,"key","STORED","local",null,null,"md5",false,32,24,null,null,null,now,now);
+        var sync=new com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync("sync",tenant.value(),asset.id(),"account-a","11","UPLOADED","file-id","material-id","request","UNKNOWN",1,now,null,null);
+        when(uploads.list(tenant.value())).thenReturn(List.of(asset)); when(uploads.syncs(tenant.value(),asset.id())).thenReturn(List.of(sync));
+        when(packages.listPackagesByTenant(tenant)).thenReturn(List.of()); when(oauth.hasBoundQianchuan(tenant)).thenReturn(true); when(bindings.usedKeys(tenant)).thenReturn(Set.of()); when(storage.getUrl(tenant,"key")).thenReturn("https://example.com/file.jpg");
+        var account=mock(com.lynx.ad.modules.identity.domain.model.OauthAccount.class);
+        when(account.id()).thenReturn(new com.lynx.ad.common.domain.Ids.AccountId("account-a")); when(account.status()).thenReturn("ACTIVE"); when(account.platform()).thenReturn(com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN);
+        when(accounts.findByTenant(tenant)).thenReturn(List.of(account));
+        when(credentials.getUsableCredential(tenant,account.id())).thenReturn(new com.lynx.ad.modules.identity.domain.model.Credential("token",new com.lynx.ad.common.domain.Ids.AdvertiserId("11")));
+        var remote=new MaterialLibraryPort.PlatformMaterial("file-id","material-id","file.jpg",1024,32,24,null,"SQUARE","EXTERNAL",now,"https://example.com/remote.jpg","https://example.com/remote.jpg",false,"REJECTED");
+        when(materials.list(any())).thenAnswer(invocation -> new MaterialLibraryPort.MaterialPage(((MaterialLibraryPort.MaterialLibraryQuery)invocation.getArgument(0)).type()==MaterialType.IMAGE ? List.of(remote) : List.of()));
+        var service=new LibraryQueryService(packages,storage,materials,oauth,bindings,mock(ProductQueryService.class)); service.uploadDependencies(uploads,accounts,credentials);
+        var result=service.query(tenant,"IMAGE","QIANCHUAN",LocalDate.of(2026,10,1),LocalDate.of(2026,10,7),"ALL",null,1,8);
+        assertEquals(1,result.items().size()); assertEquals("UPLOAD",result.items().getFirst().source());
+        assertEquals("REJECTED",result.items().getFirst().reviewBadge()); assertEquals(1,result.statusCounts().rejected());
+        assertEquals("REJECTED",result.items().getFirst().syncs().getFirst().reviewStatus());
+        org.mockito.Mockito.verify(uploads).review(sync,"REJECTED");
+        var other=mock(com.lynx.ad.modules.identity.domain.model.OauthAccount.class);
+        when(other.id()).thenReturn(new com.lynx.ad.common.domain.Ids.AccountId("account-b")); when(other.status()).thenReturn("ACTIVE"); when(other.platform()).thenReturn(com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN);
+        when(accounts.findByTenant(tenant)).thenReturn(List.of(other));
+        when(credentials.getUsableCredential(tenant,other.id())).thenReturn(new com.lynx.ad.modules.identity.domain.model.Credential("token-b",new com.lynx.ad.common.domain.Ids.AdvertiserId("22")));
+        org.mockito.Mockito.clearInvocations(uploads);
+        result=service.query(tenant,"IMAGE","QIANCHUAN",LocalDate.of(2026,10,1),LocalDate.of(2026,10,7),"ALL",null,1,8);
+        assertEquals(2,result.items().size());
+        assertEquals("NONE",result.items().stream().filter(i->i.source().equals("UPLOAD")).findFirst().orElseThrow().reviewBadge());
+        org.mockito.Mockito.verify(uploads,org.mockito.Mockito.never()).review(any(),any());
+    }
+    @Test
     void reviewStatesHaveSeparateCountsAndFilterBeforePagination() {
         var tenant = new TenantId("review-filter-tenant");
         var repository = mock(CreativeTaskRepository.class);

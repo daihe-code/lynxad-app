@@ -1,0 +1,218 @@
+package com.lynx.ad.modules.creative.application;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.common.config.LynxAdProperties;
+import com.lynx.ad.common.domain.Ids.*;
+import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.TenantContext;
+import com.lynx.ad.modules.creative.domain.model.AssetKind;
+import com.lynx.ad.modules.creative.domain.port.StoragePort;
+import com.lynx.ad.modules.creative.domain.port.RoutedStoragePort;
+import com.lynx.ad.modules.creative.domain.service.*;
+import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository;
+import com.lynx.ad.modules.creative.infrastructure.adapter.MediaFileInspector;
+import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Asset;
+import com.lynx.ad.modules.identity.domain.model.Platform;
+import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
+import java.io.*;
+import java.nio.file.*;
+import java.time.Instant;
+import java.util.*;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+@Service
+public class AssetUploadService {
+    private final AssetUploadRepository repository;
+    private final StoragePort storage;
+    private final OauthAccountRepository accounts;
+    private final LynxAdProperties properties;
+    private final ObjectMapper mapper;
+    private final MediaFileInspector inspector;
+    public AssetUploadService(AssetUploadRepository repository, StoragePort storage, OauthAccountRepository accounts, LynxAdProperties properties, ObjectMapper mapper, MediaFileInspector inspector) {
+        this.repository=repository; this.storage=storage; this.accounts=accounts; this.properties=properties; this.mapper=mapper;
+        this.inspector=inspector;
+    }
+    public record InitRequest(String requestId, String filename, long sizeBytes, boolean isAigc, List<String> accountIds, String libraryType) {
+        public InitRequest(String requestId, String filename, long sizeBytes, boolean isAigc, List<String> accountIds) {
+            this(requestId, filename, sizeBytes, isAigc, accountIds, null);
+        }
+    }
+    public record InitResult(String assetId, String storageStatus, String uploadMode, StoragePort.UploadTicket ticket) {}
+    public record Detail(String id, String kind, String filename, long sizeBytes, String storageStatus, String storageMode,
+            boolean isAigc, String md5, Integer width, Integer height, String textContent, String url, String errorMessage,
+            String createdAt, List<AssetUploadRepository.Sync> syncs, AssetUploadRepository.Review aiReview) {}
+
+    public InitResult init(TenantId tenant, InitRequest request) {
+        request = new InitRequest(request.requestId(),request.filename(),request.sizeBytes(),request.isAigc(),request.accountIds(),
+                request.libraryType()==null ? null : request.libraryType().toUpperCase(Locale.ROOT));
+        if (request.requestId()==null || !request.requestId().matches("[A-Za-z0-9_-]{16,64}")) throw new BizException(1520,"上传请求标识不合法");
+        String filename = request.filename();
+        if (filename==null || filename.isBlank() || filename.length()>255 || filename.chars().anyMatch(c->c=='/' || c=='\\' || Character.isISOControl(c))) throw new BizException(1520,"文件名称不合法或过长");
+        var spec=AssetFilePolicy.spec(filename); AssetFilePolicy.size(spec,request.sizeBytes());
+        AssetFilePolicy.library(spec.kind(), request.libraryType());
+        if ("CAROUSEL".equals(request.libraryType()) && request.accountIds()!=null && !request.accountIds().isEmpty())
+            throw new BizException(1520,"图文组件须先统一质检，请在保存整条图文时选择同步账户");
+        List<String> targets = request.accountIds()==null ? List.of() : request.accountIds().stream().distinct().toList();
+        AssetFilePolicy.target(filename,!targets.isEmpty());
+        if (targets.size()>20) throw new BizException(1520,"一次最多同步 20 个授权账户");
+        // A canceled/expired account can retain the file; the worker will explicitly wait for authorization.
+        for (String account:targets) {
+            if (account==null || account.isBlank()) throw new BizException(1201,"授权账户标识不合法");
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+            if (bound.platform()!=Platform.QIANCHUAN || "DELETED".equals(bound.status())) throw new BizException(1201,"请选择有效的千川授权记录");
+        }
+        Asset a=repository.request(tenant.value(),request.requestId()).orElse(null);
+        if (a==null) {
+            var now=Instant.now(); String id=UUID.randomUUID().toString();
+            a=new Asset(id,tenant.value(),TenantContext.userId().value(),request.requestId(),spec.kind().name(),filename,spec.contentType(),request.sizeBytes(),
+                ObjectKeyPolicy.nextKey(properties.getStorage().getOss().getPrefix(),tenant,id+filename.substring(filename.lastIndexOf('.'))),"WAITING",properties.getStorage().getAssetMode(),null,null,null,request.isAigc(),null,null,null,null,null,now,now);
+            try { repository.insert(a); if("CAROUSEL".equals(request.libraryType())) repository.carouselComponent(tenant.value(),a.id()); }
+            catch (DuplicateKeyException ex) { a=repository.request(tenant.value(),request.requestId()).orElseThrow(); }
+        }
+        if (!a.filename().equals(filename) || a.sizeBytes()!=request.sizeBytes() || a.isAigc()!=request.isAigc()) throw new BizException(1520,"上传请求标识已用于其他文件");
+        if (a.canonicalId()!=null) a=repository.require(tenant.value(),a.canonicalId());
+        if (!"CAROUSEL".equals(request.libraryType())) repository.exposeStandalone(tenant.value(),a.id());
+        if ("EXPIRED".equals(a.storageStatus())) throw new BizException(1520,"上传会话已过期，请重新选择文件");
+        if (spec.kind()!=AssetKind.TEXT) for (String account:targets) repository.addSync(a,account);
+        if ("STORED".equals(a.storageStatus())) {
+            a=ensureReviewStorage(tenant,a); repository.queueReview(tenant.value(),a.id()); repository.activate(tenant.value(),a.id());
+            return new InitResult(a.id(),"STORED","NONE",null);
+        }
+        StoragePort.UploadTicket ticket=null;
+        if ("oss".equalsIgnoreCase(a.storageMode())) {
+            try {
+                if (a.uploadTicketJson()!=null) ticket=mapper.readValue(a.uploadTicketJson(),StoragePort.UploadTicket.class);
+                else {
+                    ticket=location(a).beginUpload(tenant,a.objectKey(),a.sizeBytes(),a.contentType());
+                    if (ticket!=null && !repository.ticket(tenant.value(),a.id(),ticket.uploadId(),mapper.writeValueAsString(ticket))) {
+                        location(a).abortUpload(tenant,a.objectKey(),ticket.uploadId());
+                        var current=repository.require(tenant.value(),a.id());
+                        if(current.uploadTicketJson()==null) throw new BizException(1520,"上传会话已过期或取消");
+                        ticket=mapper.readValue(current.uploadTicketJson(),StoragePort.UploadTicket.class);
+                    }
+                }
+            } catch (Exception ex) { repository.storageFailed(a,"平台 OSS 上传初始化失败，请检查 Endpoint、Bucket 和存储凭证"); throw new BizException(1521,"平台 OSS 上传初始化失败，请检查 Endpoint、Bucket 和存储凭证"); }
+        }
+        return new InitResult(a.id(),a.storageStatus(),ticket==null ? "PROXY" : "OSS_MULTIPART",ticket);
+    }
+    public Detail upload(TenantId tenant, String id, MultipartFile file) {
+        Asset a=repository.require(tenant.value(),id);
+        if (a.canonicalId()!=null || "STORED".equals(a.storageStatus())) return detail(tenant,id);
+        if (a.uploadId()!=null) throw new BizException(1520,"该文件应通过 OSS 分片上传");
+        if (file.getSize()!=a.sizeBytes()) throw new BizException(1520,"实际文件大小与声明不一致");
+        if (!repository.claimUpload(tenant.value(),id)) throw new BizException(1520,"文件正在上传或会话已过期");
+        Path temp=null;
+        try {
+            temp=Files.createTempFile("lynx-asset-", ".tmp");
+            try (InputStream in=file.getInputStream()) { Files.copy(in,temp,StandardCopyOption.REPLACE_EXISTING); }
+            repository.validating(a);
+            var validated=AssetFilePolicy.validate(temp,a.filename(),a.sizeBytes());
+            validated=inspect(temp,a,validated);
+            Asset existing=repository.content(tenant.value(),AssetUploadRepository.contentKey(a,validated.md5())).orElse(null);
+            if (existing!=null) return duplicate(tenant,a,existing);
+            try (InputStream in=Files.newInputStream(temp)) { location(a).put(tenant,a.objectKey(),in,a.sizeBytes(),a.contentType()); }
+            return finalizeStored(tenant,a,validated);
+        } catch (BizException ex) { repository.storageFailed(a,ex.getMessage()); throw ex; }
+        catch (Exception ex) { repository.storageFailed(a,"平台文件存储失败，请重试"); throw new BizException(1521,"平台文件存储失败，请重试"); }
+        finally { remove(temp); }
+    }
+    public Detail complete(TenantId tenant, String id, List<StoragePort.UploadPart> parts) {
+        Asset a=repository.require(tenant.value(),id);
+        if (a.canonicalId()!=null || "STORED".equals(a.storageStatus())) return detail(tenant,id);
+        if (a.uploadId()==null || parts==null || parts.isEmpty()) throw new BizException(1520,"OSS 上传会话或分片信息缺失");
+        if (!repository.claimUpload(tenant.value(),id)) throw new BizException(1520,"文件正在校验或会话已过期");
+        Path temp=null;
+        try {
+            location(a).completeUpload(tenant,a.objectKey(),a.uploadId(),parts,a.sizeBytes());
+            repository.validating(a);
+            temp=download(tenant,a);
+            var validated=AssetFilePolicy.validate(temp,a.filename(),a.sizeBytes());
+            validated=inspect(temp,a,validated);
+            Asset existing=repository.content(tenant.value(),AssetUploadRepository.contentKey(a,validated.md5())).orElse(null);
+            if (existing!=null) return duplicate(tenant,a,existing);
+            return finalizeStored(tenant,a,validated);
+        } catch (BizException ex) { repository.storageFailed(a,ex.getMessage()); throw ex; }
+        catch (Exception ex) { repository.storageFailed(a,"OSS 分片合并或文件校验失败，请重新上传"); throw new BizException(1521,"OSS 分片合并或文件校验失败，请重新上传"); }
+        finally { remove(temp); }
+    }
+    private StoragePort location(Asset asset) { return RoutedStoragePort.select(storage,asset.storageMode()); }
+    private AssetFilePolicy.Validated inspect(Path temp, Asset a, AssetFilePolicy.Validated validated) {
+        var media=inspector.validate(temp,a.filename());
+        return media==null ? validated : new AssetFilePolicy.Validated(validated.md5(),validated.size(),media.width(),media.height(),validated.text());
+    }
+    private Detail finalizeStored(TenantId tenant, Asset a, AssetFilePolicy.Validated v) {
+        try { repository.stored(a,v.md5(),v.width(),v.height(),v.text()); }
+        catch (DuplicateKeyException ex) { return duplicate(tenant,a,repository.content(tenant.value(),AssetUploadRepository.contentKey(a,v.md5())).orElseThrow()); }
+        repository.queueReview(tenant.value(),a.id()); repository.activate(tenant.value(),a.id()); return detail(tenant,a.id());
+    }
+    private Detail duplicate(TenantId tenant, Asset a, Asset existing) {
+        existing=ensureReviewStorage(tenant,existing);
+        if(!repository.isCarouselComponent(tenant.value(),a.id())) repository.exposeStandalone(tenant.value(),existing.id());
+        for (var sync:repository.syncs(tenant.value(),a.id())) repository.addSync(existing,sync.accountId());
+        repository.duplicate(a,existing.id()); repository.queueReview(tenant.value(),existing.id()); repository.activate(tenant.value(),existing.id());
+        repository.removeDuplicateTasks(a);
+        try { location(a).delete(tenant,a.objectKey()); } catch (Exception ignored) {}
+        return detail(tenant,existing.id());
+    }
+    public Detail detail(TenantId tenant, String id) {
+        Asset a=repository.require(tenant.value(),id);
+        if (a.canonicalId()!=null) a=repository.require(tenant.value(),a.canonicalId());
+        return new Detail(a.id(),a.kind(),a.filename(),a.sizeBytes(),a.storageStatus(),a.storageMode(),a.isAigc(),a.md5(),a.width(),a.height(),a.textContent(),
+            "STORED".equals(a.storageStatus()) ? location(a).getUrl(tenant,a.objectKey()) : "",a.errorMessage(),a.createdAt().toString(),repository.syncs(tenant.value(),a.id()),repository.aiReview(tenant.value(),a.id()));
+    }
+    public Detail retry(TenantId tenant, String id, String account, boolean acknowledged) {
+        var asset=repository.require(tenant.value(),id);
+        if (!"STORED".equals(asset.storageStatus())) throw new BizException(1520,"文件尚未入库");
+        if (!repository.approved(tenant.value(),id)) throw new BizException(1525,"AI 审核尚未通过，不能同步千川，请先查看审核结果");
+        AssetFilePolicy.target(asset.filename(),true);
+        if (account!=null && !account.isBlank()) accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        repository.retry(tenant.value(),id,account,acknowledged); return detail(tenant,id);
+    }
+    public void cancel(TenantId tenant, String id) {
+        var a=repository.require(tenant.value(),id);
+        if ("STORED".equals(a.storageStatus()) || "DUPLICATE".equals(a.storageStatus())) return;
+        if (a.uploadId()!=null) try { location(a).abortUpload(tenant,a.objectKey(),a.uploadId()); } catch (Exception ignored) {}
+        try { location(a).delete(tenant,a.objectKey()); } catch (Exception ignored) {}
+        repository.expired(a);
+    }
+    public Detail retryReview(TenantId tenant,String id) {
+        var asset=repository.require(tenant.value(),id);
+        if(asset.canonicalId()!=null) asset=repository.require(tenant.value(),asset.canonicalId());
+        if(!"STORED".equals(asset.storageStatus())) throw new BizException(1525,"文件尚未入库");
+        asset=ensureReviewStorage(tenant,asset);
+        repository.queueReview(tenant.value(),asset.id()); repository.retryReview(tenant.value(),asset.id());
+        return detail(tenant,asset.id());
+    }
+    /** A review retry can recover existing local uploads without asking users to upload the file again. */
+    private Asset ensureReviewStorage(TenantId tenant, Asset asset) {
+        if(!"local".equalsIgnoreCase(asset.storageMode()) || !"oss".equalsIgnoreCase(properties.getStorage().getAssetMode()) || AssetKind.TEXT.name().equals(asset.kind())) return asset;
+        Path temp=null;
+        try {
+            temp=download(tenant,asset);
+            var validated=AssetFilePolicy.validate(temp,asset.filename(),asset.sizeBytes());
+            inspect(temp,asset,validated);
+            if(!validated.md5().equals(asset.md5())) throw new BizException(1520,"本地素材内容与原记录不一致，请重新上传");
+            try(var in=Files.newInputStream(temp)) {
+                RoutedStoragePort.select(storage,"oss").put(tenant,asset.objectKey(),in,asset.sizeBytes(),asset.contentType());
+            }
+            repository.promotedToOss(tenant.value(),asset.id());
+            // A failed review based on a local URL can now be retried with the OSS URL.
+            repository.retryReview(tenant.value(),asset.id());
+            return repository.require(tenant.value(),asset.id());
+        } catch(BizException ex) { throw ex; }
+        catch(Exception ex) { throw new BizException(1521,"素材仍保存在本地；转存 OSS 失败，请检查平台存储配置后重试审核"); }
+        finally { remove(temp); }
+    }
+    public Path download(TenantId tenant, Asset a) throws IOException {
+        Path temp=Files.createTempFile("lynx-asset-sync-", ".tmp");
+        try (InputStream in=location(a).open(tenant,a.objectKey()); var out=Files.newOutputStream(temp)) {
+            byte[] buffer=new byte[64*1024]; long total=0; int read;
+            while ((read=in.read(buffer))!=-1) { total+=read; if(total>a.sizeBytes()) throw new BizException(1520,"存储文件大小不一致"); out.write(buffer,0,read); }
+            if(total!=a.sizeBytes()) throw new BizException(1520,"存储文件大小不一致");
+            return temp;
+        } catch (Exception ex) { remove(temp); throw ex; }
+    }
+    public static void remove(Path path) { if (path!=null) try { Files.deleteIfExists(path); } catch (IOException ignored) {} }
+}

@@ -139,7 +139,7 @@ public class CreativeCommandService {
                 filename,
                 stored.sizeBytes(),
                 old.imageMode(),
-                Instant.now());
+                Instant.now()).withMockContent(video ? false : old.mockContent());
         pkg.replaceItem(productId, next);
         repository.savePackage(pkg);
         recordCreative(tenantId, packageId.value(), "替换素材");

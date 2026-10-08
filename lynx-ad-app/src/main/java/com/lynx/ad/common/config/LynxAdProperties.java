@@ -425,6 +425,12 @@ public class LynxAdProperties {
 
     public static class Storage {
         private String mode = "local";
+        private String assetMode = "oss";
+        private boolean directUploadEnabled = false;
+        public String getAssetMode() { return assetMode; }
+        public void setAssetMode(String assetMode) { this.assetMode=assetMode; }
+        public boolean isDirectUploadEnabled() { return directUploadEnabled; }
+        public void setDirectUploadEnabled(boolean directUploadEnabled) { this.directUploadEnabled=directUploadEnabled; }
         private String localDir = "./data/storage";
         private int urlTtlSec = 3600;
         private Oss oss = new Oss();
@@ -775,13 +781,22 @@ public class LynxAdProperties {
     }
 
     public static class MaterialApi {
-        private String videoUploadUrl = "https://ad.oceanengine.com/open_api/2/file/video/ad/";
+        private String videoUploadUrl = "https://api.oceanengine.com/open_api/2/file/video/ad/";
+        private String imageUploadUrl = "https://api.oceanengine.com/open_api/2/file/image/ad/";
+        private String audioUploadUrl = "https://api.oceanengine.com/open_api/2/file/audio/ad/";
+        public String getImageUploadUrl() { return imageUploadUrl; }
+        public void setImageUploadUrl(String value) { imageUploadUrl = value; }
+        public String getAudioUploadUrl() { return audioUploadUrl; }
+        public void setAudioUploadUrl(String value) { audioUploadUrl = value; }
 
         public String getVideoUploadUrl() { return videoUploadUrl; }
         public void setVideoUploadUrl(String videoUploadUrl) { this.videoUploadUrl = videoUploadUrl; }
     }
 
     public static class Ai {
+        private Review review = new Review();
+        public Review getReview() { return review; }
+        public void setReview(Review review) { this.review = review; }
         private Llm llm = new Llm();
         private Tts tts = new Tts();
         private Keling keling = new Keling();
@@ -792,6 +807,18 @@ public class LynxAdProperties {
         public void setTts(Tts tts) { this.tts = tts; }
         public Keling getKeling() { return keling; }
         public void setKeling(Keling keling) { this.keling = keling; }
+    }
+
+    public static class Review {
+        private String baseUrl = "";
+        private String mediaBaseUrl = "";
+        private long timeoutMs = 180000;
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String value) { baseUrl = value; }
+        public String getMediaBaseUrl() { return mediaBaseUrl; }
+        public void setMediaBaseUrl(String value) { mediaBaseUrl = value; }
+        public long getTimeoutMs() { return timeoutMs; }
+        public void setTimeoutMs(long value) { timeoutMs = value; }
     }
 
     public static class Llm {

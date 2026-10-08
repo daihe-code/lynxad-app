@@ -7,9 +7,13 @@ public record LibraryResponse(
         TabCounts tabCounts,
         StatusCounts statusCounts,
         PageInfo pageInfo,
-        List<LibraryItemVo> items) {
+        List<LibraryItemVo> items,
+        String platformWarning) {
+    public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items) { this(bound,tabs,statuses,page,items,null); }
 
-    public record TabCounts(int video, int image, int carousel) {}
+    public record TabCounts(int video, int image, int carousel, int audio, int text) {
+        public TabCounts(int video,int image,int carousel) { this(video,image,carousel,0,0); }
+    }
 
     public record StatusCounts(int all, int used, int unused, int reviewing, int rejected) {}
 

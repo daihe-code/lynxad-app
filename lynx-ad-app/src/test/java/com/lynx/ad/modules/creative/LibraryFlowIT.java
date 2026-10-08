@@ -51,7 +51,7 @@ class LibraryFlowIT extends AbstractContainerIT {
     }
 
     @Test
-    void boundMergeUsedAndCompat() throws Exception {
+    void mockGenerationAndAuthorizationDoNotPopulateLibrary() throws Exception {
         String token = onboard("13900003003", "合并店");
         JsonNode bind = json(post("/api/v1/identity/oauth/accounts/mock-bind", "{}", token)).path("data");
         String accountId = bind.path("accountId").asText();
@@ -86,29 +86,12 @@ class LibraryFlowIT extends AbstractContainerIT {
         String to = LocalDate.now(ZoneOffset.UTC).toString();
         JsonNode lib = json(get("/api/v1/creative/library?from=2026-09-12&to=" + to + "&type=VIDEO", token));
         assertTrue(lib.path("data").path("qianchuanBound").asBoolean());
-        boolean lynx = false;
-        boolean ext = false;
-        boolean used = false;
-        for (JsonNode item : lib.path("data").path("items")) {
-            if ("LYNX".equals(item.path("source").asText())) {
-                lynx = true;
-                if (item.path("used").asBoolean()) {
-                    used = true;
-                }
-            }
-            if ("EXTERNAL".equals(item.path("source").asText())) {
-                ext = true;
-            }
-        }
-        assertTrue(lynx);
-        assertTrue(ext);
-        assertTrue(used);
+        assertEquals(0, lib.path("data").path("items").size());
+        assertEquals(0, lib.path("data").path("tabCounts").path("video").asInt());
 
         JsonNode videos = json(get("/api/v1/creative/library/videos", token));
         assertTrue(videos.path("data").isArray());
-        assertTrue(videos.path("data").get(0).has("videoId"));
-        assertTrue(videos.path("data").get(0).has("productId"));
-        assertTrue(videos.path("data").get(0).has("coverImageId"));
+        assertEquals(0, videos.path("data").size());
     }
 
     private String onboard(String phone, String company) throws Exception {

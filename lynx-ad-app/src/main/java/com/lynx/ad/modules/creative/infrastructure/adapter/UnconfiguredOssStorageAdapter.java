@@ -7,6 +7,9 @@ import com.lynx.ad.modules.creative.domain.port.StoragePort;
 import java.io.InputStream;
 
 public class UnconfiguredOssStorageAdapter implements StoragePort {
+    @Override public UploadTicket beginUpload(TenantId tenant,String key,long size,String type) {
+        throw new BizException(1507,"平台 OSS 尚未配置，请配置 Endpoint、Bucket 和存储凭证后上传");
+    }
 
     @Override
     public StorageObject put(TenantId tenant, String objectKey, InputStream in, String contentType) {

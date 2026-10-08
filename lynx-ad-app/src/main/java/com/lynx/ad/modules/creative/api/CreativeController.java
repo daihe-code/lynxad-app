@@ -43,6 +43,9 @@ public class CreativeController {
     private final LibraryQueryService libraryQueryService;
     private final StoragePort storagePort;
     private final LynxAdProperties properties;
+    private com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void uploadedMedia(com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads) { this.uploads=uploads; }
 
     public CreativeController(
             CreativeCommandService commandService,
@@ -157,14 +160,27 @@ public class CreativeController {
     }
 
     @GetMapping("/api/v1/creative/media")
-    public ResponseEntity<byte[]> media(@RequestParam String token) {
+    public ResponseEntity<org.springframework.core.io.Resource> media(@RequestParam String token) {
         var payload = MediaTokenSigner.verify(properties.getCrypto().getAesKey(), token);
+        var tenant=new TenantId(payload.tenantId());
+        var asset=uploads==null ? java.util.Optional.<com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Asset>empty() : uploads.object(payload.tenantId(),payload.objectKey());
+        if(asset.isPresent()) {
+            var a=asset.get();
+            var resource=new org.springframework.core.io.AbstractResource() {
+                @Override public String getDescription() { return "uploaded asset"; }
+                @Override public java.io.InputStream getInputStream() { return com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,a.storageMode()).open(tenant,a.objectKey()); }
+                @Override public long contentLength() { return a.sizeBytes(); }
+                @Override public String getFilename() { return a.filename(); }
+            };
+            return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL,"private, max-age=60")
+                    .header("X-Content-Type-Options","nosniff").contentType(MediaType.parseMediaType(a.contentType())).body(resource);
+        }
         byte[] body = storagePort.read(new TenantId(payload.tenantId()), payload.objectKey());
         String ct = payload.objectKey().toLowerCase().endsWith(".mp4") ? "video/mp4" : "image/jpeg";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "private, max-age=60")
                 .contentType(MediaType.parseMediaType(ct))
-                .body(body);
+                .body(new org.springframework.core.io.ByteArrayResource(body));
     }
 
     private static LocalDate parseDate(String raw) {

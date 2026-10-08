@@ -75,7 +75,8 @@ final class CreativeJson {
                         i.width(),
                         i.height(),
                         i.imageMode(),
-                        i.createdAt() == null ? null : i.createdAt().toString()))
+                        i.createdAt() == null ? null : i.createdAt().toString(),
+                        i.mockContent()))
                 .toList());
     }
 
@@ -102,7 +103,8 @@ final class CreativeJson {
                         i.width(),
                         i.height(),
                         i.imageMode(),
-                        parseInstant(i.createdAt())))
+                        parseInstant(i.createdAt()),
+                        Boolean.TRUE.equals(i.mockContent())))
                 .toList();
     }
 
@@ -140,7 +142,8 @@ final class CreativeJson {
             Integer width,
             Integer height,
             String imageMode,
-            String createdAt) {}
+            String createdAt,
+            Boolean mockContent) {}
 
     private static Instant parseInstant(String value) {
         if (value == null || value.isBlank()) {

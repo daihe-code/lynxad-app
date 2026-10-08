@@ -83,7 +83,8 @@ public class CreativePackage {
                 video && generated != null ? generated.width() : old.width(),
                 video && generated != null ? generated.height() : old.height(),
                 video && generated != null ? generated.imageMode() : old.imageMode(),
-                generated == null ? old.createdAt() : generated.createdAt());
+                generated == null ? old.createdAt() : generated.createdAt(),
+                video && generated != null ? generated.mockContent() : old.mockContent());
         replaceItem(productId, next);
     }
 

@@ -42,6 +42,10 @@ lynx:
         private-key-pem: ${WECHAT_PAY_PRIVATE_KEY_PEM:}
         notify-url: ${WECHAT_PAY_NOTIFY_URL:}
     storage:
+      asset-mode: ${LYNX_ASSET_STORAGE_MODE:oss}
+      direct-upload-enabled: ${LYNX_OSS_DIRECT_UPLOAD_ENABLED:false}
+      ffmpeg-path: ${LYNX_FFMPEG_PATH:ffmpeg}
+      media-validation-timeout-sec: 180
       mode: ${LYNX_STORAGE_MODE:oss}
       local-dir: ${LYNX_STORAGE_LOCAL_DIR:./data/storage}
       url-ttl-sec: 3600
@@ -73,8 +77,14 @@ lynx:
       report:
         custom-url: ${QC_REPORT_CUSTOM_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/report/uni_promotion/data/get/}
       material:
-        video-upload-url: ${QC_VIDEO_UPLOAD_URL:https://ad.oceanengine.com/open_api/2/file/video/ad/}
+        video-upload-url: ${QC_VIDEO_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/video/ad/}
+        image-upload-url: ${QC_IMAGE_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/image/ad/}
+        audio-upload-url: ${QC_AUDIO_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/audio/ad/}
     ai:
+      review:
+        base-url: ${LYNX_AI_ENGINE_BASE_URL:}
+        media-base-url: ${LYNX_AI_REVIEW_MEDIA_BASE_URL:}
+        timeout-ms: 180000
       llm:
         base-url: ${LLM_BASE_URL:}
         api-key: ${LLM_API_KEY:}

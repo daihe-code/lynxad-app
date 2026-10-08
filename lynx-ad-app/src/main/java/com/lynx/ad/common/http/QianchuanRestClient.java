@@ -158,4 +158,33 @@ public class QianchuanRestClient {
         int q = url.indexOf('?');
         return q < 0 ? url : url.substring(0, q);
     }
+
+    /** Streams multipart bytes; a transport failure is ambiguous and must not be blindly retried. */
+    public String multipart(String url, String token, java.util.Map<String, String> fields,
+            String fileField, java.nio.file.Path file, String filename, String contentType) {
+        String boundary = "lynx-" + java.util.UUID.randomUUID();
+        java.util.List<HttpRequest.BodyPublisher> pieces = new java.util.ArrayList<>();
+        fields.forEach((name, value) -> pieces.add(HttpRequest.BodyPublishers.ofString(
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n")));
+        String safeName = filename.replaceAll("[\r\n\"\\\\]", "_");
+        pieces.add(HttpRequest.BodyPublishers.ofString("--" + boundary + "\r\nContent-Disposition: form-data; name=\""
+                + fileField + "\"; filename=\"" + safeName + "\"\r\nContent-Type: " + contentType + "\r\n\r\n"));
+        try {
+            pieces.add(HttpRequest.BodyPublishers.ofFile(file));
+            pieces.add(HttpRequest.BodyPublishers.ofString("\r\n--" + boundary + "--\r\n"));
+            var request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(10))
+                    .header("Access-Token", token).header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.concat(pieces.toArray(HttpRequest.BodyPublisher[]::new))).build();
+            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int code = OceanJson.peekCode(response.body());
+            if (Qianchuan401ReplayCodes.isAuthExpiredCode(response.statusCode()) || Qianchuan401ReplayCodes.isAuthExpiredCode(code))
+                throw new BizException(1211, "千川授权失效，请等待授权模块更新或重新授权");
+            if (response.statusCode() == 429) throw new BizException(429, "千川上传限流，请稍后重试");
+            if (response.statusCode() >= 500) throw new BizException(1523, "千川响应异常，上传结果待确认");
+            if (response.statusCode() >= 400) throw new BizException(1511, "千川拒绝上传，请检查文件与权限");
+            return response.body();
+        } catch (BizException ex) { throw ex; }
+        catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new BizException(1523, "上传中断，千川结果待确认"); }
+        catch (Exception ex) { throw new BizException(1523, "网络中断，千川上传结果待确认"); }
+    }
 }

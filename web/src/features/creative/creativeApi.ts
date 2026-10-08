@@ -33,8 +33,8 @@ export interface LibraryVideoVo {
 
 export interface LibraryItemVo {
   id: string;
-  type: "VIDEO" | "IMAGE" | "CAROUSEL";
-  source: "LYNX" | "EXTERNAL";
+  type: "VIDEO" | "IMAGE" | "CAROUSEL" | "AUDIO" | "TEXT";
+  source: "LYNX" | "EXTERNAL" | "UPLOAD";
   filename: string;
   sizeBytes: number;
   imageMode?: string;
@@ -49,15 +49,65 @@ export interface LibraryItemVo {
   playUrl: string;
   width?: number | null;
   height?: number | null;
+  assetId?: string;
+  carouselId?: string;
+  storageStatus?: string;
+  syncs?: AssetSync[];
+  aiReview?: AssetReview | null;
 }
 
 export interface LibraryResponse {
   qianchuanBound: boolean;
-  tabCounts: { video: number; image: number; carousel: number };
+  tabCounts: { video: number; image: number; carousel: number; audio: number; text: number };
   statusCounts: { all: number; used: number; unused: number; reviewing?: number; rejected?: number };
   pageInfo: { page: number; pageSize: number; total: number };
   items: LibraryItemVo[];
+  platformWarning?: string;
 }
+
+export interface AssetReview {
+  status: 'QUEUED' | 'RUNNING' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'MANUAL_REVIEW' | 'FAILED';
+  reviewId?: string; decision?: string; summary?: string; reasons: string[]; errorMessage?: string;
+}
+export interface AssetSync {
+  id: string; accountId: string; advertiserId?: string; status: 'WAITING_STORAGE' | 'WAITING_REVIEW' | 'QUEUED' | 'RUNNING' | 'UPLOADED' | 'WAITING_AUTH' | 'FAILED' | 'UNCERTAIN' | 'PAUSED';
+  objectId?: string; materialId?: string; requestId?: string; reviewStatus: string; attempts: number; errorMessage?: string;
+}
+export interface UploadedAsset {
+  id: string; kind: string; filename: string; sizeBytes: number; storageStatus: string; storageMode: string;
+  isAigc: boolean; md5?: string; width?: number; height?: number; textContent?: string; url: string; errorMessage?: string; createdAt: string; syncs: AssetSync[]; aiReview?: AssetReview | null;
+}
+export interface UploadInit { assetId: string; storageStatus: string; uploadMode: 'NONE' | 'PROXY' | 'OSS_MULTIPART'; ticket?: { uploadId: string; partSize: number; urls: string[] } }
+export interface CarouselDetail {
+  id: string; name: string; createdAt: string; accountIds: string[]; aiReview: AssetReview;
+  parts: { role: 'TEXT' | 'IMAGE' | 'AUDIO'; position: number; asset: UploadedAsset }[];
+}
+export function createCarousel(body: { requestId: string; name: string; textAssetId: string; imageAssetIds: string[]; audioAssetId: string; accountIds: string[] }) {
+  return apiPost<CarouselDetail>('/api/v1/creative/carousels', body);
+}
+export function getCarousel(id: string) {
+  return apiGet<CarouselDetail>(`/api/v1/creative/carousels/${encodeURIComponent(id)}`, { headers: { 'X-Quiet-Request': 'true' } });
+}
+export interface UploadPolicy {
+  files: { extension: string; kind: string; maxBytes: number; qianchuanSupported: boolean }[];
+  maxPixels: number; maxTextChars: number; maxFiles: number; videoCodec: string; m4aCodec: string;
+}
+export function getUploadPolicy() { return apiGet<UploadPolicy>('/api/v1/creative/assets/upload-policy', { headers: { 'X-Quiet-Request': 'true' } }); }
+export function initAssetUpload(file: File, requestId: string, accountIds: string[], isAigc: boolean, libraryType?: LibraryItemVo['type']) {
+  return apiPost<UploadInit>('/api/v1/creative/assets/uploads/init', { requestId, filename: file.name, sizeBytes: file.size, accountIds, isAigc, libraryType }, { headers: { 'X-Quiet-Request': 'true' } });
+}
+export function uploadAssetFile(id: string, file: File, progress: (percent: number) => void) {
+  const body = new FormData(); body.append('file', file);
+  return apiPostForm<UploadedAsset>(`/api/v1/creative/assets/${id}/file`, body, { timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' }, onUploadProgress: e => progress(Math.round(e.loaded / (e.total || file.size) * 100)) });
+}
+export function completeAssetUpload(id: string, parts: { partNumber: number; etag: string }[]) {
+  return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/upload-complete`, { parts }, { timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' } });
+}
+export function getUploadedAsset(id: string) { return apiGet<UploadedAsset>(`/api/v1/creative/assets/${id}`, { headers: { 'X-Quiet-Request': 'true' } }); }
+export function retryAssetReview(id: string) {
+  return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/review/retry`, {}, { timeout: 15 * 60 * 1000 });
+}
+export function retryAssetSync(id: string, accountId?: string, acknowledgeUncertain = false) { return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/sync/retry`, { accountId, acknowledgeUncertain }); }
 
 export function generateCreatives(planId: string | undefined, productIds: string[]) {
   return apiPost<{ taskId: string }>("/api/v1/creative/creatives/generate", {

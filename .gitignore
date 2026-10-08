@@ -19,6 +19,7 @@ Thumbs.db
 !.env.example
 !.env.development
 data/storage/
+/lynx-ad-app/data/
 *.hprof
 .mvn/wrapper/maven-wrapper.jar
 node_modules/

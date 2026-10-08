@@ -31,6 +31,9 @@ import org.springframework.stereotype.Service;
 public class LibraryQueryService {
 
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+    private CarouselService carousels;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void carouselDependencies(CarouselService service) { this.carousels=service; }
 
     private final CreativeTaskRepository repository;
     private final StoragePort storagePort;
@@ -38,6 +41,15 @@ public class LibraryQueryService {
     private final OauthQueryService oauthQueryService;
     private final PlanCreativeBindingQuery bindingQuery;
     private final ProductQueryService productQueryService;
+    private com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads;
+    private com.lynx.ad.modules.identity.domain.port.OauthAccountRepository accounts;
+    private com.lynx.ad.modules.identity.application.QianchuanCredentialFacade credentials;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void uploadDependencies(com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads,
+            com.lynx.ad.modules.identity.domain.port.OauthAccountRepository accounts,
+            com.lynx.ad.modules.identity.application.QianchuanCredentialFacade credentials) {
+        this.uploads=uploads; this.accounts=accounts; this.credentials=credentials;
+    }
 
     public LibraryQueryService(
             CreativeTaskRepository repository,
@@ -64,7 +76,7 @@ public class LibraryQueryService {
             String q,
             int page,
             int pageSize) {
-        MaterialType type = parseType(typeRaw);
+        String type = parseType(typeRaw);
         LocalDate today = LocalDate.now(SHANGHAI);
         LocalDate end = to == null ? today : to;
         LocalDate start = from == null ? today.minusDays(6) : from;
@@ -79,13 +91,18 @@ public class LibraryQueryService {
         }
         boolean bound = oauthQueryService.hasBoundQianchuan(tenantId);
         List<Item> merged = new ArrayList<>(localItems(tenantId));
+        merged.addAll(uploadedItems(tenantId));
+        merged.addAll(carouselItems(tenantId));
+        String platformWarning=null;
         if (bound) {
             try {
-                merged.addAll(platformItems(type, start, end));
+                merged.addAll(platformItems(tenantId, start, end));
             } catch (BizException ex) {
-                throw ex;
+                if (merged.isEmpty()) throw ex;
+                platformWarning="千川素材暂时无法查询，当前展示已保存到本平台的素材";
             } catch (Exception ex) {
-                throw new BizException(1506, "素材库查询失败");
+                if (merged.isEmpty()) throw new BizException(1506, "素材库查询失败");
+                platformWarning="千川素材暂时无法查询，当前展示已保存到本平台的素材";
             }
         }
         merged = dedup(merged);
@@ -95,7 +112,7 @@ public class LibraryQueryService {
         }
         LibraryResponse.TabCounts tabs = tabs(merged, start, end);
         List<Item> typed = merged.stream()
-                .filter(i -> i.type == type)
+                .filter(i -> i.type.equals(type))
                 .filter(i -> inRange(i.createdAt, start, end))
                 .toList();
         List<Item> searched = typed.stream().filter(i -> matchQ(i, q)).toList();
@@ -113,14 +130,14 @@ public class LibraryQueryService {
         int toIdx = Math.min(fromIdx + size, filtered.size());
         List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(this::toVo).toList();
         return new LibraryResponse(
-                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems);
+                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning);
     }
 
     public List<LibraryVideoVo> libraryVideos(TenantId tenantId) {
         List<Item> merged = new ArrayList<>(localItems(tenantId));
         if (oauthQueryService.hasBoundQianchuan(tenantId)) {
             try {
-                merged.addAll(platformItems(MaterialType.VIDEO, LocalDate.of(1970, 1, 1), LocalDate.of(2099, 12, 31)));
+                merged.addAll(platformItems(tenantId, LocalDate.of(1970, 1, 1), LocalDate.of(2099, 12, 31)));
             } catch (BizException ex) {
                 throw ex;
             } catch (Exception ex) {
@@ -128,7 +145,7 @@ public class LibraryQueryService {
             }
         }
         return dedup(merged).stream()
-                .filter(i -> i.type == MaterialType.VIDEO)
+                .filter(i -> i.type.equals("VIDEO"))
                 .map(i -> new LibraryVideoVo(
                         i.objectId == null ? "" : i.objectId,
                         productIdOf(i),
@@ -140,6 +157,7 @@ public class LibraryQueryService {
         Map<String, CreativePackage> latest = new HashMap<>();
         for (CreativePackage pkg : repository.listPackagesByTenant(tenantId)) {
             for (CreativeArtifact art : pkg.items()) {
+                if (art.mockContent()) continue;
                 String pid = art.productId().value();
                 CreativePackage prev = latest.get(pid);
                 if (prev == null || pkg.version() >= prev.version()) {
@@ -151,7 +169,7 @@ public class LibraryQueryService {
         for (var e : latest.entrySet()) {
             CreativePackage pkg = e.getValue();
             for (CreativeArtifact art : pkg.items()) {
-                if (!art.productId().value().equals(e.getKey())) {
+                if (art.mockContent() || !art.productId().value().equals(e.getKey())) {
                     continue;
                 }
                 Instant created = art.createdAt() != null ? art.createdAt() : pkg.createdAt();
@@ -181,14 +199,59 @@ public class LibraryQueryService {
         return items;
     }
 
-    private List<Item> platformItems(MaterialType requested, LocalDate start, LocalDate end) {
+    private List<Item> uploadedItems(TenantId tenant) {
+        if (uploads==null) return List.of();
+        List<Item> result=new ArrayList<>();
+        for(var asset:uploads.list(tenant.value())) {
+            String url=com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,asset.storageMode()).getUrl(tenant,asset.objectKey());
+            var item=new Item("UPLOAD:"+asset.id(),asset.kind(),MaterialSource.UPLOAD,asset.filename(),asset.sizeBytes(),
+                    asset.width()!=null && asset.height()!=null ? (asset.width()>asset.height() ? "HORIZONTAL" : asset.width().equals(asset.height()) ? "SQUARE" : "VERTICAL") : "",
+                    null,"本地上传",asset.createdAt(),false,"NONE",null,asset.id(),null,
+                    "IMAGE".equals(asset.kind()) ? url : "", "TEXT".equals(asset.kind()) ? "" : url,asset.width(),asset.height());
+            item.syncs=uploads.syncs(tenant.value(),asset.id()); item.textContent=asset.textContent(); result.add(item);
+            item.aiReview=uploads.aiReview(tenant.value(),asset.id());
+            item.reviewBadge=effectiveBadge(item);
+        }
+        return result;
+    }
+
+    private List<Item> platformItems(TenantId tenant, LocalDate start, LocalDate end) {
+        List<Item> items = new ArrayList<>();
+        if (accounts!=null) {
+            for(var account:accounts.findByTenant(tenant)) {
+                if (!"ACTIVE".equals(account.status()) || account.platform()!=com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN) continue;
+                var credential=credentials.getUsableCredential(tenant,account.id());
+                items.addAll(platformAccountItems(account.id().value(),credential.advertiserId().value(),credential.accessToken(),start,end));
+            }
+            return items;
+        }
+        return platformAccountItems("", "bound", null, start, end);
+    }
+    private List<Item> carouselItems(TenantId tenant) {
+        if(carousels==null) return List.of();
+        List<Item> result=new ArrayList<>();
+        for(var group:carousels.list(tenant)) {
+            var images=group.parts().stream().filter(p->"IMAGE".equals(p.role())).toList();
+            var image=images.getFirst().asset();
+            long size=group.parts().stream().mapToLong(p->p.asset().sizeBytes()).sum();
+            var item=new Item("CAROUSEL:"+group.id(),"CAROUSEL",MaterialSource.UPLOAD,group.name(),size,"",null,
+                    "图文 · "+images.size()+" 张图片",Instant.parse(group.createdAt()),false,"NONE",null,group.id(),null,
+                    image.url(),image.url(),image.width(),image.height());
+            item.carouselId=group.id(); item.aiReview=group.aiReview();
+            item.textContent=group.parts().stream().filter(p->"TEXT".equals(p.role())).findFirst().orElseThrow().asset().textContent();
+            item.syncs=group.parts().stream().flatMap(p->p.asset().syncs().stream()).filter(s->group.accountIds().contains(s.accountId())).toList();
+            item.reviewBadge=effectiveBadge(item); result.add(item);
+        }
+        return result;
+    }
+    private List<Item> platformAccountItems(String accountId, String advertiserId, String token, LocalDate start, LocalDate end) {
         List<Item> items = new ArrayList<>();
         for (MaterialType type : MaterialType.values()) {
             var page = materialLibraryPort.list(new MaterialLibraryPort.MaterialLibraryQuery(
-                    "bound", type, start, end, 1, 20));
+                    advertiserId, type, start, end, 1, 20, token));
             for (var m : page.items()) {
                 items.add(new Item(
-                        "EXT:" + type.name() + ":" + m.objectId(),
+                        "EXT:" + accountId + ":" + type.name() + ":" + m.objectId(),
                         type,
                         MaterialSource.EXTERNAL,
                         m.filename(),
@@ -206,6 +269,7 @@ public class LibraryQueryService {
                         m.url(),
                         m.width(),
                         m.height()));
+                items.getLast().accountId=accountId;
             }
         }
         return items;
@@ -213,8 +277,30 @@ public class LibraryQueryService {
 
     private List<Item> dedup(List<Item> items) {
         Map<String, Item> byId = new HashMap<>();
+        Set<String> uploadedKeys=new java.util.HashSet<>();
+        Map<String,Item> uploadedByKey=new HashMap<>();
+        for(var item:items) for(var sync:item.syncs) if ("UPLOADED".equals(sync.status())) {
+            if(sync.materialId()!=null) uploadedKeys.add(sync.accountId()+":"+item.type+":"+sync.materialId());
+            if(sync.objectId()!=null) uploadedKeys.add(sync.accountId()+":"+item.type+":"+sync.objectId());
+            if(sync.materialId()!=null) uploadedByKey.put(sync.accountId()+":"+item.type+":"+sync.materialId(),item);
+            if(sync.objectId()!=null) uploadedByKey.put(sync.accountId()+":"+item.type+":"+sync.objectId(),item);
+        }
         for (Item item : items) {
-            String key = item.materialId != null ? item.materialId : item.objectId;
+            if(item.source==MaterialSource.EXTERNAL && (uploadedKeys.contains(item.accountId+":"+item.type+":"+item.materialId) || uploadedKeys.contains(item.accountId+":"+item.type+":"+item.objectId))) {
+                Item local=uploadedByKey.get(item.accountId+":"+item.type+":"+item.materialId);
+                if(local==null) local=uploadedByKey.get(item.accountId+":"+item.type+":"+item.objectId);
+                if(local!=null && Set.of("REVIEWING","REJECTED","PASS").contains(item.reviewBadge)) {
+                    var owner=local;
+                    owner.syncs=owner.syncs.stream().map(s -> {
+                        if(!s.accountId().equals(item.accountId) || !(s.materialId()!=null && s.materialId().equals(item.materialId) || s.objectId()!=null && s.objectId().equals(item.objectId))) return s;
+                        if(uploads!=null) uploads.review(s,item.reviewBadge);
+                        return new com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync(s.id(),s.tenantId(),s.assetId(),s.accountId(),s.advertiserId(),s.status(),s.objectId(),s.materialId(),s.requestId(),item.reviewBadge,s.attempts(),s.nextAttemptAt(),s.leaseUntil(),s.errorMessage());
+                    }).toList();
+                    owner.reviewBadge=effectiveBadge(owner);
+                }
+                continue;
+            }
+            String key = item.source==MaterialSource.UPLOAD ? item.id : item.accountId+":"+item.type+":"+(item.materialId != null ? item.materialId : item.objectId);
             Item exist = byId.get(key);
             if (exist == null || exist.source == MaterialSource.EXTERNAL && item.source == MaterialSource.LYNX) {
                 byId.put(key, item);
@@ -222,23 +308,38 @@ public class LibraryQueryService {
         }
         return new ArrayList<>(byId.values());
     }
+    private static String reviewBadge(List<com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync> syncs) {
+        if(syncs.stream().anyMatch(s -> "REJECTED".equals(s.reviewStatus()))) return "REJECTED";
+        if(syncs.stream().anyMatch(s -> "REVIEWING".equals(s.reviewStatus()))) return "REVIEWING";
+        return "NONE";
+    }
+    private static String effectiveBadge(Item item) {
+        if(item.aiReview!=null) {
+            if("REJECTED".equals(item.aiReview.status()) || item.carouselId!=null && "FAILED".equals(item.aiReview.status())) return "REJECTED";
+            if(Set.of("QUEUED","RUNNING","PENDING","MANUAL_REVIEW").contains(item.aiReview.status())) return "REVIEWING";
+        }
+        return reviewBadge(item.syncs);
+    }
 
     private LibraryResponse.TabCounts tabs(List<Item> merged, LocalDate start, LocalDate end) {
-        int v = 0, i = 0, c = 0;
+        int v = 0, i = 0, c = 0, a = 0, t = 0;
         for (Item item : merged) {
             if (!inRange(item.createdAt, start, end)) {
                 continue;
             }
             switch (item.type) {
-                case VIDEO -> v++;
-                case IMAGE -> i++;
-                case CAROUSEL -> c++;
+                case "VIDEO" -> v++;
+                case "IMAGE" -> i++;
+                case "CAROUSEL" -> c++;
+                case "AUDIO" -> a++;
+                case "TEXT" -> t++;
             }
         }
-        return new LibraryResponse.TabCounts(v, i, c);
+        return new LibraryResponse.TabCounts(v, i, c, a, t);
     }
 
     private static boolean used(Item item, Set<String> keys) {
+        if(item.syncs.stream().anyMatch(s -> s.objectId()!=null && keys.contains(s.objectId()) || s.materialId()!=null && keys.contains(s.materialId()))) return true;
         return (item.objectId != null && keys.contains(item.objectId))
                 || (item.materialId != null && keys.contains(item.materialId));
     }
@@ -263,7 +364,8 @@ public class LibraryQueryService {
             return true;
         }
         String needle = q.toLowerCase(Locale.ROOT);
-        return contains(item.filename, needle) || contains(item.materialId, needle) || contains(item.objectId, needle);
+        return contains(item.filename, needle) || contains(item.materialId, needle) || contains(item.objectId, needle) || contains(item.textContent,needle)
+                || item.syncs.stream().anyMatch(s -> contains(s.materialId(),needle) || contains(s.objectId(),needle));
     }
 
     private static boolean contains(String value, String needle) {
@@ -273,7 +375,7 @@ public class LibraryQueryService {
     private LibraryItemVo toVo(Item item) {
         return new LibraryItemVo(
                 item.id,
-                item.type.name(),
+                item.type,
                 item.source.name(),
                 item.filename,
                 item.sizeBytes,
@@ -288,7 +390,10 @@ public class LibraryQueryService {
                 item.posterUrl,
                 item.playUrl,
                 item.width,
-                item.height);
+                item.height,
+                item.source==MaterialSource.UPLOAD && item.carouselId==null ? item.objectId : null,
+                item.source==MaterialSource.UPLOAD ? "STORED" : null,
+                item.syncs,item.aiReview,item.carouselId);
     }
 
     private static String productIdOf(Item item) {
@@ -299,14 +404,16 @@ public class LibraryQueryService {
         return "";
     }
 
-    private static MaterialType parseType(String raw) {
+    private static String parseType(String raw) {
         if (raw == null || raw.isBlank()) {
-            return MaterialType.VIDEO;
+            return "VIDEO";
         }
         try {
-            return MaterialType.valueOf(raw.toUpperCase(Locale.ROOT));
+            String value=raw.toUpperCase(Locale.ROOT);
+            if(!Set.of("VIDEO","IMAGE","CAROUSEL","AUDIO","TEXT").contains(value)) throw new IllegalArgumentException();
+            return value;
         } catch (Exception ex) {
-            return MaterialType.VIDEO;
+            return "VIDEO";
         }
     }
 
@@ -321,7 +428,7 @@ public class LibraryQueryService {
 
     private static final class Item {
         final String id;
-        final MaterialType type;
+        final String type;
         final MaterialSource source;
         final String filename;
         final long sizeBytes;
@@ -330,7 +437,7 @@ public class LibraryQueryService {
         final String category;
         final Instant createdAt;
         boolean used;
-        final String reviewBadge;
+        String reviewBadge;
         final String materialId;
         final String objectId;
         final String coverImageId;
@@ -338,6 +445,11 @@ public class LibraryQueryService {
         final String playUrl;
         final Integer width;
         final Integer height;
+        String accountId="";
+        String textContent;
+        String carouselId;
+        com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Review aiReview;
+        List<com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync> syncs=List.of();
 
         private Item(
                 String id,
@@ -358,6 +470,9 @@ public class LibraryQueryService {
                 String playUrl,
                 Integer width,
                 Integer height) {
+            this(id,type.name(),source,filename,sizeBytes,imageMode,durationSec,category,createdAt,used,reviewBadge,materialId,objectId,coverImageId,posterUrl,playUrl,width,height);
+        }
+        private Item(String id,String type,MaterialSource source,String filename,long sizeBytes,String imageMode,Integer durationSec,String category,Instant createdAt,boolean used,String reviewBadge,String materialId,String objectId,String coverImageId,String posterUrl,String playUrl,Integer width,Integer height) {
             this.id = id;
             this.type = type;
             this.source = source;

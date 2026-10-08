@@ -9,6 +9,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.Date;
+import java.util.ArrayList;
+import java.util.List;
+import com.aliyun.oss.HttpMethod;
+import com.aliyun.oss.model.*;
+import com.lynx.ad.modules.creative.domain.port.StoragePort;
+import com.lynx.ad.common.exception.BizException;
 
 public class AliyunOssClient implements ObjectStoreClient, AutoCloseable {
 
@@ -54,6 +60,51 @@ public class AliyunOssClient implements ObjectStoreClient, AutoCloseable {
     @Override
     public boolean exists(String bucket, String key) {
         return oss.doesObjectExist(bucket, key);
+    }
+
+    @Override public InputStream openObject(String bucket, String key) {
+        OSSObject object = oss.getObject(bucket, key);
+        return new java.io.FilterInputStream(object.getObjectContent()) {
+            @Override public void close() throws IOException { try { super.close(); } finally { object.close(); } }
+        };
+    }
+
+    @Override public StoragePort.UploadTicket beginUpload(String bucket, String key, long size, String type) {
+        ObjectMetadata metadata = new ObjectMetadata(); metadata.setContentType(type);
+        var request = new InitiateMultipartUploadRequest(bucket, key); request.setObjectMetadata(metadata);
+        String uploadId = oss.initiateMultipartUpload(request).getUploadId();
+        long partSize = 8L * 1024 * 1024;
+        List<String> urls = new ArrayList<>();
+        for (int part = 1; part <= (size + partSize - 1) / partSize; part++) {
+            var sign = new GeneratePresignedUrlRequest(bucket, key, HttpMethod.PUT);
+            sign.setExpiration(new Date(System.currentTimeMillis() + 3600_000));
+            sign.addQueryParameter("uploadId", uploadId); sign.addQueryParameter("partNumber", String.valueOf(part));
+            urls.add(oss.generatePresignedUrl(sign).toString());
+        }
+        return new StoragePort.UploadTicket(uploadId, partSize, urls);
+    }
+
+    @Override public void completeUpload(String bucket, String key, String uploadId, List<StoragePort.UploadPart> parts, long size) {
+        PartListing listed;
+        try { listed = oss.listParts(new ListPartsRequest(bucket, key, uploadId)); }
+        catch (com.aliyun.oss.OSSException ex) {
+            if ("NoSuchUpload".equals(ex.getErrorCode()) && oss.doesObjectExist(bucket,key) && oss.getObjectMetadata(bucket,key).getContentLength()==size) return;
+            throw ex;
+        }
+        var actual = listed.getParts();
+        if (listed.isTruncated() || actual.size() != parts.size() || actual.stream().mapToLong(PartSummary::getSize).sum() != size)
+            throw new BizException(1521, "OSS 分片数量或文件大小不一致");
+        List<PartETag> tags = new ArrayList<>();
+        for (int index = 0; index < actual.size(); index++) {
+            var a = actual.get(index); var p = parts.get(index);
+            if (p.partNumber() != index + 1 || a.getPartNumber() != p.partNumber() || !a.getETag().equalsIgnoreCase(p.etag().replace("\"", "")))
+                throw new BizException(1521, "OSS 分片校验失败");
+            tags.add(new PartETag(a.getPartNumber(), a.getETag()));
+        }
+        oss.completeMultipartUpload(new CompleteMultipartUploadRequest(bucket, key, uploadId, tags));
+    }
+    @Override public void abortUpload(String bucket, String key, String uploadId) {
+        oss.abortMultipartUpload(new AbortMultipartUploadRequest(bucket, key, uploadId));
     }
 
     @Override

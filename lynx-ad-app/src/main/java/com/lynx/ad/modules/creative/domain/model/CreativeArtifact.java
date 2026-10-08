@@ -21,7 +21,16 @@ public record CreativeArtifact(
         Integer width,
         Integer height,
         String imageMode,
-        Instant createdAt) {
+        Instant createdAt,
+        boolean mockContent) {
+
+    public CreativeArtifact(QcProductId productId, List<AdTitle> titles, Optional<VideoId> videoId,
+            Optional<CoverImageId> coverImageId, String videoObjectKey, String coverObjectKey,
+            String storageMode, String filename, Long sizeBytes, Integer durationSec,
+            Integer width, Integer height, String imageMode, Instant createdAt) {
+        this(productId, titles, videoId, coverImageId, videoObjectKey, coverObjectKey,
+                storageMode, filename, sizeBytes, durationSec, width, height, imageMode, createdAt, false);
+    }
 
     public CreativeArtifact(
             QcProductId productId, List<AdTitle> titles, Optional<VideoId> videoId, Optional<CoverImageId> coverImageId) {
@@ -50,6 +59,13 @@ public record CreativeArtifact(
                 width,
                 height,
                 imageMode,
-                createdAt);
+                createdAt,
+                mockContent);
+    }
+
+    public CreativeArtifact withMockContent(boolean mock) {
+        return new CreativeArtifact(productId, titles, videoId, coverImageId, videoObjectKey,
+                coverObjectKey, storageMode, filename, sizeBytes, durationSec, width, height,
+                imageMode, createdAt, mock);
     }
 }

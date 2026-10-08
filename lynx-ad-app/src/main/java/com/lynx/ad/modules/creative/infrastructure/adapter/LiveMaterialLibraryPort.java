@@ -37,7 +37,8 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 case CAROUSEL -> properties.getQianchuan().getCarouselGetUrl();
             };
             String body = restClient.exchange(
-                    RequestSpec.get(url + "?advertiser_id=" + (query.advertiserId() == null ? "" : query.advertiserId()))
+                    RequestSpec.get(url + "?advertiser_id=" + (query.advertiserId() == null ? "" : query.advertiserId()) + "&page=" + query.page() + "&page_size=" + query.pageSize())
+                            .header("Access-Token", query.accessToken()==null ? "" : query.accessToken())
                             .build(),
                     String.class);
             JsonNode data = oceanJson.dataOrThrow(body, 1506, "素材库查询失败");
@@ -63,7 +64,7 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 ? Instant.ofEpochSecond(n.path("create_time").asLong(Instant.now().getEpochSecond()))
                 : Instant.now();
         return new PlatformMaterial(
-                n.path("object_id").asText(id),
+                n.path("object_id").asText(n.path(type==MaterialType.VIDEO ? "video_id" : "id").asText(id)),
                 id,
                 n.path("filename").asText(n.path("name").asText(type.name() + ".bin")),
                 n.path("size").asLong(0),

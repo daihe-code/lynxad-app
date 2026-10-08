@@ -31,7 +31,7 @@ public class LocalStorageAdapter implements StoragePort {
         try {
             Path target = resolve(objectKey);
             Files.createDirectories(target.getParent());
-            long size = Files.copy(in, target);
+            long size = Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             return new StorageObject(objectKey, "local", size, contentType);
         } catch (IOException ex) {
             throw new IllegalStateException("本地存储写入失败", ex);
@@ -43,7 +43,7 @@ public class LocalStorageAdapter implements StoragePort {
         ObjectKeyPolicy.assertTenantKey(prefix(), tenant, objectKey);
         Instant exp = Instant.now().plusSeconds(Math.max(60, properties.getStorage().getUrlTtlSec()));
         String token = MediaTokenSigner.sign(properties.getCrypto().getAesKey(), tenant.value(), objectKey, exp);
-        return contextPath + "/api/v1/creative/media?token=" + token;
+        return contextPath + "/api/v1/creative/media?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     @Override
@@ -68,6 +68,13 @@ public class LocalStorageAdapter implements StoragePort {
         } catch (IOException ex) {
             throw new IllegalStateException("本地存储读取失败", ex);
         }
+    }
+
+    @Override
+    public InputStream open(TenantId tenant, String key) {
+        ObjectKeyPolicy.assertTenantKey(prefix(), tenant, key);
+        try { return Files.newInputStream(resolve(key)); }
+        catch (IOException ex) { throw new BizException(1508, "文件不存在"); }
     }
 
     private Path resolve(String objectKey) {

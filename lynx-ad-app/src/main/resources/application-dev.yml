@@ -58,8 +58,12 @@ lynx:
         private-key-pem: ${WECHAT_PAY_PRIVATE_KEY_PEM:}
         notify-url: ${WECHAT_PAY_NOTIFY_URL:}
     storage:
+      asset-mode: ${LYNX_ASSET_STORAGE_MODE:oss}
+      direct-upload-enabled: ${LYNX_OSS_DIRECT_UPLOAD_ENABLED:false}
       mode: local
       local-dir: ./data/storage
+      ffmpeg-path: ${LYNX_FFMPEG_PATH:D:/LynxAd-runtime/ffmpeg/ffmpeg.exe}
+      media-validation-timeout-sec: 180
       url-ttl-sec: 3600
       oss:
         endpoint: ${OSS_ENDPOINT:}
@@ -89,8 +93,15 @@ lynx:
       report:
         custom-url: ${QC_REPORT_CUSTOM_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/report/uni_promotion/data/get/}
       material:
-        video-upload-url: ${QC_VIDEO_UPLOAD_URL:https://ad.oceanengine.com/open_api/2/file/video/ad/}
+        video-upload-url: ${QC_VIDEO_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/video/ad/}
+        image-upload-url: ${QC_IMAGE_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/image/ad/}
+        audio-upload-url: ${QC_AUDIO_UPLOAD_URL:https://api.oceanengine.com/open_api/2/file/audio/ad/}
     ai:
+      review:
+        # Upload review always calls this engine; mock.ai only controls legacy generation.
+        base-url: ${LYNX_AI_ENGINE_BASE_URL:http://127.0.0.1:8000}
+        media-base-url: ${LYNX_AI_REVIEW_MEDIA_BASE_URL:http://127.0.0.1:8080}
+        timeout-ms: 180000
       llm:
         base-url: ${LLM_BASE_URL:}
         api-key: ${LLM_API_KEY:}

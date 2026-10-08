@@ -182,6 +182,7 @@ public class CreativeAgent {
                 720,
                 1280,
                 "VIDEO_VERTICAL",
-                now);
+                now,
+                true); // Fixture bytes are placeholders, even when upstream clients are live.
     }
 }
