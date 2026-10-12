@@ -57,7 +57,14 @@ public class QianchuanRestClient {
             }
             replayInterceptor.getObject().refreshOnce(new AccountId(spec.replayAccountId()));
             try {
-                return exchangeOnce(spec, type);
+                String token = replayInterceptor.getObject().currentAccessToken(new AccountId(spec.replayAccountId()));
+                RequestSpec retry = spec;
+                if (token != null) {
+                    var headers = new java.util.LinkedHashMap<>(spec.headers());
+                    headers.put("Access-Token", token);
+                    retry = new RequestSpec(spec.method(), spec.url(), headers, spec.body(), spec.replayAccountId());
+                }
+                return exchangeOnce(retry, type);
             } catch (BizException second) {
                 if (Qianchuan401ReplayCodes.isAuthExpired(second)) {
                     throw new BizException(1211, "授权已失效，请重新授权");
@@ -73,7 +80,8 @@ public class QianchuanRestClient {
             HttpResponse<String> response = doExchange(spec);
             int status = response.statusCode();
             // A POST may have committed before a 5xx response; never blindly recreate a task.
-            if (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429) && attempt < MAX_RETRIES) {
+            boolean throttledGet="GET".equalsIgnoreCase(spec.method()) && status==200 && OceanJson.peekCode(response.body())==40100;
+            if ((throttledGet || (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429))) && attempt < MAX_RETRIES) {
                 log.warn("qianchuan retry status={} attempt={}", status, attempt + 1);
                 sleepQuietly(BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
                 attempt++;
@@ -93,7 +101,32 @@ public class QianchuanRestClient {
         if (status >= 400) {
             throw new BizException(status, "千川调用失败");
         }
+        if (ocean > 0) logBusinessFailure(spec, ocean, response.body());
         return readBody(response.body(), type);
+    }
+
+    private void logBusinessFailure(RequestSpec spec, int code, String body) {
+        try {
+            var root = objectMapper.readTree(body);
+            var help = root.path("help_message");
+            if (help.isMissingNode() || help.isNull()) help = root.path("data").path("help_message");
+            String hint = help.isMissingNode() || help.isNull() ? "未返回" : help.isTextual() ? help.textValue() : help.toString();
+            String requestId = root.path("request_id").asText("");
+            if (!requestId.matches("[A-Za-z0-9_-]{1,128}")) requestId = "未返回";
+            log.warn("qianchuan business failure method={} url={} code={} request_id={} help_message={}",
+                    spec.method(), sanitizeUrl(spec.url()), code, requestId, diagnosticText(hint));
+        } catch (Exception ignored) {
+            log.warn("qianchuan business failure method={} url={} code={} help_message=无法解析",
+                    spec.method(), sanitizeUrl(spec.url()), code);
+        }
+    }
+
+    private static String diagnosticText(String value) {
+        String safe = value.replaceAll("(?i)bearer\\s+[^\\s,;\"']+", "Bearer [redacted]")
+                .replaceAll("(?i)(access[-_ ]?token|refresh[-_ ]?token|token|secret|password|authorization|credential|pwd)[\"'\\s]*[:=][\"'\\s]*[^\\s,;}\\]\"']+", "$1=[redacted]")
+                .replaceAll("[A-Za-z0-9_+/=-]{48,}", "[redacted]")
+                .replaceAll("[\\r\\n\\t]+", " ");
+        return safe.substring(0, Math.min(safe.length(), 1000));
     }
 
     private boolean shouldReplay(RequestSpec spec, BizException ex) {

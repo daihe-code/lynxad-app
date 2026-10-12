@@ -30,3 +30,4 @@ deploy/trial/*.pem
 deploy/trial/*.key
 deploy/trial/*.crt
 web/src/api/schema.d.ts
+*.tsbuildinfo

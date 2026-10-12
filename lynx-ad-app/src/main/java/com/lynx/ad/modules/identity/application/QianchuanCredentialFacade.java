@@ -16,6 +16,8 @@ public class QianchuanCredentialFacade {
 
     private final OauthAccountRepository repository;
     private final Encryptor encryptor;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LiveQianchuanAuthorizationService liveAuthorization;
 
     public QianchuanCredentialFacade(OauthAccountRepository repository, Encryptor encryptor) {
         this.repository = repository;
@@ -24,16 +26,26 @@ public class QianchuanCredentialFacade {
 
     public Credential get(AccountId accountId) {
         if (TenantContext.tenantId().isPresent()) return getUsableCredential(TenantContext.requireTenantId(), accountId);
+        if (liveAuthorization != null && liveAuthorization.enabled()) throw new BizException(403, "读取授权凭证必须指定灵投账户");
         return credential(repository.findByIdOnly(accountId).orElseThrow(() -> new BizException(1201, "授权账户不存在")));
     }
 
-    /** Reads the authorization module's persisted credentials; never refreshes or returns them to the browser. */
+    /** Tenant-scoped credentials; refresh remains inside the authorization module. */
     public Credential getUsableCredential(TenantId tenantId, AccountId accountId) {
-        return credential(repository.findById(tenantId, accountId)
-                .orElseThrow(() -> new BizException(1201, "授权账户不存在或不属于当前灵投账户")));
+        OauthAccount account = repository.findById(tenantId, accountId)
+                .orElseThrow(() -> new BizException(1201, "授权账户不存在或不属于当前灵投账户"));
+        if (liveAuthorization != null && liveAuthorization.enabled()) {
+            if (account.grantId() == null) throw new BizException(1211, "请先完成真实千川授权，演示账户不能用于真实接口");
+            if ("ACTIVE".equals(account.status()) && account.needsRefresh(Instant.now())) {
+                liveAuthorization.refresh(tenantId, accountId, false, false);
+                account = repository.findById(tenantId, accountId).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
+            }
+        }
+        return credential(account);
     }
 
     private Credential credential(OauthAccount account) {
+        if (account.platform() != com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN) throw new BizException(1205, "该授权凭证不属于巨量千川");
         if (!"ACTIVE".equals(account.status())) throw new BizException(1211, "授权已取消或失效，请重新授权");
         if (account.tokenExpiresAt() != null && !account.tokenExpiresAt().isAfter(Instant.now()))
             throw new BizException(1211, "授权令牌已过期，等待授权模块更新或重新授权");
@@ -41,6 +53,6 @@ public class QianchuanCredentialFacade {
             throw new BizException(1205, "授权信息不完整");
         String token = encryptor.decrypt(account.accessToken().cipherText());
         if (token == null || token.isBlank()) throw new BizException(1205, "授权信息不完整");
-        return new Credential(token, account.advertiserId());
+        return new Credential(token, account.advertiserId(),account.id().value());
     }
 }

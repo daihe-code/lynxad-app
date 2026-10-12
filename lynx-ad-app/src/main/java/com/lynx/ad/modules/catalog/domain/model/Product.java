@@ -15,7 +15,8 @@ public class Product {
     private final AwemeId awemeId;
     private final QcProductId qcProductId;
     private final String name;
-    private final Money poolPrice;
+    private Money poolPrice;
+    private PlatformProductPrice priceInfo;
     private Money userPrice;
     private final String imageUrl;
     private ProductAnalysis analysis;
@@ -50,13 +51,19 @@ public class Product {
                 qcId,
                 name,
                 poolPrice,
-                poolPrice,
+                null,
                 imageUrl,
                 null);
     }
 
     public void changeUserPrice(Money price) {
         this.userPrice = price;
+    }
+    public Money userPrice() { return userPrice; }
+    public PlatformProductPrice priceInfo() { return priceInfo; }
+    public void refreshPoolPrice(Money price,PlatformProductPrice info) {
+        if (price != null) poolPrice=price;
+        if (info != null) priceInfo=info;
     }
 
     public void attachAnalysis(ProductAnalysis analysis) {

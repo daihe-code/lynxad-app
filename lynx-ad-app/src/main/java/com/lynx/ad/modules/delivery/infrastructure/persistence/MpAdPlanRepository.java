@@ -146,7 +146,11 @@ public class MpAdPlanRepository implements AdPlanRepository {
         if (insert) {
             mapper.insert(po);
         } else {
-            mapper.updateById(po);
+            // A stale sync/settings response must never restore a deleted physical plan.
+            var update = new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getId, po.getId())
+                    .eq(AdPlanPo::getTenantId, po.getTenantId());
+            if (plan.status() != PlanStatus.DELETED) update.ne(AdPlanPo::getStatus, PlanStatus.DELETED.name());
+            mapper.update(po, update);
         }
     }
 
@@ -160,12 +164,19 @@ public class MpAdPlanRepository implements AdPlanRepository {
     }
 
     @Override
+    public Optional<AdPlan> findByIdForUpdate(TenantId tenantId, PlanId id) {
+        return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>()
+                .eq(AdPlanPo::getId, id.value()).eq(AdPlanPo::getTenantId, tenantId.value()).last("FOR UPDATE")))
+                .map(this::toDomain);
+    }
+
+    @Override
     public boolean existsUnfinishedName(TenantId tenantId, AwemeId awemeId, PlanName name, Optional<PlanId> exclude) {
         return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>()
                         .eq(AdPlanPo::getTenantId, tenantId.value())
                         .eq(AdPlanPo::getAwemeId, awemeId.value())
                         .eq(AdPlanPo::getName, name.text())
-                        .ne(AdPlanPo::getStatus, "FINISHED"))
+                        .notIn(AdPlanPo::getStatus, "FINISHED", "DELETED"))
                 .stream()
                 .anyMatch(p -> exclude.isEmpty() || !exclude.get().value().equals(p.getId()));
     }

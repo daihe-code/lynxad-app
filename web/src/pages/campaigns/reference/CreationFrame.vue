@@ -36,15 +36,20 @@
   </section>
   <nav class="ad-stepper" aria-label="投放计划进度">
     <template v-for="(label, i) in steps" :key="label"
-      ><span
+      ><component
+        :is="navigable ? 'button' : 'span'"
+        :type="navigable ? 'button' : undefined"
+        :aria-label="navigable ? label : undefined"
+        :disabled="navigable ? navigationDisabled : undefined"
         class="step"
-        :class="{ 'step--done': i + 1 < step }"
+        :class="{ 'step--done': i + 1 < step, 'step--nav': navigable }"
         :aria-current="i + 1 === step ? 'step' : undefined"
+        @click="navigable && emit('navigate', i + 1)"
         ><span class="step__dot"
           ><ReferenceIcon v-if="i === 3" name="check" /><template v-else>{{
             i + 1
           }}</template></span
-        ><span class="step__label">{{ label }}</span></span
+        ><span class="step__label">{{ label }}</span></component
       ><span v-if="i < 3" class="step__line"
     /></template>
   </nav>
@@ -55,11 +60,16 @@ defineProps<{
   step: number;
   account?: { awemeName: string; awemeId: string } | null;
   accountChips?: string[];
+  navigable?: boolean;
+  navigationDisabled?: boolean;
 }>();
+const emit = defineEmits<{ navigate: [step: number] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],
   chips = ["商城+搜索等全域投放", "智能生成素材", "智能出价", "实时监控+优化"];
 </script>
 <style scoped>
+.step--nav { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.step--nav:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 12px; }
 .ad-banner__tag svg {
   width: 13px;
   height: 13px;

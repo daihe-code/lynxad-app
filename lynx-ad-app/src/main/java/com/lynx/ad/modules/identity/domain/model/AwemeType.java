@@ -5,5 +5,6 @@ public enum AwemeType {
     SELF,
     COOP,
     COOP_AGENCY,
-    ALLIANCE
+    ALLIANCE,
+    AUTHORIZED
 }

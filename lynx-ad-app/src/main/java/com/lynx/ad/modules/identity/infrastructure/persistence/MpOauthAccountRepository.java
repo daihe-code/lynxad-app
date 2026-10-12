@@ -38,6 +38,16 @@ class OauthAccountPo {
     private String status;
     private Instant authorizedAt;
     private String authorizedByUserId;
+    private String grantId;
+    private String applicationId;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
+    private String catalogError;
+    public String getGrantId() { return grantId; }
+    public void setGrantId(String value) { grantId = value; }
+    public String getApplicationId() { return applicationId; }
+    public void setApplicationId(String value) { applicationId = value; }
+    public String getCatalogError() { return catalogError; }
+    public void setCatalogError(String value) { catalogError = value; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -130,6 +140,10 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
         po.setRefreshExpiresAt(account.refreshExpiresAt());
         po.setStatus(account.status());
         po.setAuthorizedByUserId(account.authorizedByUserId().orElse(null));
+        po.setGrantId(account.grantId());
+        po.setApplicationId(account.applicationId());
+        po.setCatalogError(account.catalogError());
+        if (account.authorizedAt() != null) po.setAuthorizedAt(account.authorizedAt());
         if (insert) {
             accountMapper.insert(po);
         } else {
@@ -201,6 +215,7 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
                 po.getRefreshExpiresAt(),
                 po.getStatus(),
                 awemes,
-                po.getAuthorizedByUserId()).withAuthorizedAt(po.getAuthorizedAt());
+                po.getAuthorizedByUserId()).withAuthorizedAt(po.getAuthorizedAt())
+                .withAuthorizationBinding(po.getGrantId(), po.getApplicationId(), po.getCatalogError());
     }
 }

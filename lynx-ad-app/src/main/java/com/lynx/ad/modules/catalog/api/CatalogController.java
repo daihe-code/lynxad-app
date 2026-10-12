@@ -37,8 +37,8 @@ public class CatalogController {
     public ApiResponse<List<ProductVo>> listPool(
             @RequestParam String awemeId,
             @RequestParam(required = false) String tag,
-            @RequestParam(required = false) String keyword) {
-        return ApiResponse.ok(queryService.pool(TenantContext.requireTenantId(), new AwemeId(awemeId), tag, keyword));
+            @RequestParam(required = false) String keyword,@RequestParam(defaultValue="false") boolean refreshPrices) {
+        return ApiResponse.ok(queryService.pool(TenantContext.requireTenantId(), new AwemeId(awemeId), tag, keyword,refreshPrices));
     }
 
     @RequiresActiveTrial

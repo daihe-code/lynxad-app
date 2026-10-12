@@ -1,6 +1,9 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
+import type { PlatformProductPrice } from '@/features/catalog/productPrice';
 
 export interface PlanVo {
+  statisticsDate?: string | null;
+  historicalMetrics?: boolean;
   planId: string;
   name: string;
   status: string;
@@ -31,10 +34,14 @@ export interface PlanVo {
 }
 
 export interface PlanListVo {
+  statisticsDate?: string | null;
+  historicalMetrics?: boolean;
+  roiEstimate?: { value?: number | null; min?: number | null; max?: number | null } | null;
   accountId?: string;
   qcStatus?: string | null;
   canEdit?: boolean;
   canControl?: boolean;
+  canTransfer?: boolean;
   planId: string;
   name: string;
   status: string;
@@ -55,7 +62,7 @@ export interface PlanListVo {
   snapshotTs?: string | null;
   createdAt?: string | null;
   deliveryPlatform?: 'ALL' | 'STANDARD' | null;
-  products?: { id: string; name: string; imageUrl?: string | null }[];
+  products?: { id: string; name: string; imageUrl?: string | null; priceInfo?: PlatformProductPrice | null }[];
   comparison?: {
     costChangePct?: number | null;
     convertChangePct?: number | null;
@@ -67,6 +74,7 @@ export interface PlanListVo {
 }
 
 export interface PageResult<T> {
+  statisticsRange?: { startDate: string; endDate: string } | null;
   records: T[];
   total: number;
   pageNum: number;
@@ -97,9 +105,9 @@ export function discardDraft(id: string) {
   return apiDelete(`/api/v1/delivery/plans/${encodeURIComponent(id)}/draft`);
 }
 
-export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean }
+export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean; startDate?: string; endDate?: string; refreshStatistics?: boolean }
 export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}) {
-  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters } });
+  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters }, timeout: 120000 });
 }
 
 export function syncPlans(accountId?: string) {
@@ -109,10 +117,32 @@ export function syncPlanDetail(id: string) { return apiPost<PlanVo>(`/api/v1/del
 export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number }) {
   return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000 });
 }
+export interface PlanTransferContext {
+  planId: string; currentQcPlanId: string; targetMode: string; budget: number; roi2Goal?: number | null;
+  reuse: boolean; counterpartQcPlanId?: string | null; available: boolean; reason?: string | null;
+  pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
+}
+export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number }
+export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string }
+export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`); }
+export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000 }); }
+export function switchTransferredPlan(id: string, body: { requestKey: string; expectedQcPlanId: string }) {
+  return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/switch`, body, { timeout: 180000 });
+}
+export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000 }); }
 export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
-export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number; duration?: number }
+export interface ControlTaskMaterial { material_id?: string | null; aweme_item_id?: string | null; title?: string | null; cover_image?: { image_url?: string | null; url?: string | null } | null; video_duration?: number | null }
+export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number | null; duration?: number | null; create_time?: string; material_list?: ControlTaskMaterial[] | null; metrics?: Record<string, number | null> | null }
 export function listControlMaterials(id: string) { return apiGet<ControlMaterial[]>(`/api/v1/delivery/plans/${id}/materials`, { timeout: 120000 }); }
-export function listControlTasks(id: string) { return apiGet<ControlTask[]>(`/api/v1/delivery/plans/${id}/control-tasks`, { timeout: 120000 }); }
+export function listControlTasks(id: string, kind?: string, range?: import('./statisticsRange').StatisticsRange) { return apiGet<ControlTask[]>(`/api/v1/delivery/plans/${id}/control-tasks`, { timeout: 120000, params: { kind, startDate: range?.[0], endDate: range?.[1] }, headers: { 'X-Quiet-Request': 'true' } }); }
+export type ControlTaskAction = 'PAUSE' | 'RESUME' | 'END' | 'DELETE';
+export interface ControlTaskReport { task: ControlTask; summary: Record<string, number | null>; trend: { time: string; metrics: Record<string, number | null> }[]; granularity: 'HOUR' | 'DAY'; fetchedAt: string; warning?: string | null }
+export function actControlTask(id: string, taskId: string, body: { kind: string; action: ControlTaskAction; expectedStatus: string }) {
+  return apiPost<{ taskId: string; status: string }>(`/api/v1/delivery/plans/${encodeURIComponent(id)}/control-tasks/${encodeURIComponent(taskId)}/actions`, body, { timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
+}
+export function getControlTaskReport(id: string, taskId: string, kind: string, range: import('./statisticsRange').StatisticsRange, granularity: 'HOUR' | 'DAY') {
+  return apiGet<ControlTaskReport>(`/api/v1/delivery/plans/${encodeURIComponent(id)}/control-tasks/${encodeURIComponent(taskId)}/report`, { timeout: 120000, params: { kind, startDate: range[0], endDate: range[1], granularity }, headers: { 'X-Quiet-Request': 'true' } });
+}
 export function createControlTask(id: string, body: { kind: string; name: string; budget: number; hours?: number; roi2Goal?: number; materialIds: string[]; requestKey: string }) {
   return apiPost<{ taskId: string; status: string }>(`/api/v1/delivery/plans/${id}/control-tasks`, body, { timeout: 60000 });
 }
@@ -131,4 +161,8 @@ export function publishPlan(id: string, idempotencyKey: string) {
 
 export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH") {
   return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action });
+}
+
+export function deletePlan(id: string) {
+  return apiDelete<void>(`/api/v1/delivery/plans/${encodeURIComponent(id)}`, { timeout: 60000 });
 }

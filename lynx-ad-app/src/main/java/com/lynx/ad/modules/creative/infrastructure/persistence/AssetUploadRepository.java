@@ -37,10 +37,53 @@ public class AssetUploadRepository {
     }
     public Optional<Asset> request(String tenant, String request) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND request_id=?", ASSET, tenant, request).stream().findFirst(); }
     public Optional<Asset> object(String tenant,String key) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND object_key=? AND storage_status='STORED'",ASSET,tenant,key).stream().findFirst(); }
+    public Optional<Asset> platformObject(String tenant,String account,String kind,String objectId) {
+        return jdbc.query("SELECT a.* FROM creative_asset a JOIN creative_asset_platform p ON p.tenant_id=a.tenant_id AND p.asset_id=a.id WHERE a.tenant_id=? AND p.account_id=? AND a.kind=? AND p.object_id=? AND p.status='UPLOADED' AND a.storage_status='STORED' ORDER BY a.created_at LIMIT 1",
+            ASSET,tenant,account,kind,objectId).stream().findFirst();
+    }
     public Optional<Asset> content(String tenant, String content) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND content_key=? AND storage_status='STORED'", ASSET, tenant, content).stream().findFirst(); }
     public void insert(Asset a) {
         jdbc.update("INSERT INTO creative_asset(id,tenant_id,user_id,request_id,kind,filename,content_type,size_bytes,object_key,storage_status,storage_mode,is_aigc,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             a.id(),a.tenantId(),a.userId(),a.requestId(),a.kind(),a.filename(),a.contentType(),a.sizeBytes(),a.objectKey(),a.storageStatus(),a.storageMode(),a.isAigc(),Timestamp.from(a.createdAt()),Timestamp.from(a.updatedAt()));
+    }
+    public record StorageMetadata(String bucket,String endpoint,String pathVersion,String origin,Long durationMs,String etag,String previewAssetId,String objectKey) {
+        public StorageMetadata(String bucket,String endpoint,String pathVersion,String origin,Long durationMs,String etag,String previewAssetId){this(bucket,endpoint,pathVersion,origin,durationMs,etag,previewAssetId,null);}
+    }
+    public StorageMetadata storageMetadata(String tenant,String id) {
+        return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND id=?",(r,n)->new StorageMetadata(r.getString("bucket"),r.getString("storage_endpoint"),r.getString("path_version"),r.getString("origin"),(Long)r.getObject("duration_ms"),r.getString("etag"),r.getString("preview_asset_id"),r.getString("object_key")),tenant,id).stream().findFirst().orElse(null);
+    }
+    public Optional<Asset> storageObject(String tenant,String key) {
+        return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND object_key=? AND canonical_id IS NULL",ASSET,tenant,key).stream().findFirst();
+    }
+    public void storageMetadata(String tenant,String id,String bucket,String endpoint,String version,String origin) {
+        jdbc.update("UPDATE creative_asset SET bucket=?,storage_endpoint=?,path_version=?,origin=? WHERE tenant_id=? AND id=?",bucket,endpoint,version,origin,tenant,id);
+    }
+    public void duration(String tenant,String id,long milliseconds) { jdbc.update("UPDATE creative_asset SET duration_ms=? WHERE tenant_id=? AND id=?",milliseconds,tenant,id); }
+    public void etag(String tenant,String id,String value) { jdbc.update("UPDATE creative_asset SET etag=? WHERE tenant_id=? AND id=?",value,tenant,id); }
+    public void preview(String tenant,String id,String preview) {
+        var image=require(tenant,preview);if(!"IMAGE".equals(image.kind()))throw new BizException(1520,"封面必须是图片素材");
+        require(tenant,id);jdbc.update("UPDATE creative_asset SET preview_asset_id=? WHERE tenant_id=? AND id=?",preview,tenant,id);
+    }
+    public record EngineReference(String assetId,String tenantId,String jobId,String materialId,String component,String sourceUrl) {}
+    public EngineReference engineReference(String tenant,String id) {
+        return jdbc.query("SELECT * FROM creative_engine_asset WHERE tenant_id=? AND asset_id=?",
+                (r,n)->new EngineReference(r.getString("asset_id"),r.getString("tenant_id"),r.getString("job_id"),r.getString("material_id"),r.getString("component"),r.getString("source_url")),tenant,id)
+                .stream().findFirst().orElseThrow(()->new BizException(1522,"引擎素材引用不存在或不属于当前账户"));
+    }
+    @org.springframework.transaction.annotation.Transactional
+    public void registerEngine(Asset a,EngineReference ref) {
+        insert(a);
+        jdbc.update("UPDATE creative_asset SET width=?,height=?,text_content=? WHERE tenant_id=? AND id=?",a.width(),a.height(),a.textContent(),a.tenantId(),a.id());
+        jdbc.update("INSERT INTO creative_engine_asset(asset_id,tenant_id,job_id,material_id,component,source_url) VALUES(?,?,?,?,?,?)",a.id(),a.tenantId(),ref.jobId(),ref.materialId(),ref.component(),ref.sourceUrl());
+    }
+    @org.springframework.transaction.annotation.Transactional
+    public void registerEngine(Asset a,EngineReference ref,StorageMetadata meta) {
+        registerEngine(a,ref);
+        storageMetadata(a.tenantId(),a.id(),meta.bucket(),meta.endpoint(),meta.pathVersion(),"AI_GENERATED");
+        jdbc.update("UPDATE creative_asset SET duration_ms=?,etag=? WHERE tenant_id=? AND id=?",meta.durationMs(),meta.etag(),a.tenantId(),a.id());
+    }
+    private static String eligibleSql(String table) {
+        return "(EXISTS (SELECT 1 FROM creative_asset_review r WHERE r.tenant_id="+table+".tenant_id AND r.asset_id="+table+".asset_id AND r.status='APPROVED') OR EXISTS (SELECT 1 FROM creative_engine_asset e WHERE e.tenant_id="+table+".tenant_id AND e.asset_id="+table+".asset_id))";
     }
     public boolean ticket(String tenant, String id, String uploadId, String json) { return jdbc.update("UPDATE creative_asset SET upload_id=?,upload_ticket_json=?,updated_at=? WHERE tenant_id=? AND id=? AND upload_id IS NULL AND storage_status IN ('WAITING','FAILED')", uploadId,json,Timestamp.from(Instant.now()),tenant,id)==1; }
     public boolean claimUpload(String tenant, String id) { return jdbc.update("UPDATE creative_asset SET storage_status='UPLOADING',error_message=NULL,updated_at=? WHERE tenant_id=? AND id=? AND storage_status IN ('WAITING','FAILED')", Timestamp.from(Instant.now()),tenant,id) == 1; }
@@ -61,6 +104,9 @@ public class AssetUploadRepository {
     public void promotedToOss(String tenant,String id) {
         jdbc.update("UPDATE creative_asset SET storage_mode='oss',updated_at=? WHERE tenant_id=? AND id=? AND storage_mode='local' AND storage_status='STORED'",Timestamp.from(Instant.now()),tenant,id);
     }
+    public void engineSignature(String tenant,String id,String md5) {
+        jdbc.update("UPDATE creative_asset SET md5=?,updated_at=? WHERE tenant_id=? AND id=? AND storage_mode='engine_oss'",md5,Timestamp.from(Instant.now()),tenant,id);
+    }
     public void addSync(Asset a, String accountId) {
         var now = Timestamp.from(Instant.now());
         try { jdbc.update("INSERT INTO creative_asset_platform(id,tenant_id,asset_id,account_id,status,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", UUID.randomUUID().toString(),a.tenantId(),a.id(),accountId,"WAITING_STORAGE",now,now,now); }
@@ -72,7 +118,7 @@ public class AssetUploadRepository {
         jdbc.update("UPDATE creative_asset_platform SET review_status=? WHERE tenant_id=? AND id=? AND status='UPLOADED'",status,sync.tenantId(),sync.id());
     }
     public void activate(String tenant, String id) {
-        String approved="EXISTS (SELECT 1 FROM creative_asset_review r WHERE r.tenant_id=creative_asset_platform.tenant_id AND r.asset_id=creative_asset_platform.asset_id AND r.status='APPROVED')";
+        String approved=eligibleSql("creative_asset_platform");
         jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',updated_at=? WHERE tenant_id=? AND asset_id=? AND status IN ('WAITING_STORAGE','WAITING_REVIEW') AND "+approved,Timestamp.from(Instant.now()),tenant,id);
         jdbc.update("UPDATE creative_asset_platform SET status='WAITING_REVIEW',updated_at=? WHERE tenant_id=? AND asset_id=? AND status='WAITING_STORAGE' AND NOT "+approved,Timestamp.from(Instant.now()),tenant,id);
     }
@@ -81,11 +127,11 @@ public class AssetUploadRepository {
     public boolean isCarouselComponent(String tenant, String id) { return "CAROUSEL".equals(jdbc.queryForObject("SELECT library_type FROM creative_asset WHERE tenant_id=? AND id=?",String.class,tenant,id)); }
     public List<Asset> list(String tenant) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND storage_status='STORED' AND (library_type IS NULL OR library_type<>'CAROUSEL') ORDER BY created_at DESC",ASSET,tenant); }
     public List<Sync> due(int limit) {
-        return jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a ON a.id=p.asset_id AND a.tenant_id=p.tenant_id JOIN creative_asset_review r ON r.asset_id=a.id AND r.tenant_id=a.tenant_id WHERE a.storage_status='STORED' AND r.status='APPROVED' AND p.status='QUEUED' AND p.next_attempt_at<=? ORDER BY p.next_attempt_at,p.id LIMIT ?",SYNC,Timestamp.from(Instant.now()),limit);
+        return jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a ON a.id=p.asset_id AND a.tenant_id=p.tenant_id WHERE a.storage_status='STORED' AND "+eligibleSql("p")+" AND p.status='QUEUED' AND p.next_attempt_at<=? ORDER BY p.next_attempt_at,p.id LIMIT ?",SYNC,Timestamp.from(Instant.now()),limit);
     }
     public boolean claim(Sync s) {
         var now = Instant.now();
-        return jdbc.update("UPDATE creative_asset_platform SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=? WHERE tenant_id=? AND id=? AND status='QUEUED' AND next_attempt_at<=? AND EXISTS (SELECT 1 FROM creative_asset_review r WHERE r.asset_id=creative_asset_platform.asset_id AND r.tenant_id=creative_asset_platform.tenant_id AND r.status='APPROVED')",Timestamp.from(now.plusSeconds(900)),Timestamp.from(now),s.tenantId(),s.id(),Timestamp.from(now))==1;
+        return jdbc.update("UPDATE creative_asset_platform SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=? WHERE tenant_id=? AND id=? AND status='QUEUED' AND next_attempt_at<=? AND "+eligibleSql("creative_asset_platform"),Timestamp.from(now.plusSeconds(900)),Timestamp.from(now),s.tenantId(),s.id(),Timestamp.from(now))==1;
     }
     public void heartbeat(Sync s) { jdbc.update("UPDATE creative_asset_platform SET lease_until=? WHERE tenant_id=? AND id=? AND status='RUNNING' AND attempts=?",Timestamp.from(Instant.now().plusSeconds(900)),s.tenantId(),s.id(),s.attempts()+1); }
     public void finish(Sync s, String advertiser, String object, String material, String request) {
@@ -104,24 +150,31 @@ public class AssetUploadRepository {
     public void recoverExpired() {
         var now=Timestamp.from(Instant.now());
         jdbc.update("UPDATE creative_asset_platform SET status='UNCERTAIN',error_message='任务中断，千川上传结果待确认，请核对后重试',lease_until=NULL,updated_at=? WHERE status='RUNNING' AND lease_until<?",now,now);
-        jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',updated_at=? WHERE status IN ('WAITING_STORAGE','WAITING_REVIEW') AND EXISTS (SELECT 1 FROM creative_asset a JOIN creative_asset_review r ON r.asset_id=a.id AND r.tenant_id=a.tenant_id WHERE a.id=creative_asset_platform.asset_id AND a.tenant_id=creative_asset_platform.tenant_id AND a.storage_status='STORED' AND r.status='APPROVED')",now);
+        jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',updated_at=? WHERE status IN ('WAITING_STORAGE','WAITING_REVIEW') AND EXISTS (SELECT 1 FROM creative_asset a WHERE a.id=creative_asset_platform.asset_id AND a.tenant_id=creative_asset_platform.tenant_id AND a.storage_status='STORED') AND "+eligibleSql("creative_asset_platform"),now);
         jdbc.update("UPDATE creative_asset_platform SET status='WAITING_REVIEW',updated_at=? WHERE status='WAITING_STORAGE' AND EXISTS (SELECT 1 FROM creative_asset a WHERE a.id=creative_asset_platform.asset_id AND a.tenant_id=creative_asset_platform.tenant_id AND a.storage_status='STORED')",now);
+    }
+    public List<Asset> unassigned() {
+        return jdbc.query("SELECT a.* FROM creative_asset a WHERE a.storage_status='STORED' AND a.kind<>'TEXT' AND (a.library_type IS NULL OR a.library_type<>'CAROUSEL') AND NOT EXISTS (SELECT 1 FROM creative_asset_platform p WHERE p.asset_id=a.id AND p.tenant_id=a.tenant_id) ORDER BY a.created_at LIMIT 100",ASSET);
     }
     public List<Sync> waitingAuth() { return jdbc.query("SELECT * FROM creative_asset_platform WHERE status='WAITING_AUTH' ORDER BY updated_at LIMIT 100",SYNC); }
     public void attemptedCredential(Sync s,String fingerprint) { jdbc.update("UPDATE creative_asset_platform SET credential_fingerprint=? WHERE tenant_id=? AND id=? AND status='RUNNING' AND attempts=?",fingerprint,s.tenantId(),s.id(),s.attempts()+1); }
     public String attemptedCredential(Sync s) { return jdbc.queryForObject("SELECT credential_fingerprint FROM creative_asset_platform WHERE tenant_id=? AND id=?",String.class,s.tenantId(),s.id()); }
     public List<Asset> abandoned() { return jdbc.query("SELECT * FROM creative_asset WHERE storage_status IN ('WAITING','UPLOADING','VALIDATING','FAILED') AND updated_at<?",ASSET,Timestamp.from(Instant.now().minusSeconds(7200))); }
     public void expired(Asset a) { jdbc.update("UPDATE creative_asset SET storage_status='EXPIRED',error_message='上传会话过期，请重新选择文件',upload_ticket_json=NULL,updated_at=? WHERE tenant_id=? AND id=? AND storage_status IN ('WAITING','UPLOADING','VALIDATING','FAILED')",Timestamp.from(Instant.now()),a.tenantId(),a.id()); }
-    public Review aiReview(String tenant,String id) { return jdbc.query("SELECT * FROM creative_asset_review WHERE tenant_id=? AND asset_id=?",REVIEW,tenant,id).stream().findFirst().orElse(null); }
-    public boolean approved(String tenant,String id) { var r=aiReview(tenant,id); return r!=null && "APPROVED".equals(r.status()); }
+    public boolean isEngineAsset(String tenant,String id) { return jdbc.queryForObject("SELECT COUNT(*) FROM creative_engine_asset WHERE tenant_id=? AND asset_id=?",Integer.class,tenant,id)>0; }
+    public Review aiReview(String tenant,String id) {
+        if(isEngineAsset(tenant,id)) return new Review(id,tenant,"NOT_REQUIRED",null,null,"AI 引擎生成素材，无需上传审核",List.of(),null,0,require(tenant,id).createdAt());
+        return jdbc.query("SELECT * FROM creative_asset_review WHERE tenant_id=? AND asset_id=?",REVIEW,tenant,id).stream().findFirst().orElse(null);
+    }
+    public boolean approved(String tenant,String id) { var r=aiReview(tenant,id); return r!=null && Set.of("APPROVED","NOT_REQUIRED").contains(r.status()); }
     public void queueReview(String tenant,String id) {
         var now=Timestamp.from(Instant.now());
-        try { jdbc.update("INSERT INTO creative_asset_review(asset_id,tenant_id,status,next_attempt_at,created_at,updated_at) SELECT id,tenant_id,'QUEUED',?,?,? FROM creative_asset WHERE tenant_id=? AND id=? AND storage_status='STORED'",now,now,now,tenant,id); }
+        try { jdbc.update("INSERT INTO creative_asset_review(asset_id,tenant_id,status,next_attempt_at,created_at,updated_at) SELECT id,tenant_id,'QUEUED',?,?,? FROM creative_asset WHERE tenant_id=? AND id=? AND storage_status='STORED' AND NOT EXISTS (SELECT 1 FROM creative_engine_asset e WHERE e.asset_id=creative_asset.id AND e.tenant_id=creative_asset.tenant_id)",now,now,now,tenant,id); }
         catch(DuplicateKeyException ignored) { /* Same canonical file shares a single review across accounts. */ }
     }
-    public List<Review> dueReviews(int limit) { return jdbc.query("SELECT r.* FROM creative_asset_review r JOIN creative_asset a ON a.id=r.asset_id AND a.tenant_id=r.tenant_id WHERE a.storage_status='STORED' AND r.status IN ('QUEUED','PENDING') AND r.next_attempt_at<=? ORDER BY r.next_attempt_at,r.asset_id LIMIT ?",REVIEW,Timestamp.from(Instant.now()),limit); }
+    public List<Review> dueReviews(int limit) { return jdbc.query("SELECT r.* FROM creative_asset_review r JOIN creative_asset a ON a.id=r.asset_id AND a.tenant_id=r.tenant_id WHERE a.storage_status='STORED' AND r.status IN ('QUEUED','PENDING') AND r.next_attempt_at<=? AND NOT EXISTS (SELECT 1 FROM creative_engine_asset e WHERE e.asset_id=a.id AND e.tenant_id=a.tenant_id) ORDER BY r.next_attempt_at,r.asset_id LIMIT ?",REVIEW,Timestamp.from(Instant.now()),limit); }
     public boolean claimReview(Review r) {
-        var now=Instant.now(); return jdbc.update("UPDATE creative_asset_review SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=? WHERE tenant_id=? AND asset_id=? AND attempts=? AND status IN ('QUEUED','PENDING') AND next_attempt_at<=?",Timestamp.from(now.plusSeconds(600)),Timestamp.from(now),r.tenantId(),r.assetId(),r.attempts(),Timestamp.from(now))==1;
+        var now=Instant.now(); return jdbc.update("UPDATE creative_asset_review SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=? WHERE tenant_id=? AND asset_id=? AND attempts=? AND status IN ('QUEUED','PENDING') AND next_attempt_at<=? AND NOT EXISTS (SELECT 1 FROM creative_engine_asset e WHERE e.asset_id=creative_asset_review.asset_id AND e.tenant_id=creative_asset_review.tenant_id)",Timestamp.from(now.plusSeconds(600)),Timestamp.from(now),r.tenantId(),r.assetId(),r.attempts(),Timestamp.from(now))==1;
     }
     public void finishReview(Review r,com.lynx.ad.modules.creative.domain.port.AssetReviewPort.Result result) {
         try {
@@ -137,7 +190,7 @@ public class AssetUploadRepository {
     public void recoverReviews() {
         var now=Timestamp.from(Instant.now());
         jdbc.update("UPDATE creative_asset_review SET status=CASE WHEN review_id IS NULL THEN 'FAILED' ELSE 'PENDING' END,error_message=CASE WHEN review_id IS NULL THEN '审核请求中断，结果未知，请重试审核' ELSE NULL END,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE status='RUNNING' AND lease_until<?",now,now,now);
-        for(var a:jdbc.query("SELECT a.* FROM creative_asset a WHERE a.storage_status='STORED' AND NOT EXISTS (SELECT 1 FROM creative_asset_review r WHERE r.asset_id=a.id AND r.tenant_id=a.tenant_id) LIMIT 100",ASSET)) queueReview(a.tenantId(),a.id());
+        for(var a:jdbc.query("SELECT a.* FROM creative_asset a WHERE a.storage_status='STORED' AND NOT EXISTS (SELECT 1 FROM creative_asset_review r WHERE r.asset_id=a.id AND r.tenant_id=a.tenant_id) AND NOT EXISTS (SELECT 1 FROM creative_engine_asset e WHERE e.asset_id=a.id AND e.tenant_id=a.tenant_id) LIMIT 100",ASSET)) queueReview(a.tenantId(),a.id());
     }
     private static String safe(String value) { return value==null ? null : value.substring(0,Math.min(500,value.length())); }
 }

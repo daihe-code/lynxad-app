@@ -7,6 +7,7 @@ public enum PlanStatus {
     DELIVERING,
     PAUSED,
     FINISHED,
+    DELETED,
     REJECTED,
     UNKNOWN
 }

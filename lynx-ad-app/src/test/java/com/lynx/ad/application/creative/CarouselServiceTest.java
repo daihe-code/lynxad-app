@@ -49,6 +49,12 @@ class CarouselServiceTest {
         verify(assets,never()).addSync(assets.require("tenant-a","text"),"account");
         verify(groups).reviewed(bundle,"APPROVED");
     }
+    @Test void allEngineComponentsSyncWithoutPretendingAnUploadReviewPassed() {
+        parts("NOT_REQUIRED","NOT_REQUIRED","NOT_REQUIRED");service.refresh(bundle);
+        verify(assets).addSync(assets.require("tenant-a","image"),"account");
+        verify(assets).addSync(assets.require("tenant-a","audio"),"account");
+        verify(groups).reviewed(bundle,"NOT_REQUIRED");
+    }
     @Test void malformedCompositeAndMissingAudioCannotBeSaved() {
         var tenant=new TenantId("tenant-a");
         assertThrows(BizException.class,()->service.create(tenant,new CarouselService.Create("request-id-123456","name","text",List.of(),"audio",List.of())));

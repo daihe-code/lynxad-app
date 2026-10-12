@@ -18,7 +18,7 @@
                 }}<span
                   class="stpill"
                   :class="`stpill--${statusInfo(plan.status)[1]}`"
-                  >{{ statusInfo(plan.status)[0] }}</span
+                  >{{ planStatusLabel(plan.status, plan.qcStatus) }}</span
                 >
               </h1>
               <p class="vhead__meta">
@@ -193,7 +193,7 @@
                   <span class="vtl__rail"><span class="vtl__dot" /></span
                   ><span class="vtl__body"
                     ><span class="vtl__name"
-                      >当前状态：{{ statusInfo(plan.status)[0] }}</span
+                      >当前状态：{{ planStatusLabel(plan.status, plan.qcStatus) }}</span
                     ><span class="vtl__desc">{{
                       plan.rejectReason || "以平台同步状态为准"
                     }}</span></span
@@ -244,7 +244,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { actPlan, syncPlanDetail } from "@/features/delivery/deliveryApi";
-import { GUARANTEE_STATUS } from '@/utils/labels';
+import { GUARANTEE_STATUS, planStatusLabel } from '@/utils/labels';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import { useUserStore } from "@/stores/user";
 import { ElMessage } from "element-plus";
@@ -309,7 +309,7 @@ const infoGroups = computed(() => {
           "成本保障",
           p.guarantee ? GUARANTEE_STATUS[p.guarantee] || p.guarantee : "—",
         ],
-        ["当前状态", statusInfo(p.status)[0] || "—"],
+        ["当前状态", planStatusLabel(p.status, p.qcStatus)],
       ],
     },
     {

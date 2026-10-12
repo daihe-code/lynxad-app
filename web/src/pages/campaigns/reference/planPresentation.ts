@@ -2,6 +2,7 @@ import { computed, ref, watch, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import {
   getPlan,
+  syncPlanDetail,
   type PlanVo,
   type PlanListVo,
 } from "@/features/delivery/deliveryApi";
@@ -15,7 +16,7 @@ import type { ReportRowVo } from "@/features/insight/insightApi";
 export const statusInfo = (status?: string) =>
   ({
     DRAFT: ["草稿", "pending", "doc"],
-    SUBMITTING: ["待审核", "pending", "doc"],
+    SUBMITTING: ["提交中", "pending", "doc"],
     PENDING_AUDIT: ["审核中", "reviewing", "hourglass"],
     REJECTED: ["审核未通过", "bad", "warn-tri"],
     DELIVERING: ["投放中", "running", "play"],
@@ -74,7 +75,10 @@ export function usePlanPresentation(id?: () => string) {
     loading.value = true;
     failed.value = false;
     try {
-      const base = await getPlan(key);
+      let base = await getPlan(key);
+      if (base.qcPlanId) {
+        try { base = await syncPlanDetail(key); } catch { /* Keep the cached plan when the platform is unavailable. */ }
+      }
       if (seq !== request) return;
       plan.value = base;
       const results = await Promise.allSettled([
@@ -123,6 +127,7 @@ export function usePlanPresentation(id?: () => string) {
   const hasData = computed(
     () =>
       !!plan.value?.snapshotTs &&
+      (plan.value.costYuan != null || plan.value.gmvYuan != null || plan.value.convert != null) &&
       ![
         "DRAFT",
         "SUBMITTING",

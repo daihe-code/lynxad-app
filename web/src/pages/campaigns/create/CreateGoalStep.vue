@@ -67,7 +67,7 @@
     <path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6"/>
   </symbol>
 </svg>
-    <section class="ad-banner" aria-label="投放计划概览">
+    <template v-if="!embedded"><section class="ad-banner" aria-label="投放计划概览">
       <div class="container-page ad-banner__inner">
         <div class="mt-[4px] min-w-0 banner-copy">
           <div class="ad-banner__head"><h1 class="ad-banner__title">灵投广告投放</h1><span class="ad-banner__tag"><svg class="h-[13px] w-[13px]" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.6 19.4 9.4 7.6l4 6.5 2.1-3.2 5.9 8.5H2.6Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" /></svg>抖音巨量千川 · 商品全域投放</span></div>
@@ -75,7 +75,7 @@
           <ul class="ad-banner__chips"><li v-for="text in bannerChips" :key="text" class="ad-chip"><svg class="ad-chip__ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.9" fill="none" stroke="currentColor" stroke-width="1.7" /><path d="m8.2 12.3 2.5 2.5 5.1-5.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>{{ text }}</li></ul>
         </div>
         <div v-if="account" class="ad-account" @keydown.esc="accountOpen = false">
-          <button class="ad-account__card w-full text-left" type="button" aria-haspopup="listbox" :disabled="saving" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
+          <button class="ad-account__card w-full text-left" type="button" aria-haspopup="listbox" :disabled="saving || readOnly || settingsOnly" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
             <span class="ad-account__name" :title="account.awemeName">{{ account.awemeName }}</span><span class="ad-account__id" :title="account.awemeId">抖音号ID：{{ account.awemeId }}</span>
             <span class="ad-account__btns"><span v-for="(chip, i) in accountChips" :key="chip" :class="i ? 'ad-account__btn-warn' : 'ad-account__btn-solid'">{{ chip }}</span></span>
             <span class="ad-account__chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24"><use href="#goal-ic-caret" /></svg></span>
@@ -83,11 +83,11 @@
           <div v-if="accountOpen" class="account-menu" role="listbox" aria-label="选择抖音号"><button v-for="opt in accounts" :key="opt.key" type="button" role="option" :aria-selected="opt.key === account.key" @click="accountOpen = false; emit('account', opt.key)">{{ opt.awemeName }}<small>{{ opt.awemeId }}</small></button></div>
           <p class="ad-account__hint">下拉切换需要投放广告的抖音号</p>
         </div>
-        <select v-if="account" class="account-mobile" :disabled="saving" :value="account.key" aria-label="选择抖音号" @change="emit('account', ($event.target as HTMLSelectElement).value)"><option v-for="opt in accounts" :key="opt.key" :value="opt.key">{{ opt.awemeName }} · {{ opt.awemeId }}</option></select>
+        <select v-if="account" class="account-mobile" :disabled="saving || readOnly || settingsOnly" :value="account.key" aria-label="选择抖音号" @change="emit('account', ($event.target as HTMLSelectElement).value)"><option v-for="opt in accounts" :key="opt.key" :value="opt.key">{{ opt.awemeName }} · {{ opt.awemeId }}</option></select>
       </div>
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><span class="step" :class="{ 'step--done': i === 0 }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></span><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
-<main class="ad-main">
+</template><main class="ad-main">
   <div class="container-page">
 
     <section class="panel panel--goal" aria-labelledby="panel-goal">
@@ -114,7 +114,7 @@
             <p class="field__label" id="lbl-mode">投放方式</p>
 
             <div class="form-grid mt-2" role="radiogroup" aria-labelledby="lbl-mode">
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">控成本投放</span>
@@ -123,7 +123,7 @@
                 <span class="opt__sub">守住单价，少亏钱，适合测款</span>
               </button>
 
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">放量投放</span>
@@ -132,6 +132,8 @@
                 <span class="opt__sub">预算范围内，多推流量多接单，前期成本可能偏高</span>
               </button>
             </div>
+
+            <p v-if="settingsOnly && !allowModeChange" class="hint-stack" role="status">{{ PUBLISHED_BID_MODE_HINT }}</p>
 
             <div class="form-grid mt-6">
 
@@ -146,19 +148,34 @@
 
                 <div class="field-input mt-[14px]">
                   <span class="field-input__slot" aria-hidden="true">¥</span>
-                  <input class="field-input__box" id="in-budget" type="text" inputmode="decimal" v-model="budget" :disabled="saving"
-                         autocomplete="off" @blur="budgetTouched = true"
-                         aria-describedby="msg-budget" :aria-invalid="budgetTouched && !!budgetError">
+                  <el-popover v-model:visible="budgetOpen" trigger="click" placement="bottom-start" :width="438" :offset="8" :show-arrow="false" :disabled="mode !== 'SMART_BID_CONSERVATIVE' || saving || readOnly || (settingsOnly && !allowModeChange)" popper-class="budget-tiers-popover">
+                    <template #reference>
+                      <input class="field-input__box" id="in-budget" type="text" inputmode="decimal" v-model="budget" :disabled="saving || readOnly"
+                             autocomplete="off" @blur="budgetTouched = true" @keydown.down.prevent="focusBudgetOptions" @keydown.esc.stop="budgetOpen = false"
+                             :aria-haspopup="mode === 'SMART_BID_CONSERVATIVE' ? 'dialog' : undefined" :aria-expanded="mode === 'SMART_BID_CONSERVATIVE' ? budgetOpen : undefined"
+                             aria-describedby="msg-budget" :aria-invalid="budgetTouched && !!budgetError">
+                    </template>
+                    <div ref="budgetList" class="budget-tiers" role="group" aria-label="推荐日预算档位" @keydown.esc.stop="budgetOpen = false">
+                      <button v-for="option in budgetOptions" :key="option.budget" class="budget-tier" type="button" :aria-pressed="Number(budget) === option.budget" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="chooseBudget(option.budget)">
+                        <span class="budget-tier__radio" aria-hidden="true"></span><b class="budget-tier__amount">{{ option.budget }}元</b>
+                        <span class="budget-tier__estimates"><span>预计ROI <strong>{{ option.roi }}</strong></span><span>订单量 <strong>{{ option.orders }}</strong></span></span>
+                        <span v-if="option.badge" class="budget-tier__badge">{{ option.badge }}</span>
+                      </button>
+                      <p v-if="!budgetOptions?.length" class="budget-tiers__empty">暂无推荐档位，请重新获取或手动输入日预算</p>
+                      <p class="budget-tiers__note">平台预算预估，仅供参考，以实际投放结果为准</p>
+                    </div>
+                  </el-popover>
                   <span class="field-input__unit">元/天</span>
                 </div>
 
                 <p class="hint-stack" id="hint-budget" v-if="!budgetTouched || !(budgetError || budgetWarn)">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
-                    <span>已填入系统推荐目标值，可调整</span>
+                    <span>{{ budgetHint || '请根据实际经营情况填写日预算' }}</span>
                   </span>
                 </p>
 
+                <button v-if="!readOnly && !settingsOnly" class="recommendation-refresh" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('recommendations')">{{ saving ? '正在获取…' : '重新获取预算与ROI预估' }}</button>
                 <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" v-if="budgetTouched && (budgetError || budgetWarn)">
                   <svg class="field-msg__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>{{ budgetError || budgetWarn }}</span>
@@ -176,19 +193,19 @@
                 </p>
 
                 <div class="field-input mt-[14px]">
-                  <input class="field-input__box" id="in-roi" type="text" inputmode="decimal" v-model="roi" :disabled="saving"
+                  <input class="field-input__box" id="in-roi" type="text" inputmode="decimal" v-model="roi" :disabled="saving || readOnly"
                          autocomplete="off" @blur="roiTouched = true"
                          aria-describedby="msg-roi" :aria-invalid="roiTouched && !!roiError">
                   <span class="guar ml-2">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
-                    享抖音平台保障
+                    平台保障以规则为准
                   </span>
                 </div>
 
                 <div class="hint-stack mt-[9px]">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
-                    <span>已填入系统推荐目标值，可参考实际经营目标调整：</span>
+                    <span>{{ roiHint || '请参考实际经营目标设置 ROI：' }}</span>
                   </span>
                   <span class="hint hint--cont">可依据当前实际经营目标推算净成交ROI</span>
                   <span class="hint hint--cont">净成交ROI=（整体成交金额-秒退订单成交额）/ 消耗</span>
@@ -202,21 +219,21 @@
 
 
               <div class="field est" data-field="estimate" v-else>
-                <p class="est__title">连续投放7天预估带来：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
+                <p class="est__title">所选日预算的平台预估：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
                 <div class="est__rows">
                   <div class="est__row">
-                    <span class="est__k">7日净成交ROI</span>
+                    <span class="est__k">预估ROI</span>
                     <span class="est__vwrap">
-                      <b class="est__v">{{ demoMode ? '不低于 0.19' : '待评估' }}</b>
+                      <b class="est__v">{{ estimateRoiHint || '待平台评估' }}</b>
                       <span class="guar">
                         <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
-                        保障福利
+                        以平台结果为准
                       </span>
                     </span>
                   </div>
                   <div class="est__row">
-                    <span class="est__k">7日净成交订单量</span>
-                    <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ demoMode ? orderLo + ' ～ ' + orderHi + '单' : '待评估' }}</b></span>
+                    <span class="est__k">预估成交订单量</span>
+                    <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '待平台评估' }}</b></span>
                   </div>
                 </div>
               </div>
@@ -235,14 +252,14 @@
               <div class="dur__item">
                 <span class="dur__badge" aria-hidden="true">推荐</span>
                 <button class="dur__btn" type="button" role="radio" :aria-checked="duration === 'long'"
-                        :disabled="saving" @click="duration = 'long'">
+                        :disabled="saving || readOnly || settingsOnly" @click="duration = 'long'">
                   <span class="dur__btn-title">长期投放</span>
                   <span class="dur__btn-sub">随时暂停</span>
                 </button>
               </div>
               <div class="dur__item">
                 <button class="dur__btn" type="button" role="radio" :aria-checked="duration === 'custom'"
-                        :disabled="saving" @click="duration = 'custom'">
+                        :disabled="saving || readOnly || settingsOnly" @click="duration = 'custom'">
                   <span class="dur__btn-title">自定日期</span>
                 </button>
               </div>
@@ -253,13 +270,13 @@
                 <svg class="h-[17px] w-[17px] text-ink-3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-calendar"/></svg>
               </span>
               <label class="sr-only" for="in-start">投放开始日期</label>
-              <input class="daterange__box" id="in-start" type="date" v-model="start" :disabled="saving">
+              <input class="daterange__box" id="in-start" type="date" v-model="start" :disabled="saving || readOnly || settingsOnly">
               <span class="daterange__sep" aria-hidden="true">至</span>
               <label class="sr-only" for="in-end">投放结束日期</label>
-              <input class="daterange__box" id="in-end" type="date" v-model="end" :disabled="saving">
+              <input class="daterange__box" id="in-end" type="date" v-model="end" :disabled="saving || readOnly || settingsOnly">
             </div>
 
-            <p v-if="duration === 'custom'" class="schedule-unavailable" role="status">自定日期暂未开放，请选择长期投放后继续。</p>
+            <p v-if="dateError" class="schedule-unavailable" role="status">{{ dateError }}</p>
             <div class="hint-stack mt-[25px]">
               <span class="hint">
                 <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
@@ -277,17 +294,17 @@
 
   </div>
 </main>
-<div class="actionbar">
+<div v-if="!embedded" class="actionbar">
   <div class="container-page actionbar__inner">
-    <button class="btn-prev" type="button" :disabled="saving" @click="emit('prev')">
+    <button class="btn-prev" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('prev')">
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步
     </button>
-    <button class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || duration === 'custom'" @click="nextStep">
+    <button class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || !!dateError" @click="nextStep">
       下一步
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-right"/></svg>
     </button>
-    <button class="btn-cancel" type="button" :disabled="saving" @click="emit('cancel')">取消投放</button>
+    <button class="btn-cancel" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('cancel')">取消投放</button>
   </div>
 </div>
 
@@ -295,28 +312,61 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
+import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[] }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
+const emit = defineEmits<{ recommendations: []; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const accountOpen = ref(false), budgetTouched = ref(false), roiTouched = ref(false);
+const budgetOpen = ref(false), budgetList = ref<HTMLElement>();
+function chooseBudget(value: number) {
+  if (props.readOnly || (props.settingsOnly && !props.allowModeChange) || props.saving || props.mode !== 'SMART_BID_CONSERVATIVE') return;
+  budget.value = String(value);budgetTouched.value = true;budgetOpen.value = false;
+}
+async function focusBudgetOptions() {
+  if (props.readOnly || (props.settingsOnly && !props.allowModeChange) || props.saving || props.mode !== 'SMART_BID_CONSERVATIVE') return;
+  budgetOpen.value = true;await nextTick();
+  (budgetList.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]') || budgetList.value?.querySelector<HTMLButtonElement>('button'))?.focus();
+}
+watch(() => props.saving, value => { if (value) budgetOpen.value = false; });
 
 
 const hint = (message: string) => ElMessage.info(message);
-watch(() => props.mode, () => { budgetTouched.value = false; roiTouched.value = false; });
+watch(() => props.mode, () => { budgetTouched.value = false; roiTouched.value = false; budgetOpen.value = false; });
 function nextStep() {
   budgetTouched.value = true; roiTouched.value = true;
-  if (props.saving || props.budgetError || props.roiError || duration.value === 'custom') return;
+  if (props.saving || props.budgetError || props.roiError || props.dateError) return;
   accountOpen.value = false;
   emit('next');
 }
 </script>
 <style scoped src="./create-goal.css"></style>
+
+<style scoped>
+.recommendation-refresh{display:block;margin-top:8px;color:#575cf6;font-size:13px}.recommendation-refresh:disabled{opacity:.5;cursor:wait}
+</style>
+<style scoped>
+:global(.el-popover.el-popper.budget-tiers-popover){box-sizing:border-box;max-width:calc(100vw - 24px);padding:12px 14px;border:1px solid #e0e2ef;border-radius:12px;box-shadow:0 10px 30px #1a1b2e1a;font-family:inherit}
+.budget-tiers{display:flex;flex-direction:column;gap:10px}
+.budget-tier{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:16px 18px;border:1px solid #dedee7;border-radius:10px;background:white;color:#1a1b2e;text-align:left;cursor:pointer}
+.budget-tier:hover,.budget-tier:focus-visible{border-color:#575cf6;outline:none;box-shadow:0 0 0 2px #575cf61a}
+.budget-tier[aria-pressed=true]{border-color:#575cf6;background:#fafaff}
+.budget-tier__radio{box-sizing:border-box;width:20px;height:20px;flex-shrink:0;border:1px solid #c6c7d2;border-radius:50%}
+.budget-tier[aria-pressed=true] .budget-tier__radio{border:6px solid #315cf5}
+.budget-tier__amount{font-size:18px;line-height:24px;white-space:nowrap}
+.budget-tier__estimates{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:12px;line-height:20px;color:#60647a}
+.budget-tier__estimates strong{font-weight:700;color:#315cf5;font-size:14px}
+.budget-tier__badge{position:absolute;top:0;right:0;border-radius:0 9px 0 4px;padding:1px 4px;font-size:12px;line-height:16px;background:#edf0ff;color:#315cf5;font-weight:600}
+.budget-tier[aria-pressed=true] .budget-tier__badge{background:#315cf5;color:white}
+.budget-tiers__empty,.budget-tiers__note{margin:0;font-size:12px;line-height:20px;color:#8588a5}
+@media(max-width:480px){.budget-tier{padding:18px 12px 12px;gap:8px}.budget-tier__estimates{flex-direction:column}.budget-tier__amount{font-size:16px}}
+</style>

@@ -1,5 +1,8 @@
 <template>
   <div class="authorization-page" :data-page="state">
+    <main v-if="state === 'accounts' && bindingSession" class="page-main">
+      <QianchuanAccountSelection :session="bindingSession" @completed="verify" />
+    </main>
     <main
       v-if="state === 'verifying'"
       class="authorization-checking"
@@ -1450,7 +1453,11 @@ import {
   oauthUrl,
   listAccounts,
   type AccountVo,
+  authorizationSession,
+  hasQianchuanAuthorization,
+  type AuthorizationSession,
 } from "@/features/identity/oauthApi";
+import QianchuanAccountSelection from './QianchuanAccountSelection.vue';
 import { useUserStore } from "@/stores/user";
 import { useWizardStore } from "@/stores/wizard";
 import { dateText } from "@/pages/campaigns/reference/planPresentation";
@@ -1463,10 +1470,13 @@ const route = useRoute(),
   accounts = ref<AccountVo[]>([]),
   verified = ref(false),
   checking = ref(false);
+const bindingSession = ref<AuthorizationSession | null>(null);
 const state = computed(() =>
   route.path === "/oauth/callback"
     ? checking.value
       ? "verifying"
+      : bindingSession.value && bindingSession.value.status !== 'COMPLETED'
+        ? 'accounts'
       : route.query.ok === "1" && verified.value
         ? "success"
         : "failure"
@@ -1477,7 +1487,7 @@ const state = computed(() =>
 const active = computed(
   () =>
     accounts.value
-      .filter((a) => a.status === "ACTIVE")
+      .filter((a) => hasQianchuanAuthorization([a]))
       .sort((a, b) =>
         String(b.authorizedAt || "").localeCompare(
           String(a.authorizedAt || ""),
@@ -1497,11 +1507,22 @@ const message = computed(() =>
 );
 async function verify() {
   verified.value = false;
+  bindingSession.value = null;
   if (route.path !== "/oauth/callback" || route.query.ok !== "1") return;
   checking.value = true;
   try {
+    const sessionId = String(route.query.authorization_id || '');
+    if (sessionId) {
+      bindingSession.value = await authorizationSession(sessionId);
+      if (bindingSession.value.status !== 'COMPLETED') return;
+    }
     accounts.value = await listAccounts();
-    verified.value = accounts.value.some((a) => a.status === "ACTIVE");
+    verified.value = accounts.value.some((a) => hasQianchuanAuthorization([a])
+      && (!bindingSession.value || bindingSession.value.boundAccountIds.includes(a.accountId)));
+    if (verified.value && bindingSession.value) {
+      const destination = bindingSession.value.returnPath === '/accounts?tab=oauth' ? '/accounts?tab=oauth' : '/campaigns';
+      await router.replace(destination);
+    }
   } catch {
     /* Failed verification remains a failure view. */
   } finally {
@@ -1514,7 +1535,7 @@ async function begin() {
   try {
     const result = await oauthUrl("QIANCHUAN");
     const url = new URL(result.url, location.origin);
-    if (!["http:", "https:"].includes(url.protocol))
+    if (url.protocol !== 'https:' || url.hostname !== 'qianchuan.jinritemai.com')
       throw Error("授权链接无效");
     window.location.assign(url.href);
   } catch (e) {

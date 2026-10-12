@@ -47,6 +47,8 @@ public class OauthCommandService {
     private final TenantQuerySupport tenantQuery;
     private final AuditRecorder auditRecorder;
     private final EntitlementQueryService entitlementQueryService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private LiveQianchuanAuthorizationService liveAuthorization;
 
     public OauthCommandService(
             OauthAccountRepository repository,
@@ -71,10 +73,11 @@ public class OauthCommandService {
     }
 
     public OauthUrlResponse buildAuthorizeUrl(TenantId tenantId, Platform platform) {
-        if (platform == Platform.LOCAL) {
+        if (platform != Platform.QIANCHUAN) {
             throw new BizException(1204, "即将上线");
         }
         UserId userId = TenantContext.userId();
+        if (properties.getOauth().getQianchuan().isLive()) return liveAuthorization.start(tenantId, userId, "/campaigns");
         String redirect = URLEncoder.encode(properties.getOauth().getQianchuan().getRedirectUri(), StandardCharsets.UTF_8);
         String state = URLEncoder.encode(stateSigner.sign(tenantId, userId), StandardCharsets.UTF_8);
         String authorizeUrl = properties.getOauth().getQianchuan().getAuthorizeUrl();
@@ -152,6 +155,7 @@ public class OauthCommandService {
     }
 
     public AccountVo mockBind(TenantId tenantId) {
+        if (properties.getOauth().getQianchuan().isLive()) throw new BizException(1205, "真实授权模式不支持演示绑定");
         if (!mockClient.mockEnabled()) {
             throw new BizException(1205, "Mock 授权未开启");
         }
@@ -164,6 +168,8 @@ public class OauthCommandService {
 
     public void refresh(TenantId tenantId, AccountId id) {
         OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
+        if (account.grantId() != null) { liveAuthorization.refresh(tenantId, id, true, true); return; }
+        if (properties.getOauth().getQianchuan().isLive()) throw new BizException(1211, "请先完成真实千川授权");
         if (!"ACTIVE".equals(account.status())) {
             throw new BizException(1211, "授权已取消或失效，请重新授权");
         }
@@ -198,13 +204,21 @@ public class OauthCommandService {
         account.replaceTokens(access, refresh, accessExp, result.refreshExpiresAt());
     }
 
+    public void refreshStoredTokens(OauthAccount account, boolean force) {
+        if (account.grantId() != null) { liveAuthorization.refresh(account.tenantId(), account.id(), force, false); return; }
+        if (properties.getOauth().getQianchuan().isLive()) throw new BizException(1211, "请先完成真实千川授权");
+        applyPortRefresh(account);
+        repository.save(account);
+    }
+    public boolean liveAuthorizationEnabled() { return properties.getOauth().getQianchuan().isLive(); }
+
     public void unbind(TenantId tenantId, AccountId id) {
         OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
         if ("DELETED".equals(account.status())) {
             throw new BizException(1201, "授权账户不存在");
         }
-        account.unbind();
-        repository.save(account);
+        if(account.grantId()!=null) liveAuthorization.changeLocalStatus(tenantId,id,false);
+        else { account.unbind(); repository.save(account); }
         recordOauth(tenantId, account.id().value(), "取消广告账户授权「" + account.accountName() + "」", null);
     }
 
@@ -214,8 +228,8 @@ public class OauthCommandService {
             throw new BizException(1211, "请先取消有效授权再删除记录");
         }
         if ("DELETED".equals(account.status())) return;
-        account.remove();
-        repository.save(account);
+        if(account.grantId()!=null) liveAuthorization.changeLocalStatus(tenantId,id,true);
+        else { account.remove(); repository.save(account); }
         recordOauth(tenantId, account.id().value(), "删除失效授权记录「" + account.accountName() + "」", null);
     }
 

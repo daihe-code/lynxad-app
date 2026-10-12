@@ -46,8 +46,9 @@ public final class ObjectKeyPolicy {
         if (!p.endsWith("/")) {
             p = p + "/";
         }
+        if(objectKey!=null && objectKey.startsWith("lynx-ad/v2/")){AssetStoragePolicy.assertV2(tenant.value(),objectKey);return;}
         String expected = p + tenant.value() + "/";
-        if (objectKey == null || objectKey.contains("..") || !objectKey.toLowerCase(Locale.ROOT).startsWith(expected.toLowerCase(Locale.ROOT))) {
+        if (objectKey == null || objectKey.contains("..") || !objectKey.startsWith(expected)) {
             throw new BizException(1508, "媒体令牌无效或过期");
         }
     }

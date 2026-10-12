@@ -12,6 +12,11 @@ import org.springframework.stereotype.Service;
 public class OauthQueryService {
 
     private final OauthAccountRepository repository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.lynx.ad.common.config.LynxAdProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.identity.infrastructure.persistence.OauthAuthorizationStore authorizationStore;
+    private final com.fasterxml.jackson.databind.ObjectMapper json=new com.fasterxml.jackson.databind.ObjectMapper();
 
     public OauthQueryService(OauthAccountRepository repository) {
         this.repository = repository;
@@ -24,7 +29,31 @@ public class OauthQueryService {
     }
 
     public boolean hasBoundQianchuan(TenantId tenantId) {
-        return repository.findByTenant(tenantId).stream().anyMatch(a -> "ACTIVE".equals(a.status()));
+        return repository.findByTenant(tenantId).stream().anyMatch(a -> a.platform() == com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN
+                && "ACTIVE".equals(a.status())
+                && (properties == null || !properties.getOauth().getQianchuan().isLive() || a.grantId() != null)
+                && (a.refreshExpiresAt() == null || a.refreshExpiresAt().isAfter(java.time.Instant.now())));
+    }
+    public com.lynx.ad.modules.identity.api.dto.AccountAuthorizationDetailVo detail(TenantId tenantId,com.lynx.ad.common.domain.Ids.AccountId id) {
+        OauthAccount account=repository.findById(tenantId,id).filter(a->!"DELETED".equals(a.status()))
+            .orElseThrow(()->new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        var metadata=authorizationStore.identityMetadata(tenantId.value(),id.value());
+        String role=null,parent=null;
+        if(metadata.catalogJson()!=null) {
+            try {
+                for(var candidate:json.readTree(metadata.catalogJson())) if(idMatches(account,candidate)) {
+                    role=candidate.path("accountRole").asText(null); parent=candidate.path("parentAccountId").asText(null); break;
+                }
+            } catch(com.fasterxml.jackson.core.JsonProcessingException ex) {
+                throw new com.lynx.ad.common.exception.BizException(1205,"授权来源信息读取失败，请重试");
+            }
+        }
+        return new com.lynx.ad.modules.identity.api.dto.AccountAuthorizationDetailVo(toVo(account),tenantId.value(),metadata.appId(),role,parent,metadata.authorizedByName(),
+            account.grantId()!=null && account.accessToken()!=null && !account.accessToken().cipherText().isBlank(),
+            account.grantId()!=null && account.refreshToken()!=null && !account.refreshToken().cipherText().isBlank());
+    }
+    private boolean idMatches(OauthAccount account,com.fasterxml.jackson.databind.JsonNode candidate) {
+        return account.advertiserId().value().equals(candidate.path("advertiserId").asText());
     }
 
     public static AccountVo toVo(OauthAccount account) {
@@ -46,6 +75,9 @@ public class OauthQueryService {
                 account.authorizedByUserId().orElse(null),
                 account.authorizedAt(),
                 account.tokenExpiresAt(),
-                account.refreshExpiresAt());
+                account.refreshExpiresAt(),
+                account.applicationId(),
+                account.grantId() != null ? "LIVE" : account.advertiserId().value().matches("[0-9]+") ? "LEGACY" : "MOCK",
+                account.catalogError());
     }
 }

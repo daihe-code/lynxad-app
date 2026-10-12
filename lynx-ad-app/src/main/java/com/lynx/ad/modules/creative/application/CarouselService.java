@@ -28,6 +28,10 @@ public class CarouselService {
 
     @Transactional
     public Detail create(TenantId tenant, Create request) {
+        return create(tenant,TenantContext.userId(),request);
+    }
+    @Transactional
+    public Detail create(TenantId tenant, UserId user, Create request) {
         if(request.requestId()==null || !request.requestId().matches("[A-Za-z0-9_-]{16,64}")) throw new BizException(1520,"图文请求标识不合法");
         String name=request.name()==null ? "" : request.name().trim();
         if(name.isBlank() || name.length()>100) throw new BizException(1520,"图文名称须为 1-100 个字符");
@@ -53,7 +57,7 @@ public class CarouselService {
             if(!b.name().equals(name) || !b.accounts().equals(targets) || !bundles.parts(b).equals(parts)) throw new BizException(1520,"图文请求标识已用于其他内容");
             return detail(tenant,b.id());
         }
-        var bundle=new CarouselRepository.Bundle(UUID.randomUUID().toString(),tenant.value(),TenantContext.userId().value(),request.requestId(),name,targets,"PENDING",Instant.now());
+        var bundle=new CarouselRepository.Bundle(UUID.randomUUID().toString(),tenant.value(),user.value(),request.requestId(),name,targets,"PENDING",Instant.now());
         bundles.insert(bundle,parts);
         refresh(bundle);
         return detail(tenant,bundle.id());
@@ -83,7 +87,7 @@ public class CarouselService {
     @Transactional
     public void refresh(CarouselRepository.Bundle bundle) {
         var detail=detail(bundle);
-        if("APPROVED".equals(detail.aiReview().status())) for(var part:detail.parts()) {
+        if(Set.of("APPROVED","NOT_REQUIRED").contains(detail.aiReview().status())) for(var part:detail.parts()) {
             if("TEXT".equals(part.role())) continue;
             var asset=assets.require(bundle.tenant(),part.asset().id());
             for(String target:bundle.accounts()) assets.addSync(asset,target);

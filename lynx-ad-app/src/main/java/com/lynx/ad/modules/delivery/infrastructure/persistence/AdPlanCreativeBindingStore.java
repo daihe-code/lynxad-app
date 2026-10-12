@@ -61,6 +61,9 @@ public class AdPlanCreativeBindingStore {
         }
         return keys;
     }
+    public void removeProduct(PlanId planId,String productId) {
+        mapper.delete(new LambdaQueryWrapper<AdPlanCreativePo>().eq(AdPlanCreativePo::getAdPlanId,planId.value()).eq(AdPlanCreativePo::getProductId,productId));
+    }
 
     public Map<String, List<String>> productIdsByPlan(List<String> planIds) {
         Map<String, List<String>> result = new LinkedHashMap<>();

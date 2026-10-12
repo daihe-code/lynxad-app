@@ -40,6 +40,8 @@ public class ProductCommandService {
     public SelectProductsResponse select(TenantId tenantId, AwemeId awemeId, List<QcProductId> ids) {
         policy.assertSelectable(new ProductSelection(awemeId, ids));
         AccountId accountId = oauthAccountRepository.findByTenant(tenantId).stream()
+                .filter(a -> a.platform()==com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN && "ACTIVE".equals(a.status()))
+                .filter(a -> a.awemes().stream().anyMatch(w -> w.awemeId().equals(awemeId)))
                 .findFirst()
                 .map(a -> a.id())
                 .orElse(new AccountId("unbound"));
@@ -56,9 +58,11 @@ public class ProductCommandService {
                     .filter(p -> p.id().equals(id))
                     .findFirst()
                     .map(p -> Product.fromPool(tenantId, awemeId, p.id(), p.name(), p.price(), p.imageUrl()))
-                    .orElseGet(() -> Product.fromPool(tenantId, awemeId, id, id.value(), Money.ofYuan(9.9), null));
+                    .orElseGet(() -> Product.fromPool(tenantId, awemeId, id, id.value(), null, null));
                 existing.put(id, product);
             }
+            var selectedProduct=product;
+            pool.stream().filter(p->p.id().equals(id)).findFirst().ifPresent(p->selectedProduct.refreshPoolPrice(p.price(),p.priceInfo()));
             repository.upsert(product);
             vos.add(toVo(product));
         }
@@ -77,8 +81,8 @@ public class ProductCommandService {
                 p.id().value(),
                 p.qcProductId().value(),
                 p.name(),
-                p.poolPrice().amount(),
-                p.sellingPrice().amount(),
-                p.imageUrl());
+                p.poolPrice()==null?null:p.poolPrice().amount(),
+                p.userPrice()==null?null:p.userPrice().amount(),
+                p.imageUrl(),p.priceInfo());
     }
 }

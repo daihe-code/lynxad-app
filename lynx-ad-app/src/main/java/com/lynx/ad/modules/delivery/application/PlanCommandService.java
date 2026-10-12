@@ -72,6 +72,10 @@ public class PlanCommandService {
     private final ObjectMapper objectMapper;
     private final AuditRecorder auditRecorder;
     private final AdPlanCreativeBindingStore bindingStore;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
+    @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
+    private PlanTransferService transferService;
+    @org.springframework.beans.factory.annotation.Autowired public void transferService(PlanTransferService value) { transferService=value; }
 
     public PlanCommandService(
             AdPlanRepository planRepository,
@@ -113,7 +117,7 @@ public class PlanCommandService {
         planRepository.save(plan);
         saveDraftProducts(plan);
         recordPlan(tenantId, plan.id().value(), plan.name().text());
-        Credential cred = credentialFacade.get(new AccountId(cmd.accountId()));
+        Credential cred = credentialFacade.getUsableCredential(tenantId, new AccountId(cmd.accountId()));
         var budget = suggestBudgetPort.suggest(cred, plan.awemeId(), setting.dailyBudget());
         var roi = suggestRoiPort.suggest(cred, plan.awemeId());
         return new PlanDraftResponse(
@@ -159,6 +163,7 @@ public class PlanCommandService {
                 throw new BizException(9999, "幂等回放失败");
             }
         }
+        if (plan.qcPlanId().isEmpty()) planAgent.assertLegacyCreationAllowed();
         CreativePackage pkg = resolvePackage(tenantId, plan);
         publishPolicy.assertPublishable(plan, true, pkg.isConfirmed(), plan.productIds().size());
         if (plan.status() == com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
@@ -189,8 +194,10 @@ public class PlanCommandService {
         recordPlan(tenantId, id.value(), "丢弃草稿：" + plan.name().text());
     }
 
-    @Transactional
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public PlanVo act(TenantId tenantId, PlanId id, PlanAction action) {
+        if(action==PlanAction.DELETE) throw new BizException(1402,"请使用删除计划操作");
+        if(transfers!=null)transfers.assertIdle(tenantId,id);
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan = require(tenantId, id);
         String before = plan.status().name();
@@ -199,23 +206,56 @@ public class PlanCommandService {
         if ((action == PlanAction.DISABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELIVERING)
                 || (action == PlanAction.ENABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.PAUSED))
             throw new BizException(1404, "计划状态已变化，请刷新后操作");
-        if (plan.qcPlanId().isPresent()) {
+        var group=transfers==null?null:transfers.group(tenantId,id);
+        boolean pairedEnable=action==PlanAction.ENABLE && group!=null && group.conservative()!=null && group.custom()!=null;
+        if(pairedEnable) {
+            if(transferService==null)throw new BizException(1523,"转投服务尚不可用，请稍后重试");
+            var result=transferService.enableExisting(tenantId,id);
+            if(!"SUCCEEDED".equals(result.status()))throw new BizException(1523,result.message());
+            plan=require(tenantId,id);
+        } else if (plan.qcPlanId().isPresent()) {
             adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId, plan.accountId()), plan.qcPlanId().get(), action);
         }
-        switch (action) {
+        if(!pairedEnable)switch (action) {
             case DISABLE -> plan.pause();
             case ENABLE -> plan.resume();
             case FINISH -> plan.finish();
+            case DELETE -> throw new BizException(1402,"请使用删除计划操作");
         }
         planRepository.save(plan);
+        if(transfers!=null)transfers.reconcileActive(tenantId,planRepository.findByTenant(tenantId));
         ActionType type = switch (action) {
             case ENABLE -> ActionType.MANUAL_ENABLE;
             case DISABLE -> ActionType.MANUAL_DISABLE;
             case FINISH -> ActionType.MANUAL_FINISH;
+            case DELETE -> throw new BizException(1402,"请使用删除计划操作");
         };
         agentActionRepository.saveIgnoreDup(AgentAction.recordManual(tenantId, id, type, before, plan.status().name()));
         recordPlan(tenantId, plan.id().value(), plan.name().text());
         return toVo(plan);
+    }
+
+    @Transactional
+    public void deletePlan(TenantId tenantId, PlanId id) {
+        billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
+        AdPlan plan=require(tenantId,id);
+        if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
+        if(plan.qcPlanId().isEmpty()) {
+            discardDraft(tenantId,id);
+            return;
+        }
+        if(transfers!=null)transfers.lockForDeletion(plan);
+        plan=planRepository.findByIdForUpdate(tenantId,id).orElseThrow(()->new BizException(1405,"计划不存在"));
+        if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
+        adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId,plan.accountId()),plan.qcPlanId().orElseThrow(),PlanAction.DELETE);
+        try {
+            plan.markDeleted();
+            planRepository.save(plan);
+            if(transfers!=null)transfers.detachDeleted(tenantId,id);
+            recordPlan(tenantId,id.value(),"删除计划："+plan.name().text());
+        } catch(RuntimeException ex) {
+            throw new BizException(1406,"千川已接受删除，本地结果待确认，请同步核查，勿重复提交");
+        }
     }
 
     public void acceptExternalId(TenantId tenantId, PlanId id, QcPlanId qcPlanId) {

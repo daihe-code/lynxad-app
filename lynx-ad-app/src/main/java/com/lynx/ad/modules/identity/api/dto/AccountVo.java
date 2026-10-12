@@ -13,4 +13,7 @@ public record AccountVo(
         String authorizedByUserId,
         Instant authorizedAt,
         Instant tokenExpiresAt,
-        Instant refreshExpiresAt) {}
+        Instant refreshExpiresAt,
+        String applicationId,
+        String credentialSource,
+        String catalogError) {}

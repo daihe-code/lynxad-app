@@ -8,6 +8,8 @@ import com.lynx.ad.modules.creative.domain.port.StoragePort;
 
 public interface ObjectStoreClient {
 
+    record Metadata(long size,String contentType,String etag) {}
+    default Metadata metadata(String bucket,String key){return null;}
     void putObject(String bucket, String key, InputStream in, long size, String contentType);
 
     String presignedUrl(String bucket, String key, Duration ttl);

@@ -27,8 +27,11 @@ class ProductPo {
     private String awemeId;
     private String qcProductId;
     private String name;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy=com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private BigDecimal price;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy=com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private BigDecimal userPrice;
+    private Boolean userPriceManual;
     private String imageUrl;
     private Instant updatedAt;
 
@@ -46,6 +49,8 @@ class ProductPo {
     public void setPrice(BigDecimal price) { this.price = price; }
     public BigDecimal getUserPrice() { return userPrice; }
     public void setUserPrice(BigDecimal userPrice) { this.userPrice = userPrice; }
+    public Boolean getUserPriceManual() { return userPriceManual; }
+    public void setUserPriceManual(Boolean value) { userPriceManual=value; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public Instant getUpdatedAt() { return updatedAt; }
@@ -76,8 +81,9 @@ public class MpProductRepository implements ProductRepository {
         po.setAwemeId(product.awemeId().value());
         po.setQcProductId(product.qcProductId().value());
         po.setName(product.name());
-        po.setPrice(product.poolPrice().amount());
-        po.setUserPrice(product.sellingPrice().amount());
+        po.setPrice(product.poolPrice()==null?null:product.poolPrice().amount());
+        po.setUserPrice(product.userPrice()==null?null:product.userPrice().amount());
+        po.setUserPriceManual(product.userPrice()!=null);
         po.setImageUrl(product.imageUrl());
         po.setUpdatedAt(Instant.now());
         if (insert) {
@@ -113,8 +119,8 @@ public class MpProductRepository implements ProductRepository {
                 new AwemeId(po.getAwemeId()),
                 new QcProductId(po.getQcProductId()),
                 po.getName(),
-                Money.ofYuan(po.getPrice() == null ? BigDecimal.ZERO : po.getPrice()),
-                Money.ofYuan(po.getUserPrice() == null ? po.getPrice() : po.getUserPrice()),
+                po.getPrice()==null || po.getPrice().signum()==0?null:Money.ofYuan(po.getPrice()),
+                Boolean.TRUE.equals(po.getUserPriceManual()) && po.getUserPrice()!=null?Money.ofYuan(po.getUserPrice()):null,
                 po.getImageUrl(),
                 null);
     }

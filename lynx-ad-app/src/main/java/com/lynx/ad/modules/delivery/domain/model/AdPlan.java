@@ -155,7 +155,12 @@ public class AdPlan {
     }
 
     public void apply(PlanStatus next) {
+        if (status == PlanStatus.DELETED && next != PlanStatus.DELETED) return;
         this.status = next;
+    }
+    public void markDeleted() {
+        this.status = PlanStatus.DELETED;
+        this.qcStatus = "DELETE";
     }
     public void syncPlatformStatus(String value) { this.qcStatus = value; }
 

@@ -4,7 +4,9 @@ import { hasUsableAweme, listAccounts } from "@/features/identity/oauthApi";
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior(to) {
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition;
+    if (to.path === '/campaigns' && from.path === '/campaigns') return false;
     if (to.hash) {
       return { el: to.hash, behavior: "smooth" };
     }
@@ -25,10 +27,11 @@ const router = createRouter({
         { path: "create", component: () => import("@/pages/campaigns/Create.vue"), meta: { requireAweme: true } },
         { path: "manage/create", component: () => import("@/pages/campaigns/reference/PlanForm.vue"), meta: { requireAweme: true } },
         { path: ":id/analysis", component: () => import("@/pages/campaigns/reference/PlanAnalysis.vue") },
-        { path: ":id/edit", component: () => import("@/pages/campaigns/reference/PlanForm.vue") },
+        { path: ":id/edit", component: () => import("@/pages/campaigns/PlanWorkspace.vue"), props: { mode: "edit" } },
+        { path: ":id/transfer", component: () => import("@/pages/campaigns/PlanWorkspace.vue"), props: { mode: "transfer" } },
         { path: ":id/result", component: () => import("@/pages/campaigns/reference/PlanResult.vue") },
         { path: ":id/overview", component: () => import("@/pages/campaigns/reference/PlanOverview.vue") },
-        { path: ":id", component: () => import("@/pages/campaigns/Detail.vue") },
+        { path: ":id", component: () => import("@/pages/campaigns/PlanWorkspace.vue"), props: { mode: "view" } },
       ],
     },
     {

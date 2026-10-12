@@ -53,7 +53,16 @@ public class AssetSyncWorker {
             upload.checkAvailable();
             var asset=repository.require(sync.tenantId(),sync.assetId());
             temp=files.download(tenant,asset);
-            var result=upload.upload(credential,AssetKind.valueOf(asset.kind()),temp,asset.filename(),asset.contentType(),asset.md5(),asset.isAigc());
+            String signature=asset.md5();
+            if(repository.isEngineAsset(tenant.value(),asset.id())) {
+                // The one download is only a temporary file for Qianchuan's multipart API.
+                var digest=java.security.MessageDigest.getInstance("MD5");
+                try(var in=java.nio.file.Files.newInputStream(temp)){byte[] buffer=new byte[65536];int n;while((n=in.read(buffer))!=-1)digest.update(buffer,0,n);}
+                signature=java.util.HexFormat.of().formatHex(digest.digest());
+                if(asset.md5()!=null&&!asset.md5().equalsIgnoreCase(signature))throw new BizException(1520,"引擎 OSS 内容与登记校验信息不一致");
+                repository.engineSignature(tenant.value(),asset.id(),signature);
+            }
+            var result=upload.upload(credential,AssetKind.valueOf(asset.kind()),temp,asset.filename(),asset.contentType(),signature,asset.isAigc());
             repository.finish(sync,credential.advertiserId().value(),result.objectId(),result.materialId(),result.requestId());
         } catch (BizException ex) {
             String status;
@@ -76,6 +85,7 @@ public class AssetSyncWorker {
     }
     @Scheduled(fixedDelayString="${lynx.ad.asset-sync.auth-check-ms:60000}")
     public void resumeAuthorized() {
+        files.queueUnassigned();
         for(var sync:repository.waitingAuth()) {
             try {
                 var credential=credentials.getUsableCredential(new TenantId(sync.tenantId()),new AccountId(sync.accountId()));

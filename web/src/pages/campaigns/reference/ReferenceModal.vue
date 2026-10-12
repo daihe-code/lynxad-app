@@ -30,14 +30,15 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, useId, onMounted, onUnmounted } from "vue";
+import { ref, useId, onMounted, onBeforeUnmount } from "vue";
+import { lockBodyScroll } from "@/utils/bodyScrollLock";
 import ReferenceIcon from "./ReferenceIcon.vue";
-const props = defineProps<{ title: string; width?: number; busy?: boolean; showClose?: boolean }>();
+const props = withDefaults(defineProps<{ title: string; width?: number; busy?: boolean; showClose?: boolean }>(), { showClose: true });
 const emit = defineEmits<{ close: [] }>();
 const titleId = useId(),
   box = ref<HTMLElement>();
-let previous: HTMLElement | null = null,
-  overflow = "";
+let previous: HTMLElement | null = null;
+let releaseScroll: (() => void) | undefined;
 function close() {
   if (!props.busy) emit("close");
 }
@@ -75,13 +76,12 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener("keydown", onKey);
   previous = document.activeElement as HTMLElement;
-  overflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
+  releaseScroll = lockBodyScroll();
   box.value?.focus();
 });
-onUnmounted(() => {
+onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKey);
-  document.body.style.overflow = overflow;
+  releaseScroll?.();
   if (previous?.isConnected) previous.focus();
 });
 </script>

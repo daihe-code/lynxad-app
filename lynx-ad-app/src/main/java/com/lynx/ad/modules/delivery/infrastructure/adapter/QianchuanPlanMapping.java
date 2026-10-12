@@ -28,7 +28,8 @@ public final class QianchuanPlanMapping {
             case "DISABLE", "PAUSED" -> PlanStatus.PAUSED;
             case "AUDIT", "REAUDIT", "PENDING_AUDIT" -> PlanStatus.PENDING_AUDIT;
             case "AUDIT_STATUS_ERROR", "OFFLINE_AUDIT", "REJECTED" -> PlanStatus.REJECTED;
-            case "TIME_DONE", "DELETE", "FINISHED" -> PlanStatus.FINISHED;
+            case "TIME_DONE", "FINISHED" -> PlanStatus.FINISHED;
+            case "DELETE", "DELETED" -> PlanStatus.DELETED;
             case "DRAFT", "CREATE" -> PlanStatus.DRAFT;
             default -> PlanStatus.UNKNOWN;
         };

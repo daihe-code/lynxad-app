@@ -81,6 +81,9 @@ public class CreativeAgent {
             return;
         }
         try {
+            if (!properties.getMock().isAi()) {
+                throw new BizException(1503, "旧生成流程只支持模拟素材，请使用创建投放计划中的 AI 引擎生成流程");
+            }
             task.start();
             repository.save(task);
             StepName current = null;

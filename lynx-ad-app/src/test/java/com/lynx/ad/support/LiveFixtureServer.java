@@ -65,6 +65,8 @@ public final class LiveFixtureServer {
         if (path.contains("/oauth/token") || path.contains("/oauth/refresh")) {
             tokenHits.incrementAndGet();
             json = "{\"code\":0,\"data\":{\"access_token\":\"live-access\",\"refresh_token\":\"live-refresh\",\"expires_in\":3600,\"advertiser_id\":\"adv_live_1\",\"advertiser_name\":\"夹具账户\"}}";
+        } else if (path.contains("/oauth/advertiser")) {
+            json = "{\"code\":0,\"data\":{\"list\":[{\"account_id\":991001,\"account_name\":\"夹具账户\",\"account_role\":\"ADVERTISER\",\"account_type\":\"QIANCHUAN\"}]}}";
         } else if (path.contains("/oauth/aweme")) {
             json = "{\"code\":0,\"data\":{\"list\":[{\"aweme_id\":\"aweme_live\",\"aweme_name\":\"夹具号\"}]}}";
         } else if (path.contains("/delivery/create")) {

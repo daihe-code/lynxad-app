@@ -46,7 +46,7 @@ export function syncLabel(status: string, reviewStatus = 'UNKNOWN') {
 export function uploadStage(asset: UploadedAsset) {
   const stored = asset.storageMode === 'oss' ? '已上传平台 OSS' : '已保存到平台';
   if (!asset.aiReview || ['QUEUED', 'RUNNING', 'PENDING'].includes(asset.aiReview.status)) return `${stored} · AI 审核中`;
-  if (asset.aiReview.status !== 'APPROVED') return `${stored} · ${reviewLabel(asset.aiReview.status)}`;
+  if (!['APPROVED','NOT_REQUIRED'].includes(asset.aiReview.status)) return `${stored} · ${reviewLabel(asset.aiReview.status)}`;
   if (asset.kind === 'TEXT') return '已入库，可用于文案';
   if (!asset.syncs.length) return '已入库，未选择千川同步账户';
   if (asset.syncs.every(s => s.status === 'UPLOADED')) return '平台与千川均已上传';
@@ -54,7 +54,7 @@ export function uploadStage(asset: UploadedAsset) {
   return '已入库，请查看千川同步状态';
 }
 export function reviewLabel(status?: string) {
-  return ({ QUEUED: '等待 AI 审核', RUNNING: 'AI 审核中', PENDING: 'AI 审核中', APPROVED: 'AI 审核已通过', REJECTED: 'AI 审核未通过', MANUAL_REVIEW: 'AI 建议人工复核 · 暂停同步', FAILED: 'AI 审核失败 · 暂停同步' } as Record<string, string>)[status || 'QUEUED'] || '等待 AI 审核';
+  return ({ QUEUED: '等待 AI 审核', RUNNING: 'AI 审核中', PENDING: 'AI 审核中', APPROVED: 'AI 审核已通过', NOT_REQUIRED: 'AI 引擎生成 · 无需上传审核', REJECTED: 'AI 审核未通过', MANUAL_REVIEW: 'AI 建议人工复核 · 暂停同步', FAILED: 'AI 审核失败 · 暂停同步' } as Record<string, string>)[status || 'QUEUED'] || '等待 AI 审核';
 }
 export function reviewPending(status?: string) { return !!status && ['QUEUED', 'RUNNING', 'PENDING'].includes(status); }
 function errorMessage(error: unknown) { const value = error as { message?: string; response?: { data?: { message?: string } } }; return value.response?.data?.message || value.message || '上传失败，请重试'; }

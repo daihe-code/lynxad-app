@@ -203,11 +203,15 @@ public class LibraryQueryService {
         if (uploads==null) return List.of();
         List<Item> result=new ArrayList<>();
         for(var asset:uploads.list(tenant.value())) {
-            String url=com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,asset.storageMode()).getUrl(tenant,asset.objectKey());
-            var item=new Item("UPLOAD:"+asset.id(),asset.kind(),MaterialSource.UPLOAD,asset.filename(),asset.sizeBytes(),
+            String url="TEXT".equals(asset.kind())?"":com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,asset.storageMode()).getUrl(tenant,asset.objectKey());
+            boolean generated="engine_oss".equals(asset.storageMode());
+            var meta=uploads.storageMetadata(tenant.value(),asset.id());
+            String preview="";
+            if(meta!=null&&meta.previewAssetId()!=null){var cover=uploads.require(tenant.value(),meta.previewAssetId());preview=com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,cover.storageMode()).getUrl(tenant,cover.objectKey());}
+            var item=new Item((generated?"ENGINE:":"UPLOAD:")+asset.id(),asset.kind(),generated?MaterialSource.LYNX:MaterialSource.UPLOAD,asset.filename(),asset.sizeBytes(),
                     asset.width()!=null && asset.height()!=null ? (asset.width()>asset.height() ? "HORIZONTAL" : asset.width().equals(asset.height()) ? "SQUARE" : "VERTICAL") : "",
-                    null,"本地上传",asset.createdAt(),false,"NONE",null,asset.id(),null,
-                    "IMAGE".equals(asset.kind()) ? url : "", "TEXT".equals(asset.kind()) ? "" : url,asset.width(),asset.height());
+                    meta!=null&&meta.durationMs()!=null?(int)(meta.durationMs()/1000):null,generated?"AI 智能生成":"本地上传",asset.createdAt(),false,"NONE",null,asset.id(),null,
+                    "IMAGE".equals(asset.kind()) ? url : preview, "TEXT".equals(asset.kind()) ? "" : url,asset.width(),asset.height());
             item.syncs=uploads.syncs(tenant.value(),asset.id()); item.textContent=asset.textContent(); result.add(item);
             item.aiReview=uploads.aiReview(tenant.value(),asset.id());
             item.reviewBadge=effectiveBadge(item);
@@ -234,7 +238,7 @@ public class LibraryQueryService {
             var images=group.parts().stream().filter(p->"IMAGE".equals(p.role())).toList();
             var image=images.getFirst().asset();
             long size=group.parts().stream().mapToLong(p->p.asset().sizeBytes()).sum();
-            var item=new Item("CAROUSEL:"+group.id(),"CAROUSEL",MaterialSource.UPLOAD,group.name(),size,"",null,
+            var item=new Item("CAROUSEL:"+group.id(),"CAROUSEL","NOT_REQUIRED".equals(group.aiReview().status())?MaterialSource.LYNX:MaterialSource.UPLOAD,group.name(),size,"",null,
                     "图文 · "+images.size()+" 张图片",Instant.parse(group.createdAt()),false,"NONE",null,group.id(),null,
                     image.url(),image.url(),image.width(),image.height());
             item.carouselId=group.id(); item.aiReview=group.aiReview();
@@ -391,8 +395,8 @@ public class LibraryQueryService {
                 item.playUrl,
                 item.width,
                 item.height,
-                item.source==MaterialSource.UPLOAD && item.carouselId==null ? item.objectId : null,
-                item.source==MaterialSource.UPLOAD ? "STORED" : null,
+                (item.id.startsWith("UPLOAD:")||item.id.startsWith("ENGINE:")) && item.carouselId==null ? item.objectId : null,
+                item.aiReview!=null ? "STORED" : null,
                 item.syncs,item.aiReview,item.carouselId);
     }
 

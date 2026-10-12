@@ -1,0 +1,37 @@
+package com.lynx.ad.modules.delivery.api;
+
+import com.lynx.ad.common.api.ApiResponse;
+import com.lynx.ad.common.security.*;
+import com.lynx.ad.modules.delivery.application.CreationWorkflowService;
+import com.lynx.ad.modules.delivery.domain.model.CreationState;
+import com.lynx.ad.modules.delivery.api.dto.CreationView;
+import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/delivery/creation")
+public class CreationController {
+    private final CreationWorkflowService service;
+    private final CreationQianchuanGateway qc;
+    public CreationController(CreationWorkflowService service,CreationQianchuanGateway qc){this.service=service;this.qc=qc;}
+    @GetMapping("/products") public ApiResponse<CreationQianchuanGateway.Page> products(@RequestParam String accountId,@RequestParam String awemeId,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="30") int pageSize,@RequestParam(required=false) String keyword,@RequestParam(defaultValue="ALL") String tab,@RequestParam(defaultValue="false") boolean unpromoted,@RequestParam(defaultValue="false") boolean refreshPrices){return ApiResponse.ok(qc.products(TenantContext.requireTenantId(),accountId,awemeId,page,pageSize,keyword,tab,unpromoted,null,refreshPrices));}
+    @RequiresActiveTrial @PostMapping public ApiResponse<CreationView> select(@RequestBody CreationWorkflowService.Selection req){return view(service.select(TenantContext.requireTenantId(),req));}
+    @GetMapping("/{id}") public ApiResponse<CreationView> get(@PathVariable String id){return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(),id)));}
+    @RequiresActiveTrial @PostMapping("/{id}/analysis") public ApiResponse<CreationView> analysis(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(service.analyze(TenantContext.requireTenantId(),id,req));}
+    @GetMapping("/{id}/recommendations") public ApiResponse<CreationView> recommendations(@PathVariable String id){return view(service.recommendations(TenantContext.requireTenantId(),id));}
+    @RequiresActiveTrial @PutMapping("/{id}/goal") public ApiResponse<CreationView> goal(@PathVariable String id,@RequestBody CreationWorkflowService.Goal req){return view(service.goal(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PutMapping("/{id}/visibility") public ApiResponse<CreationView> visibility(@PathVariable String id,@RequestBody CreationWorkflowService.Visibility req){return view(service.visibility(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/generation") public ApiResponse<CreationView> generate(@PathVariable String id,@RequestBody CreationWorkflowService.Generate req){return view(service.generate(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/materials") public ApiResponse<CreationView> add(@PathVariable String id,@RequestBody CreationWorkflowService.MaterialSelection req){return view(service.add(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @DeleteMapping("/{id}/materials/{material}") public ApiResponse<CreationView> remove(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Feedback req){return view(service.remove(TenantContext.requireTenantId(),id,material,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/regenerate") public ApiResponse<CreationView> regenerate(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Feedback req){return view(service.regenerate(TenantContext.requireTenantId(),id,material,req));}
+    @RequiresActiveTrial @PutMapping("/{id}/materials/{material}/titles") public ApiResponse<CreationView> titles(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Titles req){return view(service.titles(TenantContext.requireTenantId(),id,material,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/recheck") public ApiResponse<CreationView> recheck(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Version req){return view(service.recheck(TenantContext.requireTenantId(),id,material,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/confirm") public ApiResponse<CreationView> confirm(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(service.confirm(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/publish") public ApiResponse<CreationView> publish(@PathVariable String id,@RequestBody CreationWorkflowService.Publish req){return view(service.publish(TenantContext.requireTenantId(),id,req));}
+    @PostMapping("/{id}/reconcile") public ApiResponse<CreationView> reconcile(@PathVariable String id,@RequestBody CreationWorkflowService.Reconcile req){return view(service.reconcile(TenantContext.requireTenantId(),id,req));}
+    private ApiResponse<CreationView> view(CreationState state) {
+        return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(), state.planId)));
+    }
+    @DeleteMapping("/{id}") public ApiResponse<Void> discard(@PathVariable String id){service.discard(TenantContext.requireTenantId(),id);return ApiResponse.ok(null);}
+}

@@ -38,8 +38,8 @@ public class QianchuanAssetUploadAdapter implements AssetUploadPort {
         if (kind == AssetKind.AUDIO) data = data.path("audio_info");
         String objectId = data.path(kind == AssetKind.IMAGE ? "id" : prefix + "_id").asText("");
         String materialId = data.path("material_id").asText("");
-        if (objectId.isBlank() || materialId.isBlank()) throw new BizException(1523, "千川未返回完整素材标识，上传结果待确认");
-        return new Result(objectId, materialId, root.path("request_id").asText(""));
+        if (objectId.isBlank()) throw new BizException(1523, "千川未返回完整素材标识，上传结果待确认");
+        return new Result(objectId, materialId.isBlank()?null:materialId, root.path("request_id").asText(""));
     }
     @Override public void checkAvailable() {
         if (properties.getMock().isQianchuan()) throw new BizException(1524,"本地模拟模式未调用千川，切换真实模式后可重试同步");

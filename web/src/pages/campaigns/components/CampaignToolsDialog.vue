@@ -9,7 +9,7 @@
         <el-popover ref="helpPopovers" trigger="click" placement="bottom" :width="310" popper-class="campaign-popover tools-help-popover"><template #reference><button class="tool-help" type="button">{{ tool.helpLabel }}</button></template><strong>{{ tool.key }}原理</strong><p class="principle-text">{{ tool.description }}</p><p class="principle-text">{{ tool.condition }}</p></el-popover>
       </div>
     </div>
-    <el-alert v-if="activeTool === '搜索抢首屏'" title="搜索抢首屏专用接口尚未核验，暂不可提交" type="info" :closable="false" show-icon /><section id="control-parameters" role="tabpanel" :aria-labelledby="`control-tab-${activeTool}`">
+    <section id="control-parameters" role="tabpanel" :aria-labelledby="`control-tab-${activeTool}`" :class="{ 'search-parameters': isSearch }">
       <section v-if="activeTool === '素材追投'" class="material-section">
         <h3>追投素材（仅视频）</h3>
         <div class="material-filters">
@@ -27,21 +27,28 @@
         </div>
       </section>
       <el-form ref="formRef" :model="draft" :rules="rules" :disabled="submitting" :validate-on-rule-change="false" label-position="top" class="tools-form" @submit.prevent="submit">
-        <el-form-item prop="budget" class="budget-field"><template #label><span>调控预算(元)</span><el-tooltip :content="budgetHint" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="调控预算说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><el-input v-model="draft.budget" inputmode="decimal" placeholder="请输入" aria-label="调控预算（元）"><template #suffix><span class="input-unit">元</span></template></el-input><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
+        <el-form-item prop="budget" class="budget-field"><template #label><span>调控预算(元)</span><el-tooltip :content="budgetHint" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="调控预算说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><el-input v-model="draft.budget" inputmode="decimal" placeholder="请输入" aria-label="调控预算（元）" @input="formRef?.clearValidate('budget')"><template #suffix><span class="input-unit">元</span></template></el-input><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
         <p v-if="!budgetInvalid" class="tool-hint budget-hint">{{ budgetHint }}</p>
         <template v-if="activeTool !== '搜索抢首屏'">
           <el-form-item prop="hours" class="duration-field"><template #label><span>调控时长</span><el-tooltip content="范围为 0.5–24 小时，可通过加减按钮以 0.5 小时调整。" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="调控时长说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><div class="duration-stepper"><button type="button" aria-label="减少调控时长" :disabled="Number(draft.hours) <= .5 && draft.hours !== ''" @click="stepHours(-.5)"><el-icon><Minus /></el-icon></button><el-input v-model="draft.hours" placeholder="请输入" inputmode="decimal" aria-label="调控时长（小时）" @keydown.up.prevent="stepHours(.5)" @keydown.down.prevent="stepHours(-.5)" /><button type="button" aria-label="增加调控时长" :disabled="Number(draft.hours) >= 24" @click="stepHours(.5)"><el-icon><Plus /></el-icon></button><span>小时</span></div><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
           <p class="tool-hint duration-hint">可设范围 0.5-24 小时。注意：有起量需求时，建议提前 10 分钟创建任务</p>
         </template>
         <template v-else>
-          <el-form-item prop="roi" class="screen-roi-field"><template #label><span>净成交ROI目标</span><el-tooltip content="支持范围为 0.01–100，最多两位小数。" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="净成交ROI目标说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><el-input v-model="draft.roi" inputmode="decimal" placeholder="请输入" aria-label="搜索抢首屏净成交ROI目标" /><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
+          <el-form-item prop="roi" class="screen-roi-field"><template #label><span>净成交ROI目标</span><el-tooltip content="支持范围为 0.01–100，最多两位小数。" popper-class="campaign-tooltip"><button class="label-help-button" type="button" aria-label="净成交ROI目标说明"><el-icon><QuestionFilled /></el-icon></button></el-tooltip><span class="required-star">*</span></template><el-input v-model="draft.roi" inputmode="decimal" placeholder="请输入期望的净成交ROI目标" aria-label="搜索抢首屏净成交ROI目标" @input="formRef?.clearValidate('roi')" /><template #error="{ error }"><p class="tool-error"><el-icon><WarningFilled /></el-icon>{{ error }}</p></template></el-form-item>
           <div class="roi-note"><el-icon><Opportunity /></el-icon><div><strong>建议参考实际经营目标设置</strong><p>可依据当前实际经营目标推算净成交ROI</p><p>净成交ROI =（整体成交金额 - 秒退订单成交额）/ 消耗</p></div></div>
           <div class="guarantee-note"><svg class="shield-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6zM12 8v5m0 3v.1" /></svg><span>搜索抢首屏按单独的「保障规则」提供保障权益（不计入全域投放成本保障），请谨慎修改净成交ROI目标，以免失去保障资格</span></div>
         </template>
         <el-form-item label="任务名称" prop="taskName" class="task-name-field"><el-input v-model="draft.taskName" maxlength="50" show-word-limit placeholder="请输入任务名称" aria-label="任务名称" /></el-form-item>
       </el-form>
     </section>
-    <section class="control-history"><h3>近期调控任务 <el-button text :loading="tasksLoading" @click="loadTasks">刷新</el-button></h3><p v-if="tasksFailed">任务加载失败，请刷新核查</p><p v-else-if="!tasks.length">暂无调控任务</p><div v-for="task in tasks" :key="task.id"><strong>{{ task.name || task.id }}</strong><span>{{ task.task_status || '已提交' }}</span><small>ID：{{ task.id }}</small></div></section><template #footer><span class="tool-submit-note">{{ submittedId ? '已提交：' + submittedId : '预算不得超过原计划日预算' }}</span><el-button :disabled="submitting" @click="open = false">关闭</el-button><el-button type="primary" :loading="submitting" :disabled="activeTool === '搜索抢首屏' || !!submittedId" @click="submit">提交</el-button></template>
+    <el-alert v-if="isSearch" class="search-submit-alert" title="搜索抢首屏暂不支持在灵投提交，请前往千川后台设置并提交。" type="info" :closable="false" show-icon />
+    <section v-if="!isSearch" class="control-history"><h3>近期{{ activeTool }}任务 <el-button text :loading="tasksLoading" @click="loadTasks">刷新</el-button></h3><p v-if="tasksFailed" class="task-query-error" role="alert">{{ tasksError || '任务加载失败，请刷新核查' }}</p><p v-else-if="!tasks.length">暂无调控任务</p><div v-for="task in tasks" :key="task.id"><strong>{{ task.name || task.id }}</strong><span>{{ taskStatusText(task.task_status) }}</span><small>ID：{{ task.id }}</small></div></section>
+    <template #footer>
+      <span class="tool-submit-note">{{ isSearch ? '请在千川后台设置并提交' : submittedId ? '已提交：' + submittedId : '预算范围100元至原计划日预算' }}</span>
+      <el-button :disabled="submitting" @click="open = false">{{ isSearch ? '取消' : '关闭' }}</el-button>
+      <el-button v-if="isSearch" tag="a" href="https://qianchuan.jinritemai.com/" target="_blank" rel="noopener noreferrer">前往千川后台</el-button>
+      <el-button type="primary" :loading="submitting" :disabled="isSearch || !!submittedId" @click="submit">提交</el-button>
+    </template>
   </el-dialog>
 </template>
 
@@ -61,26 +68,29 @@ const tools = [
 type Draft = { budget: string; hours: string; roi: string; taskName: string };
 const drafts = reactive<Record<string, Draft>>(Object.fromEntries(tools.map(t => [t.key, { budget: '', hours: '', roi: '', taskName: '' }])));
 const activeTool = ref('一键起量'), submitting = ref(false), submittedId = ref(''), requestKey = ref('');
+const isSearch = computed(() => activeTool.value === '搜索抢首屏');
 const draft = computed(() => drafts[activeTool.value]!);
 const formRef = ref<FormInstance>();
 const helpPopovers = ref<PopoverInstance[]>([]);
-const budgetHint = computed(() => activeTool.value === '搜索抢首屏' ? '专用接口尚未核验，暂不可提交' : '调控预算为额外追加的独立预算，不得超过原计划日预算。调控预算越高 ROI 下降风险越大，请合理设置');
+const budgetHint = computed(() => isSearch.value ? '预算在原计划日预算之外额外增加。搜索抢首屏调控预算不得低于400元（含400元），最多两位小数。' : '调控预算最低100元（含100元），不得超过原计划日预算，最多两位小数。这是额外追加的独立预算，请合理设置');
 const budgetInvalid = computed(() => !!formRef.value?.fields.find(field => field.prop === 'budget')?.validateMessage);
 function numberRule(validate: (value: string) => string): FormItemRule { return { trigger: 'blur', validator: (_rule, value, callback) => { const error = validate(String(value ?? '').trim()); callback(error ? new Error(error) : undefined); } }; }
 const decimal = (value: string) => /^\d+(\.\d{1,2})?$/.test(value) && Number.isFinite(Number(value));
 const rules = computed(() => ({
-  budget: [numberRule(value => !decimal(value) ? '请输入正确的预算，最多两位小数' : Number(value) <= 100 ? '预算需大于 100 元' : Number(value) > Number(props.plan?.budget || 0) ? '调控预算不得超过原计划日预算' : '')],
+  budget: [numberRule(value => !decimal(value) ? '请输入正确的预算，最多两位小数' : Number(value) < (isSearch.value ? 400 : 100) ? `预算不得低于 ${isSearch.value ? 400 : 100} 元` : !isSearch.value && Number(value) > Number(props.plan?.budget || 0) ? '调控预算不得超过原计划日预算' : '')],
   hours: [numberRule(value => !decimal(value) || Number(value) < .5 || Number(value) > 24 || Number(value) % .5 !== 0 ? '调控时长为 0.5–24 小时，步进 0.5 小时' : '')],
   roi: [numberRule(value => !decimal(value) || Number(value) < .01 || Number(value) > 100 ? '支持范围: 0.01-100，最多两位小数' : '')],
   taskName: [{ required: true, whitespace: true, max: 50, message: '请输入 1–50 字的任务名称', trigger: 'blur' }],
 }));
 function moveTab(event: KeyboardEvent, key: string) { if (submitting.value || !['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const index = tools.findIndex(t => t.key === key); activeTool.value = tools[event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3]!.key; nextTick(() => document.getElementById('control-tab-' + activeTool.value)?.focus()); }
 function stepHours(amount: number) { const current = Number(draft.value.hours); draft.value.hours = String(Math.max(.5, Math.min(24, (Number.isFinite(current) ? current : 0) + amount))); nextTick(() => formRef.value?.validateField('hours').catch(() => {})); }
-function taskName(tool: string) { const time = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date()); return time + ' ' + tool; }
+function taskName(tool: string) { const time = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date()); const [day, clock] = time.split(' '); return tool === '搜索抢首屏' ? `${day!.replaceAll('/', '')}_${tool}_${clock}` : time + ' ' + tool; }
 const localDay = (date: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date);
 const videoKeyword = ref(''), videoTag = ref(''), videoPage = ref(1), dateRange = ref<string[]>([]), selectedVideos = ref<string[]>([]);
 const videos = ref<ControlMaterial[]>([]), videosLoading = ref(false), videosFailed = ref(false);
-const tasks = ref<ControlTask[]>([]), tasksLoading = ref(false), tasksFailed = ref(false);
+const tasks = ref<ControlTask[]>([]), tasksLoading = ref(false), tasksFailed = ref(false), tasksError = ref('');
+let tasksRequest = 0;
+function taskStatusText(status?: string) { return ({ PROCESSING: '调控中', DISABLE: '手动关停', OFFLINE_TIME: '到达投放时间', OFFLINE_BUDGET: '预算已花完', OFFLINE_BALANCE: '账户余额不足', ROI2_DISABLE: '全域投放已暂停', FROZEN: '调控结束', DELETED: '已删除', MOCK: '模拟任务' } as Record<string, string>)[status || ''] || status || '平台未返回状态'; }
 let requestVersion = 0;
 const tags = computed(() => [...new Set(videos.value.map(v => tagText(v.materialStatus)))]);
 const filteredVideos = computed(() => videos.value.filter(v => (!videoTag.value || tagText(v.materialStatus) === videoTag.value) && (!videoKeyword.value.trim() || (v.name + v.id).toLowerCase().includes(videoKeyword.value.trim().toLowerCase()))));
@@ -97,9 +107,13 @@ async function loadVideos() {
   finally { if (version === requestVersion) videosLoading.value = false; }
 }
 async function loadTasks() {
-  if (!props.plan) return;
-  tasksLoading.value = true; tasksFailed.value = false;
-  try { tasks.value = await listControlTasks(props.plan.planId); } catch { tasksFailed.value = true; } finally { tasksLoading.value = false; }
+  const version = ++tasksRequest, planId = props.plan?.planId, kind = activeTool.value;
+  tasks.value = []; tasksFailed.value = false; tasksError.value = ''; tasksLoading.value = false;
+  if (!planId || !open.value || kind === '搜索抢首屏') return;
+  tasksLoading.value = true;
+  try { const rows = await listControlTasks(planId, kind); if (version === tasksRequest && open.value) tasks.value = rows; }
+  catch (error: any) { if (version === tasksRequest && open.value) { tasksFailed.value = true; tasksError.value = error?.response?.data?.message || error?.message || '任务加载失败，请刷新核查'; } }
+  finally { if (version === tasksRequest) tasksLoading.value = false; }
 }
 async function submit() {
   if (!props.plan || submitting.value || submittedId.value || activeTool.value === '搜索抢首屏') return;
@@ -111,26 +125,28 @@ async function submit() {
     const result = await createControlTask(props.plan.planId, { kind: activeTool.value, name: draft.value.taskName, budget: Number(draft.value.budget), hours: Number(draft.value.hours), materialIds: activeTool.value === '素材追投' ? [...selectedVideos.value] : [], requestKey: requestKey.value });
     submittedId.value = result.taskId;
     ElMessage.success(result.taskId.startsWith('mock_') ? '模拟任务已提交' : '调控任务已提交');
-    await loadTasks();
+    open.value = false;
   } catch { /* Retain the request key: an uncertain result must not create a second task. */ await loadTasks(); }
   finally { submitting.value = false; }
 }
 watch(videoTag, () => { videoPage.value = 1; });
 watch(() => filteredVideos.value.length, count => { videoPage.value = Math.min(videoPage.value, Math.max(1, Math.ceil(count / 10))); });
-watch(activeTool, () => { helpPopovers.value.forEach(popover => popover.hide()); submittedId.value = ''; requestKey.value = ''; nextTick(() => formRef.value?.clearValidate()); if (open.value && activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
+watch(activeTool, () => { if (open.value) void loadTasks(); helpPopovers.value.forEach(popover => popover.hide()); submittedId.value = ''; requestKey.value = ''; nextTick(() => formRef.value?.clearValidate()); if (open.value && activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
 watch(() => props.modelValue, value => {
-  if (!value) { requestVersion++; videosLoading.value = false; return; }
+  if (!value) { requestVersion++; tasksRequest++; tasksLoading.value = false; videosLoading.value = false; return; }
   for (const tool of tools) Object.assign(drafts[tool.key]!, { budget: '', hours: '', roi: '', taskName: taskName(tool.key) });
   submittedId.value = ''; requestKey.value = ''; selectedVideos.value = []; videoKeyword.value = ''; videoTag.value = ''; videoPage.value = 1; videos.value = []; videosFailed.value = false;
   const today = new Date(); dateRange.value = [localDay(new Date(today.getTime() - 6 * 86400000)), localDay(today)];
-  activeTool.value = tools.some(t => t.key === props.kind) ? props.kind : '一键起量';
-  void loadTasks(); nextTick(() => { formRef.value?.clearValidate(); if (activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
+  const nextTool = tools.some(t => t.key === props.kind) ? props.kind : '一键起量';
+  const unchanged = activeTool.value === nextTool; activeTool.value = nextTool;
+  if (unchanged) void loadTasks(); nextTick(() => { formRef.value?.clearValidate(); if (activeTool.value === '素材追投' && !videosLoading.value) void loadVideos(); });
 }, { immediate: true });
-onBeforeUnmount(() => { requestVersion++; });
+onBeforeUnmount(() => { requestVersion++; tasksRequest++; });
 </script>
 
 <style scoped>
-.control-history { margin-top: 24px; color: #7c7f99; font-size: 12px; }.control-history h3 { color: #1a1b2e; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }.control-history > div { border-top: 1px solid #eeeff4; padding: 10px 0; display: flex; gap: 12px; flex-wrap: wrap; }.control-history strong { color: #4e5069; font-weight: 500; flex: 1; }.control-history small { width: 100%; }
+.task-query-error { color: #cc5151; overflow-wrap: anywhere; }.control-history { margin-top: 24px; color: #7c7f99; font-size: 12px; }.control-history h3 { color: #1a1b2e; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }.control-history > div { border-top: 1px solid #eeeff4; padding: 10px 0; display: flex; gap: 12px; flex-wrap: wrap; }.control-history strong { color: #4e5069; font-weight: 500; flex: 1; }.control-history small { width: 100%; }
+.search-parameters { margin-top: 24px; }.search-submit-alert { margin-top: 20px; }
 .bolt-icon, .shield-icon, .tool-video-icon { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }.bolt-icon, .tool-video-icon { color: #7c7f99; }.active .bolt-icon, .active .tool-video-icon { color: #575cf6; }.shield-icon { margin-top: 4px; }.task-name-field :deep(.el-input__count-inner) { background: transparent; }
 .material-date-filter { display: flex; align-items: center; border: 1px solid #e6e8f2; border-radius: 10px; padding-left: 10px; width: 310px; flex: 0 1 310px; height: 36px; box-sizing: border-box; }.material-date-filter > .el-icon { color: #7c7f99; margin-right: 6px; font-size: 12px; flex-shrink: 0; }.material-date-filter > span { color: #4e5069; font-size: 12px; white-space: nowrap; }.material-filters .material-date-filter :deep(.el-date-editor) { flex: 1 1 0; min-width: 0; width: 230px; min-height: 34px; height: 34px; background: transparent; border: 0; box-shadow: none; }.material-filters .material-date-filter :deep(.el-range__icon) { display: none; }
 .tools-header { display: flex; gap: 8px; align-items: baseline; padding-right: 30px; min-width: 0; }.tools-header h2 { color: #1a1b2e; font-size: 18px; font-weight: 600; margin: 0; white-space: nowrap; }.tools-header > span { color: #7c7f99; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

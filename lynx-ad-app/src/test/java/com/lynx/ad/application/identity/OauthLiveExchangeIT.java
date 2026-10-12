@@ -81,13 +81,13 @@ class OauthLiveExchangeIT extends AbstractContainerIT {
         assertFalse(cb.getResponse().getContentAsString().contains("live-access"));
 
         String enc = jdbc.queryForObject(
-                "select access_token_enc from oauth_account where tenant_id = ? and advertiser_id = 'adv_live_1'",
+                "select access_token_enc from oauth_account where tenant_id = ? and advertiser_id = '991001'",
                 String.class,
                 a.tenantId);
         assertNotEquals("live-access", enc);
         assertFalse(enc.contains("live-access"));
         String operator = jdbc.queryForObject(
-                "select authorized_by_user_id from oauth_account where tenant_id = ? and advertiser_id = 'adv_live_1'",
+                "select authorized_by_user_id from oauth_account where tenant_id = ? and advertiser_id = '991001'",
                 String.class,
                 a.tenantId);
         assertEquals(a.userId, operator);

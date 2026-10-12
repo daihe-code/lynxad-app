@@ -35,14 +35,20 @@ public class TokenRefreshJob {
         Instant now = Instant.now();
         Instant deadline = now.plus(OauthAccount.REFRESH_LEAD);
         for (OauthAccount account : repository.findDueRefresh(deadline)) {
+            if (commandService.liveAuthorizationEnabled() && account.grantId() == null) continue;
             if (!policy.due(account, now)) {
                 continue;
             }
             try {
-                commandService.applyPortRefresh(account);
-                repository.save(account);
+                commandService.refreshStoredTokens(account, false);
             } catch (Exception ex) {
                 log.warn("token refresh failed account={}", account.id().value());
+                if (account.grantId() != null) {
+                    OauthAccount current = repository.findById(account.tenantId(), account.id()).orElse(account);
+                    if ("UNUSABLE".equals(current.status())) inboxCommandService.post(
+                            current.tenantId(), "授权已失效", "请重新授权巨量千川", new BizRef("TOKEN_EXPIRED", current.id().value()));
+                    continue;
+                }
                 account.markRefreshFailed();
                 repository.save(account);
                 inboxCommandService.post(

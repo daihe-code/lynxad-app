@@ -384,6 +384,10 @@ public class LynxAdProperties {
     }
 
     public static class Qianchuan {
+        private String mode = "legacy";
+        public String getMode() { return mode; }
+        public void setMode(String value) { mode = value; }
+        public boolean isLive() { return "live".equalsIgnoreCase(mode); }
         private String appId = "";
         private String appSecret = "";
         private String redirectUri = "http://localhost:5173/oauth/callback";
@@ -473,7 +477,7 @@ public class LynxAdProperties {
 
         public boolean isOssConfigured() {
             return notBlank(oss.getEndpoint())
-                    && notBlank(oss.getBucket())
+                    && notBlank(oss.getImageBucket()) && notBlank(oss.getVoiceBucket()) && notBlank(oss.getVideoBucket())
                     && notBlank(oss.getAccessKeyId())
                     && notBlank(oss.getAccessKeySecret());
         }
@@ -485,7 +489,16 @@ public class LynxAdProperties {
 
     public static class Oss {
         private String endpoint = "";
-        private String bucket = "";
+        private String bucket = ""; // Legacy bucket, used only to read/migrate existing objects.
+        private String imageBucket = "lynxad-douyin-image";
+        private String voiceBucket = "lynxad-douyin-voice";
+        private String videoBucket = "lynxad-douyin-video";
+        public String getImageBucket(){return imageBucket;}
+        public void setImageBucket(String value){imageBucket=value;}
+        public String getVoiceBucket(){return voiceBucket;}
+        public void setVoiceBucket(String value){voiceBucket=value;}
+        public String getVideoBucket(){return videoBucket;}
+        public void setVideoBucket(String value){videoBucket=value;}
         private String region = "";
         private String prefix = "lynx-ad/";
         private String accessKeyId = "";
@@ -723,6 +736,15 @@ public class LynxAdProperties {
 
     /** 巨量开放平台 OAuth path，默认对照 Demo qianchuan-callback / refresh-token */
     public static class OauthApi {
+        private String ebpAdvertiserListUrl = "https://api.oceanengine.com/open_api/2/ebp/advertiser/list/";
+        private String shopAdvertiserListUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/shop/advertiser/list/";
+        private String customerAdvertiserListUrl = "https://api.oceanengine.com/open_api/2/customer_center/advertiser/list/";
+        public String getEbpAdvertiserListUrl() { return ebpAdvertiserListUrl; }
+        public void setEbpAdvertiserListUrl(String value) { ebpAdvertiserListUrl = value; }
+        public String getShopAdvertiserListUrl() { return shopAdvertiserListUrl; }
+        public void setShopAdvertiserListUrl(String value) { shopAdvertiserListUrl = value; }
+        public String getCustomerAdvertiserListUrl() { return customerAdvertiserListUrl; }
+        public void setCustomerAdvertiserListUrl(String value) { customerAdvertiserListUrl = value; }
         private String accessTokenUrl = "https://api.oceanengine.com/open_api/oauth2/access_token/";
         private String refreshTokenUrl = "https://ad.oceanengine.com/open_api/oauth2/refresh_token/";
         private String advertiserGetUrl = "https://api.oceanengine.com/open_api/oauth2/advertiser/get/";
@@ -740,12 +762,21 @@ public class LynxAdProperties {
 
     public static class CatalogApi {
         private String productGetUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/product/get/";
+        private String productPriceUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/product/available/get/";
+        private long priceCacheSeconds = 600;
 
         public String getProductGetUrl() { return productGetUrl; }
         public void setProductGetUrl(String productGetUrl) { this.productGetUrl = productGetUrl; }
+        public String getProductPriceUrl() { return productPriceUrl; }
+        public void setProductPriceUrl(String value) { productPriceUrl = value; }
+        public long getPriceCacheSeconds() { return priceCacheSeconds; }
+        public void setPriceCacheSeconds(long value) { priceCacheSeconds = value; }
     }
 
     public static class DeliveryApi {
+        private String operationLogUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/tools/log_search/";
+        public String getOperationLogUrl() { return operationLogUrl; }
+        public void setOperationLogUrl(String value) { operationLogUrl = value; }
         private String managementBaseUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/";
         private String compensateStatusUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/ad/compensate_status/get/";
         public String getManagementBaseUrl() { return managementBaseUrl; }
@@ -756,6 +787,8 @@ public class LynxAdProperties {
         private String suggestRoiUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/roi/";
         private String adCreateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/create/";
         private String adUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/update/";
+        private String adBudgetUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/budget/update/";
+        private String adRoiUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/roi2_goal/update/";
         private String adListUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/list/";
         private String adStatusUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/status/update/";
 
@@ -767,6 +800,10 @@ public class LynxAdProperties {
         public void setAdCreateUrl(String adCreateUrl) { this.adCreateUrl = adCreateUrl; }
         public String getAdUpdateUrl() { return adUpdateUrl; }
         public void setAdUpdateUrl(String adUpdateUrl) { this.adUpdateUrl = adUpdateUrl; }
+        public String getAdBudgetUpdateUrl() { return adBudgetUpdateUrl; }
+        public void setAdBudgetUpdateUrl(String value) { adBudgetUpdateUrl = value; }
+        public String getAdRoiUpdateUrl() { return adRoiUpdateUrl; }
+        public void setAdRoiUpdateUrl(String value) { adRoiUpdateUrl = value; }
         public String getAdListUrl() { return adListUrl; }
         public void setAdListUrl(String adListUrl) { this.adListUrl = adListUrl; }
         public String getAdStatusUrl() { return adStatusUrl; }

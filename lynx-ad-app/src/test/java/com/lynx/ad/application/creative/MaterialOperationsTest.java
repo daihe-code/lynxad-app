@@ -78,6 +78,20 @@ class MaterialOperationsTest {
         verify(storage, never()).put(any(), any(), any(), eq("image/jpeg"));
     }
 
+    @Test void liveModeCannotWriteFixtureMediaThroughTheLegacyWorker() {
+        properties.getMock().setAi(false);
+        var task = CreativeTask.submitStandard(tenant, Optional.empty(), List.of(product));
+        repository.save(task);
+        var chat = mock(ChatCompletionClient.class);
+
+        var error = assertThrows(BizException.class, () -> worker(chat).runNow(task.id()));
+
+        assertEquals(1503, error.code());
+        assertEquals(TaskStatus.FAILED, repository.findById(tenant, task.id()).orElseThrow().status());
+        assertTrue(repository.listPackagesByTenant(tenant).isEmpty());
+        verifyNoInteractions(chat, storage);
+    }
+
     @Test void regenerationFeedbackReachesTheWorkerAndRejectsOverlongDescriptions() {
         var original = seed();
         var feedback = new MaterialFeedback(List.of("画面质量不佳", "文案不符合预期"), "突出商品使用场景");

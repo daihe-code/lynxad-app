@@ -6,13 +6,13 @@ import com.lynx.ad.modules.identity.domain.service.AwemeCatalog;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 @Component
 @Primary
-@ConditionalOnProperty(prefix = "lynx.ad.mock", name = "qianchuan", havingValue = "true", matchIfMissing = true)
+@ConditionalOnExpression("'${lynx.ad.oauth.qianchuan.mode:legacy}' != 'live' && '${lynx.ad.mock.qianchuan:true}' == 'true'")
 public class MockOauthTokenAdapter implements OauthTokenPort {
 
     private final AwemeCatalog catalog = new AwemeCatalog();
@@ -22,6 +22,7 @@ public class MockOauthTokenAdapter implements OauthTokenPort {
         Instant exp = Instant.now().plusSeconds(3600);
         List<AwemeDraft> awemes = new ArrayList<>();
         for (AwemeType type : AwemeType.values()) {
+            if(type == AwemeType.AUTHORIZED) continue;
             awemes.add(new AwemeDraft(
                     "aweme_cb_" + type.name().toLowerCase(),
                     type.name() + "回调号",

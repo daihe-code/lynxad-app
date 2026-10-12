@@ -66,16 +66,20 @@ export interface LibraryResponse {
 }
 
 export interface AssetReview {
-  status: 'QUEUED' | 'RUNNING' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'MANUAL_REVIEW' | 'FAILED';
+  status: 'QUEUED' | 'RUNNING' | 'PENDING' | 'APPROVED' | 'NOT_REQUIRED' | 'REJECTED' | 'MANUAL_REVIEW' | 'FAILED';
   reviewId?: string; decision?: string; summary?: string; reasons: string[]; errorMessage?: string;
 }
 export interface AssetSync {
   id: string; accountId: string; advertiserId?: string; status: 'WAITING_STORAGE' | 'WAITING_REVIEW' | 'QUEUED' | 'RUNNING' | 'UPLOADED' | 'WAITING_AUTH' | 'FAILED' | 'UNCERTAIN' | 'PAUSED';
   objectId?: string; materialId?: string; requestId?: string; reviewStatus: string; attempts: number; errorMessage?: string;
 }
+export interface AssetStorageMetadata {
+  bucket?: string; objectKey?: string; endpoint?: string; pathVersion: string;
+  origin: 'LOCAL_UPLOAD' | 'AI_GENERATED'; durationMs?: number; etag?: string; previewAssetId?: string;
+}
 export interface UploadedAsset {
   id: string; kind: string; filename: string; sizeBytes: number; storageStatus: string; storageMode: string;
-  isAigc: boolean; md5?: string; width?: number; height?: number; textContent?: string; url: string; errorMessage?: string; createdAt: string; syncs: AssetSync[]; aiReview?: AssetReview | null;
+  isAigc: boolean; md5?: string; width?: number; height?: number; textContent?: string; url: string; errorMessage?: string; createdAt: string; syncs: AssetSync[]; aiReview?: AssetReview | null; storageMetadata?: AssetStorageMetadata;
 }
 export interface UploadInit { assetId: string; storageStatus: string; uploadMode: 'NONE' | 'PROXY' | 'OSS_MULTIPART'; ticket?: { uploadId: string; partSize: number; urls: string[] } }
 export interface CarouselDetail {

@@ -3,17 +3,17 @@
     <div class="title-row">
       <div class="title-group"><h1>广告投放管理</h1><span class="platform-chip">抖音 · 巨量千川</span></div>
       <div class="title-actions">
-        <el-popover :width="310" trigger="click" placement="bottom-end" popper-class="campaign-popover">
-          <template #reference><button class="snapshot-label" type="button" aria-label="查看统计口径"><el-icon><Calendar /></el-icon>最新数据<span v-if="snapshotDate"> · {{ snapshotDate }}</span><el-icon><ArrowDown /></el-icon></button></template>
-          <div class="popup-heading"><strong>统计口径</strong><el-icon><Calendar /></el-icon></div><div class="snapshot-info"><span>统计时间</span><strong>{{ snapshotDate || '暂无统计快照' }}</strong><p>概览和列表展示各计划最近一次同步的统计数据。</p><div class="snapshot-note">千川数据为今日累计；增长率与昨日全天比较。模拟数据与上次快照比较。</div></div>
-        </el-popover>
+        <div class="statistics-picker">
+          <el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" range-separator="至" start-placeholder="统计开始日期" end-placeholder="统计结束日期" :clearable="false" :shortcuts="rangeShortcuts" :disabled-date="disabledStatisticsDate" popper-class="campaign-date-picker" @calendar-change="onRangeCalendar" @visible-change="onRangeVisible" @change="applyStatisticsRange" />
+          <small :title="snapshotDate ? `数据同步时间：${snapshotDate}` : undefined">最多180天 · 含起止日期</small>
+        </div>
         <el-button class="square-button" :loading="syncing" aria-label="刷新数据" @click="syncRemote"><el-icon><Refresh /></el-icon></el-button>
       </div>
     </div>
     <el-alert v-if="!user.trialActive" class="trial-alert" type="warning" show-icon :closable="false" title="试用已结束，工作台只读。仍可查看历史计划与报表。" />
     <el-alert v-if="loadFailed && records.length" type="warning" :closable="false" title="列表加载失败，当前保留上次加载的数据，请重试" /><el-alert v-if="syncWarning" type="warning" show-icon :closable="false" :title="syncWarning" />
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
-      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2><span>当前筛选范围 · {{ summaryCoverage }}</span></div>
+      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2><span class="statistics-caption">{{ displayedRange[0] }} 至 {{ displayedRange[1] }} · {{ rangeDays(displayedRange) }}天 · {{ summaryCoverage }}</span></div>
       <div class="metrics">
         <article class="metric metric-cost"><span>广告消耗（元）</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
         <article class="metric metric-orders"><span>成交订单数（单）</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
@@ -52,7 +52,7 @@
       <div v-if="selectedIds.length" class="selection-bar">已选择 {{ selectedIds.length }} 条计划<el-button text type="primary" @click="selectedIds = []">取消选择</el-button><el-button text type="primary" @click="exportRows">导出已选</el-button></div>
       <div class="table-scroll" v-loading="loading">
         <table class="plan-table" :class="{ compact, 'without-tools': !showTools }">
-          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 112px"><col style="width: 192px"><col style="width: 116px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 116px"><col style="width: 80px"></colgroup>
+          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 112px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
           <thead><tr>
             <th><el-checkbox :model-value="allPageSelected" :indeterminate="somePageSelected && !allPageSelected" aria-label="选择本页全部计划" @change="togglePageSelection" /></th>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
@@ -63,32 +63,52 @@
             <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">
               <td><el-checkbox v-model="selectedIds" :value="row.planId" :aria-label="`选择计划 ${row.name}`" /></td>
               <td class="plan-info-cell">
-                <router-link class="plan-name" :to="`/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link>
+                  <router-link class="plan-name" :to="insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <div class="product-line">
-                  <el-popover v-if="row.products?.length" placement="bottom-start" :width="330" trigger="click" popper-class="campaign-popover">
-                    <template #reference><button class="product-trigger" :aria-label="`查看 ${row.name} 的 ${row.products.length} 件商品`"><span class="goods-thumb"><el-image v-if="row.products[0]?.imageUrl" :src="row.products[0].imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Picture /></el-icon></span>商品（{{ row.products.length }}）</button></template>
-                    <div class="popup-heading"><strong>投放商品</strong><span>{{ row.products.length }} 件商品</span></div><div class="product-preview-list"><div v-for="product in row.products" :key="product.id" class="product-preview"><span class="product-thumbnail"><el-image v-if="product.imageUrl" :src="product.imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Goods /></el-icon></span><div><strong>{{ product.name }}</strong><span>ID：{{ product.id }}</span></div></div></div>
-                  </el-popover>
+                  <template v-if="row.products?.length">
+                    <el-popover v-for="product in row.products" :key="product.id" placement="bottom-start" :width="330" :trigger="['hover', 'focus']" :show-after="150" :hide-after="100" popper-class="campaign-popover">
+                      <template #reference>
+                        <button type="button" class="product-trigger product-image-trigger" :aria-label="`查看商品：${product.name}`">
+                          <span class="goods-thumb"><el-image v-if="product.imageUrl" :src="product.imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Picture /></el-icon></span>
+                        </button>
+                      </template>
+                      <div class="popup-heading"><strong>投放商品</strong></div>
+                      <div class="product-preview"><span class="product-thumbnail"><el-image v-if="product.imageUrl" :src="product.imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Goods /></el-icon></span><div><strong>{{ product.name }}</strong><span>商品 ID：{{ product.id }}</span></div></div>
+                    </el-popover>
+                  </template>
                   <span v-else class="product-trigger muted"><span class="goods-thumb"><el-icon><Picture /></el-icon></span>商品（—）</span>
                   <span v-if="row.source === 'EXTERNAL'" class="source-tag external">外部</span>
                 </div>
                 <router-link v-if="alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
-              <td><span class="status-pill" :class="row.status.toLowerCase()"><i></i>{{ PLAN_STATUS[row.status] || row.status }}</span></td>
+              <td><span class="status-pill" :class="row.status.toLowerCase()" :title="row.qcStatus || row.status"><i></i>{{ planStatusLabel(row.status, row.qcStatus) }}</span></td>
               <td class="settings-cell">
                 <div><span>日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div class="roi-setting"><span>净成交ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><button v-if="canManage(row) && row.smartBidType === 'SMART_BID_CUSTOM'" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div class="bid-mode"><span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span></div>
+                <div v-if="row.smartBidType === 'SMART_BID_CONSERVATIVE'" class="roi-setting" :title="row.roiEstimate ? '千川对当前日预算的预估，非固定ROI目标，实际效果以平台为准' : '放量投放不设置固定ROI目标，平台暂无当前预算的ROI预估'"><span>预估净成交ROI</span><b>{{ estimateText(row.roiEstimate) }}</b></div>
+                <div v-else class="roi-setting"><span>净成交ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><button v-if="canManage(row) && row.smartBidType === 'SMART_BID_CUSTOM'" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div class="bid-mode">
+                  <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
+                  <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">{{ transferringId === row.planId ? '切换中…' : '↔ 转投' }}</button>
+                  <router-link v-else-if="canSwitchDraft(row)" class="inline-edit" :to="`/campaigns/${row.planId}/edit?step=2`" :aria-label="`切换 ${row.name} 的投放方式`"><el-icon><EditPen /></el-icon></router-link>
+                </div>
               </td>
-              <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ shortDate(row.startDate) }} ~ {{ row.endDate ? shortDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><div v-if="row.costYuan != null" class="metric-change-line"><MetricDelta :value="row.comparison?.costChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="消耗" /></div></td>
-              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="row.convert != null" class="metric-change-line"><MetricDelta :value="row.comparison?.convertChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="成交订单" /></div></td>
+              <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
+              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><small v-if="row.historicalMetrics && row.statisticsDate" class="statistics-date" :title="`本行消耗、订单、成交金额与ROI均为 ${row.statisticsDate} 的报表，今日暂无有效报表`">{{ row.statisticsDate }} 数据</small><div v-if="row.costYuan != null && !row.historicalMetrics" class="metric-change-line"><MetricDelta :value="row.comparison?.costChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="消耗" /></div></td>
+              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="row.convert != null && !row.historicalMetrics" class="metric-change-line"><MetricDelta :value="row.comparison?.convertChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="成交订单" /></div></td>
               <td class="number-cell gmv-cell"><strong>{{ yuan(row.gmvYuan) }}</strong></td>
-              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="支付 ROI" /></div></td>
-              <td v-if="showTools" class="tools-cell"><button v-for="tool in tools" :key="tool" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}<span>+</span></button></td>
+              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null && !row.historicalMetrics" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="支付 ROI" /></div></td>
+              <td v-if="showTools" class="tools-cell">
+                <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
+                  <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
+                  <el-tooltip v-if="canViewToolReport(row, tool)" :content="`查看${tool}报表`"><button type="button" class="tool-report" :aria-label="`查看${tool}报表 ${row.qcPlanId}`" @click="openToolReport(row, tool)"><el-icon><DataAnalysis /></el-icon></button></el-tooltip>
+                  <span v-else aria-hidden="true" />
+                  <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
+                </div>
+              </td>
               <td class="actions-cell">
-                <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link><button v-if="canManage(row)" @click="openOperation('修改计划', row)">修改</button><router-link v-else-if="row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status)" :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
+                <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link><router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status))" :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
+                <button type="button" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
             <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 11 : 10" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
@@ -97,31 +117,52 @@
       </div>
       <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
-    <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" :initial-bid-type="operationBidType" @saved="load" />
+    <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" @saved="load" />
     <el-dialog v-model="confirmOpen" :title="confirmPlan?.status === 'DELIVERING' ? '暂停计划提醒' : '启用投放计划'" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!actingId" :show-close="!actingId" :before-close="closeConfirmation">
-      <div class="confirmation-intro"><span class="confirmation-icon" :class="{ resume: confirmPlan?.status === 'PAUSED' }"><el-icon><component :is="confirmPlan?.status === 'DELIVERING' ? VideoPause : VideoPlay" /></el-icon></span><div><strong>{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停该计划？' : '确认恢复该计划的投放？' }}</strong><p>{{ confirmPlan?.status === 'DELIVERING' ? '暂停后计划将停止投放，可在列表中重新启用。' : '启用后计划将恢复投放，请确认当前预算和目标。' }}</p></div></div>
-      <div class="confirmation-plan"><strong>{{ confirmPlan?.name }}</strong><span>ID：{{ confirmPlan?.qcPlanId || confirmPlan?.planId }}</span><div><span>日预算 <b>{{ yuan(confirmPlan?.budget) }}</b></span><span>ROI 目标 <b>{{ roiText(confirmPlan?.roi2Goal) }}</b></span></div></div>
+      <div class="confirmation-intro"><span class="confirmation-icon" :class="{ resume: confirmPlan?.status === 'PAUSED' }"><el-icon><component :is="confirmPlan?.status === 'DELIVERING' ? VideoPause : VideoPlay" /></el-icon></span><div><strong>{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停该计划？' : '确认恢复该计划的投放？' }}</strong><p>{{ confirmPlan?.status === 'DELIVERING' ? '暂停后计划将停止投放，可在列表中重新启用。' : '启用后计划将恢复投放；如有关联的转投计划，会先暂停另一种投放方式。请确认当前预算和目标。' }}</p></div></div>
+      <div class="confirmation-plan"><strong>{{ confirmPlan?.name }}</strong><span>ID：{{ confirmPlan?.qcPlanId || confirmPlan?.planId }}</span><div><span>日预算 <b>{{ yuan(confirmPlan?.budget) }}</b></span><span>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? '预估净成交ROI' : 'ROI 目标' }} <b>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? estimateText(confirmPlan?.roiEstimate) : roiText(confirmPlan?.roi2Goal) }}</b></span></div></div>
       <template #footer><el-button :disabled="!!actingId" @click="confirmOpen = false">取消</el-button><el-button type="primary" :loading="!!actingId" @click="confirmAction">{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停' : '确认启用' }}</el-button></template>
     </el-dialog>
+    <el-dialog v-model="deleteOpen" title="删除投放计划" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!deletingId" :show-close="!deletingId" :before-close="closeDeleteConfirmation">
+      <div class="confirmation-intro"><span class="confirmation-icon delete-icon"><el-icon><Delete /></el-icon></span><div><strong>确认删除该计划？</strong><p>{{ deleteTarget?.qcPlanId ? '计划将从千川和当前列表中删除，删除后无法恢复。' : '该草稿将从列表中删除，删除后无法恢复。' }}仅删除当前计划，关联的转投计划和共用素材会保留。</p></div></div>
+      <div class="confirmation-plan"><strong>{{ deleteTarget?.name }}</strong><span>ID：{{ deleteTarget?.qcPlanId || deleteTarget?.planId }}</span><div><span>{{ BID_TYPE[deleteTarget?.smartBidType || ''] || '未设置投放方式' }}</span><span>{{ planStatusLabel(deleteTarget?.status || '') }}</span></div></div>
+      <template #footer><el-button :disabled="!!deletingId" @click="deleteOpen = false">取消</el-button><el-button type="danger" :loading="!!deletingId" @click="confirmDelete">确认删除</el-button></template>
+    </el-dialog>
+    <ControlTaskReport v-model="quickReportOpen" :plan-id="quickReportPlan?.planId || ''" :plan-name="quickReportPlan?.name" :task="quickReportTask" :tasks="quickReportTasks" :tasks-loading="quickReportLoading" :tasks-error="quickReportError" :kind="quickReportKind" :initial-range="quickReportRange" @select-task="selectQuickReportTask" @reload-tasks="loadQuickReportTasks" />
+    <el-drawer :model-value="!!insightsPlanId" :with-header="false" size="min(1180px, 80vw)" class="plan-insights-drawer" destroy-on-close @update:model-value="onInsightsVisible">
+      <button type="button" class="insights-close" aria-label="关闭计划运营面板" @click="closeInsights">×</button>
+      <PlanInsights v-if="insightsPlanId" :key="insightsPlanId" :plan-id="insightsPlanId" :tab="insightsTab" :initial-range="insightsRange" @tab="setInsightsTab" @range="setInsightsRange" @changed="load()" />
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, ArrowRight, Calendar, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, ArrowRight, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
-import { actPlan, listPlans, syncPlans, type PlanListVo, type PageResult } from '@/features/delivery/deliveryApi';
+import PlanInsights from './PlanInsights.vue';
+import ControlTaskReport from './components/ControlTaskReport.vue';
+import { actPlan, deletePlan, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult } from '@/features/delivery/deliveryApi';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
-import { BID_TYPE, PLAN_STATUS, roiText, yuan } from '@/utils/labels';
+import { BID_TYPE, PLAN_STATUS, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
+import { recentRange, rangeDays, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
 
 const user = useUserStore();
-const router = useRouter(), wizard = useWizardStore();
+const router = useRouter(), route = useRoute(), wizard = useWizardStore();
+const insightsPlanId = computed(() => typeof route.query.plan === 'string' ? route.query.plan : '');
+const insightsTab = computed(() => typeof route.query.tab === 'string' ? route.query.tab : 'data');
+const insightsRange = computed<StatisticsRange>(() => typeof route.query.planStart === 'string' && typeof route.query.planEnd === 'string' ? [route.query.planStart, route.query.planEnd] : [...displayedRange.value]);
+function insightsLink(id: string) { return { path: '/campaigns', query: { ...route.query, plan: id, tab: 'data', planStart: displayedRange.value[0], planEnd: displayedRange.value[1] } }; }
+function closeInsights() { const { plan, tab, planStart, planEnd, ...query } = route.query; void router.replace({ path: '/campaigns', query }); }
+function onInsightsVisible(value: boolean) { if (!value) closeInsights(); }
+function setInsightsTab(tab: string) { void router.replace({ query: { ...route.query, tab } }); }
+function setInsightsRange(range: StatisticsRange) { void router.replace({ query: { ...route.query, planStart: range[0], planEnd: range[1] } }); }
 function startCreate() {
   if (!user.trialActive) return;
   wizard.reset();
@@ -131,7 +172,7 @@ const loading = ref(false), summaryLoading = ref(false), loadFailed = ref(false)
 const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = ref('');
 const accounts = ref<AccountVo[]>([]);
 const keyword = ref(''), status = ref(''), bidType = ref('');
-const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(7);
+const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(null);
 const records = ref<PlanListVo[]>([]), selectedIds = ref<string[]>([]);
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
@@ -140,11 +181,61 @@ const metricColumns: { field: SortField; label: string }[] = [{ field: 'costYuan
 const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
 const summary = ref<PageResult<PlanListVo>['summary']>();
 const summaryCoverage = computed(() => summary.value ? `${summary.value.covered}/${summary.value.plans} 个计划有统计数据` : '暂无统计数据');
-const snapshotDate = ref(''), actingId = ref('');
+const snapshotDate = ref(''), actingId = ref(''), transferringId = ref('');
+const statisticsRange = ref<StatisticsRange>(recentRange(7));
+const rangeDraft = ref<StatisticsRange>([...statisticsRange.value]);
+const displayedRange = ref<StatisticsRange>([...statisticsRange.value]);
+const calendarStart = ref<string | null>(null);
+const pickerDate = (day: string) => new Date(`${day}T00:00:00`);
+const rangeShortcuts = [
+  { text: '今天', value: () => recentRange(1).map(pickerDate) },
+  { text: '昨天', value: () => { const day = shiftDay(shanghaiToday(), -1); return [pickerDate(day), pickerDate(day)]; } },
+  ...[7, 30, 180].map(days => ({ text: `近${days}天`, value: () => recentRange(days).map(pickerDate) })),
+];
+function calendarDay(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
+function disabledStatisticsDate(date: Date) {
+  const day = calendarDay(date);
+  if (day > shanghaiToday()) return true;
+  return calendarStart.value != null && Math.abs(Date.parse(`${day}T00:00:00Z`) - Date.parse(`${calendarStart.value}T00:00:00Z`)) / 86400000 >= 180;
+}
+function onRangeCalendar(values: [Date, Date | null]) { calendarStart.value = values[1] ? null : calendarDay(values[0]); }
+function onRangeVisible(visible: boolean) { if (!visible) calendarStart.value = null; }
+function applyStatisticsRange(value: StatisticsRange | null) {
+  calendarStart.value = null;
+  if (!value) { rangeDraft.value = [...statisticsRange.value]; return; }
+  const error = rangeError(value);
+  if (error) { ElMessage.warning(error); rangeDraft.value = [...statisticsRange.value]; return; }
+  statisticsRange.value = [...value];
+}
 const tools = ['一键起量', '素材追投', '搜索抢首屏'];
+const quickReportOpen = ref(false), quickReportPlan = ref<PlanListVo>(), quickReportKind = ref('');
+const quickReportTask = ref<ControlTask>(), quickReportTasks = ref<ControlTask[]>([]);
+const quickReportLoading = ref(false), quickReportError = ref(''), quickReportRange = ref<StatisticsRange>(recentRange(7));
+let quickReportSerial = 0;
+function canViewToolReport(row: PlanListVo, tool: string) { return row.smartBidType === 'SMART_BID_CUSTOM' && !!row.qcPlanId && ['一键起量', '素材追投'].includes(tool); }
+function openToolReport(row: PlanListVo, tool: string) {
+  if (!canViewToolReport(row, tool)) return;
+  quickReportPlan.value = row; quickReportKind.value = tool; quickReportRange.value = [...displayedRange.value]; quickReportOpen.value = true;
+  void loadQuickReportTasks();
+}
+async function loadQuickReportTasks() {
+  const turn = ++quickReportSerial, planId = quickReportPlan.value?.planId, kind = quickReportKind.value;
+  quickReportTask.value = undefined; quickReportTasks.value = []; quickReportError.value = ''; quickReportLoading.value = true;
+  if (!quickReportOpen.value || !planId) { quickReportLoading.value = false; return; }
+  try {
+    const tasks = await listControlTasks(planId, kind, [...quickReportRange.value]);
+    if (turn !== quickReportSerial || !quickReportOpen.value) return;
+    quickReportTasks.value = tasks.filter(task => task.task_status !== 'DELETED').sort((a, b) => (b.create_time || '').localeCompare(a.create_time || ''));
+    quickReportTask.value = quickReportTasks.value[0];
+  } catch (e: any) { if (turn === quickReportSerial && quickReportOpen.value) quickReportError.value = e?.response?.data?.message || e?.message || '调控任务加载失败，请重试'; }
+  finally { if (turn === quickReportSerial) quickReportLoading.value = false; }
+}
+function selectQuickReportTask(id: string) { quickReportTask.value = quickReportTasks.value.find(task => task.id === id); }
+watch(quickReportOpen, value => { if (!value) { quickReportSerial++; quickReportLoading.value = false; quickReportTask.value = undefined; quickReportTasks.value = []; quickReportError.value = ''; } });
+onUnmounted(() => { quickReportSerial++; });
 const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<PlanListVo | null>(null);
-const operationBidType = ref<string>();
 const confirmOpen = ref(false), confirmPlan = ref<PlanListVo | null>(null);
+const deleteOpen = ref(false), deleteTarget = ref<PlanListVo | null>(null), deletingId = ref('');
 const platformOptions = [{ value: 'ALL', label: '商品全域投放' }, { value: 'STANDARD', label: '标准投放' }];
 const bidOptions = [{ value: 'SMART_BID_CUSTOM', label: '控成本投放' }, { value: 'SMART_BID_CONSERVATIVE', label: '放量投放' }];
 try { const settings = JSON.parse(localStorage.getItem('lynx.campaign.display') || '{}'); compact.value = settings.compact === true; showTools.value = settings.showTools !== false; if ([10, 20, 50].includes(settings.pageSize)) pageSize.value = settings.pageSize; } catch { /* Use defaults for invalid preferences. */ }
@@ -152,9 +243,20 @@ watch([compact, showTools, pageSize], () => { try { localStorage.setItem('lynx.c
 const money = (value: number) => value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const budgetText = (value?: number | null) => value == null ? '—' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 const goalText = (value?: number | null) => value == null ? '—' : Number(value).toString();
-const shortDate = (date: string) => date.slice(5, 10);
+const fullDate = (date: string) => date.slice(0, 10);
+function estimateText(estimate: PlanListVo['roiEstimate']) {
+  if (estimate?.min != null && estimate.max != null) return `${goalText(estimate.min)}～${goalText(estimate.max)}`;
+  if (estimate?.value != null) return goalText(estimate.value);
+  if (estimate?.min != null) return `不低于 ${goalText(estimate.min)}`;
+  if (estimate?.max != null) return `不高于 ${goalText(estimate.max)}`;
+  return '暂无预估';
+}
 function roiClass(row: PlanListVo) { return row.roi != null && row.roi > 0 ? 'roi-good' : ''; }
 const canManage = (row: PlanListVo) => user.trialActive && row.canEdit === true;
+const canDelete = (row: PlanListVo) => user.trialActive && (row.qcPlanId
+  ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
+  : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
+const canSwitchDraft = (row: PlanListVo) => user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
 const pagedRows = computed(() => records.value);
@@ -163,7 +265,7 @@ const somePageSelected = computed(() => pagedRows.value.some(r => selectedIds.va
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
 let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
-watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending], () => { pageNum.value = 1; selectedIds.value = []; scheduleLoad(); });
+watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange], () => { requestVersion++; pageNum.value = 1; selectedIds.value = []; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
 onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; });
 function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
@@ -178,15 +280,16 @@ function remainingDays(date: string) {
   const days = Math.round((new Date(`${date}T00:00:00`).getTime() - now.getTime()) / 86400000);
   return days < 0 ? '投放时间已结束' : days === 0 ? '今日结束' : `剩余 ${days} 天`;
 }
-function openOperation(title: string, row: PlanListVo, bidType?: string) { operationKind.value = title; operationPlan.value = row; operationBidType.value = bidType; operationOpen.value = true; }
-async function load() {
+function openOperation(title: string, row: PlanListVo) { operationKind.value = title; operationPlan.value = row; operationOpen.value = true; }
+async function load(refreshStatistics = false) {
   const version = ++requestVersion;
   loading.value = true; summaryLoading.value = true; loadFailed.value = false;
   const plansTask = (async () => {
     try {
-      const result = await listPlans(pageNum.value, pageSize.value, queryFilters());
+      const result = await listPlans(pageNum.value, pageSize.value, { ...queryFilters(), refreshStatistics });
       if (version !== requestVersion) return;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
+      if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
       snapshotDate.value = result.summary?.snapshotTs ? new Date(result.summary.snapshotTs).toLocaleString('zh-CN') : '';
       selectedIds.value = selectedIds.value.filter(id => records.value.some(r => r.planId === id));
     } catch { if (version === requestVersion) loadFailed.value = true; }
@@ -200,20 +303,20 @@ async function load() {
   })();
   await Promise.all([plansTask, alertsTask]);
 }
-function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value }; }
-async function syncRemote() {
+function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value, startDate: statisticsRange.value[0], endDate: statisticsRange.value[1] }; }
+async function syncRemote(notify = true) {
   if (syncing.value) return;
   syncing.value = true;
   try {
     const result = await syncPlans(accountId.value || undefined);
     syncWarning.value = result.accounts.flatMap(a => a.warnings.map(w => `${accounts.value.find(x => x.accountId === a.accountId)?.accountName || a.accountId}：${w}`)).join('；');
-    if (!syncWarning.value) ElMessage.success(result.accounts.length ? '账户计划已同步' : '没有可同步的有效授权账户');
-    await load();
-  } catch { /* Keep local records and let the API interceptor display the error. */ }
+    if (notify && !syncWarning.value) ElMessage.success(result.accounts.length ? '账户计划已同步' : '没有可同步的有效授权账户');
+    await load(true);
+  } catch { syncWarning.value = '千川同步失败，已保留最近同步的计划，请稍后刷新重试。'; }
   finally { syncing.value = false; }
 }
 function onAct(row: PlanListVo) {
-  if (actingId.value || !canManage(row)) return;
+  if (actingId.value || transferringId.value || deletingId.value || !canManage(row)) return;
   confirmPlan.value = row; confirmOpen.value = true;
 }
 function closeConfirmation(done: () => void) { if (!actingId.value) done(); }
@@ -226,26 +329,92 @@ async function confirmAction() {
   catch { /* API interceptor displays the error. */ }
   finally { actingId.value = ''; }
 }
+function onDelete(row: PlanListVo) {
+  if (deletingId.value || actingId.value || transferringId.value || !canDelete(row)) return;
+  deleteTarget.value = row; deleteOpen.value = true;
+}
+function closeDeleteConfirmation(done: () => void) { if (!deletingId.value) done(); }
+async function confirmDelete() {
+  const row = deleteTarget.value;
+  if (!row || deletingId.value || !canDelete(row)) return;
+  deletingId.value = row.planId;
+  try {
+    await deletePlan(row.planId);
+    requestVersion++;
+    deleteOpen.value = false; deleteTarget.value = null;
+    records.value = records.value.filter(p => p.planId !== row.planId);
+    selectedIds.value = selectedIds.value.filter(id => id !== row.planId);
+    total.value = Math.max(0, total.value - 1);
+    pageNum.value = Math.min(pageNum.value, Math.max(1, Math.ceil(total.value / pageSize.value)));
+    ElMessage.success('计划已删除');
+    await nextTick(); clearTimeout(loadTimer);
+    await load(true);
+  } catch { /* Keep the confirmation open; API interceptor displays the platform error. */ }
+  finally { deletingId.value = ''; }
+}
+async function onTransfer(row: PlanListVo) {
+  if (transferringId.value || actingId.value || deletingId.value || !canManage(row) || !row.qcPlanId || row.canTransfer === false) return;
+  transferringId.value = row.planId;
+  let submitted = false;
+  const settingsPath = `/campaigns/${row.planId}/transfer?step=2`;
+  try {
+    const context = await getPlanTransfer(row.planId);
+    if (context.pendingKey) { await router.push(settingsPath); return; }
+    if (!context.available) { ElMessage.warning(context.reason || '当前计划无法转投，请刷新后重试'); return; }
+    if (context.currentQcPlanId !== row.qcPlanId) { ElMessage.warning('当前计划已变化，请确认刷新后的投放方式'); await load(); return; }
+    if (!context.reuse) { await router.push(settingsPath); return; }
+    submitted = true;
+    const result = await switchTransferredPlan(row.planId, { requestKey: crypto.randomUUID(), expectedQcPlanId: context.currentQcPlanId });
+    if (result.status === 'SUCCEEDED') { ElMessage.success(`已切换为${BID_TYPE[context.targetMode] || '另一种投放方式'}，原计划已暂停`); await load(); }
+    else if (result.status === 'FAILED') { ElMessage.error(result.message); await load(); }
+    else { ElMessage.warning(result.message); await router.push(settingsPath); }
+  } catch {
+    if (submitted) { ElMessage.warning('转投结果待确认，请核查结果后再操作'); await router.push(settingsPath); }
+  } finally { transferringId.value = ''; }
+}
 async function exportRows() {
+  const exportFilters = { ...queryFilters(), startDate: displayedRange.value[0], endDate: displayedRange.value[1] };
   let rows = selectedIds.value.length ? filtered.value.filter(r => selectedIds.value.includes(r.planId)) : [...records.value];
   if (!selectedIds.value.length) {
     try {
-      const first = await listPlans(1, 100, queryFilters()); rows = [...first.records];
-      for (let page = 2; page <= Math.ceil(first.total / 100); page++) rows.push(...(await listPlans(page, 100, queryFilters())).records);
+      const first = await listPlans(1, 100, exportFilters); rows = [...first.records];
+      for (let page = 2; page <= Math.ceil(first.total / 100); page++) rows.push(...(await listPlans(page, 100, exportFilters)).records);
     } catch { return; }
   }
   // Neutralize spreadsheet formulas in names and IDs before producing CSV.
   const cell = (value: unknown) => { let s = value == null ? '' : String(value); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return `"${s.replaceAll('"', '""')}"`; };
-  const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '开始日期', '结束日期', '广告消耗', '成交订单', '成交金额', '支付ROI'];
-  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, PLAN_STATUS[r.status] || r.status, BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, r.costYuan, r.convert, r.gmvYuan, r.roi])].map(row => row.map(cell).join(',')).join('\r\n');
+  const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '投放开始日期', '投放结束日期', '广告消耗', '成交订单', '成交金额', '支付ROI', '统计开始日期', '统计结束日期', '数据同步时间'];
+  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, PLAN_STATUS[r.status] || r.status, BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, r.costYuan, r.convert, r.gmvYuan, r.roi, exportFilters.startDate, exportFilters.endDate, r.snapshotTs])].map(row => row.map(cell).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
   const link = document.createElement('a'); link.href = url; link.download = `投放计划-${new Date().toLocaleDateString('sv-SE')}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   ElMessage.success(`已导出 ${rows.length} 条计划`);
 }
-onMounted(async () => { accounts.value = await listAccounts().catch(() => []); await load(); });
+onMounted(async () => {
+  accounts.value = (await listAccounts().catch(() => [])).filter(a => a.platform === 'QIANCHUAN' && a.credentialSource !== 'MOCK');
+  await load();
+  if (accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
+});
 </script>
 
 <style scoped>
+.statistics-picker { display: flex; flex-direction: column; gap: 4px; }
+.statistics-picker :deep(.el-date-editor) { width: 300px; height: 38px; border-radius: 10px; }
+.statistics-picker small { color: #878aa4; font-size: 11px; padding-left: 8px; }
+.statistics-caption { text-align: right; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .statistics-picker { flex: 1; min-width: 0; }
+  .statistics-picker :deep(.el-date-editor) { width: 100%; min-width: 0; }
+  .title-actions { width: 100%; }
+  .overview .section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .statistics-caption { text-align: left; }
+  :global(.campaign-date-picker) { max-width: calc(100vw - 24px); max-height: 75vh; overflow: auto; }
+  :global(.campaign-date-picker .el-date-range-picker) { width: calc(100vw - 24px); min-width: 0; }
+  :global(.campaign-date-picker .el-picker-panel__sidebar) { position: static; width: 100%; display: flex; flex-wrap: wrap; }
+  :global(.campaign-date-picker .el-picker-panel__shortcut) { width: auto; }
+  :global(.campaign-date-picker .el-picker-panel__body) { display: block; margin-left: 0; min-width: 0; width: 100%; }
+  :global(.campaign-date-picker .el-date-range-picker__content) { display: block; float: none; width: 100%; border: 0; box-sizing: border-box; }
+}
+.number-cell .statistics-date { display: block; margin-top: 5px; font-size: 10px; line-height: 16px; color: #7c7f99; white-space: nowrap; }
 .campaign-page { --el-color-primary: #575cf6; --el-color-primary-light-3: #9189f8; --el-color-primary-light-9: #f0eeff; --el-border-radius-base: 8px; color: #303044; }
 .title-row, .title-group, .title-actions, .section-heading, .toolbar, .toolbar-left, .toolbar-right, .pager { display: flex; align-items: center; }
 .title-row { justify-content: space-between; gap: 16px; margin: 8px 0 19px; }.title-group { gap: 14px; }
@@ -262,7 +431,7 @@ h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; color: #25
 .toolbar :deep(.el-input__wrapper.is-focus), .toolbar :deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px #575cf6 inset; }.toolbar :deep(.square-button), .title-actions :deep(.square-button) { width: 38px; padding: 0; }.toolbar :deep(.square-button .el-icon) { margin: 0; }
 .filter-active { color: #575cf6; border-color: #bcb7fb; background: #f7f6ff; }.filter-dot { width: 5px; height: 5px; border-radius: 50%; background: #575cf6; margin-left: 4px; }.column-setting { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 13px; }
 .selection-bar { display: flex; align-items: center; gap: 12px; font-size: 12px; background: #f4f2ff; color: #575cf6; padding: 4px 12px; border-radius: 8px; margin-bottom: 12px; }.table-scroll { overflow-x: auto; }
-.plan-table { border-collapse: collapse; width: 100%; min-width: 1328px; table-layout: fixed; text-align: left; }.plan-table.without-tools { min-width: 1212px; }
+.plan-table { border-collapse: collapse; width: 100%; min-width: 1424px; table-layout: fixed; text-align: left; }.plan-table.without-tools { min-width: 1288px; }
 th { background: #f7f8fb; padding: 13px 8px; color: #8b899d; font-size: 12px; font-weight: 500; white-space: nowrap; }th:first-child { border-radius: 8px 0 0 8px; padding-left: 12px; }th:last-child { border-radius: 0 8px 8px 0; }
 td { vertical-align: top; border-bottom: 1px solid #f0eff5; padding: 18px 8px; font-size: 12px; line-height: 20px; }td:first-child { padding-left: 12px; }tbody tr:hover, tbody tr.selected { background: #faf9ff; }.compact td { padding-top: 10px; padding-bottom: 10px; }
 .plan-table :deep(.el-checkbox) { height: 18px; vertical-align: top; }.plan-table :deep(.el-checkbox__inner) { border-color: #dbd9e9; border-radius: 4px; }.plan-table :deep(.is-checked .el-checkbox__inner) { border-color: #575cf6; }
@@ -290,7 +459,9 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .status-pill { font-size: 12px; font-weight: 500; }.status-pill.delivering { color: #0ba05f; }.status-pill.paused { color: #cc8b19; }.status-pill.rejected { color: #d54c54; }
 .settings-cell { font-size: 13px; color: #4e5069; }.settings-cell b { font-weight: 500; color: #4e5069; }.settings-cell b.roi-goal { color: #0ba05f; }.bid-mode { color: #4e5069; }.inline-edit { color: #575cf6; padding: 2px 5px; }.schedule-cell { color: #4e5069; font-size: 13px; line-height: 20px; }.schedule-cell small { color: #7c7f99; font-size: 12px; }
 .number-cell { color: #1a1b2e; }.number-cell small { color: #7c7f99; font-size: 12px; }.number-cell.roi-good { color: #0ba05f; }
-.tools-cell button, .actions-cell button, .actions-cell a { font-size: 13px; line-height: 22px; }.tools-cell button { color: #4e5069; }.tools-cell button span { color: #575cf6; }.actions-cell a, .actions-cell button { color: #4348db; }.actions-cell button.pause-action { color: #e5484d; }.actions-cell button.enable-action { color: #0ba05f; }.tools-cell button:disabled, .tools-cell button:disabled span, .actions-cell button:disabled { color: #a3a6bb; }
+.tools-cell button, .actions-cell button, .actions-cell a { font-size: 13px; line-height: 22px; }.tools-cell button { color: #4e5069; }.tools-cell button span { color: #575cf6; }.actions-cell a, .actions-cell button { color: #4348db; }.actions-cell button.pause-action, .actions-cell button.delete-action { color: #e5484d; }.actions-cell button.enable-action { color: #0ba05f; }.tools-cell button:disabled, .tools-cell button:disabled span, .actions-cell button:disabled { color: #a3a6bb; }
+.tool-shortcuts{display:grid;grid-template-columns:minmax(0,1fr) 22px 18px;align-items:center;gap:3px;min-height:26px}.tools-cell .tool-name{width:auto;white-space:nowrap}.tools-cell .tool-report{width:22px;height:24px;justify-content:center;color:#575cf6;border-radius:4px}.tools-cell .tool-report:hover{background:#eeedff}.tool-report .el-icon{font-size:16px}.tools-cell .tool-add{width:18px;justify-content:center;font-size:16px;color:#575cf6}.tools-cell button:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
+.confirmation-icon.delete-icon { color: #e5484d; background: #fff0f0; }
 .muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.analytics-link { color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
 .toolbar.expanded { margin-bottom: 16px; }
 .extra-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; border-top: 1px solid #eeeff4; padding-top: 14px; margin-bottom: 18px; }
@@ -306,19 +477,23 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .confirmation-intro { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 20px; }.confirmation-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #fff3e9; color: #d79a3a; flex-shrink: 0; font-size: 22px; }.confirmation-icon.resume { background: #eaf8ee; color: #0ba05f; }.confirmation-intro strong { font-weight: 600; color: #1a1b2e; font-size: 15px; }.confirmation-intro p { color: #7c7f99; font-size: 13px; line-height: 22px; margin: 8px 0 0; }.confirmation-plan { border: 1px solid #e6e8f2; border-radius: 10px; padding: 14px; margin-bottom: 24px; background: #fafbfe; }.confirmation-plan > strong { display: block; font-size: 13px; font-weight: 500; color: #4e5069; overflow-wrap: anywhere; }.confirmation-plan > span { display: block; font-size: 12px; color: #7c7f99; margin-top: 5px; overflow-wrap: anywhere; }.confirmation-plan > div { display: flex; gap: 24px; margin-top: 12px; font-size: 12px; color: #7c7f99; }.confirmation-plan b { color: #4e5069; font-weight: 500; margin-left: 4px; }
 .plan-info-cell .plan-name { color: #575cf6; line-height: 21px; }.plan-info-cell .plan-name:hover { color: #4348db; }.plan-info-cell .plan-id { margin-top: 1px; line-height: 21px; }.product-line { margin-top: 8px; min-height: 22px; }.product-trigger { gap: 8px; font-size: 13px; }.goods-thumb { display: inline-grid; place-items: center; width: 22px; height: 22px; background: #f7f8fa; border-radius: 4px; color: #9a9eb6; flex-shrink: 0; }.goods-thumb .el-image { width: 22px; height: 22px; border-radius: 4px; }.goods-thumb > .el-icon { font-size: 16px; }
 .settings-cell > div { gap: 4px; line-height: 22px; }.settings-cell b { font-size: 14px; font-weight: 600; }.settings-cell .roi-setting, .settings-cell .roi-setting b { color: #0ba05f; font-size: 13px; }.settings-cell .bid-mode { display: flex; gap: 8px; }
-.bid-edit { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; color: #575cf6; background: none; cursor: pointer; font-size: 12px; line-height: 22px; opacity: 0; pointer-events: none; transition: opacity .15s; }.bid-edit .el-icon { font-size: 14px; }tr:hover .bid-edit, tr:focus-within .bid-edit { opacity: 1; pointer-events: auto; }.bid-edit:focus-visible { opacity: 1; pointer-events: auto; }
+.bid-mode-info { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; padding: 0; cursor: help; }.bid-mode-info .el-icon { color: #7c7f99; font-size: 12px; }.bid-mode-info:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
+.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
 .schedule-range { display: block; white-space: nowrap; }.schedule-cell small { display: block; margin-top: 1px; line-height: 20px; }
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; }.metric { padding: 16px; }.metric strong { font-size: 22px; } }
 @media (max-width: 700px) { .title-row { align-items: flex-start; flex-direction: column; gap: 16px; }.title-group { flex-wrap: wrap; gap: 12px; }h1 { font-size: 21px; }.panel { padding: 20px 16px; border-radius: 18px; }.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.metric strong { font-size: 20px; }.toolbar-left { width: 100%; }.search-input { width: 100%; order: 3; }.toolbar-right { flex-wrap: wrap; }.pager { flex-wrap: wrap; justify-content: flex-start; }.pager :deep(.el-pagination) { flex-wrap: wrap; row-gap: 10px; } }
 .plan-info-cell .plan-name { color: #7c7f99; }
 tr:hover .plan-info-cell .plan-name, tr:focus-within .plan-info-cell .plan-name { color: #575cf6; }
-.goods-thumb { width: 0; opacity: 0; overflow: hidden; transition: width .18s, opacity .18s; }
-.product-trigger { gap: 0; }
-tr:hover .goods-thumb, tr:focus-within .goods-thumb { width: 26px; height: 26px; opacity: 1; }
-tr:hover .product-trigger, tr:focus-within .product-trigger { gap: 8px; }
-.goods-thumb .el-image { width: 26px; height: 26px; }
+.product-line { flex-wrap: wrap; }
+.product-image-trigger { border-radius: 6px; flex-shrink: 0; }
+.product-image-trigger:hover, .product-image-trigger:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
+.goods-thumb { width: 36px; height: 36px; border: 1px solid #eeedf6; border-radius: 6px; overflow: hidden; }
+.goods-thumb .el-image { width: 100%; height: 100%; border-radius: 6px; }
 .bid-edit { max-width: 0; opacity: 0; overflow: hidden; padding: 0; transition: max-width .18s, opacity .18s; }
 tr:hover .bid-edit, tr:focus-within .bid-edit { max-width: 120px; opacity: 1; }
-@media (hover: none) { .goods-thumb { width: 26px; height: 26px; opacity: 1; } .product-trigger { gap: 8px; } .bid-edit { max-width: 120px; opacity: 1; } }
+@media (hover: none) { .bid-edit { max-width: 120px; opacity: 1; } }
+</style>
+<style>
+.plan-insights-drawer .el-drawer__body{padding:0;overflow:auto}.plan-insights-drawer .insights-header{padding-right:65px}.plan-insights-drawer .insights-close{position:absolute;right:15px;top:16px;z-index:2;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid #e8e9f4;border-radius:7px;background:white;color:#737892;font-size:25px;cursor:pointer}.plan-insights-drawer .insights-close:hover{color:#5b57ff;background:#f6f6ff}@media(max-width:700px){.plan-insights-drawer{width:100%!important}}
 </style>

@@ -146,7 +146,7 @@
                           v-else
                           name="cart" /></span
                       ><span class="pgood__n">{{ p.name }}</span
-                      ><span class="pgood__p">{{ amount(p.price, "¥") }}</span
+                      ><span class="pgood__p"><ProductPrice :price-info="p.priceInfo" :price="p.price" :user-price="p.userPrice" /></span
                       ><button
                         v-if="!editing"
                         type="button"
@@ -356,11 +356,11 @@
         placeholder="搜索商品名称 / 商品ID"
         aria-label="搜索推广商品"
       />
-      <p class="picker-count">已选 {{ selection.length }}/10</p>
+      <p class="picker-count">已选 {{ selection.length }}/10 <button class="btn-prev" :disabled="loadingProducts" @click="loadProducts(true)">刷新价格</button></p>
       <div v-if="loadingProducts">正在加载商品库…</div>
       <div v-else-if="productsError" class="workspace-empty">
         <p>商品库加载失败</p>
-        <button class="btn-prev" @click="loadProducts">重试</button>
+        <button class="btn-prev" @click="loadProducts()">重试</button>
       </div>
       <div v-else class="picker-grid">
         <label
@@ -375,7 +375,7 @@
             "
             @change="toggleSelection(p.productId)"
           /><img v-if="p.imageUrl" :src="mediaUrl(p.imageUrl)" alt="" /><span
-            >{{ p.name }}<small>{{ amount(p.price, "¥") }}</small></span
+            >{{ p.name }}<small><ProductPrice :price-info="p.priceInfo" :price="p.price" :user-price="p.userPrice" /></small></span
           ></label
         >
         <p v-if="!filteredProducts.length">暂无匹配商品</p>
@@ -394,6 +394,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import ProductPrice from "@/components/ProductPrice.vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
@@ -497,12 +498,12 @@ function changeAccount() {
   picked.value = [];
   products.value = [];
 }
-async function loadProducts() {
+async function loadProducts(refreshPrices = false) {
   if (!currentAccount.value) return;
   loadingProducts.value = true;
   productsError.value = false;
   try {
-    products.value = await listProducts(currentAccount.value.awemeId);
+    products.value = await listProducts(currentAccount.value.awemeId, undefined, refreshPrices);
   } catch {
     productsError.value = true;
   } finally {

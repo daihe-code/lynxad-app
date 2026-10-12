@@ -28,7 +28,7 @@ export function assetStatus(item: LibraryItemVo) {
     return { cls: status === 'APPROVED' ? 'ac-use--on' : ['REJECTED', 'FAILED', 'MANUAL_REVIEW'].includes(status || '') ? 'ac-use--bad' : 'ac-use--wait',
       label: status === 'APPROVED' ? '图文质检合格' : status === 'FAILED' ? '图文质检失败' : ['REJECTED', 'MANUAL_REVIEW'].includes(status || '') ? '图文不合格' : '图文质检中' };
   }
-  if (item.aiReview && item.aiReview.status !== 'APPROVED') return { cls: ['REJECTED', 'FAILED'].includes(item.aiReview.status) ? 'ac-use--bad' : 'ac-use--wait', label: reviewLabel(item.aiReview.status) };
+  if (item.aiReview && !['APPROVED','NOT_REQUIRED'].includes(item.aiReview.status)) return { cls: ['REJECTED', 'FAILED'].includes(item.aiReview.status) ? 'ac-use--bad' : 'ac-use--wait', label: reviewLabel(item.aiReview.status) };
   if (item.reviewBadge === "REVIEWING") return { cls: "ac-use--wait", label: "审核中" };
   if (item.reviewBadge === "REJECTED") return { cls: "ac-use--bad", label: "审核未通过" };
   if (item.assetId) {

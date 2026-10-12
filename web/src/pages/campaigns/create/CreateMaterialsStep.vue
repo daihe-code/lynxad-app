@@ -1,786 +1,244 @@
 <template>
-  <div class="creative-workspace ad-step3">
-    <CreationFrame :step="3" :account="account" :account-chips="accountChips" />
-    <main class="ad-main">
-      <div class="container-page">
-        <section class="panel">
-          <div class="panel__pad">
-            <div class="panel__head">
-              <div class="min-w-0">
-                <h2 class="panel__title">确定投放素材</h2>
-                <p class="panel__sub">
-                  系统根据您选中的商品智能生成优质投放素材，保障投放效果
-                </p>
-              </div>
-            </div>
-            <p class="tip">
-              <ReferenceIcon name="tipmark" /><span class="tip__text">{{
-                ready
-                  ? "素材已生成，点击任意素材可预览投放效果。"
-                  : generation.ready
-                    ? "素材已生成，正在打开素材预览。"
-                  : generation.failed
-                    ? "素材生成未完成，可重试或返回修改投放目标。"
-                    : !task && !saving
-                      ? "请先确认需要智能生成素材的商品。"
-                      : "素材生成中，请耐心等待，生成结束将有消息提醒。"
-              }}</span>
-            </p>
-          </div>
-          <div v-if="!ready" class="panel__body">
-            <div class="gen">
-              <div
-                class="gauge"
-                :aria-label="`素材生成进度 ${progress}%`"
-                role="progressbar"
-                :aria-valuenow="progress"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
-                <svg class="gauge__svg" viewBox="0 0 104 104" aria-hidden="true">
-                  <circle class="gauge__track" cx="52" cy="52" r="46" />
-                  <circle
-                    class="gauge__arc"
-                    cx="52"
-                    cy="52"
-                    r="46"
-                    stroke-dasharray="289"
-                    :stroke-dashoffset="289 - (progress || 0) * 2.89"
-                  /></svg
-                ><span class="gauge__mid"
-                  ><span class="gauge__pct"
-                    >{{ progress }}<span class="gauge__unit"
-                      >%</span
-                    ></span
-                  ><span class="gauge__cap">{{
-                    generation.ready ? '已完成' : generation.failed ? (task?.status === 'CANCELLED' ? '已取消' : '生成失败') : !task && !saving ? "待确认" : "生成中"
-                  }}</span></span
-                >
-              </div>
-              <p class="gen__title">
-                {{ task?.errorMsg || (generation.ready ? '素材生成完成，正在打开素材预览…' : generation.failed ? '素材生成已停止，可重新生成' : !task && !saving ? "选择商品后开始智能生成投放素材" : "正在努力生成素材中，素材越多耗时越长") }}
-              </p>
-              <p class="gen__desc">
-                {{ !task && !saving ? '确认后仅为勾选的商品生成投放素材。' : '灵投智能分析并生成投放素材，期间你可以正常进行其他操作，任务会在后台继续执行，完成后将有消息提醒。' }}
-              </p>
-              <div class="gencards">
-                <article
-                  v-for="card in generationCards"
-                  :key="card.key"
-                  class="gencard"
-                  :class="{ 'gencard--done': card.done }"
-                >
-                  <div class="gencard__top">
-                    <span
-                      class="gencard__icon"
-                      :class="`gencard__icon--${card.key}`"
-                      ><ReferenceIcon :name="card.icon" /></span
-                    ><span
-                      ><span class="gencard__name">{{ card.name }}</span
-                      ><span class="gencard__count"><template v-if="card.total"><b>{{ card.count }}</b>/{{ card.total }} 已生成</template><template v-else>暂无生成任务</template></span></span
-                    >
-                  </div>
-                  <div class="gencard__bar" role="progressbar" :aria-label="`${card.name}生成进度`" :aria-valuenow="card.percent" aria-valuemin="0" aria-valuemax="100">
-                    <span
-                      class="gencard__fill"
-                      :class="`gencard__fill--${card.key}`"
-                      :style="{ width: `${card.percent}%` }"
-                    />
-                  </div>
-                  <p class="gencard__foot">
-                    <span
-                      v-if="card.running"
-                      class="spinner"
-                      aria-hidden="true"
-                    /><ReferenceIcon v-else-if="card.done" name="check" class="generation-check" />{{ card.description }}
-                  </p>
-                </article>
-              </div>
-              <p class="gen__hint" role="status" aria-live="polite">
-                {{ generation.stage }}
-              </p>
-              <button
-                v-if="generation.failed || !task"
-                class="btn-next-primary"
-                :disabled="saving"
-                @click="emit('retry')"
-              >
-                {{ !task ? '选择智能生成商品' : '重新生成素材' }}
-              </button>
-              <p class="gen__hint">
-                <button class="gen__link" @click="emit('prev')">
-                  返回上一步调整投放目标</button
-                >，也可前往<router-link class="gen__link" to="/creatives"
-                  >素材中心</router-link
-                >管理历史素材
-              </p>
-            </div>
-          </div>
-          <div v-else class="panel__pad">
-            <div class="srow">
-              <p class="srow__label">素材可见性</p>
-              <div class="srow__body">
-                <div class="seg seg--lg">
-                  <button class="seg__item" disabled>
-                    抖音主页单次可见<span class="seg__badge">推荐</span></button
-                  ><button class="seg__item" disabled>抖音主页始终可见</button>
-                </div>
-                <p class="srow__hint">
-                  素材可见性采用平台默认设置，暂不支持单独修改
-                </p>
-              </div>
-            </div>
-            <div class="srow">
-              <p class="srow__label">素材对应商品</p>
-              <div class="srow__body">
-                <MaterialProductPicker v-model="productId" :products="selected" :ai-product-ids="aiProductIds" />
-                <p class="srow__hint">下拉可切换查询各商品对应素材情况</p>
-              </div>
-            </div>
-            <div class="mblock">
-              <p v-if="missingProducts.length" class="workspace-empty" role="status">以下商品尚无投放素材：{{ missingProducts.map(p => p.name).join('、') }}。请补齐素材后再发布。</p>
-              <div class="mblock__head">
-                <p class="mblock__label">素材和标题</p>
-                <p class="mblock__count">
-                  已添加：素材 <b>{{ videoItems.length + imageItems.length }}</b
-                  >/100，标题 <b>{{ titles.length }}</b
-                  >/30
-                </p>
-              </div>
-              <p class="mblock__hint">
-                点击素材可预览投放效果，也可重新生成、删除或新增素材
-              </p>
-              <div class="tabs" role="tablist" aria-label="素材类型">
-                <button
-                  v-for="tab in tabs"
-                  :key="tab.key"
-                  class="tabs__item"
-                  role="tab"
-                  :aria-selected="activeTab === tab.key"
-                  @click="
-                    activeTab = tab.key;
-                    activeIndex = 0;
-                  "
-                >
-                  {{ tab.name }}
-                  <span class="tabs__count">{{ tab.count }}</span>
+  <div class="live-materials creative-workspace ad-step3">
+    <CreationFrame v-if="!embedded" :step="3" :account="account" :account-chips="accountChips" />
+    <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
+      <h2 class="panel__title">确定投放素材</h2><p class="panel__sub">系统根据您选中的商品智能生成优质投放素材，保障投放效果</p>
+      <div class="tip"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ running ? state.generationMessage || '素材生成处理中…' : previewableCount ? '素材已生成，点击任意素材可预览投放效果。' : readOnly ? '当前计划暂无素材预览信息。' : '请选择需要智能生成的商品，或从素材库添加素材。' }}</p></div>
+      <MaterialGenerationProgress v-if="running" ref="generationProgress" :state="state" />
+      <div v-if="state.generationStatus === 'FAILED'" class="generation-warning" role="status"><b>部分素材未完成</b><p>{{ state.generationMessage }}</p><p v-for="issue in state.generationIssues" :key="issue.productId">{{ issue.productName }}：{{ issue.message }}</p><p v-if="previewableCount">已生成 {{ previewableCount }} 条素材，可在下方查看和预览。</p></div>
+      <template v-if="!running || state.materials.length">
+      <div class="srow"><p class="srow__label">素材可见性</p><div class="srow__body">
+        <div class="seg seg--lg" role="group" aria-label="素材可见性" :aria-busy="busy">
+          <button type="button" class="seg__item" :aria-pressed="state.hideInAweme" :disabled="visibilityLocked" @click="selectVisibility(true)">抖音主页单次可见<span class="seg__badge">推荐</span></button>
+          <button type="button" class="seg__item" :aria-pressed="!state.hideInAweme" :disabled="visibilityLocked" @click="selectVisibility(false)">抖音主页始终可见</button>
+        </div>
+        <p class="srow__hint">适用于官方或自运营抖音号的非主页原生素材，实际展示以抖音平台规则为准</p>
+      </div></div>
+      <div class="srow"><p class="srow__label"><label for="material-product">素材对应商品</label></p><div class="srow__body"><div class="product-picker"><select id="material-product" v-model="productId" class="pick" :disabled="busy"><option v-for="p in state.products" :key="p.qcProductId" :value="p.qcProductId">{{ p.name }}</option></select><span v-if="materials.some(m => m.engineMaterialId)" class="srctag srctag--ai product-source"><ReferenceIcon name="sparkle" />AI 智能生成</span><ReferenceIcon class="product-caret" name="caret" /></div><p class="srow__hint">下拉可切换查询各商品对应素材情况</p></div></div>
+      <p v-if="missing.length" class="error">以下商品尚无可投放素材：{{ missing.map(p => p.name).join('、') }}。{{ readOnly ? '' : '请补齐素材后再发布。' }}</p>
+      <div class="mblock">
+        <div class="mblock__head"><p class="mblock__label">素材和标题</p><p class="mblock__count">已添加：素材 <b>{{ materials.length }}</b>/100，标题 <b>{{ titleCount }}</b>/30</p></div>
+        <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' }}</p>
+        <div class="tabs" role="tablist" aria-label="素材类型"><button v-for="(label, key) in tabs" :key="key" class="tabs__item" type="button" role="tab" :aria-selected="tab === key" @click="tab = key">{{ label }}<span class="tabs__count">{{ key === 'TITLE' ? titleCount : materials.filter(m => m.type === key).length }}</span></button></div>
+        <div class="work"><div class="work__main">
+          <MaterialTitleList v-if="tab === 'TITLE'" :materials="materials" :busy="busy || running" :read-only="readOnly" @select="selectTitle" @save="(id, values) => emit('titles', id, values)" />
+          <template v-else>
+            <div class="matlist" role="list">
+              <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
+                <button class="material-select" type="button" :aria-pressed="active?.id === m.id" @click="selectedId = m.id">
+                  <span class="matrow__thumb"><img v-if="thumbnail(m) && !brokenThumbnails[m.id]" :src="thumbnail(m)" alt="" @load="imageMetadata(m.id, $event)" @error="brokenThumbnails[m.id] = true" /><ReferenceIcon v-else :name="m.type === 'VIDEO' ? 'video' : m.type === 'IMAGE' ? 'image' : 'article'" /></span>
+                  <span class="matrow__body"><span class="matrow__title" :title="m.title">{{ m.title }}</span><span class="matrow__meta">{{ metadataLabel(m) }}</span><span class="matrow__tag"><span class="srctag" :class="m.engineMaterialId ? 'srctag--ai' : 'srctag--manual'"><ReferenceIcon v-if="m.engineMaterialId" name="sparkle" />{{ m.engineMaterialId ? 'AI 智能生成' : '人工上传' }}</span></span><span class="material-status" :class="{ 'material-status--error': m.status === 'FAILED' }" :title="m.error">{{ statusLabel(m) }}</span></span>
                 </button>
-              </div>
-              <div class="work">
-                <div class="work__main">
-                  <div v-if="activeTab !== 'title'" class="matlist" role="list">
-                    <article
-                      v-for="(item, i) in visibleItems"
-                      :key="item.productId"
-                      class="matrow"
-                      :class="{ 'matrow--active': activeIndex === i }"
-                      role="listitem"
-                      tabindex="0"
-                      @click="activeIndex = i"
-                      @keydown.enter.self.prevent="activeIndex = i"
-                      @keydown.space.self.prevent="activeIndex = i"
-                    >
-                      <span class="matrow__thumb"
-                        ><img
-                          v-if="item.posterUrl"
-                          :src="mediaUrl(item.posterUrl)"
-                          alt="" /><ReferenceIcon
-                          v-else
-                          :name="
-                            activeTab === 'video' ? 'video' : 'image'
-                          " /></span
-                      ><span class="matrow__body"
-                        ><span class="matrow__title"
-                          >{{ productName(item.productId) }} ·
-                          {{
-                            activeTab === "video" ? "视频" : "商品卡图片"
-                          }}</span
-                        ><span class="matrow__meta"
-                          >对应商品：{{ item.productId }}</span
-                        ><span class="matrow__tag"><span class="srctag srctag--ai"><ReferenceIcon name="sparkle" />AI 智能生成</span></span></span
-                      ><span class="matrow__ops"
-                        ><button class="iconbtn" type="button"
-                          :disabled="saving"
-                          :aria-label="`重新生成${productName(item.productId)}${activeTab === 'video' ? '视频' : '图片'}`"
-                          title="重新生成"
-                          @click.stop="emit('regenerate', item.productId, activeTab === 'video' ? 'VIDEO' : 'IMAGE')"
-                        >
-                          <ReferenceIcon name="refresh" /></button
-                        ><button class="iconbtn" type="button" :disabled="saving" :aria-label="`删除${productName(item.productId)}${activeTab === 'video' ? '视频' : '图片'}`" title="删除" @click.stop="emit('delete-material', item.productId, activeTab === 'video' ? 'VIDEO' : 'IMAGE')"><ReferenceIcon name="trash" /></button
-                      ></span>
-                    </article>
-                    <p v-if="!visibleItems.length" class="workspace-empty">
-                      {{
-                        activeTab === "article"
-                          ? "当前素材包暂无图文素材"
-                          : "此商品暂无该类型素材"
-                      }}
-                    </p>
-                    <button class="addrow" @click="openAdd">
-                      <ReferenceIcon name="plus" />新增素材
-                    </button>
-                  </div>
-                  <div v-else>
-                    <section
-                      v-for="name in ['视频标题', '商品卡标题']"
-                      :key="name"
-                      class="tgroup"
-                    >
-                      <div class="tgroup__head">
-                        <span class="tgroup__name">{{ name }}</span
-                        ><span class="tgroup__added"
-                          >已添加：{{
-                            name === "视频标题" ? titles.length : 0
-                          }}</span
-                        >
-                      </div>
-                      <p class="tgroup__sub">
-                        {{
-                          name === "视频标题"
-                            ? "配视频素材，在短视频信息流场景展示"
-                            : "配商品卡素材，在抖音商城、搜索等场景展示"
-                        }}
-                      </p>
-                      <div class="trows">
-                        <div
-                          v-for="(title, i) in name === '视频标题'
-                            ? titles.slice(0, 3)
-                            : []"
-                          :key="i"
-                          class="trow"
-                        >
-                          <span class="trow__text">{{ title }}</span
-                          ><span class="trow__count">{{ title.length }}/55</span
-                          ><span class="trow__ops"
-                            ><button
-                              disabled
-                              aria-label="编辑标题"
-                              title="暂不支持单独编辑标题"
-                            >
-                              <ReferenceIcon name="edit" /></button
-                          ></span>
-                        </div>
-                        <div class="trow">
-                          <input
-                            class="trow__box"
-                            disabled
-                            :placeholder="
-                              name === '视频标题'
-                                ? '标题暂不支持单独修改'
-                                : '暂无商品卡标题'
-                            "
-                          /><span class="trow__count">0/55</span>
-                        </div>
-                      </div>
-                    </section>
-                  </div>
-                </div>
-                <aside class="work__side" aria-label="投放效果预览">
-                  <div class="preview">
-                    <p class="preview__title">投放效果预览</p>
-                    <div class="plats" role="tablist" aria-label="预览平台">
-                      <button
-                        v-for="(name, i) in platforms"
-                        :key="name"
-                        class="plat"
-                        role="tab"
-                        :aria-label="name"
-                        :aria-selected="platform === i"
-                        :title="name"
-                        @click="platform = i"
-                      >
-                        <span
-                          class="plat__i"
-                          :class="`plat--${platformKeys[i]}`"
-                          ><ReferenceIcon
-                            v-if="i !== 1"
-                            :name="`plat-${platformKeys[i]}`"
-                          /><span v-else class="plat__txt">头条</span></span
-                        >
-                      </button>
-                    </div>
-                    <div class="phone">
-                      <div class="phone__screen">
-                        <div class="phone__media">
-                          <video
-                            v-if="activeTab === 'video' && previewItem?.playUrl"
-                            :key="previewItem.playUrl"
-                            :src="mediaUrl(previewItem.playUrl)"
-                            :poster="mediaUrl(previewItem.posterUrl)"
-                            controls
-                            playsinline
-                          /><img
-                            v-else-if="previewItem?.posterUrl"
-                            :src="mediaUrl(previewItem.posterUrl)"
-                            alt="素材预览"
-                          /><span v-else>暂无预览素材</span>
-                        </div>
-                        <div class="phone__hots">
-                          <p class="phone__name">
-                            {{ currentProduct?.name || "请选择素材" }}
-                          </p>
-                          <p class="phone__price">
-                            {{ amount(currentProduct?.price, "¥") }}
-                          </p>
-                          <p class="phone__buy">立即购买</p>
-                        </div>
-                      </div>
-                    </div>
-                    <p class="preview__note">
-                      *仅供预览，最终效果以{{ platforms[platform] }}平台为准
-                    </p>
-                  </div>
-                </aside>
+                <span v-if="!readOnly" class="matrow__ops">
+                  <button v-if="m.status === 'FAILED'" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
+                  <button class="iconbtn" type="button" :disabled="busy || running || !m.engineMaterialId" aria-label="重新生成素材" title="重新生成素材" @click="emit('action', 'regenerate', m.id)"><ReferenceIcon name="sparkle" /></button>
+                  <button class="iconbtn" type="button" :disabled="busy || running" aria-label="删除素材" title="删除" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button>
+                </span>
               </div>
             </div>
-          </div>
-        </section>
-        <section v-if="ready" class="panel plan">
-          <div class="plan__pad">
-            <div class="plan__row">
-              <label class="plan__label" for="creation-name"
-                >投放计划名称</label
-              >
-              <div class="plan__body">
-                <input
-                  id="creation-name"
-                  class="plan__input"
-                  :value="planName"
-                  maxlength="30"
-                  placeholder="请输入自定义计划名称"
-                  @input="
-                    emit(
-                      'update:planName',
-                      ($event.target as HTMLInputElement).value,
-                    )
-                  "
-                />
-                <p class="plan__hint">
-                  系统自动生成，主要用于后续跟踪查看，可修改 ·
-                  {{ planName.length }}/30
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+            <p v-if="!visible.length" class="empty">当前商品暂无{{ tabs[tab] }}素材{{ readOnly ? '。' : '，可智能生成或从素材库选择。' }}</p>
+            <button v-if="!readOnly" class="addrow" :disabled="busy || running" @click="addOpen = true"><ReferenceIcon name="plus" />新增素材（素材库或智能生成）</button>
+          </template>
+        </div><aside class="work__side" aria-label="投放效果预览"><MaterialPreview :material="active" :product="previewProduct" :account="account" :title="tab === 'TITLE' ? previewTitle : undefined" @metadata="(id, data) => mediaMetadata[id] = data" /></aside></div>
       </div>
-    </main>
-    <div class="actionbar">
-      <div class="container-page actionbar__inner">
-        <span class="actionbar__tip">{{
-          ready
-            ? confirmed
-              ? "素材已确认，可发布投放"
-              : "发布时将确认当前素材包"
-            : "生成期间可以继续其他操作"
-        }}</span
-        ><button class="btn-prev" :disabled="saving" @click="emit('prev')">
-          上一步</button
-        ><button
-          class="btn-next-primary"
-          :disabled="saving || !ready || !planName.trim() || !!missingProducts.length"
-          @click="emit('publish')"
-        >
-          {{ saving ? "处理中…" : "发布投放" }}
-        </button>
-        <button class="btn-cancel" type="button" :disabled="saving" @click="emit('cancel')">取消投放</button>
-      </div>
-    </div>
-    <GenerationConfirmation v-if="generationPickerOpen" :products="selected" :selection="generationSelection" :busy="saving" @confirm="emit('generate', $event)" @selection="emit('generation-selection', $event)" @close="emit('close-generation-picker')" />
-    <ReferenceModal
-      v-if="modalOpen"
-      :title="replacementId ? '替换素材' : '新增素材'"
-      :busy="saving"
-      @close="modalOpen = false"
-      ><div class="tabs">
-        <button
-          v-for="t in ['video', 'image', 'article'] as const"
-          :key="t"
-          class="tabs__item"
-          :aria-selected="modalTab === t"
-          :disabled="!!replacementId"
-          @click="modalTab = t"
-        >
-          {{
-            t === "video"
-              ? "新增视频"
-              : t === "image"
-                ? "新增商品卡图片"
-                : "新增图文"
-          }}
+      </template>
+    </div></section><section v-if="!embedded && (!running || state.materials.length)" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || busy || running" /><p class="plan__hint">自动生成，用于后续跟踪查看，可修改。素材、标题或名称修改后需重新确认素材包。</p></div></div></div></section></div></main>
+    <div v-if="!embedded && !readOnly" class="actionbar"><div class="container-page actionbar__inner"><button class="btn-prev" :disabled="busy || running" @click="emit('prev')">上一步</button><button class="btn-ghost-brand" :disabled="busy || running || !ready" @click="emit('confirm')">{{ confirmed ? '当前素材包已确认' : '确认素材包' }}</button><button class="btn-next-primary" :disabled="busy || running || !ready || !confirmed" @click="emit('publish')">发布投放</button><button class="btn-cancel" :disabled="busy" @click="emit('cancel')">取消投放</button></div></div>
+    <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="素材智能生成确认" :width="1104" :busy="busy || generationSubmitting" @close="generationOpen = false">
+      <p class="generation-intro">系统将对选中商品智能生成优质投放素材，无需智能生成素材的商品可取消选中：</p>
+      <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
+        <button v-for="p in state.products" :key="p.qcProductId" class="generation-product" type="button" role="checkbox" :aria-checked="generationIds.includes(p.qcProductId)" :disabled="busy || generationSubmitting" @click="toggleGeneration(p.qcProductId)">
+          <span class="generation-product__thumb"><img v-if="p.imageUrl && !brokenGenerationImages[p.qcProductId]" :src="p.imageUrl" alt="" @error="brokenGenerationImages[p.qcProductId] = true" /><span v-else aria-hidden="true">▧</span></span>
+          <span class="generation-product__name" :title="p.name">{{ p.name }}</span>
+          <span class="generation-product__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
         </button>
       </div>
-      <div class="source-tabs">
-        <button
-          v-for="s in sources"
-          :key="s.key"
-          :aria-pressed="source === s.key"
-          @click="source = s.key"
-        >
-          {{ s.name }}
-        </button>
-      </div>
-      <template v-if="source === 'local' && modalTab !== 'article'"
-        ><p>选择要替换的商品素材，上传后需重新确认素材包。</p>
-        <select v-model="replacementId" aria-label="替换素材对应商品">
-          <option value="">请选择商品</option>
-          <option
-            v-for="p in selected"
-            :key="p.qcProductId"
-            :value="p.qcProductId"
-          >
-            {{ p.name }}
-          </option></select
-        ><label class="upload-drop"
-          ><ReferenceIcon name="upload" /><span
-            >点击选择本地{{ modalTab === "video" ? "视频" : "图片" }}文件</span
-          ><input
-            type="file"
-            :accept="
-              modalTab === 'video' ? 'video/mp4' : 'image/jpeg,image/png'
-            "
-            @change="pickFile"
-        /></label>
-        <p>
-          {{ file?.name || "支持 MP4 视频、JPG / PNG 图片，文件不超过 100MB" }}
-        </p></template
-      ><template v-else
-        ><p v-if="modalTab === 'article'">图文名称</p>
-        <input
-          v-if="modalTab === 'article'"
-          class="finput"
-          maxlength="50"
-          disabled
-          placeholder="图文素材暂未支持生成或上传"
-        />
-        <p class="workspace-empty">
-          {{
-            source === "smart"
-              ? "当前支持整包智能生成，暂不支持追加单条素材"
-              : source === "lib"
-                ? "素材库内容可在素材中心预览，暂不支持绑定到此素材包"
-                : "图文素材暂不支持追加上传"
-          }}
-        </p>
-        <router-link
-          v-if="source === 'lib'"
-          class="panel__toggle"
-          to="/creatives"
-          >前往素材中心</router-link
-        ></template
-      ><template #footer
-        ><button class="btn-prev" :disabled="saving" @click="modalOpen = false">
-          取消</button
-        ><button
-          class="btn-next-primary"
-          :disabled="
-            saving ||
-            source !== 'local' ||
-            modalTab === 'article' ||
-            !file ||
-            !replacementId
-          "
-          @click="replace"
-        >
-          {{ saving ? "上传中…" : "提交" }}
-        </button></template
-      ></ReferenceModal
-    >
+      <p class="generation-help">未选中的商品可从素材库补齐素材；所有商品素材齐全后才能发布投放。</p>
+      <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b>/{{ state.products.length }}</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running || !generationIds.length" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : '确定' }}</button></template>
+    </ReferenceModal>
+    <ReferenceModal v-if="!readOnly && addOpen" title="新增素材" :width="460" @close="addOpen = false"><div class="add-options"><button class="btn-brand" :disabled="busy || running" @click="addOpen = false; openLibrary()"><ReferenceIcon name="file" />从素材库选择</button><button class="btn-ghost-brand" :disabled="busy || running" @click="addOpen = false; openGeneration()"><ReferenceIcon name="sparkle" />智能生成素材</button></div></ReferenceModal>
+    <el-dialog v-if="!readOnly" v-model="libraryOpen" title="从素材库选择" width="780px" append-to-body>
+      <p>选择已保存的{{ tabs[libraryType] }}素材；上传素材须通过审核，引擎生成素材直接同步当前千川账户。</p>
+      <div v-if="libraryLoading">正在加载素材库…</div><p v-else-if="libraryError" class="error">{{ libraryError }}</p>
+      <div class="library-grid"><label v-for="item in library" :key="item.id"><input v-model="libraryId" type="radio" :value="item.assetId || item.carouselId || item.id" /><img v-if="item.posterUrl" :src="item.posterUrl" alt="" /><span>{{ item.filename }}</span></label></div>
+      <p v-if="!libraryLoading && !library.length">暂无可选择的本地素材，请先前往素材中心上传。</p>
+      <label v-if="libraryType === 'VIDEO'">视频封面<select v-model="coverId"><option value="">请选择已上传图片</option><option v-for="item in covers" :key="item.id" :value="item.assetId">{{ item.filename }}</option></select></label>
+      <p>素材标题（每行一条，最多 29 条，每条 55 字）</p><textarea v-model="titles" rows="3" maxlength="560" />
+      <template #footer><button class="btn-prev" @click="libraryOpen = false">取消</button><button class="btn-brand" :disabled="busy || !libraryId || (libraryType === 'VIDEO' && !coverId) || !titles.trim()" @click="addSelected">加入计划</button></template>
+    </el-dialog>
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
-import type { MaterialType, TaskVo } from "@/features/creative/creativeApi";
-import type { ProductVo } from "@/features/catalog/catalogApi";
-import { amount, mediaUrl } from "../reference/planPresentation";
-import CreationFrame from "../reference/CreationFrame.vue";
-import ReferenceIcon from "../reference/ReferenceIcon.vue";
-import ReferenceModal from "../reference/ReferenceModal.vue";
-import GenerationConfirmation from './GenerationConfirmation.vue';
-import MaterialProductPicker from './MaterialProductPicker.vue';
-import { generationProgress } from './generationProgress';
-import "../reference/creative-workspace.css";
-const props = defineProps<{
-  task: TaskVo | null;
-  saving: boolean;
-  confirmed: boolean;
-  replacementVersion: number;
-  planName: string;
-  selected: ProductVo[];
-  aiProductIds: string[];
-  generationPickerOpen: boolean;
-  generationSelection: string[];
-  account?: { awemeName: string; awemeId: string } | null;
-  accountChips: string[];
-}>();
-const emit = defineEmits<{
-  "update:planName": [value: string];
-  prev: [];
-  cancel: [];
-  retry: [];
-  generate: [ids: string[]];
-  'generation-selection': [ids: string[]];
-  'close-generation-picker': [];
-  confirm: [];
-  publish: [];
-  replace: [productId: string, file: File];
-  regenerate: [productId: string, type: MaterialType];
-  'delete-material': [productId: string, type: MaterialType];
-}>();
-const activeTab = ref<"video" | "image" | "article" | "title">("video"),
-  productId = ref(""),
-  activeIndex = ref(0),
-  platform = ref(0),
-  modalOpen = ref(false),
-  modalTab = ref<"video" | "image" | "article">("video"),
-  source = ref("smart"),
-  replacementId = ref(""),
-  file = ref<File>();
-const platforms = ["抖音", "今日头条", "西瓜视频", "抖音火山版", "抖音极速版"],
-  platformKeys = ["douyin", "toutiao", "xigua", "huoshan", "jisu"],
-  sources = [
-    { key: "smart", name: "智能生成" },
-    { key: "local", name: "本地上传" },
-    { key: "lib", name: "素材库选择" },
-  ];
-const ready = ref(false);
-let completionTimer: number | undefined;
-watch(() => props.task?.status, status => {
-  window.clearTimeout(completionTimer);
-  ready.value = false;
-  // Show the actual 100% result briefly before switching to the preview workspace.
-  if (status === 'SUCCEEDED') completionTimer = window.setTimeout(() => { ready.value = true; }, 500);
-}, { immediate: true });
-onUnmounted(() => window.clearTimeout(completionTimer));
-const missingProducts = computed(() => props.selected.filter(product =>
-  !props.task?.items?.some(item => item.productId === product.qcProductId && (item.playUrl || item.posterUrl)),
-));
-const videoItems = computed(
-    () => props.task?.items?.filter((i) => !!i.playUrl) || [],
-  ),
-  imageItems = computed(
-    () => props.task?.items?.filter((i) => !!i.posterUrl) || [],
-  ),
-  titles = computed(
-    () => props.task?.items?.flatMap((i) => i.titles || []) || [],
-  );
-const tabs = computed(() => [
-  { key: "video" as const, name: "视频", count: videoItems.value.length },
-  { key: "image" as const, name: "图片", count: imageItems.value.length },
-  { key: "article" as const, name: "图文", count: 0 },
-  { key: "title" as const, name: "标题", count: titles.value.length },
-]);
-const visibleItems = computed(() =>
-  (activeTab.value === "video"
-    ? videoItems.value
-    : activeTab.value === "image"
-      ? imageItems.value
-      : []
-  ).filter((i) => !productId.value || i.productId === productId.value),
-);
-const previewItem = computed(() => visibleItems.value[activeIndex.value]);
-const currentProduct = computed(() =>
-  props.selected.find(
-    (p) => p.qcProductId === (previewItem.value?.productId || productId.value),
-  ),
-);
-const generation = computed(() => generationProgress(props.task, props.aiProductIds.length || props.selected.length));
-const progress = computed(() => generation.value.percent);
-const generationCards = computed(() => generation.value.cards);
-function productName(id: string) {
-  return props.selected.find((p) => p.qcProductId === id)?.name || id;
+import { computed, nextTick, ref, watch } from 'vue';
+import CreationFrame from '../reference/CreationFrame.vue';
+import ReferenceModal from '../reference/ReferenceModal.vue';
+import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import MaterialGenerationProgress from './MaterialGenerationProgress.vue';
+import MaterialPreview from './MaterialPreview.vue';
+import MaterialTitleList from './MaterialTitleList.vue';
+import '../reference/creative-workspace.css';
+import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
+import type { CreationState, CreationMaterial } from '@/features/delivery/creationApi';
+const props = defineProps<{ state: CreationState; busy: boolean; account?: { awemeName: string; awemeId: string; avatar?: string }; accountChips: string[]; readOnly?: boolean; embedded?: boolean }>();
+const planName = defineModel<string>('planName', { required: true });
+const emit = defineEmits<{ visibility: [hideInAweme: boolean]; generate: [ids: string[]]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
+const tabs = { VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文', TITLE: '标题' };
+const productId = ref(props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>('VIDEO'), selectedId = ref('');
+const materials = computed(() => props.state.materials.filter(m => m.productId === productId.value));
+const visible = computed(() => materials.value.filter(m => m.type === tab.value));
+const active = computed(() => tab.value === 'TITLE' ? materials.value.find(m => m.id === selectedId.value) || materials.value[0] : visible.value.find(m => m.id === selectedId.value) || visible.value[0]);
+const previewProduct = computed(() => props.state.products.find(p => p.qcProductId === (active.value?.productId || productId.value)));
+const previewableCount = computed(() => props.state.materials.filter(m => m.previewUrl || m.posterUrl || m.imageUrls?.length).length);
+const titleCount = computed(() => materials.value.reduce((count,m) => count + m.titles.length, 0));
+const previewTitle = ref('');
+function selectTitle(id: string, text: string) { selectedId.value = id; previewTitle.value = text; }
+const mediaMetadata = ref<Record<string,{ width: number; height: number; duration?: number }>>({});
+const brokenThumbnails = ref<Record<string,boolean>>({});
+const thumbnail = (m: CreationMaterial) => m.posterUrl || m.imageUrls?.[0];
+function imageMetadata(id: string, event: Event) {
+  const image = event.target as HTMLImageElement;
+  if (props.state.materials.find(m => m.id === id)?.type === 'IMAGE') mediaMetadata.value[id] = { width: image.naturalWidth, height: image.naturalHeight };
 }
-watch(
-  () => props.selected,
-  () => {
-    if (!props.selected.some((p) => p.qcProductId === productId.value))
-      productId.value = props.selected[0]?.qcProductId || "";
-  },
-  { immediate: true },
-);
-watch(productId, () => (activeIndex.value = 0));
-watch(visibleItems, items => {
-  activeIndex.value = Math.min(activeIndex.value, Math.max(0, items.length - 1));
+function metadataLabel(m: CreationMaterial) {
+  const data = mediaMetadata.value[m.id];
+  if (m.type === 'CAROUSEL') return `${m.imageUrls?.length || 0} 张图片 · 图文配音`;
+  if (m.type === 'IMAGE') return data ? `${data.width} × ${data.height} · 商品卡图片` : '商品卡图片';
+  const orientation = data ? data.height > data.width ? '竖屏' : data.height < data.width ? '横屏' : '方屏' : '视频';
+  return data?.duration ? `${Math.round(data.duration)}s · ${orientation}` : orientation;
+}
+const missing = computed(() => props.state.products.filter(p => !props.state.materials.some(m => m.productId === p.qcProductId && m.status === 'READY')));
+const ready = computed(() => !!props.state.materials.length && !missing.value.length && props.state.materials.every(m => m.status === 'READY'));
+const confirmed = computed(() => props.state.confirmedVersion === props.state.packageVersion && planName.value.trim() === props.state.name);
+const running = computed(() => generationSubmitting.value || ['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(props.state.generationStatus));
+const visibilityLocked = computed(() => props.readOnly || props.busy || running.value || ['QUEUED','RUNNING'].includes(props.state.analysisStatus) || !['NONE','FAILED'].includes(props.state.publishStatus));
+function selectVisibility(hideInAweme: boolean) {
+  if (!visibilityLocked.value && props.state.hideInAweme !== hideInAweme) emit('visibility', hideInAweme);
+}
+const generationOpen = ref(!props.readOnly && props.state.generationStatus === 'NONE'), generationIds = ref(props.state.products.map(p => p.qcProductId));
+const generationSubmitting = ref(false), brokenGenerationImages = ref<Record<string, boolean>>({});
+const generationProgress = ref<InstanceType<typeof MaterialGenerationProgress>>();
+watch(running, async generating => {
+  if (!generating) return;
+  await nextTick();
+  if (running.value) generationProgress.value?.$el.scrollIntoView({ block: 'start', behavior: 'smooth' });
 });
-watch(
-  () => props.replacementVersion,
-  () => {
-    modalOpen.value = false;
-    file.value = undefined;
-  },
-);
-function openAdd() {
-  replacementId.value = "";
-  file.value = undefined;
-  modalTab.value =
-    activeTab.value === "image"
-      ? "image"
-      : activeTab.value === "article"
-        ? "article"
-        : "video";
-  source.value = "smart";
-  modalOpen.value = true;
+function openGeneration() {
+  if (props.readOnly || props.busy || running.value) return;
+  generationIds.value = props.state.products.map(p => p.qcProductId);
+  generationOpen.value = true;
 }
-function openReplacement(id: string) {
-  replacementId.value = id;
-  file.value = undefined;
-  modalTab.value = activeTab.value === "image" ? "image" : "video";
-  source.value = "local";
-  modalOpen.value = true;
+function toggleGeneration(id: string) {
+  if (props.readOnly || props.busy || generationSubmitting.value) return;
+  generationIds.value = generationIds.value.includes(id) ? generationIds.value.filter(value => value !== id) : [...generationIds.value, id];
 }
-function pickFile(event: Event) {
-  const picked = (event.target as HTMLInputElement).files?.[0];
-  if (!picked) return;
-  const valid =
-    modalTab.value === "video"
-      ? picked.type === "video/mp4" && /\.mp4$/i.test(picked.name)
-      : ["image/jpeg", "image/png"].includes(picked.type) &&
-        /\.(jpe?g|png)$/i.test(picked.name);
-  if (!valid || picked.size <= 0 || picked.size > 100 * 1024 * 1024) {
-    ElMessage.warning("请选择正确类型的文件，大小需在 0–100MB 之间");
-    file.value = undefined;
-    return;
+function submitGeneration() {
+  if (props.readOnly || props.busy || generationSubmitting.value || running.value || !generationIds.value.length) return;
+  generationSubmitting.value = true;
+  generationOpen.value = false;
+  emit('generate', [...generationIds.value]);
+}
+watch(() => props.busy, busy => { if (!busy) generationSubmitting.value = false; });
+watch(() => props.state.generationStatus, status => {
+  if (['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(status)) {
+    generationOpen.value = false;
+    generationSubmitting.value = false;
   }
-  file.value = picked;
+});
+const addOpen = ref(false), libraryOpen = ref(false), libraryLoading = ref(false), libraryError = ref(''), library = ref<LibraryItemVo[]>([]), covers = ref<LibraryItemVo[]>([]), libraryId = ref(''), coverId = ref(''), titles = ref('');
+const libraryType = ref<CreationMaterial['type']>('VIDEO');
+const statusLabel = (m: CreationMaterial) => {
+  const generated = !!m.engineMaterialId && !!(m.previewUrl || m.posterUrl || m.imageUrls?.length);
+  if (generated && m.status === 'FAILED') return '已生成 · 千川同步失败';
+  if (generated && m.status === 'PROCESSING') return '已生成 · 正在同步千川';
+  return ({ READY: '可用 · 已同步千川', PROCESSING: '正在准备素材或同步千川', FAILED: '处理失败' }[m.status] || m.status);
+};
+watch(() => props.state.products, p => { if (!p.some(x => x.qcProductId === productId.value)) productId.value = p[0]?.qcProductId || ''; });
+// Show an actual result when a different product group finished first.
+watch(() => props.state.materials, (next, previous) => {
+  for (const material of next) {
+    const old = previous?.find(m => m.id === material.id);
+    if (old && (thumbnail(old)?.split('?')[0] !== thumbnail(material)?.split('?')[0] || old.previewUrl?.split('?')[0] !== material.previewUrl?.split('?')[0])) {
+      delete brokenThumbnails.value[material.id];
+      delete mediaMetadata.value[material.id];
+    }
+  }
+  if (!previous?.length && next.length) {
+    if (!next.some(m => m.productId === productId.value)) productId.value = next[0]!.productId;
+    const first = next.find(m => m.productId === productId.value && m.type === 'VIDEO') || next.find(m => m.productId === productId.value);
+    if (first) tab.value = first.type;
+  }
+}, { immediate: true });
+watch(productId, () => { selectedId.value = ''; previewTitle.value = ''; const first = materials.value[0]; if (first && tab.value !== 'TITLE' && !visible.value.length) tab.value = first.type; });
+async function openLibrary() {
+  if (props.readOnly || tab.value === 'TITLE' || props.busy || running.value) return;
+  libraryType.value = tab.value;
+  libraryOpen.value = true; libraryLoading.value = true; libraryError.value = ''; libraryId.value = ''; coverId.value = ''; titles.value = '';
+  try {
+    const result = await listLibraryFull({ type: libraryType.value, page: 1, pageSize: 100 });
+    library.value = result.items.filter(i => (i.assetId || i.carouselId) && i.storageStatus !== 'FAILED');
+    covers.value = libraryType.value === 'VIDEO' ? (await listLibraryFull({ type: 'IMAGE', page: 1, pageSize: 100 })).items.filter(i => !!i.assetId) : [];
+  } catch { libraryError.value = '素材库加载失败，请重试'; library.value = []; } finally { libraryLoading.value = false; }
 }
-function replace() {
-  if (file.value && replacementId.value)
-    emit("replace", replacementId.value, file.value);
+function addSelected() {
+  if (props.readOnly) return;
+  emit('add', { productId: productId.value, type: libraryType.value, titles: titles.value.split('\n').map(t => t.trim()).filter(Boolean),
+    ...(libraryType.value === 'VIDEO' ? { videoAssetId: libraryId.value, coverAssetId: coverId.value } : libraryType.value === 'IMAGE' ? { imageAssetIds: [libraryId.value] } : { carouselId: libraryId.value }) });
+  libraryOpen.value = false;
 }
 </script>
 <style scoped>
-.gencard__fill { display:block; }
-.gauge__svg { transform:rotate(-90deg); }
-.generation-check { width:13px; height:13px; flex-shrink:0; }
-.tip > svg {
-  width: 17px;
-  height: 17px;
-  flex-shrink: 0;
-}
-.matrow__thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 8px;
-}
-.matrow__thumb svg {
-  width: 28px;
-  height: 28px;
-}
-.matrow__ops svg { width:15px; height:15px; }
-.addrow svg {
-  width: 16px;
-  height: 16px;
-}
-.workspace-empty {
-  padding: 24px 0;
-  color: #7c7f99;
-  font-size: 13px;
-}
-.phone__media {
-  overflow: hidden;
-}
-.phone__media video,
-.phone__media img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.source-tabs {
-  display: flex;
-  gap: 12px;
-  margin: 24px 0;
-}
-.source-tabs button {
-  padding: 10px 14px;
-  border: 1px solid #e6e8f2;
-  border-radius: 8px;
-  background: #fff;
-  color: #4e5069;
-}
-.source-tabs button[aria-pressed="true"] {
-  color: #575cf6;
-  border-color: #575cf6;
-  background: #f7f7ff;
-}
-.upload-drop {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  border: 1px dashed #b6b8ce;
-  border-radius: 10px;
-  padding: 30px;
-  margin-top: 16px;
-  color: #7c7f99;
-}
-.upload-drop > svg {
-  width: 32px;
-  height: 32px;
-}
-.upload-drop input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.reference-modal select {
-  display: block;
-  width: 100%;
-  border: 1px solid #e6e8f2;
-  border-radius: 8px;
-  padding: 12px;
-}
-.gencard__top > span {
-  min-width: 0;
-}
-.gencard__count {
-  display: block;
-}
-.gen__link {
-  border: 0;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-.matrow__title,
-.phone__name {
-  overflow-wrap: anywhere;
-}
-@media (max-width: 767px) {
-  .work {
-    display: flex;
-    flex-direction: column;
-  }
-  .work__side {
-    width: 100%;
-  }
-  .gencards {
-    grid-template-columns: 1fr;
-  }
-  .srow,
-  .plan__row {
-    display: block;
-  }
-  .srow__label,
-  .plan__label {
-    display: block;
-    margin-bottom: 12px;
-  }
-  .plan__body {
-    width: 100%;
-  }
-  .source-tabs {
-    flex-wrap: wrap;
-  }
-  .actionbar__inner {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .actionbar__tip {
-    width: 100%;
-  }
-}
+.generation-warning { background: #fff8ed; border: 1px solid #f3ddbc; border-radius: 12px; padding: 18px 22px; color: #9b692c; font-size: 14px; line-height: 1.7; margin-bottom: 28px; }
+.generation-warning p { margin-top: 6px; }
+.generation-dialog :deep(.reference-modal__box) { padding: 28px 42px 26px; }
+.generation-dialog :deep(.reference-modal__body) { margin: 14px 0 22px; }
+.generation-intro,.generation-help,.generation-count { font-size: 13px; line-height: 1.65; color: #525570; }
+.generation-help { margin-top: 18px; color: #8588a5; }
+.generation-products { margin-top: 20px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 30px 40px; }
+.generation-product { position: relative; display: flex; align-items: center; gap: 10px; min-height: 66px; padding: 10px 32px 10px 10px; border: 1px solid #e0e2ef; border-radius: 12px; background: #fff; text-align: left; }
+.generation-product:hover { border-color: #575cf680; }
+.generation-product[aria-checked=true] { border-color: #575cf6; background: #f7f7ff; }
+.generation-product:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
+.generation-product__thumb { display: grid; height: 38px; width: 38px; flex-shrink: 0; place-items: center; border-radius: 9px; overflow: hidden; background: #f5f5fa; color: #8588a5; }
+.generation-product__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.generation-product__name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.4; color: #1a1b2e; }
+.generation-product__tick { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); display: grid; height: 16px; width: 16px; place-items: center; border-radius: 50%; border: 1.5px solid #c7c9da; color: transparent; }
+.generation-product__tick svg { width: 10px; height: 10px; }
+.generation-product[aria-checked=true] .generation-product__tick { border-color: #575cf6; background: #575cf6; color: white; }
+.generation-count b { font-size: 15px; color: #1a1b2e; }
+@media (max-width:1023px) { .generation-products { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; } }
+@media (max-width:639px) { .generation-dialog :deep(.reference-modal__box) { padding: 20px 16px 16px; } .generation-products { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; } }
+/* Shared reference CSS supplies proportions, typography and colors. */
+.live-materials { background: #f7f7ff; min-height: 100vh; color: #1a1b2e; padding-bottom: 75px; }
+.panel__pad { padding-bottom: 40px; }
+.tip__icon { width: 16px; height: 16px; }
+.seg--lg { width: auto; }
+.seg__item:disabled { opacity: .65; cursor: not-allowed; }
+.product-picker { position: relative; max-width: 300px; }
+.product-picker .pick { appearance: none; padding-right: 139px; text-overflow: ellipsis; }
+.product-source { position: absolute; right: 31px; top: 10px; pointer-events: none; }
+.product-caret { position: absolute; width: 15px; height: 15px; right: 12px; top: 12px; pointer-events: none; color: #8588a5; }
+.material-select { display: flex; align-items: center; flex: 1; min-width: 0; gap: 12px; text-align: left; }
+.live-materials.creative-workspace .work__side { width: 100%; }
+@media (min-width:1024px) { .live-materials.creative-workspace .work__side { width: 312px; } }
+.matrow__thumb { overflow: hidden; }
+.matrow__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.matrow__thumb svg { width: 23px; height: 23px; color: #8588a5; }
+.material-status { display: block; margin-top: 5px; color: #8588a5; font-size: 11px; line-height: 1.5; }
+.material-status--error { color: #e6535c; }
+.matrow button:focus-visible { outline: 2px solid #575cf6; outline-offset: 3px; }
+.empty { padding: 32px 12px; text-align: center; color: #8588a5; font-size: 13px; }
+.error { color: #e6535c; margin: 18px 0; font-size: 13px; line-height: 1.7; }
+.actionbar { position: fixed; left: 0; right: 0; }
+.btn-brand { background: #575cf6; border: 0; border-radius: 10px; color: #fff; padding: 12px 20px; font-size: 13px; font-weight: 600; }
+.btn-ghost-brand { border: 1px solid #e0e2ef; background: white; border-radius: 10px; padding: 12px 20px; font-size: 13px; color: #525570; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.add-options { display: flex; flex-wrap: wrap; gap: 12px; }
+.add-options button { display: inline-flex; align-items: center; gap: 6px; }
+.add-options svg { width: 16px; height: 16px; }
+.library-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; max-height: 330px; overflow: auto; margin: 18px 0; }
+.library-grid label { padding: 12px; border: 1px solid #e0e2ef; border-radius: 12px; word-break: break-all; }
+.library-grid img { height: 80px; object-fit: contain; margin: 8px auto; }
+.library-grid span { display: block; font-size: 12px; }
+textarea { width: 100%; padding: 12px; border: 1px solid #e0e2ef; border-radius: 10px; }
+@media (max-width:639px) { .actionbar__inner { gap: 8px; flex-wrap: wrap; height: auto; min-height: 75px; padding-top: 10px; padding-bottom: 10px; } .btn-next-primary,.btn-prev { padding-left: 14px; padding-right: 14px; } .btn-ghost-brand { padding: 12px; } .library-grid { grid-template-columns: repeat(2,1fr); } .matrow { flex-wrap: wrap; } .matrow__ops { margin-left: auto; } }
 </style>

@@ -26,6 +26,13 @@ public class PlanSyncService {
     private final AdManagementPort management;
     private final PlanRemoteStore store;
     private final TransactionTemplate transaction;
+    private boolean live;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
+    @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configuration(com.lynx.ad.common.config.LynxAdProperties properties) {
+        live=properties.getOauth().getQianchuan().isLive();
+    }
     public PlanSyncService(AdPlanRepository plans,OauthAccountRepository accounts,QianchuanCredentialFacade credentials,
                            AdListPort list,AdManagementPort management,PlanRemoteStore store,PlatformTransactionManager tx) {
         this.plans=plans;this.accounts=accounts;this.credentials=credentials;this.list=list;this.management=management;this.store=store;
@@ -40,6 +47,7 @@ public class PlanSyncService {
             throw new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户");
         List<SyncAccount> results=new ArrayList<>();
         for(var account:accounts.findByTenant(tenant)) {
+            if(account.platform()!=com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN || (live && account.grantId()==null)) continue;
             if(!"ACTIVE".equals(account.status()) || (selectedAccount!=null && !selectedAccount.equals(account.id().value()))) continue;
             List<String> warnings=new ArrayList<>(); int count=0;
             try {
@@ -47,12 +55,19 @@ public class PlanSyncService {
                 List<OceanPlanRow> rows=list.list(credential,null);
                 Map<String,AdPlan> local=new HashMap<>();
                 for(var plan:plans.findByTenant(tenant)) if(plan.accountId().equals(account.id())) plan.qcPlanId().ifPresent(q->local.put(q.value(),plan));
+                var pending=transfers==null?List.<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.Attempt>of():transfers.pending(tenant);
                 Map<String,String> ids=new LinkedHashMap<>();
                 for(var row:rows) {
                     if(row.payload()==null) continue;
                     var info=QianchuanPlanMapping.info(row.payload()); var setting=QianchuanPlanMapping.setting(row.payload());
                     AdPlan existing=local.get(row.qcPlanId());
+                    if(existing!=null && existing.status()==PlanStatus.DELETED) continue;
                     String id=existing==null?store.findId(tenant,account.id(),row.qcPlanId()).orElseGet(()->UUID.randomUUID().toString()):existing.id().value();
+                    if(existing==null)for(var attempt:pending) {
+                        boolean sourceInAccount=local.values().stream().anyMatch(p->p.id().value().equals(attempt.source()));
+                        if(sourceInAccount && row.qcPlanId().equals(attempt.qcId())) {id=attempt.target();break;}
+                    }
+                    final String physicalId=id;
                     var delivery=new DeliverySetting(row.bidType(),row.budget(),Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),
                             new Schedule(ScheduleType.FROM_NOW,QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")),
                                     QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time"))),AudienceJson.empty());
@@ -68,23 +83,30 @@ public class PlanSyncService {
                         existing.rename(PlanName.fromPlatform(row.name())); existing.updateSetting(delivery);
                     }
                     AdPlan plan=existing;
-                    transaction.executeWithoutResult(s->{plans.save(plan); store.save(tenant,account.id(),row.qcPlanId(),id,row.payload());});
+                    transaction.executeWithoutResult(s->{
+                        plans.save(plan); store.save(tenant,account.id(),row.qcPlanId(),physicalId,row.payload());
+                        if(transfers!=null && plan.status()==PlanStatus.DELETED) transfers.detachDeleted(tenant,plan.id());
+                    });
                     ids.put(row.qcPlanId(),id); count++;
                 }
                 if(!ids.isEmpty()) {
                     try { management.guarantees(credential,new ArrayList<>(ids.keySet())).forEach((qc,status)->{
                         if(ids.containsKey(qc)) store.guarantee(tenant,ids.get(qc),status);
-                    }); } catch(RuntimeException ex) { warnings.add("保障状态："+ex.getMessage()); }
+                    }); } catch(RuntimeException ex) { warnings.add("保障状态："+failure(ex)); }
                     try {
                         LocalDate day=LocalDate.now(ZoneId.of("Asia/Shanghai"));
                         var today=reports(management.report(credential,day)); var yesterday=reports(management.report(credential,day.minusDays(1)));
                         Instant now=Instant.now(); ids.forEach((qc,id)->store.report(tenant,id,today.get(qc),yesterday.get(qc),day,now));
-                    } catch(RuntimeException ex) { warnings.add("统计数据："+ex.getMessage()); }
+                    } catch(RuntimeException ex) { warnings.add("统计数据："+failure(ex)); }
                 }
-            } catch(RuntimeException ex) { warnings.add("计划同步："+ex.getMessage()); }
+            } catch(RuntimeException ex) { warnings.add("计划同步："+failure(ex)); }
             results.add(new SyncAccount(account.id().value(),count,List.copyOf(warnings)));
         }
+        if(transfers!=null)transfers.reconcileActive(tenant,plans.findByTenant(tenant));
         return new SyncResult(List.copyOf(results),Instant.now());
+    }
+    private String failure(RuntimeException ex) {
+        return ex instanceof com.lynx.ad.common.exception.BizException ? ex.getMessage() : "本地保存或解析失败，请稍后重试";
     }
     private Map<String,JsonNode> reports(List<JsonNode> rows) {
         Map<String,JsonNode> result=new HashMap<>();

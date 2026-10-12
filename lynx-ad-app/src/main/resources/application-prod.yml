@@ -26,6 +26,7 @@ lynx:
     oauth:
       web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI}
       qianchuan:
+        mode: ${QIANCHUAN_OAUTH_MODE:live}
         app-id: ${QIANCHUAN_APPID}
         app-secret: ${QIANCHUAN_SECRET}
         redirect-uri: ${QIANCHUAN_REDIRECT_URI}
@@ -52,6 +53,9 @@ lynx:
       oss:
         endpoint: ${OSS_ENDPOINT:}
         bucket: ${OSS_BUCKET:}
+        image-bucket: ${OSS_IMAGE_BUCKET:lynxad-douyin-image}
+        voice-bucket: ${OSS_VOICE_BUCKET:lynxad-douyin-voice}
+        video-bucket: ${OSS_VIDEO_BUCKET:lynxad-douyin-video}
         region: ${OSS_REGION:}
         prefix: ${OSS_PREFIX:lynx-ad/}
         access-key-id: ${OSS_ACCESS_KEY_ID:}
@@ -67,11 +71,15 @@ lynx:
         aweme-authorized-url: ${QC_AWEME_AUTHORIZED_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/authorized/get/}
       catalog:
         product-get-url: ${QC_PRODUCT_GET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/product/get/}
+        product-price-url: ${QC_PRODUCT_PRICE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/product/available/get/}
+        price-cache-seconds: ${QC_PRODUCT_PRICE_CACHE_SECONDS:600}
       delivery:
         suggest-budget-url: ${QC_SUGGEST_BUDGET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/budget/}
         suggest-roi-url: ${QC_SUGGEST_ROI_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/suggest/roi/}
         ad-create-url: ${QC_AD_CREATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/create/}
         ad-update-url: ${QC_AD_UPDATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/update/}
+        ad-budget-update-url: ${QC_AD_BUDGET_UPDATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/budget/update/}
+        ad-roi-update-url: ${QC_AD_ROI_UPDATE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/roi2_goal/update/}
         ad-list-url: ${QC_AD_LIST_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/list/}
         ad-status-url: ${QC_AD_STATUS_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/status/update/}
       report:

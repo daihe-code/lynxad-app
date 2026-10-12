@@ -2,6 +2,8 @@ package com.lynx.ad.infrastructure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.exception.BizException;
@@ -57,6 +59,30 @@ class QianchuanRestClientRetryTest {
         QianchuanRestClient client = client();
         assertThrows(BizException.class, () -> client.exchange(RequestSpec.get(url()).build(), String.class));
         assertEquals(1, hits.get());
+    }
+    @Test void businessThrottleRetriesReadsButNeverReplaysWrites() throws Exception {
+        AtomicInteger hits=new AtomicInteger();
+        start(ex->{
+            int n=hits.incrementAndGet();
+            byte[] body=(n<=2?"{\"code\":40100}":"{\"code\":0}").getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200,body.length);ex.getResponseBody().write(body);ex.close();
+        });
+        assertEquals("{\"code\":0}",client().exchange(RequestSpec.get(url()).build(),String.class));assertEquals(3,hits.get());
+        hits.set(0);assertEquals("{\"code\":40100}",client().exchange(RequestSpec.post(url()).json("{}").build(),String.class));assertEquals(1,hits.get());
+    }
+
+    @Test void businessErrorLogsParameterHelpWithoutCredentialsOrRequestQuery() throws Exception {
+        var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(QianchuanRestClient.class);
+        var appender=new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();logger.addAppender(appender);
+        String body="{\"code\":40001,\"message\":\"请求参数设置错误，请先参考help_message自查\",\"request_id\":\"request-123\",\"help_message\":\"start_time格式错误 access_token=short-sensitive-token\\nAuthorization: Bearer another-sensitive-token\"}";
+        try {
+            start(ex->{byte[] bytes=body.getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();});
+            assertEquals(body,client().exchange(RequestSpec.get(url()+"?access_token=query-sensitive-token").header("Access-Token","header-sensitive-token").build(),String.class));
+            String logs=appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).collect(java.util.stream.Collectors.joining("\n"));
+            assertTrue(logs.contains("code=40001"));assertTrue(logs.contains("request_id=request-123"));assertTrue(logs.contains("start_time格式错误"));
+            assertFalse(logs.contains("short-sensitive-token"));assertFalse(logs.contains("another-sensitive-token"));assertFalse(logs.contains("query-sensitive-token"));assertFalse(logs.contains("header-sensitive-token"));
+        } finally {logger.detachAppender(appender);appender.stop();}
     }
 
     private void start(com.sun.net.httpserver.HttpHandler handler) throws Exception {

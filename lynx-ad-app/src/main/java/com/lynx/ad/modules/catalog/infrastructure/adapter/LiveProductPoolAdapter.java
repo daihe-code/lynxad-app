@@ -23,6 +23,9 @@ import org.springframework.stereotype.Component;
 @Primary
 @ConditionalOnProperty(prefix = "lynx.ad.mock", name = "qianchuan", havingValue = "false")
 public class LiveProductPoolAdapter implements ProductPoolPort {
+    private com.lynx.ad.modules.catalog.application.ProductPriceService prices;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void productPrices(com.lynx.ad.modules.catalog.application.ProductPriceService value) { prices=value; }
 
     private final QianchuanRestClient restClient;
     private final LynxAdProperties properties;
@@ -42,29 +45,40 @@ public class LiveProductPoolAdapter implements ProductPoolPort {
 
     @Override
     public List<PoolItem> list(AccountId accountId, String awemeId) {
+        return list(accountId,awemeId,false);
+    }
+    @Override
+    public List<PoolItem> list(AccountId accountId, String awemeId,boolean refreshPrices) {
         try {
             Credential c = credentialFacade.get(accountId);
             String url = properties.getQianchuan().getCatalog().getProductGetUrl()
                     + "?advertiser_id="
                     + c.advertiserId().value()
                     + "&aweme_id="
-                    + (awemeId == null ? "" : awemeId);
+                    + java.net.URLEncoder.encode(awemeId == null ? "" : awemeId,java.nio.charset.StandardCharsets.UTF_8)
+                    + "&page=1&page_size=100&filtering=%7B%22tab%22%3A%22ALL%22%7D";
             String body = restClient.exchange(
                     RequestSpec.get(url).header("Access-Token", c.accessToken()).build(), String.class);
             JsonNode data = oceanJson.dataOrThrow(body, 1306, "商品池查询失败");
             JsonNode list = data.has("list") ? data.path("list") : data.path("product_list");
+            var refs=new ArrayList<com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref>();
+            for(var n:list)refs.add(new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(n.path("product_id").asText(n.path("id").asText()),n.path("channel_id").asText(null)));
+            var quotes=prices==null?java.util.Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(
+                    com.lynx.ad.common.security.TenantContext.requireTenantId(),c,awemeId,refs,refreshPrices);
             List<PoolItem> items = new ArrayList<>();
             for (JsonNode n : list) {
                 String id = n.path("product_id").asText(n.path("id").asText(""));
                 if (id.isBlank() || id.startsWith("qp0")) {
                     continue;
                 }
-                BigDecimal price = n.path("price").isNumber() ? n.path("price").decimalValue() : BigDecimal.ZERO;
+                var quote=quotes.get(id);
+                if(quote==null)quote=com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice.direct(n.path("price"),java.time.Instant.now());
+                BigDecimal price = quote==null?null:quote.minPrice();
                 items.add(new PoolItem(
                         new QcProductId(id),
                         n.path("name").asText(id),
-                        Money.ofYuan(price),
-                        n.path("image_url").asText(n.path("image").asText(null))));
+                        price==null?null:Money.ofYuan(price),
+                        n.path("image_url").asText(n.path("img").asText(n.path("image").asText(null))),quote));
             }
             return items;
         } catch (BizException ex) {

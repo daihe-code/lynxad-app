@@ -78,7 +78,7 @@ public class TenantQuerySupport {
                 trial != null && trial.active(),
                 needOnboarding,
                 properties.isDemoMode(),
-                properties.getMock().isQianchuan(),
+                properties.getMock().isQianchuan() && !properties.getOauth().getQianchuan().isLive(),
                 profile.map(UserProfile::email).orElse(null),
                 profile.map(UserProfile::companyName).orElse(null),
                 profile.map(UserProfile::industry).orElse(null),

@@ -25,7 +25,10 @@ public class AliyunOssClient implements ObjectStoreClient, AutoCloseable {
                 .build(ossProp.getEndpoint(), ossProp.getAccessKeyId(), ossProp.getAccessKeySecret());
     }
 
-    @Override
+    @Override public ObjectStoreClient.Metadata metadata(String bucket,String key) {
+        var meta=oss.getObjectMetadata(bucket,key);return new ObjectStoreClient.Metadata(meta.getContentLength(),meta.getContentType(),meta.getETag());
+    }
+    public void copyObject(String sourceBucket,String sourceKey,String bucket,String key){oss.copyObject(sourceBucket,sourceKey,bucket,key);}
     public void putObject(String bucket, String key, InputStream in, long size, String contentType) {
         ObjectMetadata meta = new ObjectMetadata();
         if (size > 0) {

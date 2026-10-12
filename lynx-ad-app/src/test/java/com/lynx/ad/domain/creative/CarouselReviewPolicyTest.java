@@ -28,4 +28,9 @@ class CarouselReviewPolicyTest {
         assertEquals("FAILED",CarouselReviewPolicy.aggregate(List.of(part("图片 1","APPROVED"),part("音频","FAILED"))).status());
         assertEquals("REJECTED",CarouselReviewPolicy.aggregate(List.of(part("图片 1","MANUAL_REVIEW"),part("音频","FAILED"))).status());
     }
+    @Test void engineComponentsNeedNoUploadReviewButCannotBypassAnUploadedRejection() {
+        assertEquals("NOT_REQUIRED",CarouselReviewPolicy.aggregate(List.of(part("文本","NOT_REQUIRED"),part("图片","NOT_REQUIRED"),part("音频","NOT_REQUIRED"))).status());
+        assertEquals("REJECTED",CarouselReviewPolicy.aggregate(List.of(part("图片","NOT_REQUIRED"),part("文本","REJECTED"))).status());
+        assertEquals("PENDING",CarouselReviewPolicy.aggregate(List.of(part("图片","NOT_REQUIRED"),part("文本","QUEUED"))).status());
+    }
 }

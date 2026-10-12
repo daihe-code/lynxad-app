@@ -27,6 +27,15 @@ public class OauthAccount {
     private final List<Aweme> awemes;
     private final String authorizedByUserId;
     private Instant authorizedAt;
+    private String grantId;
+    private String applicationId;
+    private String catalogError;
+    public String grantId() { return grantId; }
+    public String applicationId() { return applicationId; }
+    public String catalogError() { return catalogError; }
+    public OauthAccount withAuthorizationBinding(String grant, String application, String error) {
+        grantId = grant; applicationId = application; catalogError = error; return this;
+    }
 
     public OauthAccount(
             AccountId id,

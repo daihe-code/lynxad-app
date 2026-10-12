@@ -12,10 +12,11 @@ public class StorageConfig {
 
     @Bean
     @Primary
-    StoragePort storage(LynxAdProperties properties, @Value("${server.servlet.context-path:/lynx-ad}") String contextPath) {
+    StoragePort storage(LynxAdProperties properties, @Value("${server.servlet.context-path:/lynx-ad}") String contextPath, EngineAssetStorage engine, com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository repository) {
         StoragePort oss=properties.getStorage().isOssConfigured()
-                ? new OssStorageAdapter(properties,new AliyunOssClient(properties.getStorage().getOss()))
+                ? new OssStorageAdapter(properties,new AliyunOssClient(properties.getStorage().getOss()),repository)
                 : new UnconfiguredOssStorageAdapter();
-        return new RoutingStorageAdapter(properties.getStorage().getMode(),new LocalStorageAdapter(properties,contextPath),oss);
+        engine.useObjectStorage(oss,properties);
+        return new RoutingStorageAdapter(properties.getStorage().getMode(),new LocalStorageAdapter(properties,contextPath),oss,engine);
     }
 }

@@ -27,6 +27,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class DeliveryPlanController {
 
+    @RequiresActiveTrial
+    @DeleteMapping("/api/v1/delivery/plans/{id}")
+    public ApiResponse<Void> deletePlan(@PathVariable String id) {
+        commandService.deletePlan(TenantContext.requireTenantId(), new PlanId(id));
+        return ApiResponse.ok(null);
+    }
+
     @DeleteMapping("/api/v1/delivery/plans/{id}/draft")
     public ApiResponse<Void> discardDraft(@PathVariable String id) {
         commandService.discardDraft(TenantContext.requireTenantId(), new PlanId(id));
@@ -65,9 +72,12 @@ public class DeliveryPlanController {
             @RequestParam(required=false) String keyword, @RequestParam(required=false) String status,
             @RequestParam(required=false) String platform, @RequestParam(required=false) String bidType,
             @RequestParam(required=false) Integer createdWithin, @RequestParam(required=false) String accountId,
-            @RequestParam(required=false) String sortField, @RequestParam(defaultValue="true") boolean descending) {
+            @RequestParam(required=false) String sortField, @RequestParam(defaultValue="true") boolean descending,
+            @RequestParam(required=false) String startDate,@RequestParam(required=false) String endDate,
+            @RequestParam(defaultValue="false") boolean refreshStatistics) {
         return ApiResponse.ok(queryService.list(TenantContext.requireTenantId(), pageNum, pageSize,
-                new PlanQueryService.Filters(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending)));
+                new PlanQueryService.Filters(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending,
+                        com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate),refreshStatistics)));
     }
 
     @GetMapping("/api/v1/delivery/plans/{id}")
@@ -92,14 +102,28 @@ public class DeliveryPlanController {
         return ApiResponse.ok(managementService.materials(TenantContext.requireTenantId(),new PlanId(id)));
     }
     @GetMapping("/api/v1/delivery/plans/{id}/control-tasks")
-    public ApiResponse<java.util.List<com.fasterxml.jackson.databind.JsonNode>> controls(@PathVariable String id) {
-        return ApiResponse.ok(managementService.controls(TenantContext.requireTenantId(),new PlanId(id)));
+    public ApiResponse<java.util.List<com.fasterxml.jackson.databind.JsonNode>> controls(@PathVariable String id,@RequestParam(required=false) String kind,
+            @RequestParam(required=false) String startDate,@RequestParam(required=false) String endDate) {
+        return ApiResponse.ok(managementService.controls(TenantContext.requireTenantId(),new PlanId(id),kind,
+                com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate)));
     }
     @RequiresActiveTrial
     @PostMapping("/api/v1/delivery/plans/{id}/control-tasks")
     public ApiResponse<com.lynx.ad.modules.delivery.application.PlanManagementService.ControlResult> control(@PathVariable String id,
             @RequestBody com.lynx.ad.modules.delivery.api.dto.ControlTaskRequest req) {
         return ApiResponse.ok(managementService.control(TenantContext.requireTenantId(),new PlanId(id),req));
+    }
+    @RequiresActiveTrial
+    @PostMapping("/api/v1/delivery/plans/{id}/control-tasks/{taskId}/actions")
+    public ApiResponse<com.lynx.ad.modules.delivery.application.PlanManagementService.ControlResult> controlAction(@PathVariable String id,@PathVariable String taskId,
+            @RequestBody com.lynx.ad.modules.delivery.api.dto.ControlTaskActionRequest req) {
+        return ApiResponse.ok(managementService.controlAction(TenantContext.requireTenantId(),new PlanId(id),taskId,req));
+    }
+    @GetMapping("/api/v1/delivery/plans/{id}/control-tasks/{taskId}/report")
+    public ApiResponse<com.lynx.ad.modules.delivery.application.PlanManagementService.ControlTaskReport> controlReport(@PathVariable String id,@PathVariable String taskId,
+            @RequestParam String kind,@RequestParam String startDate,@RequestParam String endDate,@RequestParam(defaultValue="DAY") String granularity) {
+        return ApiResponse.ok(managementService.controlReport(TenantContext.requireTenantId(),new PlanId(id),taskId,kind,
+                com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate),granularity));
     }
 
     @RequiresActiveTrial
@@ -112,7 +136,8 @@ public class DeliveryPlanController {
     @RequiresActiveTrial
     @PostMapping("/api/v1/delivery/plans/{id}/actions")
     public ApiResponse<PlanVo> actions(@PathVariable String id, @RequestBody ActionRequest req) {
-        return ApiResponse.ok(commandService.act(TenantContext.requireTenantId(), new PlanId(id), parseAction(req.action())));
+        commandService.act(TenantContext.requireTenantId(), new PlanId(id), parseAction(req.action()));
+        return ApiResponse.ok(queryService.get(TenantContext.requireTenantId(), new PlanId(id)));
     }
     private PlanAction parseAction(String action) {
         try { return PlanAction.valueOf(action); }

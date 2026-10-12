@@ -12,13 +12,15 @@ public class PlanCreativeBindingQuery {
 
     private final AdPlanRepository planRepository;
     private final AdPlanCreativeBindingStore store;
+    private final com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore creation;
 
-    public PlanCreativeBindingQuery(AdPlanRepository planRepository, AdPlanCreativeBindingStore store) {
+    public PlanCreativeBindingQuery(AdPlanRepository planRepository, AdPlanCreativeBindingStore store, com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore creation) {
         this.planRepository = planRepository;
-        this.store = store;
+        this.store = store;this.creation=creation;
     }
 
     public Set<String> usedKeys(TenantId tenantId) {
-        return store.usedKeys(planRepository.findByTenant(tenantId).stream().map(p -> p.id().value()).toList());
+        Set<String> keys=new java.util.HashSet<>(store.usedKeys(planRepository.findByTenant(tenantId).stream().map(p -> p.id().value()).toList()));
+        keys.addAll(creation.usedMedia(tenantId.value()));return keys;
     }
 }

@@ -46,9 +46,16 @@ public class PlanAgent {
         execute(plan);
     }
 
+    public void assertLegacyCreationAllowed() {
+        if (adCreatePort instanceof com.lynx.ad.modules.delivery.infrastructure.adapter.LiveDeliveryAdapters)
+            throw new BizException(1403,"请使用四步创建投放流程，旧素材包不支持真实发布");
+    }
+
     private void execute(AdPlan plan) {
-        Credential cred = credentialFacade.get(plan.accountId());
+        Credential cred = credentialFacade.getUsableCredential(plan.tenantId(), plan.accountId());
         if (plan.qcPlanId().isEmpty()) {
+            // The legacy package path contains fixture IDs and cannot create real platform plans.
+            assertLegacyCreationAllowed();
             var qcId = adCreatePort.create(
                     cred,
                     new OceanAdCreateCommand(

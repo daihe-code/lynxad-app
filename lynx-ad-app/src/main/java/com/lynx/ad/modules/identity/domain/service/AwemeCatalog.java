@@ -26,6 +26,7 @@ public class AwemeCatalog {
             case COOP -> "合作达人";
             case COOP_AGENCY -> "合作机构";
             case ALLIANCE -> "联盟";
+            case AUTHORIZED -> "已授权抖音号";
         };
     }
 }

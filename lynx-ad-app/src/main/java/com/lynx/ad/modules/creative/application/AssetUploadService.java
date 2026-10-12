@@ -42,7 +42,63 @@ public class AssetUploadService {
     public record InitResult(String assetId, String storageStatus, String uploadMode, StoragePort.UploadTicket ticket) {}
     public record Detail(String id, String kind, String filename, long sizeBytes, String storageStatus, String storageMode,
             boolean isAigc, String md5, Integer width, Integer height, String textContent, String url, String errorMessage,
-            String createdAt, List<AssetUploadRepository.Sync> syncs, AssetUploadRepository.Review aiReview) {}
+            String createdAt, List<AssetUploadRepository.Sync> syncs, AssetUploadRepository.Review aiReview, AssetUploadRepository.StorageMetadata storageMetadata) {
+        public Detail(String id,String kind,String filename,long sizeBytes,String storageStatus,String storageMode,boolean isAigc,String md5,Integer width,Integer height,String textContent,String url,String errorMessage,String createdAt,List<AssetUploadRepository.Sync> syncs,AssetUploadRepository.Review aiReview){this(id,kind,filename,sizeBytes,storageStatus,storageMode,isAigc,md5,width,height,textContent,url,errorMessage,createdAt,syncs,aiReview,null);}
+    }
+
+    /** User-entered text follows upload validation and review; engine outputs use EngineAssetStorage references. */
+    public Detail ingest(TenantId tenant, UserId user, String requestId, Path file, String filename, boolean aigc, String account, boolean component) {
+        long size;
+        try { size=Files.size(file); } catch(IOException e) { throw new BizException(1521,"引擎产物读取失败"); }
+        var spec=AssetFilePolicy.spec(filename); AssetFilePolicy.size(spec,size);
+        if(account!=null) {
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前灵投账户"));
+            if(bound.platform()!=Platform.QIANCHUAN) throw new BizException(1201,"请选择千川账户");
+            AssetFilePolicy.target(filename,true);
+        }
+        Asset a=repository.request(tenant.value(),requestId).orElse(null);
+        if(a!=null && ("STORED".equals(a.storageStatus()) || a.canonicalId()!=null)) { if(account!=null) ensureTarget(tenant,a.id(),account); return detail(tenant,a.id()); }
+        if(a==null) {
+            String id=UUID.randomUUID().toString();var now=Instant.now();
+            a=new Asset(id,tenant.value(),user.value(),requestId,spec.kind().name(),filename,spec.contentType(),size,
+                    spec.kind()==AssetKind.TEXT?null:AssetStoragePolicy.key(tenant,id,filename),
+                    "WAITING",properties.getStorage().getAssetMode(),null,null,null,aigc,null,null,null,null,null,now,now);
+            repository.insert(a); initializeStorage(a);
+            if(component) repository.carouselComponent(tenant.value(),a.id());
+        }
+        if(account!=null && spec.kind()!=AssetKind.TEXT) repository.addSync(a,account);
+        if(!repository.claimUpload(tenant.value(),a.id())) throw new BizException(1520,"产物正在入库，请稍后查询");
+        try {
+            var checked=inspect(file,a,AssetFilePolicy.validate(file,filename,size));
+            var existing=repository.content(tenant.value(),AssetUploadRepository.contentKey(a,checked.md5())).orElse(null);
+            if(existing!=null) return duplicate(tenant,a,existing);
+            if(spec.kind()!=AssetKind.TEXT)try(var in=Files.newInputStream(file)){location(a).put(tenant,a.objectKey(),in,size,spec.contentType());}
+            return finalizeStored(tenant,a,checked);
+        }catch(BizException e){repository.storageFailed(a,e.getMessage());throw e;}
+        catch(Exception e){repository.storageFailed(a,"引擎产物入库失败");throw new BizException(1521,"引擎产物入库失败");}
+    }
+
+    public void queueUnassigned() {for(var asset:repository.unassigned())queueDefaultTarget(asset);}
+    private void queueDefaultTarget(Asset asset) {
+        if("TEXT".equals(asset.kind())||repository.isCarouselComponent(asset.tenantId(),asset.id())||!repository.syncs(asset.tenantId(),asset.id()).isEmpty())return;
+        // A single usable authorization is unambiguous. Multiple advertisers require a selection.
+        var tenant=new TenantId(asset.tenantId());
+        var bound=accounts.findByTenant(tenant).stream().filter(a->a.platform()==Platform.QIANCHUAN&&"ACTIVE".equals(a.status())).toList();
+        if(bound.size()!=1)return;
+        try{AssetFilePolicy.target(asset.filename(),true);}catch(BizException incompatible){return;}
+        repository.addSync(asset,bound.getFirst().id().value());repository.activate(asset.tenantId(),asset.id());
+    }
+    public void attachPreview(TenantId tenant,String id,String preview){repository.preview(tenant.value(),id,preview);}
+
+    public void ensureTarget(TenantId tenant,String id,String account) {
+        var a=repository.require(tenant.value(),id);
+        if(a.canonicalId()!=null)a=repository.require(tenant.value(),a.canonicalId());
+        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前灵投账户"));
+        if(bound.platform()!=Platform.QIANCHUAN) throw new BizException(1201,"请选择千川账户");
+        AssetFilePolicy.target(a.filename(),true);
+        if("TEXT".equals(a.kind()))return;
+        a=ensureReviewStorage(tenant,a);repository.addSync(a,account);repository.activate(tenant.value(),a.id());
+    }
 
     public InitResult init(TenantId tenant, InitRequest request) {
         request = new InitRequest(request.requestId(),request.filename(),request.sizeBytes(),request.isAigc(),request.accountIds(),
@@ -67,10 +123,11 @@ public class AssetUploadService {
         if (a==null) {
             var now=Instant.now(); String id=UUID.randomUUID().toString();
             a=new Asset(id,tenant.value(),TenantContext.userId().value(),request.requestId(),spec.kind().name(),filename,spec.contentType(),request.sizeBytes(),
-                ObjectKeyPolicy.nextKey(properties.getStorage().getOss().getPrefix(),tenant,id+filename.substring(filename.lastIndexOf('.'))),"WAITING",properties.getStorage().getAssetMode(),null,null,null,request.isAigc(),null,null,null,null,null,now,now);
-            try { repository.insert(a); if("CAROUSEL".equals(request.libraryType())) repository.carouselComponent(tenant.value(),a.id()); }
+                spec.kind()==AssetKind.TEXT?null:AssetStoragePolicy.key(tenant,id,filename),"WAITING",properties.getStorage().getAssetMode(),null,null,null,request.isAigc(),null,null,null,null,null,now,now);
+            try { repository.insert(a); initializeStorage(a); if("CAROUSEL".equals(request.libraryType())) repository.carouselComponent(tenant.value(),a.id()); }
             catch (DuplicateKeyException ex) { a=repository.request(tenant.value(),request.requestId()).orElseThrow(); }
         }
+        initializeStorage(a);
         if (!a.filename().equals(filename) || a.sizeBytes()!=request.sizeBytes() || a.isAigc()!=request.isAigc()) throw new BizException(1520,"上传请求标识已用于其他文件");
         if (a.canonicalId()!=null) a=repository.require(tenant.value(),a.canonicalId());
         if (!"CAROUSEL".equals(request.libraryType())) repository.exposeStandalone(tenant.value(),a.id());
@@ -81,7 +138,7 @@ public class AssetUploadService {
             return new InitResult(a.id(),"STORED","NONE",null);
         }
         StoragePort.UploadTicket ticket=null;
-        if ("oss".equalsIgnoreCase(a.storageMode())) {
+        if (spec.kind()!=AssetKind.TEXT && "oss".equalsIgnoreCase(a.storageMode())) {
             try {
                 if (a.uploadTicketJson()!=null) ticket=mapper.readValue(a.uploadTicketJson(),StoragePort.UploadTicket.class);
                 else {
@@ -112,7 +169,7 @@ public class AssetUploadService {
             validated=inspect(temp,a,validated);
             Asset existing=repository.content(tenant.value(),AssetUploadRepository.contentKey(a,validated.md5())).orElse(null);
             if (existing!=null) return duplicate(tenant,a,existing);
-            try (InputStream in=Files.newInputStream(temp)) { location(a).put(tenant,a.objectKey(),in,a.sizeBytes(),a.contentType()); }
+            if(!"TEXT".equals(a.kind()))try (InputStream in=Files.newInputStream(temp)) { location(a).put(tenant,a.objectKey(),in,a.sizeBytes(),a.contentType()); }
             return finalizeStored(tenant,a,validated);
         } catch (BizException ex) { repository.storageFailed(a,ex.getMessage()); throw ex; }
         catch (Exception ex) { repository.storageFailed(a,"平台文件存储失败，请重试"); throw new BizException(1521,"平台文件存储失败，请重试"); }
@@ -137,15 +194,22 @@ public class AssetUploadService {
         catch (Exception ex) { repository.storageFailed(a,"OSS 分片合并或文件校验失败，请重新上传"); throw new BizException(1521,"OSS 分片合并或文件校验失败，请重新上传"); }
         finally { remove(temp); }
     }
+    private void initializeStorage(Asset a) {
+        var meta=repository.storageMetadata(a.tenantId(),a.id());
+        if(meta!=null && (meta.bucket()!=null || "DB".equals(meta.pathVersion())))return;
+        var config=properties.getStorage().getOss();boolean v2=a.objectKey()!=null&&a.objectKey().startsWith("lynx-ad/v2/");
+        repository.storageMetadata(a.tenantId(),a.id(),"TEXT".equals(a.kind())?null:v2?AssetStoragePolicy.bucket(config,a.kind()):config.getBucket(),config.getEndpoint(),"TEXT".equals(a.kind())?"DB":v2?"V2":"LEGACY","LOCAL_UPLOAD");
+    }
     private StoragePort location(Asset asset) { return RoutedStoragePort.select(storage,asset.storageMode()); }
     private AssetFilePolicy.Validated inspect(Path temp, Asset a, AssetFilePolicy.Validated validated) {
         var media=inspector.validate(temp,a.filename());
+        if(media!=null)repository.duration(a.tenantId(),a.id(),Math.round(media.durationSeconds()*1000));
         return media==null ? validated : new AssetFilePolicy.Validated(validated.md5(),validated.size(),media.width(),media.height(),validated.text());
     }
     private Detail finalizeStored(TenantId tenant, Asset a, AssetFilePolicy.Validated v) {
         try { repository.stored(a,v.md5(),v.width(),v.height(),v.text()); }
         catch (DuplicateKeyException ex) { return duplicate(tenant,a,repository.content(tenant.value(),AssetUploadRepository.contentKey(a,v.md5())).orElseThrow()); }
-        repository.queueReview(tenant.value(),a.id()); repository.activate(tenant.value(),a.id()); return detail(tenant,a.id());
+        repository.queueReview(tenant.value(),a.id()); queueDefaultTarget(a); repository.activate(tenant.value(),a.id()); return detail(tenant,a.id());
     }
     private Detail duplicate(TenantId tenant, Asset a, Asset existing) {
         existing=ensureReviewStorage(tenant,existing);
@@ -160,14 +224,26 @@ public class AssetUploadService {
         Asset a=repository.require(tenant.value(),id);
         if (a.canonicalId()!=null) a=repository.require(tenant.value(),a.canonicalId());
         return new Detail(a.id(),a.kind(),a.filename(),a.sizeBytes(),a.storageStatus(),a.storageMode(),a.isAigc(),a.md5(),a.width(),a.height(),a.textContent(),
-            "STORED".equals(a.storageStatus()) ? location(a).getUrl(tenant,a.objectKey()) : "",a.errorMessage(),a.createdAt().toString(),repository.syncs(tenant.value(),a.id()),repository.aiReview(tenant.value(),a.id()));
+            "STORED".equals(a.storageStatus()) && !"TEXT".equals(a.kind()) ? location(a).getUrl(tenant,a.objectKey()) : "",a.errorMessage(),a.createdAt().toString(),repository.syncs(tenant.value(),a.id()),repository.aiReview(tenant.value(),a.id()),repository.storageMetadata(tenant.value(),a.id()));
+    }
+    /** Resolve the file actually uploaded under this platform ID, independent of later regenerations. */
+    public Optional<String> platformPreviewUrl(TenantId tenant,String account,String kind,String objectId) {
+        if(objectId==null || objectId.isBlank() || !Set.of("VIDEO","AUDIO").contains(kind))return Optional.empty();
+        return repository.platformObject(tenant.value(),account,kind,objectId).map(a->location(a).getUrl(tenant,a.objectKey()));
+    }
+    public boolean ownsUploadedVideo(TenantId tenant,String account,String videoId) {
+        return videoId!=null && !videoId.isBlank() && repository.platformObject(tenant.value(),account,"VIDEO",videoId).isPresent();
     }
     public Detail retry(TenantId tenant, String id, String account, boolean acknowledged) {
         var asset=repository.require(tenant.value(),id);
         if (!"STORED".equals(asset.storageStatus())) throw new BizException(1520,"文件尚未入库");
         if (!repository.approved(tenant.value(),id)) throw new BizException(1525,"AI 审核尚未通过，不能同步千川，请先查看审核结果");
         AssetFilePolicy.target(asset.filename(),true);
-        if (account!=null && !account.isBlank()) accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        if (account!=null && !account.isBlank()) {
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+            if(bound.platform()!=Platform.QIANCHUAN||"DELETED".equals(bound.status()))throw new BizException(1201,"请选择千川授权账户");
+            repository.addSync(asset,account);repository.activate(tenant.value(),asset.id());
+        }
         repository.retry(tenant.value(),id,account,acknowledged); return detail(tenant,id);
     }
     public void cancel(TenantId tenant, String id) {
@@ -181,6 +257,7 @@ public class AssetUploadService {
         var asset=repository.require(tenant.value(),id);
         if(asset.canonicalId()!=null) asset=repository.require(tenant.value(),asset.canonicalId());
         if(!"STORED".equals(asset.storageStatus())) throw new BizException(1525,"文件尚未入库");
+        if(repository.isEngineAsset(tenant.value(),asset.id())) throw new BizException(1525,"AI 引擎生成素材无需上传审核");
         asset=ensureReviewStorage(tenant,asset);
         repository.queueReview(tenant.value(),asset.id()); repository.retryReview(tenant.value(),asset.id());
         return detail(tenant,asset.id());
@@ -207,7 +284,7 @@ public class AssetUploadService {
     }
     public Path download(TenantId tenant, Asset a) throws IOException {
         Path temp=Files.createTempFile("lynx-asset-sync-", ".tmp");
-        try (InputStream in=location(a).open(tenant,a.objectKey()); var out=Files.newOutputStream(temp)) {
+        try (InputStream in="TEXT".equals(a.kind())?new ByteArrayInputStream(a.textContent().getBytes(java.nio.charset.StandardCharsets.UTF_8)):location(a).open(tenant,a.objectKey()); var out=Files.newOutputStream(temp)) {
             byte[] buffer=new byte[64*1024]; long total=0; int read;
             while ((read=in.read(buffer))!=-1) { total+=read; if(total>a.sizeBytes()) throw new BizException(1520,"存储文件大小不一致"); out.write(buffer,0,read); }
             if(total!=a.sizeBytes()) throw new BizException(1520,"存储文件大小不一致");

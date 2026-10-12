@@ -19,6 +19,10 @@ public interface AdPlanRepository {
 
     Optional<AdPlan> findById(TenantId tenantId, PlanId id);
 
+    default Optional<AdPlan> findByIdForUpdate(TenantId tenantId, PlanId id) {
+        return findById(tenantId, id);
+    }
+
     boolean existsUnfinishedName(TenantId tenantId, AwemeId awemeId, PlanName name, Optional<PlanId> exclude);
 
     Optional<AdPlan> findByQcPlanId(TenantId tenantId, QcPlanId qcPlanId);

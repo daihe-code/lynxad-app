@@ -31,6 +31,7 @@ public class MockQianchuanClient {
         Instant exp = Instant.now().plusSeconds(3600);
         List<Aweme> awemes = new ArrayList<>();
         for (AwemeType type : AwemeType.values()) {
+            if(type == AwemeType.AUTHORIZED) continue;
             boolean primary = type == AwemeType.OFFICIAL;
             awemes.add(new Aweme(
                     new AwemeId("aweme_" + type.name().toLowerCase()),

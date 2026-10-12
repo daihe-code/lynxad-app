@@ -98,6 +98,7 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
     @Override
     public void updateStatus(Credential c, QcPlanId id, PlanAction action) {
         if (action == PlanAction.FINISH) throw new BizException(1403, "结束计划尚无对应接口，不能替代为删除操作");
+        String failure = action == PlanAction.DELETE ? "删除失败" : "启停失败";
         try {
         String body = restClient.exchange(
                 RequestSpec.post(properties.getQianchuan().getDelivery().getAdStatusUrl())
@@ -111,17 +112,17 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
                                 + "\"}")
                         .build(),
                 String.class);
-        JsonNode data = oceanJson.dataOrThrow(body, 1406, "启停失败");
+        JsonNode data = oceanJson.dataOrThrow(body, 1406, failure);
         boolean acknowledged = false;
         for (JsonNode row : data.path("results")) {
             if (!id.value().equals(row.path("ad_id").asText())) continue;
-            if (!row.path("flag").asBoolean(false)) throw new BizException(1406,
+            if (!row.path("flag").isBoolean() || !row.path("flag").booleanValue()) throw new BizException(1406,
                     row.path("error").path("error_message").asText("平台拒绝更新计划状态"));
             acknowledged = true;
         }
-        if (!acknowledged) throw new BizException(1406, "平台未确认计划状态，请刷新后核查");
+        if (!acknowledged) throw new BizException(1406, "平台未确认计划状态，请同步核查，勿重复提交");
         } catch (BizException ex) {
-            throw remapDelivery(ex, "启停失败");
+            throw remapDelivery(ex, failure);
         }
     }
 
@@ -136,12 +137,17 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
 
     private List<OceanPlanRow> listOne(Credential c, SmartBidType bidType) {
         List<OceanPlanRow> rows = new ArrayList<>();
+        var day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        var charset=java.nio.charset.StandardCharsets.UTF_8;
         for (int page=1; page<=1000; page++) {
             String filtering = java.net.URLEncoder.encode("{\"smart_bid_type\":\""+bidType.oceanValue()+"\"}",java.nio.charset.StandardCharsets.UTF_8);
             String url = properties.getQianchuan().getDelivery().getAdListUrl()+"?advertiser_id="
-                    +LiveAdManagementAdapter.numericId(c.advertiserId().value())+"&marketing_goal=VIDEO_PROM_GOODS&filtering="+filtering+"&page="+page+"&page_size=20";
+                    +LiveAdManagementAdapter.numericId(c.advertiserId().value())+"&marketing_goal=VIDEO_PROM_GOODS&filtering="+filtering+"&page="+page+"&page_size=20"
+                    +"&start_time="+java.net.URLEncoder.encode(day+" 00:00:00",charset)
+                    +"&end_time="+java.net.URLEncoder.encode(day+" 23:59:59",charset)
+                    +"&fields="+java.net.URLEncoder.encode("[\"stat_cost\"]",charset);
             JsonNode data = oceanJson.dataOrThrow(restClient.exchange(
-                    RequestSpec.get(url).header("Access-Token",c.accessToken()).build(),String.class),1406,"列表失败");
+                    RequestSpec.get(url).header("Access-Token",c.accessToken()).replayAccountId(c.accountId()).build(),String.class),1406,"列表失败");
             JsonNode list=data.path("ad_list");
             if (!list.isArray()) throw new BizException(1406,"计划列表响应不完整");
             for (JsonNode payload:list) {

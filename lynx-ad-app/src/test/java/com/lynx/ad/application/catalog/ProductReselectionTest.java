@@ -43,10 +43,21 @@ class ProductReselectionTest {
         var service = new ProductCommandService(repository, pool, accounts);
         var first = service.select(tenant, aweme, List.of(qcId));
         rows.getFirst().changeUserPrice(Money.ofYuan(18));
+        when(pool.list(any(), eq(aweme.value()))).thenReturn(List.of(
+                new ProductPoolPort.PoolItem(qcId, "测试商品", Money.ofYuan(25), null)));
         var second = service.select(tenant, aweme, List.of(qcId));
         assertEquals(1, rows.size());
         assertEquals(first.products().getFirst().productId(), second.products().getFirst().productId());
         assertEquals("qp01", second.products().getFirst().qcProductId());
         assertEquals(Money.ofYuan(18).amount(), second.products().getFirst().userPrice());
+        assertEquals(Money.ofYuan(25).amount(), second.products().getFirst().price());
+    }
+    @Test void unknownPriceDoesNotInventZeroOrASellingPrice() {
+        var product=Product.fromPool(new TenantId("tenant-a"),new AwemeId("aweme-a"),new QcProductId("123"),"缺价商品",null,null);
+        org.junit.jupiter.api.Assertions.assertNull(product.poolPrice());
+        org.junit.jupiter.api.Assertions.assertNull(product.userPrice());
+        org.junit.jupiter.api.Assertions.assertNull(product.sellingPrice());
+        product.changeUserPrice(Money.ofYuan(18));product.refreshPoolPrice(Money.ofYuan(25),null);
+        assertEquals(Money.ofYuan(18),product.sellingPrice());
     }
 }

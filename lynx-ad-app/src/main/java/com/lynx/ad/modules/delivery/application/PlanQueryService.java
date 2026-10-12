@@ -27,9 +27,22 @@ public class PlanQueryService {
     private final AdPlanCreativeBindingStore bindings;
     private final PlanRemoteStore remote;
     private final OauthAccountRepository accounts;
+    private final QianchuanCredentialFacade credentials;
+    private com.lynx.ad.modules.catalog.application.ProductPriceService prices;
+    @Autowired public void productPrices(com.lynx.ad.modules.catalog.application.ProductPriceService value) { prices=value; }
+    private PlanStatisticsService statisticsService;
+    @Autowired public void statisticsService(PlanStatisticsService value) { statisticsService=value; }
+    private CreationStore creation;
+    @Autowired public void creationStore(CreationStore store) { creation=store; }
+    private PlanTransferStore transfers;
+    @Autowired public void transferStore(PlanTransferStore store) { transfers=store; }
     private boolean live;
+    private boolean liveAuthorization;
     @Autowired
-    public void configuration(com.lynx.ad.common.config.LynxAdProperties properties) { live=!properties.getMock().isQianchuan(); }
+    public void configuration(com.lynx.ad.common.config.LynxAdProperties properties) {
+        live=!properties.getMock().isQianchuan();
+        liveAuthorization=properties.getOauth().getQianchuan().isLive();
+    }
     public PlanQueryService(AdPlanRepository plans,AdListPort list,OauthAccountRepository accounts,
                             QianchuanCredentialFacade credentials,MetricSnapshotRepository snapshots,
                             ProductRepository products,AdPlanCreativeBindingStore bindings) {
@@ -39,54 +52,101 @@ public class PlanQueryService {
     public PlanQueryService(AdPlanRepository plans,AdListPort list,OauthAccountRepository accounts,
                             QianchuanCredentialFacade credentials,MetricSnapshotRepository snapshots,
                             ProductRepository products,AdPlanCreativeBindingStore bindings,PlanRemoteStore remote) {
-        this.plans=plans;this.snapshots=snapshots;this.products=products;this.bindings=bindings;this.remote=remote;this.accounts=accounts;
+        this.plans=plans;this.snapshots=snapshots;this.products=products;this.bindings=bindings;this.remote=remote;this.accounts=accounts;this.credentials=credentials;
     }
     public record Filters(String keyword,String status,String platform,String bidType,Integer createdWithin,
-                          String accountId,String sortField,boolean descending) {}
+                          String accountId,String sortField,boolean descending,PlanStatisticsRange statisticsRange,boolean refreshStatistics) {
+        public Filters(String keyword,String status,String platform,String bidType,Integer createdWithin,String accountId,String sortField,boolean descending) {
+            this(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending,null,false);
+        }
+    }
     public record Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs) {}
-    public record PageResult<T>(List<T> records,long total,int pageNum,int pageSize,Summary summary) {
+    public record PageResult<T>(List<T> records,long total,int pageNum,int pageSize,Summary summary,PlanStatisticsRange statisticsRange) {
         public PageResult(List<T> records,long total,int pageNum,int pageSize) { this(records,total,pageNum,pageSize,null); }
+        public PageResult(List<T> records,long total,int pageNum,int pageSize,Summary summary) { this(records,total,pageNum,pageSize,summary,null); }
     }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize) { return list(tenant,pageNum,pageSize,null); }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize,Filters filter) {
         if(pageNum<1 || pageSize<1 || pageSize>200) throw new BizException(1402,"分页参数不正确");
         List<PlanListVo> all=rows(tenant,null).stream().filter(row->matches(row,filter)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if(filter!=null && filter.statisticsRange()!=null)all=rangeRows(tenant,all,filter.statisticsRange(),filter.refreshStatistics());
         sort(all,filter);
         long from=(long)(pageNum-1)*pageSize;
         return new PageResult<>(from>=all.size()?List.of():List.copyOf(all.subList((int)from,(int)Math.min(all.size(),from+pageSize))),
-                all.size(),pageNum,pageSize,summary(all));
+                all.size(),pageNum,pageSize,summary(all),filter==null?null:filter.statisticsRange());
+    }
+    private List<PlanListVo> rangeRows(TenantId tenant,List<PlanListVo> rows,PlanStatisticsRange range,boolean refresh) {
+        Map<String,PlanStatisticsService.Snapshot> reports=new HashMap<>();
+        for(var row:rows) if(row.qcPlanId()!=null && !reports.containsKey(row.accountId()))
+            reports.put(row.accountId(),statisticsService.report(tenant,row.accountId(),range,refresh));
+        List<PlanListVo> result=new ArrayList<>();
+        for(var row:rows) {
+            var report=reports.get(row.accountId());
+            var m=report==null || row.qcPlanId()==null?null:report.plans().get(row.qcPlanId());
+            result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
+                    m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
+                    m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),null,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
+                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false));
+        }
+        return result;
     }
     public PlanVo get(TenantId tenant,PlanId id) {
         var plan=plans.findById(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在"));
-        var row=rows(tenant,plan).getFirst();
+        var visible=rows(tenant,plan);
+        if(visible.isEmpty()) throw new BizException(1405,"计划不存在或不属于真实千川授权账户");
+        var row=visible.getFirst();
         var r=remote==null?null:remote.list(tenant).get(id.value());
         String aweme=plan.awemeId().value();
         if(r!=null && r.detail()!=null && r.detail().hasNonNull("aweme_id")) aweme=r.detail().path("aweme_id").asText();
+        var goods=row.products();
+        if(live && prices!=null && !goods.isEmpty())try {
+            var c=credentials.getUsableCredential(tenant,plan.accountId());
+            var refs=goods.stream().map(p->new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(p.id(),null)).toList();
+            var quotes=prices.prices(tenant,c,aweme,refs,false);
+            goods=goods.stream().map(p->new PlanListVo.ProductSummary(p.id(),p.name(),p.imageUrl(),quotes.get(p.id()))).toList();
+        }catch(BizException unavailable){/* Saved plan details remain readable. */}
         return new PlanVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.smartBidType(),row.budget(),aweme,
                 plan.rejectReason(),row.lingtou(),row.guarantee(),row.coverUrl(),row.costYuan(),row.gmvYuan(),row.roi(),
-                plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),row.products(),row.comparison(),
-                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail());
+                plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),goods,row.comparison(),
+                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail(),row.statisticsDate(),row.historicalMetrics());
     }
     private List<PlanListVo> rows(TenantId tenant,AdPlan only) {
-        var local=only==null?plans.findByTenant(tenant):List.of(only);
+        var local=(only==null?plans.findByTenant(tenant):List.of(only)).stream()
+                .filter(p -> p.status()!=PlanStatus.DELETED).toList();
+        var groups=transfers==null?Map.<String,PlanTransferStore.Group>of():transfers.groups(tenant);
         var meta=plans.listMetadataByTenant(tenant);
         var latest=snapshots.listLatestPairsByTenant(tenant);
         var selected=bindings.productIdsByPlan(local.stream().map(p->p.id().value()).toList());
+        var creationSummaries=creation==null?Map.<String,CreationStore.PlanSummary>of():creation.summariesByPlan(tenant.value(),local.stream().map(p->groups.containsKey(p.id().value())?groups.get(p.id().value()).root():p.id().value()).distinct().toList());
         var cached=remote==null?Map.<String,PlanRemoteStore.Remote>of():remote.list(tenant);
         Map<String,List<Product>> catalogs=new HashMap<>();
         Set<String> authorized=new HashSet<>();
-        for(var account:accounts.findByTenant(tenant)) if("ACTIVE".equals(account.status()) &&
-                (account.tokenExpiresAt()==null || account.tokenExpiresAt().isAfter(Instant.now()))) authorized.add(account.id().value());
+        Set<String> realAccounts=new HashSet<>();
+        for(var account:accounts.findByTenant(tenant)) {
+            if(account.platform()!=com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN) continue;
+            if(!liveAuthorization || account.grantId()!=null) realAccounts.add(account.id().value());
+            if(realAccounts.contains(account.id().value()) && "ACTIVE".equals(account.status()) &&
+                (account.refreshExpiresAt()==null || account.refreshExpiresAt().isAfter(Instant.now()))) authorized.add(account.id().value());
+        }
         List<PlanListVo> result=new ArrayList<>();
         for(var plan:local) {
+            var group=groups.get(plan.id().value());String logicalId=group==null?plan.id().value():group.root();
+            if(liveAuthorization && !realAccounts.contains(plan.accountId().value())) continue;
             var metadata=meta.get(plan.id().value()); var pair=latest.get(plan.id().value()); var snap=pair==null?null:pair.current();
             var r=cached.get(plan.id().value()); JsonNode info=r==null?null:QianchuanPlanMapping.info(r.payload());
+            var creationSummary=creationSummaries.get(logicalId);
             if(live && r==null) snap=null;
             JsonNode setting=r==null?null:QianchuanPlanMapping.setting(r.detail()!=null?r.detail():r.payload());
             List<PlanListVo.ProductSummary> goods=new ArrayList<>();
-            if(r!=null) for(var node:r.payload().path("product_info")) {
+            if(group!=null && creationSummary!=null)for(var product:creationSummary.products())
+                goods.add(new PlanListVo.ProductSummary(product.qcProductId(),product.name(),product.imageUrl()));
+            if(goods.isEmpty() && r!=null) for(var node:r.payload().path("product_info")) {
                 String pid=QianchuanPlanMapping.text(node,"product_id");
                 if(pid!=null) goods.add(new PlanListVo.ProductSummary(pid,node.path("product_name").asText(pid),QianchuanPlanMapping.text(node,"product_image")));
+            }
+            if(goods.isEmpty()) {
+                for(var product:creationSummary==null?List.<CreationState.Product>of():creationSummary.products())
+                    goods.add(new PlanListVo.ProductSummary(product.qcProductId(),product.name(),product.imageUrl()));
             }
             if(goods.isEmpty()) {
                 var pids=selected.getOrDefault(plan.id().value(),plan.productIds().stream().map(QcProductId::value).toList());
@@ -94,8 +154,10 @@ public class PlanQueryService {
                 for(String pid:pids) goods.add(catalog.stream().filter(p->pid.equals(p.qcProductId().value())).findFirst()
                         .map(p->new PlanListVo.ProductSummary(pid,p.name(),p.imageUrl())).orElse(new PlanListVo.ProductSummary(pid,pid,null)));
             }
-            boolean current=r!=null && LocalDate.now(ZoneId.of("Asia/Shanghai")).equals(r.reportDate());
-            var report=current?r.todayReport():null;
+            LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
+            var statistics=statistics(r,today);
+            boolean current=statistics!=null && today.equals(statistics.day()) && today.equals(r.reportDate());
+            var report=statistics==null?null:statistics.data();
             BigDecimal cost=r==null?(snap==null?null:snap.cost().amount()):metric(report,"stat_cost");
             BigDecimal gmv=r==null?(snap==null?null:snap.gmv().amount()):metric(report,"total_pay_order_gmv_include_coupon_for_roi2");
             BigDecimal roi=r==null?(snap==null || snap.roi()==null?null:snap.roi().value()):metric(report,"total_prepay_and_pay_order_roi2");
@@ -104,17 +166,50 @@ public class PlanQueryService {
             PlanListVo.MetricComparison comparison=r==null?comparison(pair):current?comparison(report,r.yesterdayReport(),r.reportDate()):null;
             boolean canEdit=plan.qcPlanId().isPresent() && authorized.contains(plan.accountId().value()) &&
                     (plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED);
+            BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
             result.add(new PlanListVo(plan.id().value(),plan.name().text(),plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
                     plan.source()==PlanSource.LINGTOU,goods.isEmpty()?null:goods.getFirst().imageUrl(),r==null?null:r.guarantee(),cost,gmv,roi,
-                    plan.setting().bidType().oceanValue(),setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget"),
+                    plan.setting().bidType().oceanValue(),budget,
                     setting==null?plan.setting().roi2Goal().map(RoiGoal::value).orElse(null):QianchuanPlanMapping.number(setting,"roi2_goal"),
                     plan.setting().schedule().startDate(),plan.setting().schedule().endDate(),convert,
-                    r==null?(snap==null?null:snap.ts()):current?r.reportTs():null,List.copyOf(goods),comparison,
+                    r==null?(snap==null?null:snap.ts()):statistics==null?null:statistics.ts(),List.copyOf(goods),comparison,
                     info==null?(metadata==null?null:metadata.createdAt()):QianchuanPlanMapping.instant(QianchuanPlanMapping.text(info,"create_time")),
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,
-                    canEdit && plan.status()==PlanStatus.DELIVERING));
+                    canEdit && plan.status()==PlanStatus.DELIVERING,
+                    plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
+                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day())));
         }
         return result;
+    }
+    private record Statistics(JsonNode data,LocalDate day,Instant ts) {}
+    private static Statistics statistics(PlanRemoteStore.Remote remote,LocalDate today) {
+        if(remote==null)return null;
+        List<Statistics> candidates=new ArrayList<>();
+        if(remote.reportDate()!=null) {
+            candidates.add(new Statistics(remote.todayReport(),remote.reportDate(),remote.reportTs()));
+            candidates.add(new Statistics(remote.yesterdayReport(),remote.reportDate().minusDays(1),remote.reportTs()));
+        }
+        candidates.add(new Statistics(remote.lastReport(),remote.lastReportDate(),remote.lastReportTs()));
+        return candidates.stream().filter(s->s.day()!=null && !s.day().isAfter(today) && PlanRemoteStore.validReport(s.data()))
+                .max(Comparator.comparing(Statistics::day).thenComparing(Statistics::ts,Comparator.nullsFirst(Comparator.naturalOrder()))).orElse(null);
+    }
+    private static PlanListVo.RoiEstimate roiEstimate(JsonNode setting,CreationStore.PlanSummary summary,BigDecimal budget) {
+        if(setting!=null) {
+            BigDecimal value=nonNegative(setting,"estimate_roi_goal"),min=nonNegative(setting,"min_estimate_roi_goal"),max=nonNegative(setting,"max_estimate_roi_goal");
+            if(value!=null || min!=null || max!=null)return new PlanListVo.RoiEstimate(value,min,max);
+        }
+        if(summary==null || summary.recommendations()==null || budget==null)return null;
+        for(var estimate:summary.recommendations().path("budget").path("estimate_trans_cost_list")) {
+            BigDecimal tier=QianchuanPlanMapping.number(estimate,"budget");
+            if(tier==null || tier.compareTo(budget)!=0)continue;
+            BigDecimal value=nonNegative(estimate,"estimate_roi"),min=nonNegative(estimate,"min_estimate_roi"),max=nonNegative(estimate,"max_estimate_roi");
+            return value==null && min==null && max==null ? null : new PlanListVo.RoiEstimate(value,min,max);
+        }
+        return null;
+    }
+    private static BigDecimal nonNegative(JsonNode node,String key) {
+        BigDecimal value=QianchuanPlanMapping.number(node,key);
+        return value!=null && value.signum()>=0 ? value : null;
     }
     private static BigDecimal metric(JsonNode report,String field) { return report==null?null:QianchuanPlanMapping.number(report,field); }
     private static PlanListVo.MetricComparison comparison(JsonNode today,JsonNode yesterday,LocalDate day) {
