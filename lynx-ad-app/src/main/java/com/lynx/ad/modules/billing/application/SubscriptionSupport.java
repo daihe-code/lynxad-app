@@ -17,6 +17,7 @@ public class SubscriptionSupport {
         this.subscriptionRepository = subscriptionRepository;
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public Optional<Subscription> loadAndSettle(TenantId tenantId, Instant now) {
         Optional<Subscription> found = subscriptionRepository.findByTenant(tenantId);
         if (found.isEmpty()) {
@@ -30,6 +31,7 @@ public class SubscriptionSupport {
         return Optional.of(sub);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public Optional<Subscription> effective(TenantId tenantId, Instant now) {
         return loadAndSettle(tenantId, now).filter(s -> s.isEffective(now));
     }

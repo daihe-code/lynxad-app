@@ -15,6 +15,8 @@ public class CreationState {
     public List<Product> products = new ArrayList<>();
     public String analysisStatus = "NONE", analysisError, enginePlanId, engineJobId, previousEngineJobId;
     public JsonNode analysis, groups, recommendations;
+    /** Latest verified shared bindings, separate from immutable publish-attempt audit payloads. */
+    public JsonNode verifiedPlatformCreatives, verifiedPlatformChannels;
     public String generationStatus = "NONE", generationMessage, engineTerminalStatus, pendingRegenerationId;
     public int progress;
     public String generationStage;
@@ -23,6 +25,12 @@ public class CreationState {
     public record GenerationCount(String type,int completed,Integer total) {}
     public record GenerationIssue(String productId,String productName,String message) {}
     public List<String> generationProductIds = new ArrayList<>();
+    public String pendingAdditionId;
+    public List<GenerationAddition> generationAdditions = new ArrayList<>();
+    public static class GenerationAddition {
+        public String id,productId,type,description,status,createdAt,engineJobId,materialId,error;
+        public JsonNode engineRequest;
+    }
     public List<Material> materials = new ArrayList<>();
     public List<String> removedMaterialIds = new ArrayList<>();
     public List<FeedbackEvent> feedback = new ArrayList<>();
@@ -39,6 +47,9 @@ public class CreationState {
     }
     public static class Material {
         public String id, productId, groupId, type, title, text, engineMaterialId, engineJobId;
+        public String generationRequestId,generationDescription;
+        public JsonNode creativeProfile;
+        public String creativeProfileStatus;
         public String videoAssetId, coverAssetId, textAssetId, audioAssetId, carouselId;
         public List<String> imageAssetIds = new ArrayList<>();
         public String status = "PROCESSING", error, previewUrl, posterUrl;

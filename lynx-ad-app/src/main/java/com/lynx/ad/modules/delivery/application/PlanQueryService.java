@@ -77,18 +77,51 @@ public class PlanQueryService {
     }
     private List<PlanListVo> rangeRows(TenantId tenant,List<PlanListVo> rows,PlanStatisticsRange range,boolean refresh) {
         Map<String,PlanStatisticsService.Snapshot> reports=new HashMap<>();
-        for(var row:rows) if(row.qcPlanId()!=null && !reports.containsKey(row.accountId()))
+        Map<String,PlanStatisticsService.Snapshot> previousReports=new HashMap<>();
+        Set<String> comparisonFailed=new HashSet<>();
+        long days=java.time.temporal.ChronoUnit.DAYS.between(range.startDate(),range.endDate())+1;
+        var previousRange=new PlanStatisticsRange(range.startDate().minusDays(days),range.endDate().minusDays(days));
+        for(var row:rows) if(row.qcPlanId()!=null && !reports.containsKey(row.accountId())) {
             reports.put(row.accountId(),statisticsService.report(tenant,row.accountId(),range,refresh));
+            try { previousReports.put(row.accountId(),statisticsService.report(tenant,row.accountId(),previousRange,refresh)); }
+            catch(BizException unavailable) { comparisonFailed.add(row.accountId()); }
+        }
         List<PlanListVo> result=new ArrayList<>();
         for(var row:rows) {
             var report=reports.get(row.accountId());
             var m=report==null || row.qcPlanId()==null?null:report.plans().get(row.qcPlanId());
+            var previousReport=previousReports.get(row.accountId());
+            var previous=previousReport==null || row.qcPlanId()==null?null:previousReport.plans().get(row.qcPlanId());
+            var comparison=row.qcPlanId()==null?null:rangeComparison(m,previous,range,previousRange,comparisonFailed.contains(row.accountId()));
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
-                    m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),null,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
+                    m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
                     row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false));
         }
         return result;
+    }
+    private static PlanListVo.MetricComparison rangeComparison(PlanStatisticsService.Metrics current,PlanStatisticsService.Metrics previous,
+                                                               PlanStatisticsRange range,PlanStatisticsRange previousRange,boolean failed) {
+        String basis=range.startDate().equals(range.endDate())
+                ?range.endDate().equals(LocalDate.now(ZoneId.of("Asia/Shanghai")))?"YESTERDAY_FULL_DAY":"PREVIOUS_DAY":"PREVIOUS_PERIOD";
+        String reason=current==null?"当前区间暂无报表":failed?"对比报表获取失败，请刷新重试":previous==null?"对比时段暂无报表":null;
+        return new PlanListVo.MetricComparison(
+                current==null || previous==null?null:rangeChange(current.cost(),previous.cost()),
+                current==null || previous==null?null:rangeChange(decimal(current.orders()),decimal(previous.orders())),
+                current==null || previous==null || current.roi()==null || previous.roi()==null?null:current.roi().subtract(previous.roi()),
+                previousRange.endDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().minusSeconds(1),
+                current==null || previous==null?null:rangeChange(current.roi(),previous.roi()),basis,
+                current==null || previous==null?null:rangeChange(current.gmv(),previous.gmv()),
+                metricValues(current),metricValues(previous),previousRange.startDate(),previousRange.endDate(),reason);
+    }
+    private static PlanListVo.MetricValues metricValues(PlanStatisticsService.Metrics m) {
+        return m==null?null:new PlanListVo.MetricValues(m.cost(),m.gmv(),m.roi(),m.orders());
+    }
+    private static BigDecimal decimal(Long value) { return value==null?null:BigDecimal.valueOf(value); }
+    private static BigDecimal rangeChange(BigDecimal current,BigDecimal previous) {
+        if(current==null || previous==null || current.signum()<0 || previous.signum()<0)return null;
+        if(previous.signum()==0)return current.signum()==0?BigDecimal.ZERO:null;
+        return change(current,previous);
     }
     public PlanVo get(TenantId tenant,PlanId id) {
         var plan=plans.findById(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在"));

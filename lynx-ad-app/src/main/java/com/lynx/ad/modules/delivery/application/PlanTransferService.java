@@ -230,12 +230,22 @@ public class PlanTransferService {
         if(!p.isObject() || !p.path("multi_product_creative_list").isArray() || p.path("multi_product_creative_list").isEmpty() || !p.path("aweme_id").asText().equals(source.awemeId().value()))
             throw new BizException(1403,"已发布素材配置不完整，无法转投");
         var result=(ObjectNode)p.deepCopy();result.remove("ad_id");
+        com.lynx.ad.modules.delivery.domain.model.CreationState sharedState=null;
+        try{sharedState=creations.get(tenant.value(),root);}catch(BizException ex){if(ex.code()!=1403)throw ex;}
+        if(sharedState!=null&&sharedState.verifiedPlatformCreatives!=null){
+            var live=gateway.detail(source);if(!live.path("multi_product_creative_list").isArray()||live.path("multi_product_creative_list").isEmpty())throw new BizException(1403,"自动内容变更后的绑定尚未完整，暂不重新创建转投计划");
+            var liveBindings=com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanCreativeBindings.groups(live);
+            if(!liveBindings.equals(sharedState.verifiedPlatformCreatives))throw new BizException(1403,"平台商品素材已有其他变化，请先同步核查，再重新转投");
+            result.set("multi_product_creative_list",liveBindings);
+            if(sharedState.verifiedPlatformChannels!=null)result.set("product_channel_info",sharedState.verifiedPlatformChannels.deepCopy());
+            var productIds=result.putArray("product_ids");for(var item:sharedState.verifiedPlatformCreatives)productIds.add(new java.math.BigInteger(item.path("product_id").asText()));
+        }
         // Published payloads are audit snapshots. Recreated mode members must respect later shared product removals.
         var snapshots=creations.productsByPlan(tenant.value(),List.of(root)).get(root);
         if(snapshots!=null) {
             var allowed=snapshots.stream().map(com.lynx.ad.modules.delivery.domain.model.CreationState.Product::qcProductId).collect(java.util.stream.Collectors.toSet());
-            var creative=result.putArray("multi_product_creative_list");for(var item:p.path("multi_product_creative_list"))if(allowed.contains(item.path("product_id").asText()))creative.add(item);
-            var ids=result.putArray("product_ids");for(var item:p.path("product_ids"))if(allowed.contains(item.asText()))ids.add(item);
+            var latest=result.deepCopy();var creative=result.putArray("multi_product_creative_list");for(var item:latest.path("multi_product_creative_list"))if(allowed.contains(item.path("product_id").asText()))creative.add(item);
+            var ids=result.putArray("product_ids");for(var item:latest.path("product_ids"))if(allowed.contains(item.asText()))ids.add(item);
             if(creative.isEmpty())throw new BizException(1403,"当前计划没有可复用的商品创意，请先核查素材");
         }
         String suffix="_转投_"+(request.smartBidType().endsWith("CUSTOM")?"控成本":"放量")+"_"+UUID.randomUUID().toString().replace("-","").substring(0,12);

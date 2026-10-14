@@ -17,6 +17,7 @@
         </router-link>
         <el-menu id="app-navigation" mode="horizontal" :ellipsis="false" :default-active="active" @select="navOpen = false" :class="{ 'mobile-menu-open': usesReferenceHeader && navOpen }" router>
           <el-menu-item index="/campaigns">广告投放</el-menu-item>
+          <el-menu-item index="/monitoring">全店盯盘</el-menu-item>
           <el-menu-item index="/creatives">素材中心</el-menu-item>
           <el-menu-item v-if="!usesReferenceHeader" index="/analytics">数据分析</el-menu-item>
           <el-menu-item index="/accounts">账户管理<svg v-if="usesReferenceHeader" class="account-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9.6 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg></el-menu-item>
@@ -66,11 +67,12 @@ const isAsset = computed(() => route.path === "/creatives");
 const isAccount = computed(() => route.path === "/accounts" || route.path === "/subscription");
 const isReference = computed(() => isCreate.value || isAsset.value || isAccount.value || route.path.startsWith('/campaigns/') || route.path.startsWith('/authorization') || route.path === '/oauth/callback' || route.path === '/analytics');
 // Navigation styling is shared independently of each page’s content layout.
-const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns"));
+const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns") || route.path.startsWith('/monitoring'));
 const navOpen = ref(false);
 watch(() => route.fullPath, () => { navOpen.value = false; });
 const router = useRouter();
 const active = computed(() => {
+  if (route.path.startsWith("/monitoring")) return "/monitoring";
   if (route.path.startsWith("/creatives")) return "/creatives";
   if (route.path.startsWith("/analytics")) return "/campaigns";
   if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription")) return "/accounts";

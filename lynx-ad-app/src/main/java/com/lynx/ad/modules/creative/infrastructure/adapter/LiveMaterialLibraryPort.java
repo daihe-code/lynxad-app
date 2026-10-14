@@ -9,6 +9,8 @@ import com.lynx.ad.common.http.RequestSpec;
 import com.lynx.ad.modules.creative.domain.model.MaterialType;
 import com.lynx.ad.modules.creative.domain.port.MaterialLibraryPort;
 import java.time.Instant;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -36,8 +38,20 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 case IMAGE -> properties.getQianchuan().getImageGetUrl();
                 case CAROUSEL -> properties.getQianchuan().getCarouselGetUrl();
             };
+            String filtering = "";
+            if (query.type() != MaterialType.CAROUSEL) {
+                String key = query.objectId() != null && !query.objectId().isBlank()
+                        ? (query.type() == MaterialType.VIDEO ? "video_ids" : "image_ids") : "material_ids";
+                String id = "material_ids".equals(key) ? query.materialId() : query.objectId();
+                if (id != null && !id.isBlank()) {
+                    var json = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+                    if ("material_ids".equals(key)) json.putArray(key).add(new java.math.BigInteger(id));
+                    else json.putArray(key).add(id);
+                    filtering = "&filtering=" + URLEncoder.encode(json.toString(), StandardCharsets.UTF_8);
+                }
+            }
             String body = restClient.exchange(
-                    RequestSpec.get(url + "?advertiser_id=" + (query.advertiserId() == null ? "" : query.advertiserId()) + "&page=" + query.page() + "&page_size=" + query.pageSize())
+                    RequestSpec.get(url + "?advertiser_id=" + (query.advertiserId() == null ? "" : query.advertiserId()) + "&page=" + query.page() + "&page_size=" + query.pageSize() + filtering)
                             .header("Access-Token", query.accessToken()==null ? "" : query.accessToken())
                             .build(),
                     String.class);
@@ -64,7 +78,7 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 ? Instant.ofEpochSecond(n.path("create_time").asLong(Instant.now().getEpochSecond()))
                 : Instant.now();
         return new PlatformMaterial(
-                n.path("object_id").asText(n.path(type==MaterialType.VIDEO ? "video_id" : "id").asText(id)),
+                n.path("object_id").asText(n.path(type==MaterialType.VIDEO ? "video_id" : "image_id").asText(n.path("id").asText(id))),
                 id,
                 n.path("filename").asText(n.path("name").asText(type.name() + ".bin")),
                 n.path("size").asLong(0),

@@ -45,6 +45,10 @@ management:
 # 开发、试用、正式共用这棵树。本机 dev 用字面量覆盖两枝连接。
 lynx:
   ad:
+    monitoring:
+      api-key: ${LYNXAD_MONITORING_API_KEY:}
+      engine-api-key: ${LYNXAD_ENGINE_API_KEY:}
+      scan-ms: 10000
     db:
       vendor: ${LYNX_DB_VENDOR:mysql}
       mysql:

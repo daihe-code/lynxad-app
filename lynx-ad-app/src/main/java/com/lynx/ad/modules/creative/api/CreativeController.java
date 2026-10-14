@@ -141,7 +141,8 @@ public class CreativeController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer pageSize) {
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(defaultValue = "false") boolean selectable) {
         return ApiResponse.ok(libraryQueryService.query(
                 TenantContext.requireTenantId(),
                 type,
@@ -151,7 +152,7 @@ public class CreativeController {
                 status,
                 q,
                 page == null ? 1 : page,
-                pageSize == null ? 8 : pageSize));
+                pageSize == null ? 8 : pageSize,selectable));
     }
 
     @GetMapping("/api/v1/creative/library/videos")

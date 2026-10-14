@@ -76,10 +76,15 @@ public class LibraryQueryService {
             String q,
             int page,
             int pageSize) {
+        return query(tenantId,typeRaw,platform,from,to,status,q,page,pageSize,false);
+    }
+
+    public LibraryResponse query(TenantId tenantId,String typeRaw,String platform,LocalDate from,LocalDate to,
+            String status,String q,int page,int pageSize,boolean selectable) {
         String type = parseType(typeRaw);
         LocalDate today = LocalDate.now(SHANGHAI);
         LocalDate end = to == null ? today : to;
-        LocalDate start = from == null ? today.minusDays(6) : from;
+        LocalDate start = from == null ? (selectable ? LocalDate.of(1970,1,1) : today.minusDays(6)) : from;
         if (start.isAfter(end)) {
             throw new BizException(1509, "开始时间不能晚于结束时间");
         }
@@ -94,7 +99,9 @@ public class LibraryQueryService {
         merged.addAll(uploadedItems(tenantId));
         merged.addAll(carouselItems(tenantId));
         String platformWarning=null;
-        if (bound) {
+        // The creation picker accepts durable platform asset IDs, not standalone remote library IDs.
+        // Avoid fetching unselectable remote entries that would otherwise occupy the first page.
+        if (bound && !selectable) {
             try {
                 merged.addAll(platformItems(tenantId, start, end));
             } catch (BizException ex) {
@@ -106,6 +113,7 @@ public class LibraryQueryService {
             }
         }
         merged = dedup(merged);
+        if (selectable) merged=merged.stream().filter(LibraryQueryService::selectable).toList();
         Set<String> usedKeys = bindingQuery.usedKeys(tenantId);
         for (Item item : merged) {
             item.used = used(item, usedKeys);
@@ -131,6 +139,11 @@ public class LibraryQueryService {
         List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(this::toVo).toList();
         return new LibraryResponse(
                 bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning);
+    }
+
+    private static boolean selectable(Item item) {
+        if (item.carouselId!=null) return item.aiReview!=null && Set.of("APPROVED","NOT_REQUIRED").contains(item.aiReview.status());
+        return (item.id.startsWith("UPLOAD:") || item.id.startsWith("ENGINE:")) && !"REJECTED".equals(item.reviewBadge);
     }
 
     public List<LibraryVideoVo> libraryVideos(TenantId tenantId) {

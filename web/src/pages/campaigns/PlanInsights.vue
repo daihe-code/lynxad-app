@@ -7,7 +7,7 @@
     <el-alert v-if="initialError" :title="initialError" type="error" :closable="false" show-icon />
     <div class="insights-toolbar">
       <nav class="insights-tabs" role="tablist" aria-label="计划运营模块"><button v-for="item in tabs" :key="item.id" role="tab" :aria-selected="activeTab === item.id" :class="{ active: activeTab === item.id }" @click="emit('tab', item.id)">{{ item.label }}</button></nav>
-      <div class="insights-date"><el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" :shortcuts="shortcuts" :disabled-date="disabledDate" @calendar-change="calendarChange" @visible-change="calendarVisible" @change="changeRange" /><small>区间最长180天</small></div>
+      <div v-if="activeTab !== 'optimization'" class="insights-date"><el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" :shortcuts="shortcuts" :disabled-date="disabledDate" @calendar-change="calendarChange" @visible-change="calendarVisible" @change="changeRange" /><small>区间最长180天</small></div>
     </div>
     <section class="insights-section" v-loading="sectionLoading" :aria-label="tabLabel">
       <div v-if="sectionError" class="section-error" role="alert"><span>{{ sectionError }}</span><el-button @click="loadSection(true)">重新加载</el-button></div>
@@ -27,6 +27,7 @@
       </template>
       <PlanMaterials v-else-if="activeTab === 'materials'" :plan-id="planId" :range="range" :refresh-token="productRefresh" :account="previewAccount" />
       <PlanControls v-else-if="activeTab === 'controls' && plan?.smartBidType === 'SMART_BID_CUSTOM'" :plan-id="planId" :range="range" :refresh-token="productRefresh" :plan-status="plan.status" :account-active="boundAccount?.status === 'ACTIVE'" :account="previewAccount" />
+      <PlanOptimization v-else-if="activeTab === 'optimization'" :key="planId" :plan-id="planId" :products="plan?.products" @data="emit('tab', 'data')" />
       <PlanDetails v-else-if="activeTab === 'details' && plan && !sectionError" :plan="plan" :creation="creation" :account="previewAccount" :account-name="boundAccount?.accountName" @products="emit('tab', 'products')" />
       <template v-else-if="activeTab === 'logs'">
         <div class="section-title"><h3>操作日志</h3><el-radio-group v-model="logSource" @change="logPage = 1; loadSection()"><el-radio-button value="PLATFORM">千川日志</el-radio-button><el-radio-button value="LINGTOU">灵投日志</el-radio-button></el-radio-group></div>
@@ -54,9 +55,10 @@ import PlanProducts from './components/PlanProducts.vue';
 import PlanDetails from './components/PlanDetails.vue';
 import PlanGuarantee from './components/PlanGuarantee.vue';
 import PlanControls from './components/PlanControls.vue';
+import PlanOptimization from './components/PlanOptimization.vue';
 const props = defineProps<{ planId: string; tab?: string; initialRange: StatisticsRange }>();
 const emit = defineEmits<{ tab: [value: string]; range: [value: StatisticsRange]; changed: [] }>();
-const tabs = computed(() => [{ id: 'data', label: '数据' }, { id: 'products', label: '商品' }, { id: 'materials', label: '素材' }, ...(plan.value?.smartBidType === 'SMART_BID_CUSTOM' ? [{ id: 'controls', label: '调控' }] : []), { id: 'details', label: '详情' }, { id: 'logs', label: '日志' }, { id: 'guarantee', label: '保障历史' }]);
+const tabs = computed(() => [{ id: 'data', label: '数据' }, { id: 'products', label: '商品' }, { id: 'materials', label: '素材' }, ...(plan.value?.smartBidType === 'SMART_BID_CUSTOM' ? [{ id: 'controls', label: '调控' }] : []), { id: 'optimization', label: '自动盯盘' }, { id: 'details', label: '详情' }, { id: 'logs', label: '日志' }, { id: 'guarantee', label: '保障历史' }]);
 const activeTab = computed(() => tabs.value.some(t => t.id === props.tab) ? props.tab! : 'data');
 const tabLabel = computed(() => tabs.value.find(t => t.id === activeTab.value)!.label);
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);

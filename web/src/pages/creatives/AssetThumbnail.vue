@@ -1,11 +1,12 @@
 <template>
   <div ref="container" class="asset-thumbnail" :data-state="ready ? 'ready' : failed ? 'error' : 'loading'">
-    <img v-if="imageUrl && !imageFailed" :src="imageUrl" :alt="item.filename" loading="lazy" @load="ready = true" @error="imageFailed = true; ready = false" />
-    <video v-else-if="item.type === 'VIDEO' && item.playUrl && visible && !videoFailed"
-      ref="video" :src="assetUrl(item.playUrl)" :class="{ 'is-ready': ready }"
+    <img v-if="imageUrl && !imageFailed" :key="imageUrl" :src="imageUrl" :alt="item.filename" loading="lazy" @load="ready = true" @error="imageFailed = true; ready = false" />
+    <video v-else-if="item.type === 'VIDEO' && urls.playUrl && visible && !videoFailed"
+      ref="video" :key="urls.playUrl" :src="assetUrl(urls.playUrl)" :class="{ 'is-ready': ready }"
       muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"
       @loadedmetadata="seekFrame" @loadeddata="frameReady" @seeked="frameReady" @error="videoFailed = true; ready = false"></video>
     <AssetIcon v-if="!ready" :name="item.type === 'VIDEO' ? 'video' : item.type === 'AUDIO' ? 'audio' : item.type === 'TEXT' ? 'note' : 'image'" class="asset-placeholder" />
+    <span v-if="failed && !resolving" class="preview-error" :title="urls.message || '素材内容暂不可读取，请检查存储服务后刷新'">预览暂不可用</span>
   </div>
 </template>
 <script setup lang="ts">
@@ -13,6 +14,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { LibraryItemVo } from '@/features/creative/creativeApi';
 import AssetIcon from './AssetIcon.vue';
 import { assetUrl } from './assetFormat';
+import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
 
 const props = defineProps<{ item: LibraryItemVo }>();
 const container = ref<HTMLElement>();
@@ -21,8 +23,12 @@ const visible = ref(false);
 const ready = ref(false);
 const imageFailed = ref(false);
 const videoFailed = ref(false);
-const imageUrl = computed(() => assetUrl(props.item.posterUrl || (props.item.type === 'IMAGE' ? props.item.playUrl : '')));
-const failed = computed(() => props.item.type === 'VIDEO' ? videoFailed.value : imageFailed.value);
+const urls = computed(() => assetPreview(props.item));
+const imageUrl = computed(() => assetUrl(urls.value.posterUrl || (props.item.type === 'IMAGE' ? urls.value.playUrl : '')));
+const failed = computed(() => ['VIDEO', 'IMAGE', 'CAROUSEL'].includes(props.item.type) &&
+  (props.item.type === 'VIDEO' ? (videoFailed.value || !urls.value.playUrl && (imageFailed.value || !imageUrl.value)) : imageFailed.value || !imageUrl.value));
+const resolving = ref(false);
+let attempted = false, alive = true;
 let observer: IntersectionObserver | undefined;
 
 function seekFrame(event: Event) {
@@ -34,9 +40,22 @@ function frameReady(event: Event) {
   const media = event.target as HTMLVideoElement;
   if (!media.seeking && media.readyState >= 2 && media.videoWidth > 0) ready.value = true;
 }
-watch(() => [props.item.id, props.item.posterUrl, props.item.playUrl], () => {
+watch(() => JSON.stringify([props.item.id, props.item.posterUrl, props.item.playUrl]), () => {
+  attempted = false;
+});
+watch(imageUrl, () => {
   ready.value = false; imageFailed.value = false; videoFailed.value = false;
 });
+watch(() => urls.value.playUrl, () => {
+  videoFailed.value = false;
+  if (!imageUrl.value || imageFailed.value) ready.value = false;
+});
+watch([failed, visible], async () => {
+  if (!failed.value || !visible.value || attempted || resolving.value) return;
+  attempted = true; resolving.value = true;
+  await resolveAssetPreview(props.item);
+  if (alive) resolving.value = false;
+}, { immediate: true });
 onMounted(() => {
   if (!('IntersectionObserver' in window)) { visible.value = true; return; }
   observer = new IntersectionObserver(entries => {
@@ -48,6 +67,7 @@ onMounted(() => {
   if (container.value) observer.observe(container.value);
 });
 onBeforeUnmount(() => {
+  alive = false;
   observer?.disconnect();
   if (video.value) {
     video.value.pause();
@@ -62,4 +82,5 @@ onBeforeUnmount(() => {
 .asset-thumbnail video { opacity: 0; }
 .asset-thumbnail video.is-ready { opacity: 1; }
 .asset-placeholder { width: 44px; height: 44px; color: #7c7f99; }
+.preview-error { position: absolute; bottom: 5px; color: #7c7f99; font-size: 11px; }
 </style>

@@ -4,13 +4,13 @@
     <div v-else-if="loadError" class="workspace-loading" role="alert"><p>{{ loadError }}</p><button class="btn-prev" @click="load">重新加载</button><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
       <header class="workspace-header container-page">
-        <div class="workspace-heading"><router-link class="workspace-back" to="/campaigns"><ReferenceIcon name="arrow-left" />返回投放列表</router-link><span class="workspace-mode">{{ transferring ? '转投计划' : editing ? '修改投放计划' : '查看投放计划' }}</span><span class="stpill" :class="`stpill--${statusInfo(plan.status)[1]}`">{{ planStatusLabel(plan.status, plan.qcStatus) }}</span></div>
+        <div class="workspace-heading"><router-link class="workspace-back" to="/campaigns"><ReferenceIcon name="arrow-left" />返回投放列表</router-link><span class="workspace-mode">{{ transferring ? '转投计划' : draftEditor ? '继续编辑草稿' : editing ? '修改投放计划' : '查看投放计划' }}</span><span class="stpill" :class="`stpill--${statusInfo(plan.status)[1]}`">{{ planStatusLabel(plan.status, plan.qcStatus) }}</span></div>
         <div class="workspace-title">
           <input v-if="editing && !transferring && !draftEditor" v-model="name" maxlength="30" :disabled="saving || !canEdit" aria-label="计划名称" />
           <h1 v-else>{{ plan.name }}</h1>
           <button v-if="!editing && canEdit" class="btn-next-primary" type="button" @click="enterEdit"><ReferenceIcon name="edit" />修改计划</button>
         </div>
-        <p class="workspace-meta">计划ID：{{ plan.qcPlanId || plan.planId }} · {{ transferring ? '仅第二步可修改投放方式、日预算与ROI，商品与素材保持原设置' : editing ? '修改完成后点击保存修改生效' : '当前为只读模式，可切换步骤查看计划内容与素材预览' }}</p>
+        <p class="workspace-meta">计划ID：{{ plan.qcPlanId || plan.planId }} · {{ transferring ? '仅第二步可修改投放方式、日预算与ROI，商品与素材保持原设置' : draftEditor ? '继续完成投放设置与素材，确认后发布投放' : editing ? '修改完成后点击保存修改生效' : '当前为只读模式，可切换步骤查看计划内容与素材预览' }}</p>
         <p v-if="transferring" class="workspace-notice">{{ transferContext?.reuse ? '确认后暂停当前计划，启用另一种投放方式的已有计划。' : '确认后暂停当前计划，并使用已发布的商品与素材创建另一种投放方式的计划。' }}两种投放方式均展示在列表中，共用商品与素材，同时只启用一种。</p>
         <p v-if="transferring && transferMessage" class="workspace-notice" role="status">{{ transferMessage }}</p>
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
@@ -19,7 +19,7 @@
         <p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p>
       </header>
 
-      <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="step" />
+      <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
         <CreationFrame :step="step" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" read-only embedded />
@@ -79,6 +79,7 @@ let submission: PlanTransferRequest | undefined;
 const transferAllowed = computed(() => canEdit.value && !!plan.value?.qcPlanId && transferContext.value?.available && !pendingSubmission.value);
 const transferPending = computed(() => pendingSubmission.value || !!transferContext.value?.pendingKey);
 const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : 1; });
+const draftInitialStep = computed(() => route.query.step == null ? undefined : step.value);
 const boundAccount = computed(() => accounts.value.find(a => a.accountId === plan.value?.accountId));
 const account = computed(() => {
   const p = plan.value; if (!p?.awemeId) return undefined;

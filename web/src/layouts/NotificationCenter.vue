@@ -73,6 +73,7 @@ async function markAll() {
 async function visit(item: InboxMessage) {
   if (!await mark(item) || disposed) return;
   const target = inboxPresentation(item).destination;
+  if (target === 'optimization') { open.value = false; await router.push({ path: '/monitoring', query: { tab: 'history', ...(item.bizId ? { planId: item.bizId } : {}) } }); return; }
   if (target === 'plan' && item.bizId) {
     try { await getPlan(item.bizId); if (!disposed) { open.value = false; await router.push(`/campaigns/${encodeURIComponent(item.bizId)}`); } }
     catch { if (!disposed) { ElMessage.warning('关联计划已不存在或无权查看'); open.value = false; await router.push('/campaigns'); } }

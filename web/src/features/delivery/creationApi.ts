@@ -10,6 +10,8 @@ export interface CreationMaterial {
   id: string; productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; title: string; text?: string;
   status: string; error?: string; previewUrl?: string; posterUrl?: string; engineMaterialId?: string;
   titles: string[]; imageUrls?: string[];
+  generationRequestId?: string; generationDescription?: string;
+  creativeProfile?: Record<string, unknown>; creativeProfileStatus?: string;
 }
 export type ProductAnalysisDimensionKey = 'competitor_count' | 'search_heat_7d' | 'audience_match' | 'estimated_roi';
 export interface ProductAnalysisDimension {
@@ -37,7 +39,9 @@ export interface CreationState {
   generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null }[];
   generationIssues?: { productId: string; productName: string; message: string }[];
   materials: CreationMaterial[]; publishStatus: string; publishKey?: string; qcPlanId?: string; publishError?: string;
+  generationAdditions?: { id: string; productId: string; type: string; description: string; status: string; createdAt: string; materialId?: string; error?: string }[];
 }
+export interface CreationAdditionBody { productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; description: string; requestId: string }
 export interface ProductQuery { page: number; pageSize: number; keyword: string; tab: string; unpromoted: boolean }
 const root = '/api/v1/delivery/creation';
 const quiet = { headers: { 'X-Quiet-Request': 'true' } };
@@ -48,7 +52,10 @@ export const creationSelect = (body: { planId?: string; revision?: number; accou
 export const creationAnalyze = (s: CreationState) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision });
 export const creationRecommendations = (id: string) => apiGet<CreationState>(`${root}/${id}/recommendations`, slow);
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
+export const creationStep = (s: CreationState, step: number) => apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step });
 export const creationGenerate = (s: CreationState, productIds: string[]) => apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds });
+export const creationAddition = (s: CreationState, body: CreationAdditionBody) => apiPost<CreationState>(`${root}/${s.planId}/generation/additions`, { revision: s.revision, ...body });
+export const creationMaterialContext = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/context`);
 export const creationVisibility = (s: CreationState, hideInAweme: boolean) => apiPut<CreationState>(`${root}/${s.planId}/visibility`, { revision: s.revision, hideInAweme });
 export const creationAdd = (s: CreationState, body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }) => apiPost<CreationState>(`${root}/${s.planId}/materials`, { revision: s.revision, ...body }, slow);
 export const creationFeedback = (s: CreationState, id: string, action: string, body: { reasons: string[]; description: string }) => action === 'delete'

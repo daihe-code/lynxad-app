@@ -79,7 +79,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductAnalysisDimensionKey } from '@/features/delivery/creationApi';
 import ProductPrice from '@/components/ProductPrice.vue';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; readOnly?: boolean; embedded?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; readOnly?: boolean; embedded?: boolean; initialQuery?: ProductQuery }>();
 const emit = defineEmits<{ select: [product: ProductVo]; remove: [id: string]; account: [key: string]; retry: []; 'refresh-prices': []; next: []; cancel: []; analyze: []; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
@@ -105,7 +105,7 @@ const analysisCards = computed(() => dimensionDefinitions.map(definition => {
     method: dimension?.method?.trim(),
   };
 }));
-const query = ref(''), page = ref(1), size = ref(30), jump = ref('1');
+const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 30), jump = ref(String(page.value));
 const broken = ref<Record<string, boolean>>({});
 const analysisOpen = ref(false), listExpanded = ref(true), accountOpen = ref(false);
 const analysisPanel = ref<HTMLElement>();
@@ -113,7 +113,7 @@ const filtered = computed(() => props.products);
 const pages = computed(() => Math.max(1, Math.ceil(props.total / size.value)));
 const visible = computed(() => filtered.value);
 
-const tab = ref('ALL'), unpromoted = ref(false);
+const tab = ref(props.initialQuery?.tab ?? 'ALL'), unpromoted = ref(props.initialQuery?.unpromoted ?? true);
 const tabValues = ['ALL','BREAKTHROUGH_PRODUCT','GOOD_BOOST','NEW_PRODUCT','SEARCH_TREND'];
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const analysisMessage = computed(() => analyzing.value ? '正在分析所选商品，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? `已完成 ${props.selected.length} 款商品的整体四维分析；估算指标以实际投放效果为准` : '等待商品分析开始');

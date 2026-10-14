@@ -68,8 +68,14 @@ export interface PlanListVo {
     convertChangePct?: number | null;
     roiChange?: number | null;
     roiChangePct?: number | null;
+    gmvChangePct?: number | null;
+    current?: { cost?: number | null; gmv?: number | null; roi?: number | null; orders?: number | null } | null;
+    previous?: { cost?: number | null; gmv?: number | null; roi?: number | null; orders?: number | null } | null;
+    previousStartDate?: string | null;
+    previousEndDate?: string | null;
+    unavailableReason?: string | null;
     previousSnapshotTs?: string;
-    basis?: 'PREVIOUS_SNAPSHOT' | 'YESTERDAY_FULL_DAY';
+    basis?: 'PREVIOUS_SNAPSHOT' | 'YESTERDAY_FULL_DAY' | 'PREVIOUS_DAY' | 'PREVIOUS_PERIOD';
   } | null;
 }
 

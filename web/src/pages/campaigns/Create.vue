@@ -1,8 +1,8 @@
 <template>
   <div class="wizard">
-    <CreateProductsStep v-if="step === 1" :key="accountKey" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :saving="busy" :total="total" :analysis-status="sameSelection ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="state?.analysis" :analysis-error="state?.analysisError" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @retry="loadProducts()" @refresh-prices="loadProducts(true)" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
-    <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @recommendations="refreshRecommendations" @account="chooseAccount" @prev="step = 1" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy" :account="account" :account-chips="accountChips" @prev="step = 2" @generate="generate" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @confirm="confirm" @publish="publish" @cancel="cancel" />
+    <CreateProductsStep v-if="step === 1" :key="accountKey" :initial-query="query" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :saving="busy" :total="total" :analysis-status="sameSelection ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="state?.analysis" :analysis-error="state?.analysisError" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @retry="loadProducts()" @refresh-prices="loadProducts(true)" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @recommendations="refreshRecommendations" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
+    <LiveMaterialsStep v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy" :account="account" :account-chips="accountChips" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @context="analyzeContext" @confirm="confirm" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在将已确认的素材包提交至千川，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
     <p v-if="initialError" class="creation-error" role="alert">{{ initialError }}<button @click="initialize">重新加载</button></p>
@@ -28,7 +28,7 @@ const route = useRoute(), router = useRouter();
 const props = defineProps<{ initialPlanId?: string; initialStep?: number }>();
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false), initialError = ref('');
 const accounts = ref<AccountVo[]>([]), accountKey = ref(''), selected = ref<api.CreationProduct[]>([]), products = ref<api.CreationProduct[]>([]), total = ref(0);
-const query = ref<api.ProductQuery>({ page: 1, pageSize: 30, keyword: '', tab: 'ALL', unpromoted: false });
+const query = ref<api.ProductQuery>({ page: 1, pageSize: 30, keyword: '', tab: 'ALL', unpromoted: true });
 const accountOptions = computed(() => accounts.value.filter(a => a.platform === 'QIANCHUAN' && a.status === 'ACTIVE' && a.credentialSource !== 'MOCK').flatMap(a => a.awemes.map(w => ({ key: `${a.accountId}:${w.awemeId}`, accountId: a.accountId, awemeId: w.awemeId, awemeName: w.name, avatar: w.avatar, type: w.type }))));
 const account = computed(() => accountOptions.value.find(a => a.key === accountKey.value));
 const accountChips = computed(() => account.value ? [({ OFFICIAL:'官方账号', SELF:'自运营', COOP:'合作达人', COOP_AGENCY:'合作机构', ALLIANCE:'联盟', AUTHORIZED:'授权账号', OTHER:'其他账号' } as Record<string,string>)[account.value.type] || account.value.type] : []);
@@ -72,10 +72,16 @@ async function ensureSelection() {
   if (!props.initialPlanId) await router.replace({ path: '/campaigns/create', query: { draftId: state.value.planId } });
 }
 async function analyze() { await run(async () => { await ensureSelection(); state.value = await api.creationAnalyze(state.value!); schedulePoll(); }); }
+async function persistStep(target: number) {
+  if (state.value && state.value.step !== target) state.value = await api.creationStep(state.value, target);
+}
+async function goToStep(target: number) {
+  await run(async () => { await persistStep(target); step.value = target; window.scrollTo(0,0); });
+}
 async function nextGoal() {
   if (!sameSelection.value || state.value?.analysisStatus !== 'SUCCEEDED') return;
-  step.value = 2; window.scrollTo(0,0);
-  await refreshRecommendations();
+  await goToStep(2);
+  if (step.value === 2) await refreshRecommendations();
 }
 async function refreshRecommendations() {
   if (!state.value) return;
@@ -93,12 +99,17 @@ async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') 
 }
 async function persistGoal() {
   if (!state.value || budgetError.value || roiError.value || dateError.value || !name.value.trim()) throw new Error('请检查计划名称、预算、ROI 和日期');
-  state.value = await api.creationGoal(state.value, { name: name.value.trim(), smartBidType: mode.value, budget: Number(budget.value), roi2Goal: mode.value === 'CUSTOM' ? Number(roi.value) : null, scheduleType: duration.value === 'custom' ? 'DATE_RANGE' : 'FROM_NOW', startDate: duration.value === 'custom' ? start.value : null, endDate: duration.value === 'custom' ? end.value : null });
+  const goal = { name: name.value.trim(), smartBidType: mode.value, budget: Number(budget.value), roi2Goal: mode.value === 'CUSTOM' ? Number(roi.value) : null, scheduleType: duration.value === 'custom' ? 'DATE_RANGE' : 'FROM_NOW', startDate: duration.value === 'custom' ? start.value : null, endDate: duration.value === 'custom' ? end.value : null };
+  const saved = state.value;
+  if (saved.name === goal.name && saved.smartBidType === goal.smartBidType && saved.budget === goal.budget && (saved.roi2Goal ?? null) === goal.roi2Goal && saved.scheduleType === goal.scheduleType && (saved.startDate ?? null) === goal.startDate && (saved.endDate ?? null) === goal.endDate) return;
+  state.value = await api.creationGoal(saved, goal);
 }
-async function saveGoal() { await run(async () => { await persistGoal(); step.value = 3; window.scrollTo(0,0); }); }
+async function saveGoal() { await run(async () => { await persistGoal(); await persistStep(3); step.value = 3; window.scrollTo(0,0); }); }
 async function generate(ids: string[]) { await run(async () => { state.value = await api.creationGenerate(state.value!, ids); schedulePoll(); }); }
+async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { state.value = await api.creationAddition(state.value!, body); schedulePoll(); }); }
 async function editTitles(id: string, titles: string[]) { await run(async () => { state.value = await api.creationTitles(state.value!, id, titles); schedulePoll(); }); }
 async function setVisibility(hideInAweme: boolean) { await run(async () => { state.value = await api.creationVisibility(state.value!, hideInAweme); }); }
+async function analyzeContext(id: string) { await run(async () => { state.value = await api.creationMaterialContext(state.value!, id); schedulePoll(); }); }
 async function recheck(id: string) { await run(async () => { state.value = await api.creationRecheck(state.value!, id); schedulePoll(); }); }
 async function add(body: Parameters<typeof api.creationAdd>[1]) { await run(async () => { state.value = await api.creationAdd(state.value!, body); schedulePoll(); }); }
 function openAction(kind: 'regenerate'|'delete', id: string) { if (!busy.value) action.value = { kind, id }; }
@@ -106,7 +117,15 @@ async function feedback(body: MaterialFeedback) { const a = action.value; if (!a
 async function confirm() { await run(async () => { if (name.value.trim() !== state.value!.name) await persistGoal(); state.value = await api.creationConfirm(state.value!); ElMessage.success('当前素材包已确认'); }); }
 async function publish() { await run(async () => { const s = state.value!; const key = sessionStorage.getItem(`creation:${s.planId}:${s.revision}`) || crypto.randomUUID(); sessionStorage.setItem(`creation:${s.planId}:${s.revision}`, key); state.value = await api.creationPublish(s, key); step.value = 4; schedulePoll(); }); }
 function cancel() { if (!busy.value) action.value = { kind: 'cancel' }; }
-async function saveAndLeave() { await run(async () => { if (!state.value || !sameSelection.value) await ensureSelection(); if (step.value >= 2 && !working.value && !budgetError.value && !roiError.value && !dateError.value) await persistGoal(); ElMessage.success('草稿已保存，可在投放列表继续编辑'); await router.push('/campaigns'); }); }
+async function saveAndLeave() {
+  await run(async () => {
+    if (!state.value || !sameSelection.value) await ensureSelection();
+    if (step.value >= 2 && !working.value && !budgetError.value && !roiError.value && !dateError.value) await persistGoal();
+    await persistStep(step.value);
+    ElMessage.success('草稿已保存，可在投放列表继续编辑');
+    await router.push('/campaigns');
+  });
+}
 async function discardAndLeave() { await run(async () => { if (state.value) await api.creationDiscard(state.value.planId); await router.push('/campaigns'); }); }
 function schedulePoll() { clearTimeout(pollTimer); if (!disposed && state.value) pollTimer = setTimeout(poll, working.value || state.value.materials.some(m => m.status === 'PROCESSING') || ['QUEUED','SENDING'].includes(state.value.publishStatus) ? 2500 : 15000); }
 async function poll() {

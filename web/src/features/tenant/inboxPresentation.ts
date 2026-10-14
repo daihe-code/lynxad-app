@@ -3,6 +3,7 @@ import { WATCHER_TYPES } from '@/features/agentops/agentopsApi';
 
 export function inboxPresentation(item: InboxMessage) {
   const type = item.bizType || '';
+  if (type.startsWith('OPTIMIZATION_')) return { category: '自动盯盘', tone: 'warning', action: '查看盯盘', destination: 'optimization' as const };
   if (type.startsWith('CREATIVE_')) return { category: '素材', tone: 'material', action: '查看素材', destination: 'creative' as const };
   if (type === 'TOKEN_EXPIRED') return { category: '授权', tone: 'authorization', action: '重新授权', destination: 'authorization' as const };
   if (type === 'DAILY_REPORT' || type === 'INSIGHT_REPORT' || type === 'PLAN_DAILY_REPORT') return { category: '日报', tone: '', action: '查看日报', destination: 'report' as const };

@@ -180,6 +180,30 @@ public class LiveAdManagementAdapter implements AdManagementPort {
     @Override public void deleteProduct(Credential c,String adId,String productId) {
         post(c,url("ad/product/delete/"),Map.of("ad_id",numericId(adId),"product_ids",List.of(numericId(productId))));
     }
+    @Override public List<JsonNode> monitoringProducts(Credential c,String id,LocalDate start,LocalDate end){
+        new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
+        return paged(c,url("ad/product/get/"),Map.of("ad_id",numericId(id),"start_date",start.toString(),"end_date",end.toString(),"fields",List.of("stat_cost_for_roi2","total_pay_order_count_for_roi2","total_order_settle_amount_for_roi2_1h")),"product_list");
+    }
+    private JsonNode automaticPost(Credential c,String endpoint,Map<String,Object> params){
+        var body=new LinkedHashMap<>(params);body.put("advertiser_id",numericId(c.advertiserId().value()));
+        try{return ocean.dataOrThrow(client.exchange(RequestSpec.post(endpoint).header("Access-Token",c.accessToken()).json(json.writeValueAsString(body)).build().withoutReplay(),String.class),1406,"自动调控提交未确认，请回查平台");}
+        catch(com.fasterxml.jackson.core.JsonProcessingException ex){throw new BizException(1402,"自动调控参数不正确");}
+    }
+    @Override public void automaticContent(Credential c,String id,String operation,JsonNode payload){
+        var body=new LinkedHashMap<String,Object>();body.put("ad_id",numericId(id));
+        String endpoint=switch(operation){
+            case "MATERIAL_REMOVE"->{body.put("material_ids",List.of(numericId(payload.path("materialId").asText())));yield url("ad/material/delete/");}
+            case "PRODUCT_REMOVE"->{body.put("product_ids",List.of(numericId(payload.path("productId").asText())));yield url("ad/product/delete/");}
+            case "MATERIAL_ADD"->{body.put("multi_product_creative_list",payload.path("creatives"));yield properties.getQianchuan().getDelivery().getAdUpdateUrl();}
+            default->throw new BizException(1402,"自动内容调控类型不正确");
+        };automaticPost(c,endpoint,body);
+    }
+    @Override public String automaticControl(Credential c,String id,String scene,String name,BigDecimal budget,BigDecimal duration,List<String> materials){
+        if(!Set.of("SMART_BOOST","MATERIAL_ADD_BUDGET").contains(scene))throw new BizException(1402,"自动任务类型不正确");
+        var body=new LinkedHashMap<String,Object>();body.put("ad_id",numericId(id));body.put("scene",scene);body.put("name",name);body.put("budget",budget);body.put("duration",duration);
+        if("MATERIAL_ADD_BUDGET".equals(scene)){body.put("material_type","VIDEO");body.put("smart_bid_type","SMART_BID_CONSERVATIVE");body.put("material_ids",materials.stream().map(LiveAdManagementAdapter::numericId).toList());}
+        var result=automaticPost(c,url("ad/control_task/create/"),body);String task=result.path("id").asText();numericId(task);return task;
+    }
     @Override public String control(Credential c,String adId,String scene,String name,BigDecimal budget,BigDecimal duration,List<String> materials) {
         Map<String,Object> body=new LinkedHashMap<>(); body.put("ad_id",numericId(adId)); body.put("scene",scene);
         body.put("name",name); body.put("budget",budget); body.put("duration",duration);

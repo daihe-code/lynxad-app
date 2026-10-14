@@ -6,7 +6,8 @@ import java.util.List;
 
 public interface MaterialLibraryPort {
 
-    record MaterialLibraryQuery(String advertiserId, MaterialType type, LocalDate from, LocalDate to, int page, int pageSize, String accessToken) {
+    record MaterialLibraryQuery(String advertiserId, MaterialType type, LocalDate from, LocalDate to, int page, int pageSize, String accessToken, String objectId, String materialId) {
+        public MaterialLibraryQuery(String advertiserId,MaterialType type,LocalDate from,LocalDate to,int page,int pageSize,String accessToken) { this(advertiserId,type,from,to,page,pageSize,accessToken,null,null); }
         public MaterialLibraryQuery(String advertiserId,MaterialType type,LocalDate from,LocalDate to,int page,int pageSize) { this(advertiserId,type,from,to,page,pageSize,null); }
         @Override public String toString() { return "MaterialLibraryQuery(type="+type+",page="+page+")"; }
     }

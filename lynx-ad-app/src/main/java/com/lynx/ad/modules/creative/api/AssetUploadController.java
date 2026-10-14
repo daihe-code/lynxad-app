@@ -3,6 +3,7 @@ package com.lynx.ad.modules.creative.api;
 import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.creative.application.AssetUploadService;
+import com.lynx.ad.modules.creative.application.AssetPreviewService;
 import com.lynx.ad.modules.creative.domain.port.StoragePort;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +13,9 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/creative/assets")
 public class AssetUploadController {
     private final AssetUploadService service;
-    public AssetUploadController(AssetUploadService service) { this.service=service; }
+    private final AssetPreviewService previews;
+    public AssetUploadController(AssetUploadService service, AssetPreviewService previews) { this.service=service; this.previews=previews; }
+    @GetMapping("/{id}/preview") public ApiResponse<AssetPreviewService.Preview> preview(@PathVariable String id) { return ApiResponse.ok(previews.preview(TenantContext.requireTenantId(),id)); }
     @GetMapping("/upload-policy") public ApiResponse<com.lynx.ad.modules.creative.domain.service.AssetFilePolicy.Policy> policy() {
         return ApiResponse.ok(com.lynx.ad.modules.creative.domain.service.AssetFilePolicy.policy());
     }

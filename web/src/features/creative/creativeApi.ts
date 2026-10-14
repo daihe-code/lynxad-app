@@ -142,6 +142,7 @@ export function listLibraryFull(params: {
   q?: string;
   page?: number;
   pageSize?: number;
+  selectable?: boolean;
 }) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {

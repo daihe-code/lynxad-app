@@ -8,8 +8,8 @@
       <section v-for="part in detail.parts" :key="`${part.role}:${part.position}`">
         <h3>{{ part.role === 'TEXT' ? '文本' : part.role === 'AUDIO' ? '音频' : `图片 ${part.position + 1}` }}<small>{{ part.asset.filename }}</small></h3>
         <pre v-if="part.role === 'TEXT'">{{ part.asset.textContent }}</pre>
-        <img v-else-if="part.role === 'IMAGE'" :src="assetUrl(part.asset.url)" :alt="part.asset.filename" loading="lazy" />
-        <audio v-else :src="assetUrl(part.asset.url)" controls preload="metadata"></audio>
+        <template v-else-if="part.role === 'IMAGE'"><img v-if="imagePreview(part.asset).posterUrl" :src="assetUrl(imagePreview(part.asset).posterUrl)" :alt="part.asset.filename" loading="lazy" @error="imageFailed(part.asset)" /><p v-if="mediaErrors[part.asset.id] || imagePreview(part.asset).source === 'UNAVAILABLE'" class="note" role="status">{{ imagePreview(part.asset).message || '图片暂不可预览，请检查存储服务后重新加载。' }}</p></template>
+        <template v-else><audio :src="assetUrl(part.asset.url)" controls preload="metadata" @error="mediaErrors[part.asset.id] = true"></audio><p v-if="mediaErrors[part.asset.id]" class="note" role="status">音频暂不可读取，请恢复存储服务后重新加载。</p></template>
         <AssetReviewStatus :review="part.asset.aiReview" :retrying="retrying === part.asset.id" @retry="retry(part.asset.id)" />
         <p v-for="sync in part.asset.syncs.filter(s => detail!.accountIds.includes(s.accountId))" :key="sync.id" class="note">{{ sync.advertiserId || sync.accountId }}：{{ syncLabel(sync.status, sync.reviewStatus) }}<span v-if="sync.errorMessage"> · {{ sync.errorMessage }}</span></p>
       </section>
@@ -19,7 +19,8 @@
 </template>
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
-import { getCarousel, retryAssetReview, type CarouselDetail } from '@/features/creative/creativeApi';
+import { getCarousel, retryAssetReview, type CarouselDetail, type UploadedAsset } from '@/features/creative/creativeApi';
+import { assetPreview, resolveAssetPreview, type PreviewItem } from '@/features/creative/assetPreviews';
 import { carouselPending } from '@/features/creative/carouselUploads';
 import { syncLabel } from '@/features/creative/assetUploads';
 import AssetReviewStatus from './AssetReviewStatus.vue';
@@ -27,6 +28,13 @@ import { assetUrl } from './assetFormat';
 const props = defineProps<{ id: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const detail = ref<CarouselDetail>(), error = ref(''), retrying = ref('');
+const mediaErrors = ref<Record<string, boolean>>({});
+function imageItem(asset: UploadedAsset): PreviewItem { return { id: asset.id, assetId: asset.id, type: 'IMAGE', posterUrl: asset.url, playUrl: asset.url }; }
+function imagePreview(asset: UploadedAsset) { return assetPreview(imageItem(asset)); }
+async function imageFailed(asset: UploadedAsset) {
+  if (imagePreview(asset).source === 'ORIGINAL' && await resolveAssetPreview(imageItem(asset))) return;
+  mediaErrors.value[asset.id] = true;
+}
 let timer: ReturnType<typeof setInterval> | undefined, loading = false;
 async function load() {
   const id = props.id; if (loading) return; loading = true;

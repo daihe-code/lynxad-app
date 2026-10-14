@@ -11,6 +11,7 @@ import com.lynx.ad.modules.tenant.api.dto.SendSmsRequest;
 import com.lynx.ad.modules.tenant.api.dto.SendSmsResponse;
 import com.lynx.ad.modules.tenant.api.dto.SmsLoginRequest;
 import com.lynx.ad.modules.tenant.application.AuthCommandService;
+import com.lynx.ad.modules.tenant.application.UserLoginJournal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,8 +23,10 @@ public class TenantAuthController {
 
     private final AuthCommandService authCommandService;
 
-    public TenantAuthController(AuthCommandService authCommandService) {
+    private final UserLoginJournal logins;
+    public TenantAuthController(AuthCommandService authCommandService,UserLoginJournal logins) {
         this.authCommandService = authCommandService;
+        this.logins=logins;
     }
 
     @PostMapping("/sms/send")
@@ -38,12 +41,20 @@ public class TenantAuthController {
 
     @PostMapping("/sms/login")
     public ApiResponse<LoginResponse> smsLogin(@RequestBody SmsLoginRequest req) {
-        return ApiResponse.ok(authCommandService.smsLogin(new PhoneNumber(req.phone()), req.code()));
+        return recorded(req.phone(),"SMS",()->authCommandService.smsLogin(new PhoneNumber(req.phone()), req.code()));
     }
 
     @PostMapping("/password/login")
     public ApiResponse<LoginResponse> passwordLogin(@RequestBody PasswordLoginRequest req) {
-        return ApiResponse.ok(authCommandService.passwordLogin(new PhoneNumber(req.phone()), req.password()));
+        return recorded(req.phone(),"PASSWORD",()->authCommandService.passwordLogin(new PhoneNumber(req.phone()), req.password()));
+    }
+
+    private ApiResponse<LoginResponse> recorded(String phone,String method,java.util.function.Supplier<LoginResponse> command) {
+        LoginResponse login;
+        try { login=command.get(); }
+        catch(com.lynx.ad.common.exception.BizException | com.lynx.ad.common.exception.DomainException ex) { logins.record(phone,method,null);throw ex; }
+        logins.record(phone,method,login);
+        return ApiResponse.ok(login);
     }
 
     @PostMapping("/logout")

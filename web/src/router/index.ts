@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import { hasUsableAweme, listAccounts } from "@/features/identity/oauthApi";
+import { hasAdminToken, loadAdminMe, clearAdminSession } from '@/features/admin/adminApi';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +14,8 @@ const router = createRouter({
     return { top: 0 };
   },
   routes: [
+    { path: '/admin/login', component: () => import('@/pages/admin/Login.vue'), meta: { public: true } },
+    { path: '/monitoring', component: () => import('@/layouts/AppLayout.vue'), meta: { auth: true }, children: [{ path: '', component: () => import('@/pages/monitoring/Index.vue') }] },
     { path: "/", component: () => import("@/pages/landing/Index.vue"), meta: { public: true } },
     { path: "/login", component: () => import("@/pages/login/Login.vue"), meta: { public: true } },
     { path: "/onboarding", component: () => import("@/pages/onboarding/Onboarding.vue"), meta: { auth: true } },
@@ -87,14 +90,18 @@ const router = createRouter({
     },
     {
       path: "/admin",
-      component: () => import("@/layouts/AppLayout.vue"),
-      meta: { auth: true },
-      children: [{ path: "", component: () => import("@/pages/shell/ComingSoon.vue"), props: { title: "运营后台" } }],
+      component: () => import('@/pages/admin/Console.vue'),
+      meta: { adminAuth: true },
     },
   ],
 });
 
 router.beforeEach(async (to) => {
+  if (to.meta.adminAuth || to.matched.some(r => r.meta.adminAuth)) {
+    if (!hasAdminToken()) return '/admin/login';
+    try { await loadAdminMe(); return true; }
+    catch { clearAdminSession(); return '/admin/login'; }
+  }
   const user = useUserStore();
   if (to.meta.public) {
     return true;

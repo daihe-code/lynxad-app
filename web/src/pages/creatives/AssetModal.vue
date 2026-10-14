@@ -16,7 +16,7 @@
         <template v-else>
         <template v-if="kind === 'preview'">
           <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
-          <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT' }"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && item.playUrl" :key="item.id" :src="assetUrl(item.playUrl)" :poster="assetUrl(item.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="mediaError = true"></video><img v-else-if="item.playUrl || item.posterUrl" :src="assetUrl(item.playUrl || item.posterUrl)" :alt="item.filename" @load="readDimensions" @error="mediaError = true" /><span v-else class="asset-media-error">暂无可预览的文件</span><span v-if="mediaError" class="asset-media-error" role="status">素材文件暂不可播放或预览</span></div>
+          <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT' }"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && previewUrls?.playUrl" :key="item.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="previewFailed"></video><img v-else-if="previewUrls?.playUrl || previewUrls?.posterUrl" :src="assetUrl(previewUrls.playUrl || previewUrls.posterUrl)" :alt="item.filename" @load="readDimensions" @error="previewFailed" /><span v-else class="asset-media-error">{{ previewUrls?.message || '暂无可预览的文件' }}</span><span v-if="mediaError" class="asset-media-error" role="status">{{ previewUrls?.message || '素材文件暂不可播放或预览' }}</span></div>
           <div class="ac-pinfo"><span>规格 <b>{{ dimensions }} · {{ assetRatio(item) }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>—</b></span><span>状态 <b>{{ assetStatus(item).label }}</b></span></div>
           <div class="modal__foot"><button v-if="item.type === 'TEXT' && uploaded?.textContent" class="btn-modal-ghost" type="button" @click="copyText">复制文本</button><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
         </template>
@@ -50,6 +50,7 @@ import CarouselPreview from './CarouselPreview.vue';
 import AssetReviewStatus from './AssetReviewStatus.vue';
 import { getUploadedAsset, retryAssetSync, retryAssetReview, type AssetSync, type UploadedAsset } from "@/features/creative/creativeApi";
 import { syncLabel, reviewPending } from "@/features/creative/assetUploads";
+import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
 const reviewRetrying = ref(false);
 import { assetUrl, duration, fileSize, sourceLabel, assetStatus, assetRatio, assetDimensions } from "./assetFormat";
 const props = withDefaults(defineProps<{ kind: "upload" | "detail" | "preview"; item: LibraryItemVo | null; libraryType?: LibraryItemVo['type'] }>(), { libraryType: 'VIDEO' });
@@ -60,6 +61,12 @@ function requestClose() { if (!closeBlocked.value) emit('close'); }
 const box = ref<HTMLElement>();
 const uploaded = ref<UploadedAsset>(), detailError = ref(""), retrying = ref("");
 const mediaError = ref(false), dimensions = ref(props.item ? assetDimensions(props.item) : "—");
+const previewUrls = computed(() => props.item ? assetPreview(props.item) : undefined);
+async function previewFailed() {
+  const item = props.item; if (!item) return;
+  if (assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item)) return;
+  if (props.item?.id === item.id) mediaError.value = true;
+}
 let previousOverflow = "";
 let detailTimer: ReturnType<typeof setInterval> | undefined;
 async function loadDetail() {

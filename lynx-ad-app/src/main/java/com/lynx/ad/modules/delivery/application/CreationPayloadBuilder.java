@@ -122,6 +122,15 @@ public class CreationPayloadBuilder {
         }
         return root;
     }
+    /** Bind one generated visual only; no changes to product membership or delivery settings. */
+    public ObjectNode optimizationMaterial(CreationState s,CreationState.Material m){
+        materialReady(s,m);var node=json.createObjectNode();node.put("product_id",CreationQianchuanGateway.numericId(m.productId));
+        if("VIDEO".equals(m.type))node.putArray("video_material").addObject().put("image_mode",m.imageMode).put("video_id",uploaded(s,m.videoAssetId,"VIDEO").objectId()).put("video_cover_id",uploaded(s,m.coverAssetId,"IMAGE").objectId());
+        else if("IMAGE".equals(m.type)){if(m.imageAssetIds.size()!=1)throw new BizException(1503,"自动商品卡只允许一张图片");node.putArray("image_material").addObject().put("image_mode","SQUARE").putArray("image_ids").add(uploaded(s,m.imageAssetIds.getFirst(),"IMAGE").objectId());}
+        else if("CAROUSEL".equals(m.type))node.putArray("carousel_material").addObject().put("carousel_id",CreationQianchuanGateway.numericId(carousels.ensure(new TenantId(s.tenantId),m.carouselId,s.accountId)));
+        else throw new BizException(1503,"不支持的自动生成形式");
+        node.putArray("title_material").addObject().put("title",m.titles.getFirst()).put("title_type","IMAGE".equals(m.type)?"COMMODITY_CARD":"CUSTOM");return node;
+    }
     private static int platformLength(String text) {
         return text.codePoints().map(c->Character.UnicodeScript.of(c)==Character.UnicodeScript.HAN?2:1).sum();
     }

@@ -116,9 +116,11 @@ interface BillingSubscriptionMapper extends BaseMapper<BillingSubscriptionPo> {}
 public class MpSubscriptionRepository implements SubscriptionRepository {
 
     private final BillingSubscriptionMapper mapper;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-    public MpSubscriptionRepository(BillingSubscriptionMapper mapper) {
+    public MpSubscriptionRepository(BillingSubscriptionMapper mapper,org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.mapper = mapper;
+        this.jdbc = jdbc;
     }
 
     @Override
@@ -133,6 +135,13 @@ public class MpSubscriptionRepository implements SubscriptionRepository {
 
     @Override
     public Optional<Subscription> findByTenant(TenantId tenantId) {
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            // All billing writes and administrative grants serialize on the same account.
+            jdbc.queryForObject("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",String.class,tenantId.value());
+            var query=new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<BillingSubscriptionPo>()
+                .eq(BillingSubscriptionPo::getTenantId,tenantId.value()).last("FOR UPDATE");
+            return Optional.ofNullable(mapper.selectOne(query)).map(this::toDomain);
+        }
         return Optional.ofNullable(mapper.selectById(tenantId.value())).map(this::toDomain);
     }
 

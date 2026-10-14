@@ -21,12 +21,17 @@ public class CreationEngineClient {
         return exchange(path,payload);
     }
     public JsonNode get(String path){return exchange(path,null);}
+    public JsonNode find(String path){return exchange(path,null,true);}
     public String base(){String base=properties.getAi().getReview().getBaseUrl();if(base==null||base.isBlank())throw new BizException(8001,"LynxAd-ai-engine 地址未配置");return base.replaceAll("/+$","");}
     private JsonNode exchange(String path,Object payload){
+        return exchange(path,payload,false);
+    }
+    private JsonNode exchange(String path,Object payload,boolean missingAllowed){
         try {
             var req=HttpRequest.newBuilder(URI.create(base()+path)).timeout(Duration.ofSeconds(240)).header("Accept","application/json").header("X-LynxAd-Caller","lynxad-app");
             if(payload==null)req.GET();else req.header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload),StandardCharsets.UTF_8));
             var response=http.send(req.build(),HttpResponse.BodyHandlers.ofByteArray());
+            if(missingAllowed&&response.statusCode()==404)return null;
             if(response.statusCode()<200||response.statusCode()>=300) throw new BizException(payload!=null&&response.statusCode()>=500?8003:8002,"AI 引擎请求异常（HTTP "+response.statusCode()+"），请检查任务状态与引擎配置");
             if(response.body().length>8*1024*1024)throw new BizException(8002,"AI 引擎响应超出限制");
             return json.readTree(response.body());

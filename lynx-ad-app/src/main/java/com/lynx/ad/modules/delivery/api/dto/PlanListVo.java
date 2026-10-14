@@ -43,9 +43,15 @@ public record PlanListVo(
         public ProductSummary(String id,String name,String imageUrl) { this(id,name,imageUrl,null); }
     }
     public record RoiEstimate(BigDecimal value,BigDecimal min,BigDecimal max) {}
+    public record MetricValues(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders) {}
     public record MetricComparison(BigDecimal costChangePct, BigDecimal convertChangePct,
                                    BigDecimal roiChange, Instant previousSnapshotTs,
-                                   BigDecimal roiChangePct, String basis) {
+                                   BigDecimal roiChangePct, String basis, BigDecimal gmvChangePct,
+                                   MetricValues current,MetricValues previous,
+                                   LocalDate previousStartDate,LocalDate previousEndDate,String unavailableReason) {
+        public MetricComparison(BigDecimal costChangePct,BigDecimal convertChangePct,BigDecimal roiChange,Instant previousSnapshotTs,BigDecimal roiChangePct,String basis) {
+            this(costChangePct,convertChangePct,roiChange,previousSnapshotTs,roiChangePct,basis,null,null,null,null,null,null);
+        }
         public MetricComparison(BigDecimal costChangePct,BigDecimal convertChangePct,BigDecimal roiChange,Instant previousSnapshotTs,BigDecimal roiChangePct) {
             this(costChangePct,convertChangePct,roiChange,previousSnapshotTs,roiChangePct,"PREVIOUS_SNAPSHOT");
         }

@@ -108,6 +108,7 @@ public class SubscriptionQueryService {
                 trial != null && trial.active() ? "TRIAL" : "TRIAL_EXPIRED");
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public SubscriptionView patchAutoRenew(TenantId tenantId, boolean autoRenew) {
         Instant now = Instant.now();
         Subscription sub = subscriptionSupport

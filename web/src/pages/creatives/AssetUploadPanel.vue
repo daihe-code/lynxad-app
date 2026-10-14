@@ -41,11 +41,11 @@ import { fileSize } from './assetFormat';
 import AssetIcon from './AssetIcon.vue';
 import AssetReviewStatus from './AssetReviewStatus.vue';
 const reviewRetrying = ref('');
-const props = defineProps<{ libraryType: UploadLibrary }>();
+const props = defineProps<{ libraryType: UploadLibrary; defaultAccountIds?: string[] }>();
 const policy = computed(() => libraryUploadPolicy(props.libraryType));
 const rows = computed(() => uploadRows.filter(row => row.library !== 'CAROUSEL' && !libraryFileError(row.file.name, props.libraryType)));
 const emit = defineEmits<{ close: []; changed: []; closeBlocked: [blocked: boolean] }>();
-const input = ref<HTMLInputElement>(), accounts = ref<AccountVo[]>([]), selected = ref<string[]>([]), aigc = ref(false), accountError = ref(''), retrying = ref('');
+const input = ref<HTMLInputElement>(), accounts = ref<AccountVo[]>([]), selected = ref<string[]>([...(props.defaultAccountIds || [])]), aigc = ref(false), accountError = ref(''), retrying = ref('');
 const adding = ref(0);
 beginUploadDialog();
 const checking = computed(() => adding.value > 0 || rows.value.some(r => r.stage === '正在本地预检'));
@@ -53,7 +53,7 @@ const busy = computed(() => checking.value || uploadRows.some(r => r.busy)), pen
 const closeBlocked = computed(() => checking.value || rows.value.some(r => r.busy));
 watch(closeBlocked, blocked => emit('closeBlocked', blocked), { immediate: true, flush: 'sync' });
 function requestClose() { if (!closeBlocked.value) emit('close'); }
-async function loadAccounts() { try { accounts.value = (await listAccounts()).filter(a => a.platform === 'QIANCHUAN' && a.status !== 'DELETED'); accountError.value = ''; if (!selected.value.length) selected.value = accounts.value.filter(a => a.status === 'ACTIVE').slice(0, 1).map(a => a.accountId); } catch { accountError.value = '授权账户加载失败；文件仍可仅保存到平台'; } }
+async function loadAccounts() { try { accounts.value = (await listAccounts()).filter(a => a.platform === 'QIANCHUAN' && a.status !== 'DELETED'); accountError.value = ''; selected.value = selected.value.filter(id => accounts.value.some(a => a.accountId === id)); if (!selected.value.length && !props.defaultAccountIds) selected.value = accounts.value.filter(a => a.status === 'ACTIVE').slice(0, 1).map(a => a.accountId); } catch { accountError.value = '授权账户加载失败；文件仍可仅保存到平台'; } }
 async function add(files: FileList | null | undefined) { adding.value++; try { (await addUploadFiles(files, props.libraryType)).forEach(message => ElMessage.warning(message)); } finally { adding.value--; } }
 function removeRow(row: UploadRow) { const index = uploadRows.indexOf(row); if (index >= 0) uploadRows.splice(index, 1); }
 function changed(e: Event) { const element = e.target as HTMLInputElement; add(element.files); element.value = ''; }

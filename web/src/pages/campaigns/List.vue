@@ -5,7 +5,7 @@
       <div class="title-actions">
         <div class="statistics-picker">
           <el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" range-separator="至" start-placeholder="统计开始日期" end-placeholder="统计结束日期" :clearable="false" :shortcuts="rangeShortcuts" :disabled-date="disabledStatisticsDate" popper-class="campaign-date-picker" @calendar-change="onRangeCalendar" @visible-change="onRangeVisible" @change="applyStatisticsRange" />
-          <small :title="snapshotDate ? `数据同步时间：${snapshotDate}` : undefined">最多180天 · 含起止日期</small>
+          <small :title="snapshotDate ? `数据同步时间：${snapshotDate}` : undefined">最多180天 · {{ comparisonCaption }}</small>
         </div>
         <el-button class="square-button" :loading="syncing" aria-label="刷新数据" @click="syncRemote"><el-icon><Refresh /></el-icon></el-button>
       </div>
@@ -22,7 +22,7 @@
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
-      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2><router-link class="analytics-link" to="/analytics">数据分析 <el-icon><ArrowRight /></el-icon></router-link></div>
+      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2><div><router-link class="analytics-link" to="/monitoring">全店盯盘</router-link> · <router-link class="analytics-link" to="/analytics">数据分析 <el-icon><ArrowRight /></el-icon></router-link></div></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
           <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
@@ -63,7 +63,7 @@
             <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">
               <td><el-checkbox v-model="selectedIds" :value="row.planId" :aria-label="`选择计划 ${row.name}`" /></td>
               <td class="plan-info-cell">
-                  <router-link class="plan-name" :to="insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
+                  <router-link class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <div class="product-line">
                   <template v-if="row.products?.length">
@@ -94,10 +94,10 @@
                 </div>
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><small v-if="row.historicalMetrics && row.statisticsDate" class="statistics-date" :title="`本行消耗、订单、成交金额与ROI均为 ${row.statisticsDate} 的报表，今日暂无有效报表`">{{ row.statisticsDate }} 数据</small><div v-if="row.costYuan != null && !row.historicalMetrics" class="metric-change-line"><MetricDelta :value="row.comparison?.costChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="消耗" /></div></td>
-              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="row.convert != null && !row.historicalMetrics" class="metric-change-line"><MetricDelta :value="row.comparison?.convertChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="成交订单" /></div></td>
-              <td class="number-cell gmv-cell"><strong>{{ yuan(row.gmvYuan) }}</strong></td>
-              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong><MetricDelta v-if="row.roi != null && !row.historicalMetrics" :value="row.comparison?.roiChangePct" percent :previous-ts="row.comparison?.previousSnapshotTs" :basis="row.comparison?.basis" label="支付 ROI" /></div></td>
+              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><small v-if="row.historicalMetrics && row.statisticsDate" class="statistics-date" :title="`本行消耗、订单、成交金额与ROI均为 ${row.statisticsDate} 的报表，今日暂无有效报表`">{{ row.statisticsDate }} 数据</small><div v-if="(row.costYuan != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'cost')" label="消耗" /></div></td>
+              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="(row.convert != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'orders')" label="成交订单" /></div></td>
+              <td class="number-cell gmv-cell"><strong>{{ yuan(row.gmvYuan) }}</strong><div v-if="(row.gmvYuan != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'gmv')" label="成交金额" /></div></td>
+              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong></div><div v-if="(row.roi != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'roi')" label="支付 ROI" /></div></td>
               <td v-if="showTools" class="tools-cell">
                 <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
                   <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
@@ -105,9 +105,17 @@
                   <span v-else aria-hidden="true" />
                   <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
                 </div>
+                <div class="tool-shortcuts">
+                  <router-link class="tool-name tool-monitor" :to="insightsLink(row.planId, 'optimization')" :aria-label="`打开 ${row.name} 的自动盯盘`">自动盯盘</router-link>
+                </div>
               </td>
               <td class="actions-cell">
-                <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link><router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status))" :to="`/campaigns/${row.planId}/edit`">修改</router-link><button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
+                <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
+                <template v-else>
+                  <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
+                  <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
+                  <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
+                </template>
                 <button type="button" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
@@ -158,7 +166,7 @@ const router = useRouter(), route = useRoute(), wizard = useWizardStore();
 const insightsPlanId = computed(() => typeof route.query.plan === 'string' ? route.query.plan : '');
 const insightsTab = computed(() => typeof route.query.tab === 'string' ? route.query.tab : 'data');
 const insightsRange = computed<StatisticsRange>(() => typeof route.query.planStart === 'string' && typeof route.query.planEnd === 'string' ? [route.query.planStart, route.query.planEnd] : [...displayedRange.value]);
-function insightsLink(id: string) { return { path: '/campaigns', query: { ...route.query, plan: id, tab: 'data', planStart: displayedRange.value[0], planEnd: displayedRange.value[1] } }; }
+function insightsLink(id: string, tab = 'data') { return { path: '/campaigns', query: { ...route.query, plan: id, tab, planStart: displayedRange.value[0], planEnd: displayedRange.value[1] } }; }
 function closeInsights() { const { plan, tab, planStart, planEnd, ...query } = route.query; void router.replace({ path: '/campaigns', query }); }
 function onInsightsVisible(value: boolean) { if (!value) closeInsights(); }
 function setInsightsTab(tab: string) { void router.replace({ query: { ...route.query, tab } }); }
@@ -182,9 +190,18 @@ const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
 const summary = ref<PageResult<PlanListVo>['summary']>();
 const summaryCoverage = computed(() => summary.value ? `${summary.value.covered}/${summary.value.plans} 个计划有统计数据` : '暂无统计数据');
 const snapshotDate = ref(''), actingId = ref(''), transferringId = ref('');
-const statisticsRange = ref<StatisticsRange>(recentRange(7));
+const statisticsRange = ref<StatisticsRange>(recentRange(1));
 const rangeDraft = ref<StatisticsRange>([...statisticsRange.value]);
 const displayedRange = ref<StatisticsRange>([...statisticsRange.value]);
+const comparisonCaption = computed(() => rangeDays(displayedRange.value) > 1 ? '较前一个等长区间' : displayedRange.value[1] === shanghaiToday() ? '较昨日全天' : '较前一日全天');
+function deltaProps(row: PlanListVo, metric: 'cost' | 'orders' | 'gmv' | 'roi') {
+  const field = { cost: 'costChangePct', orders: 'convertChangePct', gmv: 'gmvChangePct', roi: 'roiChangePct' } as const;
+  const comparison = row.comparison;
+  return { value: comparison?.[field[metric]], current: comparison?.current?.[metric], previous: comparison?.previous?.[metric],
+    percent: true, unit: metric === 'orders' ? '单' : metric === 'roi' ? '' : '元', basis: comparison?.basis,
+    previousTs: comparison?.previousSnapshotTs, previousStartDate: comparison?.previousStartDate,
+    previousEndDate: comparison?.previousEndDate, unavailableReason: comparison?.unavailableReason };
+}
 const calendarStart = ref<string | null>(null);
 const pickerDate = (day: string) => new Date(`${day}T00:00:00`);
 const rangeShortcuts = [
@@ -207,7 +224,7 @@ function applyStatisticsRange(value: StatisticsRange | null) {
   if (error) { ElMessage.warning(error); rangeDraft.value = [...statisticsRange.value]; return; }
   statisticsRange.value = [...value];
 }
-const tools = ['一键起量', '素材追投', '搜索抢首屏'];
+const tools = ['一键起量', '素材追投'];
 const quickReportOpen = ref(false), quickReportPlan = ref<PlanListVo>(), quickReportKind = ref('');
 const quickReportTask = ref<ControlTask>(), quickReportTasks = ref<ControlTask[]>([]);
 const quickReportLoading = ref(false), quickReportError = ref(''), quickReportRange = ref<StatisticsRange>(recentRange(7));
@@ -253,6 +270,7 @@ function estimateText(estimate: PlanListVo['roiEstimate']) {
 }
 function roiClass(row: PlanListVo) { return row.roi != null && row.roi > 0 ? 'roi-good' : ''; }
 const canManage = (row: PlanListVo) => user.trialActive && row.canEdit === true;
+const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
 const canDelete = (row: PlanListVo) => user.trialActive && (row.qcPlanId
   ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
   : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
@@ -461,6 +479,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .number-cell { color: #1a1b2e; }.number-cell small { color: #7c7f99; font-size: 12px; }.number-cell.roi-good { color: #0ba05f; }
 .tools-cell button, .actions-cell button, .actions-cell a { font-size: 13px; line-height: 22px; }.tools-cell button { color: #4e5069; }.tools-cell button span { color: #575cf6; }.actions-cell a, .actions-cell button { color: #4348db; }.actions-cell button.pause-action, .actions-cell button.delete-action { color: #e5484d; }.actions-cell button.enable-action { color: #0ba05f; }.tools-cell button:disabled, .tools-cell button:disabled span, .actions-cell button:disabled { color: #a3a6bb; }
 .tool-shortcuts{display:grid;grid-template-columns:minmax(0,1fr) 22px 18px;align-items:center;gap:3px;min-height:26px}.tools-cell .tool-name{width:auto;white-space:nowrap}.tools-cell .tool-report{width:22px;height:24px;justify-content:center;color:#575cf6;border-radius:4px}.tools-cell .tool-report:hover{background:#eeedff}.tool-report .el-icon{font-size:16px}.tools-cell .tool-add{width:18px;justify-content:center;font-size:16px;color:#575cf6}.tools-cell button:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
+.tools-cell .tool-monitor{color:#4348db;font-size:13px;line-height:22px}.tools-cell .tool-monitor:hover{color:#575cf6}.tools-cell .tool-monitor:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
 .confirmation-icon.delete-icon { color: #e5484d; background: #fff0f0; }
 .muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.analytics-link { color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
 .toolbar.expanded { margin-bottom: 16px; }
