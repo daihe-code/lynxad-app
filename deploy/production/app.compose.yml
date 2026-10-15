@@ -1,0 +1,22 @@
+name: lynxad-app
+
+services:
+  app-api:
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:3674923
+    env_file: ${LYNXAD_ENV_FILE:-./production.env}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/lynx-ad/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  app-web:
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:3674923
+    ports:
+      - "80:80"
+    depends_on:
+      app-api:
+        condition: service_healthy
+    restart: unless-stopped
