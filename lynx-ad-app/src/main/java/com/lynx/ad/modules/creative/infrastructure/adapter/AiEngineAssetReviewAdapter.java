@@ -11,16 +11,19 @@ import java.net.http.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AiEngineAssetReviewAdapter implements AssetReviewPort {
     private final LynxAdProperties properties;
     private final ObjectMapper mapper;
+    private final String apiKey;
     // Uvicorn serves HTTP/1.1; h2c upgrade negotiation can lose request bodies.
     private final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER).build();
-    public AiEngineAssetReviewAdapter(LynxAdProperties properties, ObjectMapper mapper) { this.properties=properties; this.mapper=mapper; }
+    public AiEngineAssetReviewAdapter(LynxAdProperties properties, ObjectMapper mapper,
+            @Value("${lynx.ad.monitoring.engine-api-key:}") String apiKey) { this.properties=properties; this.mapper=mapper; this.apiKey=apiKey; }
     @Override public Result submit(AssetKind kind, String url, String text, String tenant, String asset) {
         Map<String,Object> body=new LinkedHashMap<>();
         body.put("platform","douyin"); body.put("store_id",tenant);
@@ -56,6 +59,7 @@ public class AiEngineAssetReviewAdapter implements AssetReviewPort {
             URI endpoint=URI.create(base.replaceAll("/+$","")+"/api/v1/capabilities/review/"+kind.name().toLowerCase(Locale.ROOT)+(id==null ? "" : "/"+id));
             var request=HttpRequest.newBuilder(endpoint).timeout(Duration.ofMillis(Math.max(1000,Math.min(config.getTimeoutMs(),300000))))
                     .header("Accept","application/json");
+            if(apiKey!=null&&!apiKey.isBlank())request.header("X-API-Key",apiKey);
             if(body==null) request.GET();
             else request.header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body),StandardCharsets.UTF_8));
             var pending=client.sendAsync(request.build(),HttpResponse.BodyHandlers.ofByteArray());

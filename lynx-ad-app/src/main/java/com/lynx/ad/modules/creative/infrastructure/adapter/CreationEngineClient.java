@@ -7,6 +7,7 @@ import java.net.*;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /** Calls LynxAd-ai-engine capability APIs, rather than individual model providers. */
@@ -14,8 +15,10 @@ import org.springframework.stereotype.Component;
 public class CreationEngineClient {
     private final LynxAdProperties properties;
     private final ObjectMapper json;
+    private final String apiKey;
     private final HttpClient http=HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build();
-    public CreationEngineClient(LynxAdProperties properties,ObjectMapper json){this.properties=properties;this.json=json;}
+    public CreationEngineClient(LynxAdProperties properties,ObjectMapper json,
+            @Value("${lynx.ad.monitoring.engine-api-key:}") String apiKey){this.properties=properties;this.json=json;this.apiKey=apiKey;}
     public JsonNode post(String path,Object payload){
         if(payload instanceof java.util.Map<?,?> body && (!body.containsKey("store_id") || body.get("store_id")==null || body.get("store_id").toString().isBlank()))throw new BizException(8002,"应用调用引擎必须指定真实租户");
         return exchange(path,payload);
@@ -29,6 +32,7 @@ public class CreationEngineClient {
     private JsonNode exchange(String path,Object payload,boolean missingAllowed){
         try {
             var req=HttpRequest.newBuilder(URI.create(base()+path)).timeout(Duration.ofSeconds(240)).header("Accept","application/json").header("X-LynxAd-Caller","lynxad-app");
+            if(apiKey!=null&&!apiKey.isBlank())req.header("X-API-Key",apiKey);
             if(payload==null)req.GET();else req.header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload),StandardCharsets.UTF_8));
             var response=http.send(req.build(),HttpResponse.BodyHandlers.ofByteArray());
             if(missingAllowed&&response.statusCode()==404)return null;

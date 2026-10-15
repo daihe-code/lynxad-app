@@ -16,12 +16,14 @@ class AiEngineAssetReviewContractTest {
     private HttpServer server;
     private final ObjectMapper mapper=new ObjectMapper();
     private final AtomicReference<String> response=new AtomicReference<>(),body=new AtomicReference<>(),path=new AtomicReference<>(),method=new AtomicReference<>();
+    private final AtomicReference<String> receivedKey=new AtomicReference<>();
     private AiEngineAssetReviewAdapter adapter;
     @BeforeEach void setup() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/api/v1/capabilities/review",exchange->{
             path.set(exchange.getRequestURI().getPath());
             method.set(exchange.getRequestMethod());
+            receivedKey.set(exchange.getRequestHeaders().getFirst("X-API-Key"));
             body.set(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8));
             assertNull(exchange.getRequestHeaders().getFirst("Access-Token"));
             assertNull(exchange.getRequestHeaders().getFirst("Upgrade"));
@@ -32,7 +34,7 @@ class AiEngineAssetReviewContractTest {
         }); server.start();
         var props=new LynxAdProperties(); props.getAi().getReview().setBaseUrl("http://127.0.0.1:"+server.getAddress().getPort());
         props.getAi().getReview().setMediaBaseUrl("http://127.0.0.1:8080");
-        adapter=new AiEngineAssetReviewAdapter(props,mapper);
+        adapter=new AiEngineAssetReviewAdapter(props,mapper,"test-engine-key");
     }
     @AfterEach void close() { server.stop(0); }
     private String verdict(String type,String decision,boolean passed) { return "{\"material_type\":\""+type+"\",\"review_id\":\"rev_test\",\"status\":\"succeeded\",\"decision\":\""+decision+"\",\"passed\":"+passed+",\"summary\":\"审核结论\",\"reasons\":[{\"message\":\"检查结果\"}]}"; }
@@ -40,6 +42,7 @@ class AiEngineAssetReviewContractTest {
         response.set(verdict("image","approved",true));
         var result=adapter.submit(AssetKind.IMAGE,"/lynx-ad/media?token=signature",null,"tenant-a","asset-a");
         assertEquals("APPROVED",result.status()); assertEquals("检查结果",result.reasons().getFirst());
+        assertEquals("test-engine-key",receivedKey.get());
         var input=mapper.readTree(body.get()); assertEquals("http://127.0.0.1:8080/lynx-ad/media?token=signature",input.path("material_url").asText());
         assertEquals("tenant-a",input.path("store_id").asText()); assertFalse(input.has("access_token"));
         response.set(verdict("image","approved",false));
@@ -50,6 +53,7 @@ class AiEngineAssetReviewContractTest {
         assertEquals("PENDING",adapter.submit(AssetKind.VIDEO,"https://oss.example/video",null,"tenant-a","asset-a").status());
         response.set("{\"material_type\":\"video\",\"status\":\"processing\",\"review_id\":\"rev_test\"}");
         assertEquals("PENDING",adapter.poll(AssetKind.VIDEO,"rev_test").status());
+        assertEquals("test-engine-key",receivedKey.get());
         response.set("{\"material_type\":\"audio\",\"status\":\"succeeded\",\"review_id\":\"rev_test\",\"result\":"+verdict("audio","rejected",false)+"}");
         assertEquals("REJECTED",adapter.poll(AssetKind.AUDIO,"rev_test").status());
         assertEquals("/api/v1/capabilities/review/audio/rev_test",path.get());

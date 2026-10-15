@@ -163,9 +163,9 @@ public class PlanCommandService {
                 throw new BizException(9999, "幂等回放失败");
             }
         }
-        if (plan.qcPlanId().isEmpty()) planAgent.assertLegacyCreationAllowed();
         CreativePackage pkg = resolvePackage(tenantId, plan);
         publishPolicy.assertPublishable(plan, true, pkg.isConfirmed(), plan.productIds().size());
+        if (plan.qcPlanId().isEmpty()) planAgent.assertLegacyCreationAllowed();
         if (plan.status() == com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
             plan.revertToDraft();
         }
