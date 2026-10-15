@@ -21,6 +21,11 @@ lynx.ad.oauth.web-callback-uri=http://localhost:5174/oauth/callback
 
 后端回调路径为 `/lynx-ad/api/v1/identity/oauth/callback`。本地内网穿透只转发这个路径，回调验证 state 后重定向本地前端。临时隧道必须持续运行；地址更换后需同时更新平台注册地址和后端配置。
 
+生产千川应用的**授权回调地址**与 `QIANCHUAN_REDIRECT_URI` 均为
+`https://lynxad.cn/lynx-ad/api/v1/identity/oauth/callback`。应用首页可以填写
+`https://lynxad.cn/`，但不能将首页地址填为授权回调。后端验证授权码和 state 后，
+通过 `LYNX_OAUTH_WEB_CALLBACK_URI=https://lynxad.cn/oauth/callback` 将结果送回前端。
+
 ## 数据与流程
 
 - `oauth_application` 区分平台、应用 ID 和加密 Secret。当前只开放 QIANCHUAN；OCEANENGINE（巨量营销）以后使用独立应用、凭证和适配器。

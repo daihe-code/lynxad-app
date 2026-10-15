@@ -2,7 +2,7 @@ name: lynxad-app
 
 services:
   app-api:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:3674923
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:20261015-sms-live
     env_file: ${LYNXAD_ENV_FILE:-./production.env}
     restart: unless-stopped
     healthcheck:

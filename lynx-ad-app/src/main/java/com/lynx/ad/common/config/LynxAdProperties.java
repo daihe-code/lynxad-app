@@ -230,7 +230,8 @@ public class LynxAdProperties {
 
         public boolean isLiveConfigured() {
             Live l = live;
-            return notBlank(l.getEndpoint())
+            return "aliyun".equalsIgnoreCase(l.getVendor())
+                    && notBlank(l.getEndpoint())
                     && notBlank(l.getAccessKey())
                     && notBlank(l.getAccessSecret())
                     && notBlank(l.getSignName())
@@ -238,7 +239,7 @@ public class LynxAdProperties {
         }
 
         private static boolean notBlank(String s) {
-            return s != null && !s.isBlank();
+            return s != null && !s.isBlank() && !"EMPTY".equalsIgnoreCase(s.trim());
         }
     }
 
