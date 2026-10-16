@@ -20,7 +20,7 @@
           <el-menu-item index="/monitoring">全店盯盘</el-menu-item>
           <el-menu-item index="/creatives">素材中心</el-menu-item>
           <el-menu-item v-if="!usesReferenceHeader" index="/analytics">数据分析</el-menu-item>
-          <el-menu-item index="/accounts">账户管理<svg v-if="usesReferenceHeader" class="account-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9.6 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg></el-menu-item>
+          <el-menu-item index="/accounts">账户管理</el-menu-item>
         </el-menu>
       </div>
       <div class="right">
@@ -165,7 +165,6 @@ function onLogout() {
 .reference-header :deep(.el-menu-item.is-active) { color: #4348db; font-weight: 500; background: transparent; }
 .reference-header .right { gap: 12px; font-size: 12px; }
 .reference-header .right :deep(.el-button.is-circle) { width: 36px; height: 36px; border: 0; background: transparent; color: #7c7f99; font-size: 21px; }
-.reference-header .account-caret { margin-left: 4px; width: 14px; height: 14px; color: #7c7f99; }
 :is(.create-shell, .asset-shell, .account-shell, .reference-content) .main { padding: 0; }
 @media (max-width: 950px) {
   :is(.create-shell, .asset-shell, .account-shell) .main { padding: 0; }
