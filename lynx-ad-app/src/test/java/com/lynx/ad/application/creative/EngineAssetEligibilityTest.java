@@ -24,6 +24,29 @@ class EngineAssetEligibilityTest {
     }
     @BeforeEach void reset(){jdbc.update("DELETE FROM creative_asset_platform");jdbc.update("DELETE FROM creative_asset_review");jdbc.update("DELETE FROM creative_engine_asset");jdbc.update("DELETE FROM creative_asset");}
     Asset asset(String id,String mode){var now=Instant.now();return new Asset(id,"tenant","user",id+"-request","IMAGE","image.png","image/png",4,id,"STORED",mode,null,null,null,true,1080,1080,null,null,null,now,now);}
+    @Test void libraryDetailsLoadReviewsSyncsAndCoverWithoutPerAssetQueries() {
+        var cover=asset("cover","oss");
+        var now=Instant.now();
+        var video=new Asset("video","tenant","user","video-request","VIDEO","video.mp4","video/mp4",
+                12,"video-key","STORED","oss",null,null,null,false,1920,1080,null,null,null,now,now);
+        var generated=asset("generated","engine_oss");
+        repository.insert(cover); repository.insert(video);
+        repository.preview("tenant",video.id(),cover.id());
+        repository.duration("tenant",video.id(),2800L);
+        repository.queueReview("tenant",video.id());
+        repository.addSync(video,"account");
+        repository.registerEngine(generated,new EngineReference(generated.id(),"tenant","job","material","IMAGE_0",null));
+        var assets=repository.list("tenant");
+        var details=repository.libraryDetails("tenant",assets);
+        assertEquals(3,assets.size());
+        assertEquals("cover",details.metadata().get("video").previewKey());
+        assertEquals("oss",details.metadata().get("video").previewMode());
+        assertEquals(2800L,details.metadata().get("video").durationMs());
+        assertEquals(1,details.syncs().get("video").size());
+        assertEquals("QUEUED",details.reviews().get("video").status());
+        assertEquals("NOT_REQUIRED",details.reviews().get("generated").status());
+        assertTrue(repository.libraryDetails("other-tenant",assets).metadata().isEmpty());
+    }
     @Test void differentFileVersionsKeepSeparateAssetsAndPlatformReceipts() {
         var old=asset("old","engine_oss");var latest=asset("latest","engine_oss");
         repository.registerEngine(old,new EngineReference(old.id(),"tenant","job","mat","IMAGE_0",null));

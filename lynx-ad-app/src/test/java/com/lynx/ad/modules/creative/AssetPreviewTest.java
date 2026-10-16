@@ -97,6 +97,12 @@ class AssetPreviewTest {
         var url=request.getValue().url();var filter=new ObjectMapper().readTree(URLDecoder.decode(url.substring(url.indexOf("&filtering=")+11),StandardCharsets.UTF_8));
         assertTrue(filter.path("material_ids").get(0).isIntegralNumber());assertEquals(1878743575303385L,filter.path("material_ids").get(0).asLong());
     }
+    @Test void liveCatalogUsesProviderPageInfoRatherThanAssumingFullPage() {
+        var rest=mock(QianchuanRestClient.class);
+        when(rest.exchange(any(),eq(String.class))).thenReturn("{\"code\":0,\"data\":{\"list\":[{\"image_id\":\"first\"}],\"page_info\":{\"total_page\":2}}}");
+        var live=new LiveMaterialLibraryPort(rest,new LynxAdProperties(),new OceanJson(new ObjectMapper()));
+        assertTrue(live.list(new MaterialLibraryPort.MaterialLibraryQuery("123",MaterialType.IMAGE,null,null,1,20,"token")).hasMore());
+    }
     private AssetUploadRepository.Sync sync(String status) {
         return new AssetUploadRepository.Sync("sync",tenant.value(),"asset",accountId.value(),"123",status,"video-id","material-id",null,"PASS",1,null,null,null);
     }

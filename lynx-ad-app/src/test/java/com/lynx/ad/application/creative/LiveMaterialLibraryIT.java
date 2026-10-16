@@ -3,11 +3,16 @@ package com.lynx.ad.application.creative;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.domain.Ids.UserId;
+import com.lynx.ad.modules.creative.domain.model.MaterialType;
+import com.lynx.ad.modules.creative.domain.port.MaterialLibraryPort;
+import com.lynx.ad.modules.creative.infrastructure.persistence.PlatformMaterialCatalog;
+import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
 import com.lynx.ad.modules.identity.domain.service.OauthStateSigner;
 import com.lynx.ad.starter.LynxAdApplication;
 import com.lynx.ad.support.AbstractContainerIT;
@@ -24,6 +29,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import java.time.Instant;
+import java.util.List;
 
 @SpringBootTest(classes = LynxAdApplication.class)
 @AutoConfigureMockMvc
@@ -55,6 +62,25 @@ class LiveMaterialLibraryIT extends AbstractContainerIT {
 
     @Autowired
     private ObjectMapper mapper;
+    @Autowired private PlatformMaterialCatalog catalog;
+    @Autowired private OauthAccountRepository accounts;
+
+    @Test
+    void incompleteCatalogPublishRollsBackEarlierTypes() throws Exception {
+        Session s = onboard("13900008034", "素材快照店");
+        bind(s);
+        var account = accounts.findByTenant(new TenantId(s.tenantId)).getFirst();
+        var old = new MaterialLibraryPort.PlatformMaterial("old-object", "old-material", "旧素材.mp4",
+                1024, null, null, 10, "VIDEO_VERTICAL", "EXTERNAL", Instant.now(), "", "", false, "NONE");
+        var next = new MaterialLibraryPort.PlatformMaterial("new-object", "new-material", "新素材.mp4",
+                1024, null, null, 10, "VIDEO_VERTICAL", "EXTERNAL", Instant.now(), "", "", false, "NONE");
+        catalog.replace(s.tenantId, account.id().value(), account.advertiserId().value(), MaterialType.VIDEO, List.of(old));
+        assertThrows(IllegalArgumentException.class, () -> catalog.replaceAll(s.tenantId, account.id().value(),
+                account.advertiserId().value(), java.util.Map.of(MaterialType.VIDEO, List.of(next))));
+        var rows = catalog.list(s.tenantId);
+        assertEquals(1, rows.size());
+        assertEquals("old-object", rows.getFirst().objectId());
+    }
 
     @Test
     void liveLibraryMapsFields() throws Exception {
@@ -67,15 +93,24 @@ class LiveMaterialLibraryIT extends AbstractContainerIT {
     }
 
     @Test
-    void liveLibraryFailIs1506() throws Exception {
+    void liveLibraryFailureDoesNotBlockCachedList() throws Exception {
         Session s = onboard("13900008032", "素材失败店");
         bind(s);
+        var account = accounts.findByTenant(new TenantId(s.tenantId)).getFirst();
+        catalog.replace(s.tenantId, account.id().value(), account.advertiserId().value(), MaterialType.VIDEO,
+                List.of(new MaterialLibraryPort.PlatformMaterial("cached-object", "cached-material", "已缓存.mp4",
+                        2048, null, null, 12, "VIDEO_VERTICAL", "EXTERNAL", Instant.now(),
+                        "https://example.com/expired-signed-url", "https://example.com/expired-poster", false, "NONE")));
         FIXTURE.libraryFail = true;
         try {
             String raw = get("/api/v1/creative/library?type=VIDEO", s.token);
             JsonNode body = mapper.readTree(raw);
-            assertEquals(1506, body.path("code").asInt());
-            assertFalse(body.path("data").path("items").isArray() && body.path("code").asInt() == 0);
+            assertEquals(0, body.path("code").asInt());
+            assertTrue(body.path("data").path("items").isArray());
+            JsonNode item = body.path("data").path("items").get(0);
+            assertEquals("cached-object", item.path("objectId").asText());
+            assertEquals("", item.path("posterUrl").asText());
+            assertEquals("", item.path("playUrl").asText());
         } finally {
             FIXTURE.libraryFail = false;
         }

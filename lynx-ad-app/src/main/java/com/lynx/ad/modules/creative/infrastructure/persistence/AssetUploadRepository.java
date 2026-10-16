@@ -126,6 +126,38 @@ public class AssetUploadRepository {
     public void exposeStandalone(String tenant, String id) { jdbc.update("UPDATE creative_asset SET library_type=NULL WHERE tenant_id=? AND id=?",tenant,id); }
     public boolean isCarouselComponent(String tenant, String id) { return "CAROUSEL".equals(jdbc.queryForObject("SELECT library_type FROM creative_asset WHERE tenant_id=? AND id=?",String.class,tenant,id)); }
     public List<Asset> list(String tenant) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND storage_status='STORED' AND (library_type IS NULL OR library_type<>'CAROUSEL') ORDER BY created_at DESC",ASSET,tenant); }
+    public record LibraryMetadata(Long durationMs, String previewKey, String previewMode, boolean engine) {}
+    public record LibraryDetails(Map<String, LibraryMetadata> metadata, Map<String, List<Sync>> syncs,
+            Map<String, Review> reviews) {}
+
+    /** Load all list decorations in bounded query count instead of querying each asset separately. */
+    public LibraryDetails libraryDetails(String tenant, List<Asset> assets) {
+        if (assets.isEmpty()) return new LibraryDetails(Map.of(), Map.of(), Map.of());
+        String eligible = "a.tenant_id=? AND a.storage_status='STORED' AND (a.library_type IS NULL OR a.library_type<>'CAROUSEL')";
+        Map<String, LibraryMetadata> metadata = new HashMap<>();
+        jdbc.query("SELECT a.id,a.duration_ms,cover.object_key AS preview_key,cover.storage_mode AS preview_mode,"
+                        + "e.asset_id AS engine_id FROM creative_asset a "
+                        + "LEFT JOIN creative_asset cover ON cover.id=a.preview_asset_id AND cover.tenant_id=a.tenant_id "
+                        + "LEFT JOIN creative_engine_asset e ON e.asset_id=a.id AND e.tenant_id=a.tenant_id WHERE " + eligible,
+                (org.springframework.jdbc.core.RowCallbackHandler) r -> {
+                    metadata.put(r.getString("id"), new LibraryMetadata((Long) r.getObject("duration_ms"),
+                            r.getString("preview_key"), r.getString("preview_mode"), r.getString("engine_id") != null));
+                }, tenant);
+        Map<String, List<Sync>> syncs = new HashMap<>();
+        for (Sync sync : jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a "
+                        + "ON a.id=p.asset_id AND a.tenant_id=p.tenant_id WHERE " + eligible + " ORDER BY p.created_at,p.id",
+                SYNC, tenant)) syncs.computeIfAbsent(sync.assetId(), ignored -> new ArrayList<>()).add(sync);
+        Map<String, Review> reviews = new HashMap<>();
+        for (Review review : jdbc.query("SELECT r.* FROM creative_asset_review r JOIN creative_asset a "
+                        + "ON a.id=r.asset_id AND a.tenant_id=r.tenant_id WHERE " + eligible,
+                REVIEW, tenant)) reviews.put(review.assetId(), review);
+        for (Asset asset : assets) {
+            LibraryMetadata meta = metadata.get(asset.id());
+            if (meta != null && meta.engine()) reviews.put(asset.id(), new Review(asset.id(), tenant,
+                    "NOT_REQUIRED", null, null, "AI 引擎生成素材，无需上传审核", List.of(), null, 0, asset.createdAt()));
+        }
+        return new LibraryDetails(metadata, syncs, reviews);
+    }
     public List<Sync> due(int limit) {
         return jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a ON a.id=p.asset_id AND a.tenant_id=p.tenant_id WHERE a.storage_status='STORED' AND "+eligibleSql("p")+" AND p.status='QUEUED' AND p.next_attempt_at<=? ORDER BY p.next_attempt_at,p.id LIMIT ?",SYNC,Timestamp.from(Instant.now()),limit);
     }

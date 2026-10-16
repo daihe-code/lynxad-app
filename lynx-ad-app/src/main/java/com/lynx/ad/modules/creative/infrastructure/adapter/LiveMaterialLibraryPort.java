@@ -61,7 +61,13 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
             for (JsonNode n : list) {
                 items.add(map(n, query.type()));
             }
-            return new MaterialPage(items);
+            JsonNode info = data.path("page_info");
+            Boolean hasMore = null;
+            if (info.path("total_page").isIntegralNumber())
+                hasMore = query.page() < info.path("total_page").asInt();
+            else if (info.path("total_number").isIntegralNumber())
+                hasMore = (long) query.page() * query.pageSize() < info.path("total_number").asLong();
+            return new MaterialPage(items, hasMore);
         } catch (BizException ex) {
             if (ex.code() == 1506) {
                 throw ex;
@@ -73,7 +79,7 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
     }
 
     private static PlatformMaterial map(JsonNode n, MaterialType type) {
-        String id = n.path("material_id").asText(n.path("id").asText("ext"));
+        String id = n.path("material_id").asText(n.path("id").asText(""));
         Instant created = n.has("create_time")
                 ? Instant.ofEpochSecond(n.path("create_time").asLong(Instant.now().getEpochSecond()))
                 : Instant.now();

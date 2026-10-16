@@ -64,9 +64,13 @@ const mediaError = ref(false), dimensions = ref(props.item ? assetDimensions(pro
 const previewUrls = computed(() => props.item ? assetPreview(props.item) : undefined);
 async function previewFailed() {
   const item = props.item; if (!item) return;
-  if (assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item)) return;
+  if (await resolveAssetPreview(item, assetPreview(item).source === 'QIANCHUAN')) return;
   if (props.item?.id === item.id) mediaError.value = true;
 }
+watch(() => [props.kind, props.item?.id], () => {
+  const item = props.item;
+  if (item?.id.startsWith('EXT:') && props.kind !== 'upload') void resolveAssetPreview(item, true);
+}, { immediate: true });
 let previousOverflow = "";
 let detailTimer: ReturnType<typeof setInterval> | undefined;
 async function loadDetail() {

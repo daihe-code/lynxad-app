@@ -28,7 +28,9 @@ public interface MaterialLibraryPort {
             boolean isAiCreate,
             String reviewBadge) {}
 
-    record MaterialPage(List<PlatformMaterial> items) {}
+    record MaterialPage(List<PlatformMaterial> items, Boolean hasMore) {
+        public MaterialPage(List<PlatformMaterial> items) { this(items, null); }
+    }
 
     MaterialPage list(MaterialLibraryQuery query);
 }

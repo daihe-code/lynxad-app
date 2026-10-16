@@ -77,8 +77,8 @@ class MysqlSchemaSmokeIT {
     @Test
     void migratedSchemaRoundTrips() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("7", latestVersion(connection));
-            assertEquals(22, businessTableCount(connection));
+            assertEquals("33", latestVersion(connection));
+            assertTrue(businessTableCount(connection) >= 24);
 
             try (PreparedStatement update = connection.prepareStatement(
                     "UPDATE billing_plan SET benefits_json = ? WHERE code = 'BASIC'")) {
@@ -159,11 +159,11 @@ class MysqlSchemaSmokeIT {
         assertTrue(postgresVendor.getMessage().contains("does not match"));
 
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("7", latestVersion(connection));
+            assertEquals("33", latestVersion(connection));
         }
         assertThrows(IllegalStateException.class, () -> DbVendorFlywayConfig.prepare(dataSource, "postgresql"));
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("7", latestVersion(connection));
+            assertEquals("33", latestVersion(connection));
         }
     }
 

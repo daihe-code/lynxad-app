@@ -44,6 +44,11 @@ public class LibraryQueryService {
     private com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads;
     private com.lynx.ad.modules.identity.domain.port.OauthAccountRepository accounts;
     private com.lynx.ad.modules.identity.application.QianchuanCredentialFacade credentials;
+    private com.lynx.ad.modules.creative.infrastructure.persistence.PlatformMaterialCatalog platformCatalog;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void catalogDependency(com.lynx.ad.modules.creative.infrastructure.persistence.PlatformMaterialCatalog catalog) {
+        this.platformCatalog = catalog;
+    }
     @org.springframework.beans.factory.annotation.Autowired
     public void uploadDependencies(com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads,
             com.lynx.ad.modules.identity.domain.port.OauthAccountRepository accounts,
@@ -103,7 +108,11 @@ public class LibraryQueryService {
         // Avoid fetching unselectable remote entries that would otherwise occupy the first page.
         if (bound && !selectable) {
             try {
-                merged.addAll(platformItems(tenantId, start, end));
+                merged.addAll(platformCatalog == null ? platformItems(tenantId, start, end) : catalogItems(tenantId, start, end));
+                if (platformCatalog != null && platformCatalog.hasFailedSync(tenantId.value()))
+                    platformWarning = "千川素材同步暂时失败，当前展示上次成功同步的目录；请检查授权或稍后重试";
+                else if (platformCatalog != null && !platformCatalog.hasCompletedSync(tenantId.value()))
+                    platformWarning = "千川素材目录正在后台同步，已同步素材会逐步显示";
             } catch (BizException ex) {
                 if (merged.isEmpty()) throw ex;
                 platformWarning="千川素材暂时无法查询，当前展示已保存到本平台的素材";
@@ -136,7 +145,7 @@ public class LibraryQueryService {
                 .toList();
         int fromIdx = Math.min((pg - 1) * size, filtered.size());
         int toIdx = Math.min(fromIdx + size, filtered.size());
-        List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(this::toVo).toList();
+        List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(i -> toVo(tenantId, i)).toList();
         return new LibraryResponse(
                 bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning);
     }
@@ -150,7 +159,9 @@ public class LibraryQueryService {
         List<Item> merged = new ArrayList<>(localItems(tenantId));
         if (oauthQueryService.hasBoundQianchuan(tenantId)) {
             try {
-                merged.addAll(platformItems(tenantId, LocalDate.of(1970, 1, 1), LocalDate.of(2099, 12, 31)));
+                merged.addAll(platformCatalog == null
+                        ? platformItems(tenantId, LocalDate.of(1970, 1, 1), LocalDate.of(2099, 12, 31))
+                        : catalogItems(tenantId, null, null));
             } catch (BizException ex) {
                 throw ex;
             } catch (Exception ex) {
@@ -186,8 +197,6 @@ public class LibraryQueryService {
                     continue;
                 }
                 Instant created = art.createdAt() != null ? art.createdAt() : pkg.createdAt();
-                String play = art.videoObjectKey() == null ? "" : storagePort.getUrl(tenantId, art.videoObjectKey());
-                String poster = art.coverObjectKey() == null ? play : storagePort.getUrl(tenantId, art.coverObjectKey());
                 items.add(new Item(
                         "LYNX:" + pkg.id().value() + ":" + art.productId().value(),
                         MaterialType.VIDEO,
@@ -203,10 +212,13 @@ public class LibraryQueryService {
                         art.videoId().map(v -> v.value()).orElse(null),
                         art.videoId().map(v -> v.value()).orElse(pkg.id().value()),
                         art.coverImageId().map(c -> c.value()).orElse(null),
-                        poster,
-                        play,
+                        "",
+                        "",
                         null,
                         null));
+                var item = items.getLast();
+                item.storageObjectKey = art.videoObjectKey();
+                item.storageCoverKey = art.coverObjectKey() == null ? art.videoObjectKey() : art.coverObjectKey();
             }
         }
         return items;
@@ -215,18 +227,33 @@ public class LibraryQueryService {
     private List<Item> uploadedItems(TenantId tenant) {
         if (uploads==null) return List.of();
         List<Item> result=new ArrayList<>();
-        for(var asset:uploads.list(tenant.value())) {
-            String url="TEXT".equals(asset.kind())?"":com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,asset.storageMode()).getUrl(tenant,asset.objectKey());
+        var assets = uploads.list(tenant.value());
+        var details = uploads.libraryDetails(tenant.value(), assets);
+        for(var asset:assets) {
             boolean generated="engine_oss".equals(asset.storageMode());
-            var meta=uploads.storageMetadata(tenant.value(),asset.id());
-            String preview="";
-            if(meta!=null&&meta.previewAssetId()!=null){var cover=uploads.require(tenant.value(),meta.previewAssetId());preview=com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,cover.storageMode()).getUrl(tenant,cover.objectKey());}
+            var meta = details == null ? null : details.metadata().get(asset.id());
+            var legacyMeta = details == null ? uploads.storageMetadata(tenant.value(),asset.id()) : null;
+            String coverKey = meta == null ? null : meta.previewKey();
+            String coverMode = meta == null ? null : meta.previewMode();
+            if (legacyMeta != null && legacyMeta.previewAssetId() != null) {
+                var cover = uploads.require(tenant.value(), legacyMeta.previewAssetId());
+                coverKey = cover.objectKey(); coverMode = cover.storageMode();
+            }
+            Long durationMs = meta != null ? meta.durationMs() : legacyMeta != null ? legacyMeta.durationMs() : null;
             var item=new Item((generated?"ENGINE:":"UPLOAD:")+asset.id(),asset.kind(),generated?MaterialSource.LYNX:MaterialSource.UPLOAD,asset.filename(),asset.sizeBytes(),
                     asset.width()!=null && asset.height()!=null ? (asset.width()>asset.height() ? "HORIZONTAL" : asset.width().equals(asset.height()) ? "SQUARE" : "VERTICAL") : "",
-                    meta!=null&&meta.durationMs()!=null?(int)(meta.durationMs()/1000):null,generated?"AI 智能生成":"本地上传",asset.createdAt(),false,"NONE",null,asset.id(),null,
-                    "IMAGE".equals(asset.kind()) ? url : preview, "TEXT".equals(asset.kind()) ? "" : url,asset.width(),asset.height());
-            item.syncs=uploads.syncs(tenant.value(),asset.id()); item.textContent=asset.textContent(); result.add(item);
-            item.aiReview=uploads.aiReview(tenant.value(),asset.id());
+                    durationMs == null ? null : Math.toIntExact(durationMs / 1000),
+                    generated?"AI 智能生成":"本地上传",asset.createdAt(),false,"NONE",null,asset.id(),null,
+                    "", "",asset.width(),asset.height());
+            if (!"TEXT".equals(asset.kind())) {
+                item.storageObjectKey = asset.objectKey(); item.storageObjectMode = asset.storageMode();
+                item.storageCoverKey = "IMAGE".equals(asset.kind()) ? asset.objectKey() : coverKey;
+                item.storageCoverMode = "IMAGE".equals(asset.kind()) ? asset.storageMode() : coverMode;
+            }
+            item.syncs = details == null ? uploads.syncs(tenant.value(),asset.id())
+                    : details.syncs().getOrDefault(asset.id(), List.of());
+            item.textContent=asset.textContent(); result.add(item);
+            item.aiReview = details == null ? uploads.aiReview(tenant.value(),asset.id()) : details.reviews().get(asset.id());
             item.reviewBadge=effectiveBadge(item);
         }
         return result;
@@ -243,6 +270,22 @@ public class LibraryQueryService {
             return items;
         }
         return platformAccountItems("", "bound", null, start, end);
+    }
+    private List<Item> catalogItems(TenantId tenant, LocalDate start, LocalDate end) {
+        List<Item> result = new ArrayList<>();
+        var rows = start == null || end == null ? platformCatalog.list(tenant.value())
+                : platformCatalog.list(tenant.value(), start.atStartOfDay(SHANGHAI).toInstant(),
+                        end.plusDays(1).atStartOfDay(SHANGHAI).toInstant());
+        for (var m : rows) {
+            var item = new Item("EXT:" + m.accountId() + ":" + m.type().name() + ":" + m.entryKey(),
+                    m.type(), MaterialSource.EXTERNAL, m.filename(), m.sizeBytes(), m.imageMode(),
+                    m.durationSec(), "未关联", m.createdAt(), false,
+                    m.reviewBadge() == null ? "NONE" : m.reviewBadge(), m.materialId(), m.objectId(), null,
+                    "", "", m.width(), m.height());
+            item.accountId = m.accountId();
+            result.add(item);
+        }
+        return result;
     }
     private List<Item> carouselItems(TenantId tenant) {
         if(carousels==null) return List.of();
@@ -389,7 +432,15 @@ public class LibraryQueryService {
         return value != null && value.toLowerCase(Locale.ROOT).contains(needle);
     }
 
-    private LibraryItemVo toVo(Item item) {
+    private LibraryItemVo toVo(TenantId tenant, Item item) {
+        String play = item.storageObjectKey == null ? item.playUrl :
+                com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,item.storageObjectMode)
+                        .getUrl(tenant,item.storageObjectKey);
+        String poster = item.storageCoverKey == null ? item.posterUrl
+                : item.storageCoverKey.equals(item.storageObjectKey)
+                        && java.util.Objects.equals(item.storageCoverMode,item.storageObjectMode) ? play
+                : com.lynx.ad.modules.creative.domain.port.RoutedStoragePort.select(storagePort,item.storageCoverMode)
+                        .getUrl(tenant,item.storageCoverKey);
         return new LibraryItemVo(
                 item.id,
                 item.type,
@@ -404,8 +455,8 @@ public class LibraryQueryService {
                 item.reviewBadge,
                 item.materialId,
                 item.objectId,
-                item.posterUrl,
-                item.playUrl,
+                poster,
+                play,
                 item.width,
                 item.height,
                 (item.id.startsWith("UPLOAD:")||item.id.startsWith("ENGINE:")) && item.carouselId==null ? item.objectId : null,
@@ -460,6 +511,10 @@ public class LibraryQueryService {
         final String coverImageId;
         final String posterUrl;
         final String playUrl;
+        String storageObjectKey;
+        String storageObjectMode;
+        String storageCoverKey;
+        String storageCoverMode;
         final Integer width;
         final Integer height;
         String accountId="";

@@ -1,6 +1,6 @@
 <template>
   <div ref="container" class="asset-thumbnail" :data-state="ready ? 'ready' : failed ? 'error' : 'loading'">
-    <img v-if="imageUrl && !imageFailed" :key="imageUrl" :src="imageUrl" :alt="item.filename" loading="lazy" @load="ready = true" @error="imageFailed = true; ready = false" />
+    <img v-if="imageUrl && !imageFailed" :key="imageUrl" :src="imageUrl" :alt="item.filename" loading="lazy" @load="ready = true; attempts = 0" @error="imageFailed = true; ready = false" />
     <video v-else-if="item.type === 'VIDEO' && urls.playUrl && visible && !videoFailed"
       ref="video" :key="urls.playUrl" :src="assetUrl(urls.playUrl)" :class="{ 'is-ready': ready }"
       muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"
@@ -14,7 +14,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { LibraryItemVo } from '@/features/creative/creativeApi';
 import AssetIcon from './AssetIcon.vue';
 import { assetUrl } from './assetFormat';
-import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
+import { assetPreview, previewNeedsRefresh, resolveAssetPreview } from '@/features/creative/assetPreviews';
 
 const props = defineProps<{ item: LibraryItemVo }>();
 const container = ref<HTMLElement>();
@@ -28,8 +28,12 @@ const imageUrl = computed(() => assetUrl(urls.value.posterUrl || (props.item.typ
 const failed = computed(() => ['VIDEO', 'IMAGE', 'CAROUSEL'].includes(props.item.type) &&
   (props.item.type === 'VIDEO' ? (videoFailed.value || !urls.value.playUrl && (imageFailed.value || !imageUrl.value)) : imageFailed.value || !imageUrl.value));
 const resolving = ref(false);
-let attempted = false, alive = true;
+let attempts = 0, alive = true;
 let observer: IntersectionObserver | undefined;
+function show() {
+  visible.value = true;
+  if (previewNeedsRefresh(props.item)) void resolveAssetPreview(props.item);
+}
 
 function seekFrame(event: Event) {
   const media = event.target as HTMLVideoElement;
@@ -38,10 +42,10 @@ function seekFrame(event: Event) {
 }
 function frameReady(event: Event) {
   const media = event.target as HTMLVideoElement;
-  if (!media.seeking && media.readyState >= 2 && media.videoWidth > 0) ready.value = true;
+  if (!media.seeking && media.readyState >= 2 && media.videoWidth > 0) { ready.value = true; attempts = 0; }
 }
 watch(() => JSON.stringify([props.item.id, props.item.posterUrl, props.item.playUrl]), () => {
-  attempted = false;
+  attempts = 0;
 });
 watch(imageUrl, () => {
   ready.value = false; imageFailed.value = false; videoFailed.value = false;
@@ -51,16 +55,17 @@ watch(() => urls.value.playUrl, () => {
   if (!imageUrl.value || imageFailed.value) ready.value = false;
 });
 watch([failed, visible], async () => {
-  if (!failed.value || !visible.value || attempted || resolving.value) return;
-  attempted = true; resolving.value = true;
-  await resolveAssetPreview(props.item);
+  if (!failed.value || !visible.value || attempts >= 2 || resolving.value) return;
+  const refresh = assetPreview(props.item).source === 'QIANCHUAN';
+  attempts++; resolving.value = true;
+  await resolveAssetPreview(props.item, refresh);
   if (alive) resolving.value = false;
 }, { immediate: true });
 onMounted(() => {
-  if (!('IntersectionObserver' in window)) { visible.value = true; return; }
+  if (!('IntersectionObserver' in window)) { show(); return; }
   observer = new IntersectionObserver(entries => {
     if (entries.some(entry => entry.isIntersecting)) {
-      visible.value = true;
+      show();
       observer?.disconnect();
     }
   }, { rootMargin: '100px' });

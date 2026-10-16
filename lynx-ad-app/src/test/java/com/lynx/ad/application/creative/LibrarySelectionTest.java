@@ -37,6 +37,7 @@ class LibrarySelectionTest {
         service.uploadDependencies(uploads,mock(com.lynx.ad.modules.identity.domain.port.OauthAccountRepository.class),
             mock(com.lynx.ad.modules.identity.application.QianchuanCredentialFacade.class));
         var first=service.query(tenant,"IMAGE",null,null,null,"ALL",null,1,2,true);
+        verify(storage,times(2)).getUrl(eq(tenant),anyString());
         var second=service.query(tenant,"IMAGE",null,null,null,"ALL",null,2,2,true);
         assertEquals(5,first.pageInfo().total());assertEquals(5,first.tabCounts().image());
         assertEquals(2,first.items().size());assertEquals(2,second.items().size());

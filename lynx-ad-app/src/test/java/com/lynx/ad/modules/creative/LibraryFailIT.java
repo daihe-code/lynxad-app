@@ -34,14 +34,14 @@ class LibraryFailIT extends AbstractContainerIT {
     private MaterialLibraryPort materialLibraryPort;
 
     @Test
-    void portFailureIs1506NotEmptySuccess() throws Exception {
+    void libraryRequestUsesCatalogWhileProviderIsUnavailable() throws Exception {
         when(materialLibraryPort.list(any())).thenThrow(new IllegalStateException("upstream"));
         String token = onboard("13900003004", "失败店");
         post("/api/v1/identity/oauth/accounts/mock-bind", "{}", token);
         JsonNode body = mapper.readTree(get("/api/v1/creative/library?from=2026-09-12&to=2026-09-18", token));
-        assertEquals(1506, body.path("code").asInt());
-        assertTrue(body.path("data").isMissingNode() || body.path("data").isNull() || !body.path("data").path("items").isArray()
-                || body.path("code").asInt() != 0);
+        assertEquals(0, body.path("code").asInt());
+        assertTrue(body.path("data").path("items").isArray());
+        assertTrue(!body.path("data").path("platformWarning").asText().isBlank());
     }
 
     private static void assertTrue(boolean cond) {
