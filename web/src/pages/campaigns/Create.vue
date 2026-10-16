@@ -71,7 +71,7 @@ async function ensureSelection() {
   name.value ||= state.value.name; selected.value = state.value.products;
   if (!props.initialPlanId) await router.replace({ path: '/campaigns/create', query: { draftId: state.value.planId } });
 }
-async function analyze() { await run(async () => { await ensureSelection(); state.value = await api.creationAnalyze(state.value!); schedulePoll(); }); }
+async function analyze(refresh = false) { await run(async () => { await ensureSelection(); state.value = await api.creationAnalyze(state.value!, refresh); schedulePoll(); }); }
 async function persistStep(target: number) {
   if (state.value && state.value.step !== target) state.value = await api.creationStep(state.value, target);
 }

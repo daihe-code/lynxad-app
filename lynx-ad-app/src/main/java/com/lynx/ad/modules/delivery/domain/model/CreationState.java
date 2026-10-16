@@ -14,6 +14,7 @@ public class CreationState {
     public boolean hideInAweme = true;
     public List<Product> products = new ArrayList<>();
     public String analysisStatus = "NONE", analysisError, enginePlanId, engineJobId, previousEngineJobId;
+    public boolean analysisRefreshRequested;
     public JsonNode analysis, groups, recommendations;
     /** Latest verified shared bindings, separate from immutable publish-attempt audit payloads. */
     public JsonNode verifiedPlatformCreatives, verifiedPlatformChannels;

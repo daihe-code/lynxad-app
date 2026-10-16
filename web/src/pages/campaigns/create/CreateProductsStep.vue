@@ -54,13 +54,17 @@
         <div class="pt-8 sm:pt-9 lg:pt-10"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
         <div class="analysis-content" aria-live="polite" :aria-busy="analyzing">
           <p class="analysis-status" :class="{ 'analysis-status--error': analysisStatus === 'FAILED' }" role="status">{{ analysisMessage }}</p>
-          <button v-if="!readOnly && analysisStatus === 'FAILED'" class="retry" type="button" :disabled="saving || readOnly" @click="emit('analyze')">重新分析</button>
+          <button v-if="!readOnly && ['FAILED', 'SUCCEEDED'].includes(analysisStatus)" class="retry" type="button" :disabled="saving || analyzing" @click="emit('analyze', true)">重新分析</button>
+          <p v-if="analysisStatus === 'SUCCEEDED'" class="analysis-evidence-note">{{ evidenceMessage }}</p>
           <div class="an-grid">
             <article v-for="card in analysisCards" :key="card.key" class="an-card">
               <div class="an-head"><span class="an-head__icon" :style="{ background: card.bg }" aria-hidden="true">{{ card.icon }}</span><div><h3 class="an-head__title">{{ card.title }}</h3><p class="an-head__sub">{{ card.sub }}</p></div></div>
-              <div class="dimension-metric"><strong>{{ card.value }}</strong><span v-if="card.value !== '—'" class="dimension-unit">{{ card.unit }}</span><span v-if="card.isEstimate" class="dimension-estimate">估算</span></div>
+              <div class="dimension-metric"><strong>{{ card.value }}</strong><span v-if="card.value !== '—'" class="dimension-unit">{{ card.unit }}</span><span v-if="card.isEstimate && card.value !== '—'" class="dimension-estimate">{{ card.key === 'audience_match' ? '场景适配估算' : '估算' }}</span></div>
               <p class="dimension-conclusion">{{ card.conclusion }}</p>
               <p v-if="card.method" class="dimension-method">分析依据：{{ card.method }}</p>
+              <p v-if="card.scope" class="dimension-method">统计范围：{{ card.scope }}</p>
+              <p v-if="card.observedAt || card.confidence" class="dimension-method">{{ [card.observedAt && `数据日期：${card.observedAt}`, card.confidence && `可信度：${card.confidence}`].filter(Boolean).join(' · ') }}</p>
+              <p v-if="card.sources.length" class="dimension-method">来源：<a v-for="source in card.sources" :key="source.id" :href="source.url" target="_blank" rel="noopener noreferrer" class="analysis-source">{{ source.title }}</a></p>
             </article>
           </div>
           <div v-if="analysisStatus === 'SUCCEEDED' && (conclusion || recommendations.length)" class="analysis-summary">
@@ -80,14 +84,14 @@ import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, Produ
 import ProductPrice from '@/components/ProductPrice.vue';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
 const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; readOnly?: boolean; embedded?: boolean; initialQuery?: ProductQuery }>();
-const emit = defineEmits<{ select: [product: ProductVo]; remove: [id: string]; account: [key: string]; retry: []; 'refresh-prices': []; next: []; cancel: []; analyze: []; query: [query: ProductQuery] }>();
+const emit = defineEmits<{ select: [product: ProductVo]; remove: [id: string]; account: [key: string]; retry: []; 'refresh-prices': []; next: []; cancel: []; analyze: [refresh?: boolean]; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const categories = ['破圈尖货', '跑量优价', '新品', '搜索趋势品'];
 const dimensionDefinitions: { key: ProductAnalysisDimensionKey; title: string; sub: string; unit: string; icon: string; bg: string }[] = [
   { key: 'competitor_count', title: '竞品数量', sub: '所选商品集的同类市场竞争情况', unit: '个', icon: '📊', bg: '#e8f2fe' },
   { key: 'search_heat_7d', title: '近7天搜索热度', sub: '搜索热度指数 · 0–100分', unit: '分', icon: '🔍', bg: '#fdf1e6' },
-  { key: 'audience_match', title: '人群匹配度', sub: '所选商品集与目标人群的匹配情况', unit: '%', icon: '👥', bg: '#f1ecfd' },
+  { key: 'audience_match', title: '人群匹配度', sub: '基于商品用途与场景的适配估算', unit: '%', icon: '👥', bg: '#f1ecfd' },
   { key: 'estimated_roi', title: '预估ROI', sub: '投放前的收益效率预估', unit: '倍', icon: '📈', bg: '#e8f6ef' },
 ];
 function displayMetric(value: unknown): string | undefined {
@@ -95,14 +99,18 @@ function displayMetric(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim() && value.trim().toLowerCase() !== 'unknown') return value;
 }
 const analysisCards = computed(() => dimensionDefinitions.map(definition => {
-  const dimension = props.analysisStatus === 'SUCCEEDED' ? props.analysis?.dimensions?.[definition.key] : undefined;
+  const dimension = props.analysisStatus === 'SUCCEEDED' && evidenceAware.value ? props.analysis?.dimensions?.[definition.key] : undefined;
   const range = dimension?.value_range;
   const rangeText = Array.isArray(range) && range.length === 2 && range.every(value => typeof value === 'number' && Number.isFinite(value))
     ? `${displayMetric(range[0])}–${displayMetric(range[1])}` : undefined;
   const value = displayMetric(dimension?.value) ?? rangeText ?? '—';
   return { ...definition, value, isEstimate: dimension?.is_estimate === true,
-    conclusion: dimension?.conclusion?.trim() || (analyzing.value ? '正在分析，请稍候…' : props.analysisStatus === 'SUCCEEDED' ? (value === '—' ? '暂无可靠数据' : '暂无进一步分析说明') : '等待分析结果'),
+    conclusion: dimension?.missing_reason?.trim() || dimension?.conclusion?.trim() || (analyzing.value ? '正在分析，请稍候…' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? '缺少该指标所需数据，可补充后重新分析' : '历史结果尚未校验证据，请重新分析') : '等待分析结果'),
     method: dimension?.method?.trim(),
+    scope: dimension?.evidence?.scope,
+    observedAt: dimension?.observed_at?.slice(0, 10),
+    confidence: value !== '—' && typeof dimension?.confidence === 'number' ? `${Math.round(dimension.confidence * 100)}%` : '',
+    sources: publicSources.value.filter(source => dimension?.evidence_ids?.includes(source.id)),
   };
 }));
 const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 30), jump = ref(String(page.value));
@@ -116,9 +124,20 @@ const visible = computed(() => filtered.value);
 const tab = ref(props.initialQuery?.tab ?? 'ALL'), unpromoted = ref(props.initialQuery?.unpromoted ?? true);
 const tabValues = ['ALL','BREAKTHROUGH_PRODUCT','GOOD_BOOST','NEW_PRODUCT','SEARCH_TREND'];
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
-const analysisMessage = computed(() => analyzing.value ? '正在分析所选商品，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? `已完成 ${props.selected.length} 款商品的整体四维分析；估算指标以实际投放效果为准` : '等待商品分析开始');
-const conclusion = computed(() => props.analysis?.overall_conclusion?.trim() || '');
-const recommendations = computed(() => (props.analysis?.recommendations || []).filter(item => typeof item === 'string' && item.trim()));
+const evidenceAware = computed(() => typeof props.analysis?.data_quality?.available_dimensions === 'number');
+const validCount = computed(() => analysisCards.value.filter(card => card.value !== '—').length);
+const publicSources = computed(() => (props.analysis?.public_sources || []).filter(source => {
+  try { const url = new URL(source.url); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password; } catch { return false; }
+}));
+const analysisMessage = computed(() => analyzing.value ? '正在检索相关资料并核对指标依据，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? `分析调用已完成 · 有依据的指标 ${validCount.value}/4${validCount.value < 4 ? ' · 部分数据待补充，可继续下一步' : ' · 估算以实际投放效果为准'}` : '历史分析尚未校验证据，请重新分析以获取最新结果') : '等待商品分析开始');
+const evidenceMessage = computed(() => {
+  const process = props.analysis?.processing;
+  const date = props.analysis?.data_freshness?.searched_at || props.analysis?.snapshot?.created_at;
+  const search = process?.web_search_error ? '联网检索暂时失败，可重新分析' : process?.web_search_used ? `已返回搜索来源，${publicSources.value.length} 个来源用于指标` : '本次未获得可引用的搜索来源';
+  return `${search}${date ? ` · 分析时间：${new Date(date).toLocaleString('zh-CN', { hour12: false })}` : ''}${props.analysis?.snapshot?.cache_hit ? ' · 使用有效期内缓存' : ''}。场景估算与真实市场统计分别标注。`;
+});
+const conclusion = computed(() => evidenceAware.value ? props.analysis?.overall_conclusion?.trim() || '' : '');
+const recommendations = computed(() => evidenceAware.value ? (props.analysis?.recommendations || []).filter(item => typeof item === 'string' && item.trim()) : []);
 watch(() => props.analysisStatus, status => { if (status !== 'NONE') analysisOpen.value = true; }, { immediate: true });
 let queryTimer: ReturnType<typeof setTimeout> | undefined;
 watch([query, page, size, tab, unpromoted], () => { if (props.readOnly) return; clearTimeout(queryTimer); queryTimer = setTimeout(() => emit('query', { page: page.value, pageSize: size.value, keyword: query.value, tab: tab.value, unpromoted: unpromoted.value && ['ALL','GOOD_BOOST'].includes(tab.value) }), 250); });

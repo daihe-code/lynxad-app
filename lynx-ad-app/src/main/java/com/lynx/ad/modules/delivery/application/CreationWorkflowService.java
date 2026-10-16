@@ -59,6 +59,7 @@ public class CreationWorkflowService {
     public record Selection(String planId,Integer revision,String accountId,String awemeId,List<String> productIds) {}
     public record Goal(int revision,String name,String smartBidType,BigDecimal budget,BigDecimal roi2Goal,String scheduleType,String startDate,String endDate) {}
     public record Version(int revision) {}
+    public record Analysis(int revision, boolean refresh) {}
     public record Step(int revision,Integer step) {}
     public record Visibility(int revision,Boolean hideInAweme) {}
     public record Generate(int revision,List<String> productIds) {}
@@ -162,11 +163,14 @@ public class CreationWorkflowService {
         });
     }
     public CreationState analyze(TenantId tenant,String requestedId,Version v) {
+        return analyze(tenant,requestedId,new Analysis(v.revision,false));
+    }
+    public CreationState analyze(TenantId tenant,String requestedId,Analysis v) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         var snapshot=store.get(tenant.value(),id);
         var currentProducts=currentProductPrices(tenant,snapshot);
-        return store.mutate(tenant.value(),id,v.revision,s->{editable(s);s.products=new ArrayList<>(currentProducts);s.analysisStatus="QUEUED";s.analysisError=null;s.changed();});
+        return store.mutate(tenant.value(),id,v.revision,s->{editable(s);s.products=new ArrayList<>(currentProducts);s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;s.changed();});
     }
     public CreationState recommendations(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,true);
@@ -369,9 +373,9 @@ public class CreationWorkflowService {
                     if(enginePlan.isBlank())throw new BizException(8002,"引擎未返回计划任务 ID");
                     final String registered=enginePlan;store.mutate(snapshot.tenantId,id,null,s->s.enginePlanId=registered);
                 }
-                var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of("ai_plan_task_id",enginePlan,"store_id",snapshot.tenantId,"products",engineProducts(snapshot),"refresh",false));
+                var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of("ai_plan_task_id",enginePlan,"store_id",snapshot.tenantId,"products",engineProducts(snapshot),"refresh",snapshot.analysisRefreshRequested));
                 if(!response.isObject()||!response.has("product_set"))throw new BizException(8002,"引擎未返回有效商品分析");
-                store.mutate(snapshot.tenantId,id,null,s->{if("RUNNING".equals(s.analysisStatus)){s.analysis=response;s.analysisStatus="SUCCEEDED";s.analysisError=null;}});
+                store.mutate(snapshot.tenantId,id,null,s->{if("RUNNING".equals(s.analysisStatus)){s.analysis=response;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}});
             }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("RUNNING".equals(s.analysisStatus)){s.analysisStatus="FAILED";s.analysisError=e.getMessage();}});}
             return;
         }

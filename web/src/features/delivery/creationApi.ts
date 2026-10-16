@@ -21,11 +21,22 @@ export interface ProductAnalysisDimension {
   conclusion?: string;
   method?: string;
   is_estimate?: boolean;
+  confidence?: number;
+  observed_at?: string | null;
+  source?: string;
+  missing_reason?: string | null;
+  evidence_ids?: string[];
+  evidence?: { platform?: string; scope?: string };
 }
 export interface ProductAnalysis {
   overall_conclusion?: string;
   dimensions?: Partial<Record<ProductAnalysisDimensionKey, ProductAnalysisDimension>>;
   recommendations?: string[];
+  public_sources?: { id: string; title: string; url: string; published_at?: string | null }[];
+  data_quality?: { status: 'complete' | 'partial' | 'insufficient'; available_dimensions: number; total_dimensions: number; retryable?: boolean };
+  data_freshness?: { searched_at?: string; notes?: string };
+  processing?: { web_search_triggered?: boolean; web_search_executed?: boolean; web_search_used?: boolean; web_search_error?: string | null };
+  snapshot?: { created_at?: string; cache_hit?: boolean; version?: number };
 }
 export interface CreationState {
   planId: string; accountId: string; awemeId: string; name: string; revision: number; step: number;
@@ -49,7 +60,7 @@ const slow = { timeout: 120000 };
 export const creationProducts = (accountId: string, awemeId: string, query: ProductQuery, refreshPrices = false) => apiGet<{ items: CreationProduct[]; total: number }>(`${root}/products`, { timeout: 60000, params: { accountId, awemeId, ...query, refreshPrices } });
 export const creationGet = (id: string) => apiGet<CreationState>(`${root}/${id}`, quiet);
 export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }) => apiPost<CreationState>(root, body, slow);
-export const creationAnalyze = (s: CreationState) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision });
+export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh });
 export const creationRecommendations = (id: string) => apiGet<CreationState>(`${root}/${id}/recommendations`, slow);
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
 export const creationStep = (s: CreationState, step: number) => apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step });

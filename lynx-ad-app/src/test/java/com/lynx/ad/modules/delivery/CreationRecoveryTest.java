@@ -15,6 +15,24 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
 class CreationRecoveryTest {
+    @Test void explicitAnalysisRefreshSurvivesDurableStateAndReachesEngine() throws Exception {
+        var mapper=new ObjectMapper();var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);
+        var initial=new CreationState();initial.tenantId="tenant";initial.planId="plan";initial.enginePlanId="apt";
+        initial.analysisStatus="QUEUED";initial.analysisRefreshRequested=true;
+        var s=mapper.readValue(mapper.writeValueAsString(initial),CreationState.class);
+        when(store.mutate(any(),any(),isNull(),any())).thenAnswer(call->{Consumer<CreationState> change=call.getArgument(3);change.accept(s);return s;});
+        when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"),any())).thenReturn(mapper.readTree("""
+            {"product_set":{"product_count":0},"data_quality":{"status":"partial","available_dimensions":1},"dimensions":{}}
+            """));
+        new CreationWorkflowService(store,null,null,null,engine,mapper,null,null,null,null,null,mock(PlatformTransactionManager.class)).process(s);
+        var body=org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(engine).post(eq("/api/v1/capabilities/perception/products/analyze"),body.capture());
+        assertEquals(Boolean.TRUE,((Map<?,?>)body.getValue()).get("refresh"));
+        assertEquals("SUCCEEDED",s.analysisStatus);assertFalse(s.analysisRefreshRequested);
+        assertEquals("partial",s.analysis.path("data_quality").path("status").asText());
+        var legacy=mapper.readValue("{\"analysisStatus\":\"NONE\"}",CreationState.class);
+        assertFalse(legacy.analysisRefreshRequested);
+    }
     @Test void failedRegenerationDoesNotClaimSuccessBecauseOriginalMaterialIsReady() throws Exception {
         var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);
         var s=new CreationState();s.tenantId="tenant";s.planId="plan";s.engineJobId="job";

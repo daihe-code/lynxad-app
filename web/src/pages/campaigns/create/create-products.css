@@ -1984,3 +1984,5 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
     display: none;
   }
 }
+.analysis-evidence-note { margin: 12px 0 20px; color: #667085; font-size: 13px; line-height: 1.7; }
+.analysis-source { color: #5855eb; text-decoration: underline; margin-right: 10px; overflow-wrap: anywhere; }
