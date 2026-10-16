@@ -51,6 +51,7 @@ public class CreationState {
         public String generationRequestId,generationDescription;
         public JsonNode creativeProfile;
         public String creativeProfileStatus;
+        public String deliverySource, deliveryMode, deliveryFamilyId, typographyStatus;
         public String videoAssetId, coverAssetId, textAssetId, audioAssetId, carouselId;
         public List<String> imageAssetIds = new ArrayList<>();
         public String status = "PROCESSING", error, previewUrl, posterUrl;
@@ -63,4 +64,22 @@ public class CreationState {
     }
     public void changed() { revision++; confirmedVersion = null; }
     public void mediaChanged() { packageVersion++; changed(); }
+
+    /** Retire old photo alternatives only after their generated sibling is usable. */
+    public boolean retireReferenceAlternatives() {
+        if(!Set.of("NONE","FAILED").contains(publishStatus)||qcPlanId!=null)return false;
+        var families=new HashSet<List<String>>();
+        for(var m:materials)if("IMAGE".equals(m.type)&&"READY".equals(m.status)
+                &&"ai_generated".equals(m.deliverySource)&&m.deliveryFamilyId!=null&&!m.deliveryFamilyId.isBlank()
+                &&m.engineJobId!=null&&!m.imageAssetIds.isEmpty())
+            families.add(Arrays.asList(m.engineJobId,m.productId,m.deliveryFamilyId));
+        boolean changed=materials.removeIf(m->{
+            boolean retire="IMAGE".equals(m.type)&&"product_reference".equals(m.deliverySource)
+                    &&families.contains(Arrays.asList(m.engineJobId,m.productId,m.deliveryFamilyId));
+            if(retire&&!removedMaterialIds.contains(m.id))removedMaterialIds.add(m.id);
+            return retire;
+        });
+        if(changed)mediaChanged();
+        return changed;
+    }
 }

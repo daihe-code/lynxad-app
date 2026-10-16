@@ -14,6 +14,22 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
 class CreationPreviewRefreshTest {
+    @Test void openingLegacyDraftDurablyRemovesOnlyReplacedPhotoAndKeepsHistoryIds() {
+        var store=mock(CreationStore.class);var assets=mock(AssetUploadService.class);
+        var state=new CreationState();state.planId="plan";state.generationStatus="FAILED";
+        var base=material("base","IMAGE");base.deliverySource="product_reference";base.deliveryFamilyId="slot0";
+        var ai=material("ai","IMAGE");ai.deliverySource="ai_generated";ai.deliveryFamilyId="slot0";
+        base.productId=ai.productId="p";ai.status="READY";ai.imageAssetIds.add("ai-file");
+        state.materials.addAll(List.of(base,ai));
+        when(store.get("tenant","plan")).thenReturn(state);
+        when(store.mutate(eq("tenant"),eq("plan"),eq(1),any())).thenAnswer(call->{
+            Consumer<CreationState> update=call.getArgument(3);update.accept(state);return state;});
+        when(assets.detail(any(),anyString())).thenReturn(CreationPayloadTest.asset("ai-file","IMAGE","APPROVED",null,null,null));
+        var view=service(store,null,assets).get(new TenantId("tenant"),"plan");
+        assertEquals(List.of("ai"),view.materials.stream().map(m->m.id).toList());
+        assertEquals(List.of("base"),state.removedMaterialIds);
+        verify(store).mutate(eq("tenant"),eq("plan"),eq(1),any());
+    }
     @Test void sameMaterialIdAdoptsLatestCoverAndProductImageAndInvalidatesConfirmation() {
         var store=mock(CreationStore.class);var importer=mock(CreationAssetImporter.class);var assets=mock(AssetUploadService.class);
         var state=new CreationState();state.tenantId="tenant";state.userId="user";state.accountId="account";state.planId="plan";

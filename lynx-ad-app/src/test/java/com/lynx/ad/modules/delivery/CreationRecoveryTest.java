@@ -15,6 +15,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
 class CreationRecoveryTest {
+    @Test void originalAndAiVersionsDoNotInflateCompletionOrReplaceExistingFiles() throws Exception {
+        var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);
+        var s=new CreationState();s.tenantId="tenant";s.planId="plan";s.engineJobId="job";s.generationStatus="RUNNING";
+        s.products.add(new CreationState.Product("123","123","商品",null,null,null,null,null,List.of(),List.of()));
+        for(String id:List.of("base","ai")) {
+            var m=new CreationState.Material();m.id=id;m.type="IMAGE";m.status="READY";m.productId="123";
+            m.previewUrl="https://existing.test/"+id;s.materials.add(m);
+        }
+        when(store.get("tenant","plan")).thenReturn(s);
+        when(store.mutate(any(),any(),isNull(),any())).thenAnswer(call->{Consumer<CreationState> change=call.getArgument(3);change.accept(s);return s;});
+        when(engine.get(any())).thenReturn(new ObjectMapper().readTree("""
+          {"job_id":"job","status":"processing","groups":[{"group_id":"group-1","expected":{"product_cards":2},"materials":[
+          {"material_id":"base","version":"v1","status":"succeeded","material_type":"product_card","detail":{"delivery_family_id":"slot-1"}},
+          {"material_id":"ai","version":"v1","status":"succeeded","material_type":"product_card","detail":{"delivery_family_id":"slot-1"}}]}]}
+          """));
+        new CreationWorkflowService(store,null,null,null,engine,new ObjectMapper(),null,null,null,null,null,mock(PlatformTransactionManager.class)).process(s);
+        assertEquals(2,s.materials.size());
+        assertEquals("https://existing.test/base",s.materials.getFirst().previewUrl);
+        var count=s.generationCounts.stream().filter(c->c.type().equals("IMAGE")).findFirst().orElseThrow();
+        assertEquals(1,count.completed());assertEquals(2,count.total());
+    }
     @Test void explicitAnalysisRefreshSurvivesDurableStateAndReachesEngine() throws Exception {
         var mapper=new ObjectMapper();var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);
         var initial=new CreationState();initial.tenantId="tenant";initial.planId="plan";initial.enginePlanId="apt";

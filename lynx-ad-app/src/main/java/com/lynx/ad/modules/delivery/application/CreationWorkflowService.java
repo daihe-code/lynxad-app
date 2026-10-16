@@ -72,6 +72,15 @@ public class CreationWorkflowService {
     public CreationState get(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,false);
         var s=store.get(tenant.value(),id);
+        // This changes only an unpublished draft's selection. Engine history,
+        // OSS objects and already uploaded platform assets remain available.
+        if(s.materials.stream().anyMatch(m->"product_reference".equals(m.deliverySource))) {
+            var selection=json.convertValue(s,CreationState.class);
+            if(selection.retireReferenceAlternatives()) {
+                try{s=store.mutate(tenant.value(),id,s.revision,state->state.retireReferenceAlternatives());}
+                catch(BizException conflict){if(conflict.code()!=1404)throw conflict;s=store.get(tenant.value(),id);}
+            }
+        }
         s=refreshGeneratedFiles(tenant,s);
         s.products=new ArrayList<>(currentProductPrices(tenant,s));
         for(var m:s.materials) {
@@ -302,6 +311,43 @@ public class CreationWorkflowService {
         writable(tenant,WriteAction.SAVE_PLAN);
         return store.mutate(tenant.value(),id,v.revision,s->{editable(s);var m=find(s,material);m.status="PROCESSING";m.error=null;s.mediaChanged();});
     }
+    public CreationState repairTypography(TenantId tenant,String requestedId,String material,Version v) {
+        String id=sharedId(tenant,requestedId,true);
+        writable(tenant,WriteAction.SAVE_PLAN);
+        var s=store.get(tenant.value(),id);editable(s);
+        if(s.revision!=v.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
+        var original=find(s,material);
+        if(original.engineMaterialId==null||original.engineJobId==null||original.groupId==null||s.enginePlanId==null||!"READY".equals(original.status)
+                ||!("pending".equals(original.typographyStatus)||"core_only".equals(original.typographyStatus))
+                ||!Set.of("IMAGE","VIDEO").contains(original.type))
+            throw new BizException(1503,"仅支持完善已就绪的 AI 图片或视频封面文字");
+        String request=UUID.nameUUIDFromBytes((id+":"+material+":typography:"+v.revision).getBytes(StandardCharsets.UTF_8)).toString();
+        var receipt=engine.post("/api/v1/capabilities/generation/materials/"+CreationEngineClient.query(original.engineMaterialId)+"/typography",
+                Map.of("store_id",s.tenantId,"job_id",original.engineJobId,"ai_plan_task_id",s.enginePlanId,
+                        "group_id",original.groupId,"request_id",request));
+        String mid=receipt.path("material_id").asText();
+        String artwork="VIDEO".equals(original.type)?receipt.path("urls").path("cover_url").asText():receipt.path("urls").path("image_urls").path(0).asText();
+        if(mid.isBlank()||mid.equals(original.engineMaterialId)||artwork.isBlank()
+                ||!original.engineMaterialId.equals(receipt.path("parent_material_id").asText())
+                ||!original.engineJobId.equals(receipt.path("job_id").asText())||!"succeeded".equals(receipt.path("status").asText()))
+            throw new BizException(8002,"文字完善回执不匹配，原素材已保留");
+        var next=json.convertValue(original,CreationState.Material.class);
+        next.id=mid;next.engineMaterialId=mid;next.replacesId=original.id;next.status="PROCESSING";next.error=null;
+        next.typographyStatus=receipt.path("typography_status").asText("pending");next.deliveryMode=receipt.path("delivery_mode").asText(null);
+        next.sourceUrls.clear();next.importedAssets.clear();next.coverAssetId=null;
+        if("VIDEO".equals(next.type)) {
+            next.sourceUrls.put("COVER",artwork);
+            if(next.videoAssetId!=null)next.importedAssets.put("VIDEO",next.videoAssetId);
+        }else {
+            next.imageAssetIds=new ArrayList<>();next.sourceUrls.put("IMAGE_0",artwork);
+        }
+        return store.mutate(tenant.value(),id,v.revision,state->{
+            editable(state);find(state,material);state.materials.add(next);state.engineJobId=original.engineJobId;
+            state.engineTerminalStatus="succeeded";state.pendingRegenerationId=original.id;
+            state.generationProductIds=new ArrayList<>(List.of(original.productId));state.generationStatus="IMPORTING";
+            state.generationMessage="文字已处理，正在同步图片；原素材暂时保留";state.generationStage="syncing";state.progress=80;state.mediaChanged();
+        });
+    }
     public CreationState regenerate(TenantId tenant,String requestedId,String material,Feedback feedback) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var s=store.get(tenant.value(),id);editable(s);var m=find(s,material);
@@ -412,6 +458,10 @@ public class CreationWorkflowService {
                     var m=new CreationState.Material();m.id=mid;m.engineMaterialId=mid;m.engineJobId=current.engineJobId;m.groupId=groupId;m.productId=current.products.get(index).qcProductId();
                     m.type=switch(item.path("material_type").asText()){case "video"->"VIDEO";case "image_text"->"CAROUSEL";case "product_card"->"IMAGE";default->"";};if(m.type.isEmpty())continue;
                     m.title=item.path("content").path("title").asText();m.text=item.path("content").path("text").asText();
+                    m.deliverySource=item.path("detail").path("delivery_source").asText(null);
+                    m.deliveryMode=item.path("detail").path("delivery_mode").asText(null);
+                    m.typographyStatus=item.path("detail").path("typography_status").asText(null);
+                    m.deliveryFamilyId=item.path("detail").path("delivery_family_id").asText(null);
                     m.titles=new ArrayList<>(List.of(m.title));var urls=item.path("urls");
                     if("VIDEO".equals(m.type)){m.sourceUrls.put("VIDEO",urls.path("video_url").asText());m.sourceUrls.put("COVER",urls.path("cover_url").asText());}
                     else {int n=0;for(var url:urls.path("image_urls"))m.sourceUrls.put("IMAGE_"+n++,url.asText());}
@@ -433,13 +483,16 @@ public class CreationWorkflowService {
         current=store.get(snapshot.tenantId,id);
         for(var material:current.materials)if(!"READY".equals(material.status)&&!"FAILED".equals(material.status))processMaterial(current,material);
         store.mutate(snapshot.tenantId,id,null,s->{
+            s.retireReferenceAlternatives();
             if(!Set.of("IMPORTING","FAILED").contains(s.generationStatus)||s.engineTerminalStatus==null)return;
             long finished=s.materials.stream().filter(m->Set.of("READY","FAILED").contains(m.status)).count();
             if(finished<s.materials.size()){s.progress=80+(int)(19*finished/s.materials.size());return;}
             boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
             boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->s.pendingRegenerationId.equals(m.replacesId)&&"READY".equals(m.status));
             boolean succeeded=all&&replacement&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
-            s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:80;s.generationMessage=succeeded?"素材已生成并同步千川":"部分素材生成或同步失败，已保留原有可用素材；可重新生成或从素材库补齐";
+            s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:80;
+            s.generationMessage=succeeded?"素材已就绪并同步千川":s.materials.stream().anyMatch(m->"FAILED".equals(m.status))?
+                "部分素材同步未完成，可继续使用已就绪素材":"部分 AI 创意未完成，已有可用素材已保留，可从下方选用";
             s.generationStage="finished";
         });
     }
@@ -474,6 +527,10 @@ public class CreationWorkflowService {
             if(!request.productId.equals(product)){failAddition(tenant,id,rid,"新增素材关联了其他商品");return;}
             String mid=item.path("material_id").asText();if(mid.isBlank())continue;
             var m=new CreationState.Material();m.id=mid;m.engineMaterialId=mid;m.engineJobId=request.engineJobId;m.groupId=group.path("group_id").asText();m.productId=request.productId;m.type=request.type;
+            m.deliverySource=item.path("detail").path("delivery_source").asText(null);
+            m.deliveryMode=item.path("detail").path("delivery_mode").asText(null);
+            m.deliveryFamilyId=item.path("detail").path("delivery_family_id").asText(null);
+            m.typographyStatus=item.path("detail").path("typography_status").asText(null);
             m.generationRequestId=rid;m.generationDescription=request.description;m.title=item.path("content").path("title").asText();m.text=item.path("content").path("text").asText();m.titles=new ArrayList<>(List.of(m.title));
             var urls=item.path("urls");if("VIDEO".equals(m.type)){m.sourceUrls.put("VIDEO",urls.path("video_url").asText());m.sourceUrls.put("COVER",urls.path("cover_url").asText());}
             else{int n=0;for(var url:urls.path("image_urls"))m.sourceUrls.put("IMAGE_"+n++,url.asText());}
@@ -525,7 +582,9 @@ public class CreationWorkflowService {
                     if(index>=0&&index<s.products.size()) {
                         var p=s.products.get(index);
                         boolean hasResult=false;for(var m:group.path("materials"))if("v1".equals(m.path("version").asText())&&"succeeded".equals(m.path("status").asText()))hasResult=true;
-                        String message=hasResult?"部分素材生成失败，已保留成功结果":"尚未生成可用素材，请重试或从素材库补齐";
+                        String detail=group.path("error").asText(job.path("error").asText(""));
+                        String message=hasResult?"部分创意版未完成，可继续使用已有素材":"尚未生成可用素材，请重试或从素材库补齐";
+                        if(!detail.isBlank())message+="："+detail;
                         s.generationIssues.add(new CreationState.GenerationIssue(p.qcProductId(),p.name(),message));
                     }
                 }catch(NumberFormatException ignored){}
@@ -533,9 +592,13 @@ public class CreationWorkflowService {
         }
         for(String type:List.of("VIDEO","IMAGE","CAROUSEL")) {
             int completed=0,total=0;
+            var families=new HashSet<String>();
             for(var group:job.path("groups")) {
                 total+=group.path("expected").path(expectedKeys.get(type)).asInt(0);
-                for(var m:group.path("materials"))if("v1".equals(m.path("version").asText())&&"succeeded".equals(m.path("status").asText())&&types.get(type).equals(m.path("material_type").asText()))completed++;
+                for(var m:group.path("materials"))if("v1".equals(m.path("version").asText())&&"succeeded".equals(m.path("status").asText())&&types.get(type).equals(m.path("material_type").asText())) {
+                    String family=m.path("detail").path("delivery_family_id").asText(m.path("material_id").asText());
+                    if(families.add(family))completed++;
+                }
             }
             s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null));
         }

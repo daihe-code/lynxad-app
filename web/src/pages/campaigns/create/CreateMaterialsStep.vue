@@ -2,9 +2,10 @@
   <div class="live-materials creative-workspace ad-step3">
     <CreationFrame v-if="!embedded" :step="3" :account="account" :account-chips="accountChips" />
     <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
-      <h2 class="panel__title">确定投放素材</h2><p class="panel__sub">系统根据您选中的商品智能生成优质投放素材，保障投放效果</p>
+      <h2 class="panel__title">确定投放素材</h2><p class="panel__sub">系统根据所选商品生成素材，优先提供可用图片，并持续补充 AI 创意版</p>
       <div class="tip"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ running ? state.generationMessage || '素材生成处理中…' : previewableCount ? '素材已生成，点击任意素材可预览投放效果。' : readOnly ? '当前计划暂无素材预览信息。' : '请选择需要智能生成的商品，或从素材库添加素材。' }}</p></div>
       <MaterialGenerationProgress v-if="running" ref="generationProgress" :state="state" />
+      <p v-if="typographyPendingCount" class="generation-warning" role="status">有 {{ typographyPendingCount }} 条素材的图片文字待完善，现有画面可继续使用。<span v-if="!readOnly">可点击“完善文字”处理。</span></p>
       <div v-if="state.generationStatus === 'FAILED'" class="generation-warning" role="status"><b>部分素材未完成</b><p>{{ state.generationMessage }}</p><p v-for="issue in state.generationIssues" :key="issue.productId">{{ issue.productName }}：{{ issue.message }}</p><p v-if="previewableCount">已生成 {{ previewableCount }} 条素材，可在下方查看和预览。</p></div>
       <details v-if="additionHistory.length" class="addition-history"><summary>新增生成记录（{{ additionHistory.length }}）</summary><ul><li v-for="record in additionHistory" :key="record.id"><div><strong>{{ tabs[record.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'] }}</strong><span>{{ additionStatus[record.status] || record.status }}</span><button v-if="!readOnly && ['SUCCEEDED', 'FAILED'].includes(record.status)" type="button" :disabled="busy || running" @click="openAddition(record.type as CreationAdditionBody['type'])">再次生成</button></div><p>{{ record.description ? `历史生成描述：${record.description}` : '依据商品分析自动生成' }}</p><p v-if="record.error" class="error">{{ record.error }}</p></li></ul></details>
       <template v-if="!running || state.materials.length">
@@ -15,7 +16,7 @@
         </div>
         <p class="srow__hint">适用于官方或自运营抖音号的非主页原生素材，实际展示以抖音平台规则为准</p>
       </div></div>
-      <div class="srow"><p class="srow__label"><label for="material-product">素材对应商品</label></p><div class="srow__body"><div class="product-picker"><select id="material-product" v-model="productId" class="pick" :disabled="busy"><option v-for="p in state.products" :key="p.qcProductId" :value="p.qcProductId">{{ p.name }}</option></select><span v-if="materials.some(m => m.engineMaterialId)" class="srctag srctag--ai product-source"><ReferenceIcon name="sparkle" />AI 智能生成</span><ReferenceIcon class="product-caret" name="caret" /></div><p class="srow__hint">下拉可切换查询各商品对应素材情况</p></div></div>
+      <div class="srow"><p class="srow__label"><label for="material-product">素材对应商品</label></p><div class="srow__body"><div class="product-picker"><select id="material-product" v-model="productId" class="pick" :disabled="busy"><option v-for="p in state.products" :key="p.qcProductId" :value="p.qcProductId">{{ p.name }}</option></select><span v-if="materials.some(m => m.engineMaterialId)" class="srctag srctag--ai product-source"><ReferenceIcon name="sparkle" />生成素材</span><ReferenceIcon class="product-caret" name="caret" /></div><p class="srow__hint">下拉可切换查询各商品对应素材情况</p></div></div>
       <p v-if="missing.length" class="error">以下商品尚无可投放素材：{{ missing.map(p => p.name).join('、') }}。{{ readOnly ? '' : '请补齐素材后再发布。' }}</p>
       <div class="mblock">
         <div class="mblock__head"><p class="mblock__label">素材和标题</p><p class="mblock__count">已添加：素材 <b>{{ materials.length }}</b>/100，标题 <b>{{ titleCount }}</b>/30</p></div>
@@ -28,10 +29,11 @@
               <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
                 <button class="material-select" type="button" :aria-pressed="active?.id === m.id" @click="selectedId = m.id">
                   <span class="matrow__thumb"><img v-if="thumbnail(m) && !brokenThumbnails[m.id]" :src="thumbnail(m)" alt="" @load="imageMetadata(m.id, $event)" @error="brokenThumbnails[m.id] = true" /><ReferenceIcon v-else :name="m.type === 'VIDEO' ? 'video' : m.type === 'IMAGE' ? 'image' : 'article'" /></span>
-                  <span class="matrow__body"><span class="matrow__title" :title="m.title">{{ m.title }}</span><span class="matrow__meta">{{ metadataLabel(m) }}</span><span class="matrow__tag"><span class="srctag" :class="m.engineMaterialId ? 'srctag--ai' : 'srctag--manual'"><ReferenceIcon v-if="m.engineMaterialId" name="sparkle" />{{ m.engineMaterialId ? 'AI 智能生成' : '人工上传' }}</span></span><span v-if="m.generationDescription" class="material-generation-description" :title="m.generationDescription">生成要求：{{ m.generationDescription }}</span><span class="material-status" :class="{ 'material-status--error': m.status === 'FAILED' }" :title="m.error">{{ statusLabel(m) }}</span></span>
+                  <span class="matrow__body"><span class="matrow__title" :title="m.title">{{ m.title }}</span><span class="matrow__meta">{{ metadataLabel(m) }}</span><span class="matrow__tag"><span class="srctag" :class="m.engineMaterialId ? 'srctag--ai' : 'srctag--manual'"><ReferenceIcon v-if="m.engineMaterialId" name="sparkle" />{{ materialSourceLabel(m) }}</span></span><span v-if="m.generationDescription" class="material-generation-description" :title="m.generationDescription">生成要求：{{ m.generationDescription }}</span><span class="material-status" :class="{ 'material-status--error': m.status === 'FAILED' }" :title="m.error">{{ statusLabel(m) }}</span></span>
                 </button>
                 <div class="material-actions"><MaterialCreativeProfile :material="m" :can-retry="!readOnly" :busy="busy || running" @retry="emit('context', m.id)" />
                 <span v-if="!readOnly" class="matrow__ops">
+                  <button v-if="m.engineMaterialId && m.status === 'READY' && ['pending','core_only'].includes(m.typographyStatus || '')" class="typography-repair" type="button" :disabled="busy || running" @click="emit('typography', m.id)">完善文字</button>
                   <button v-if="m.status === 'FAILED'" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
                   <button class="iconbtn" type="button" :disabled="busy || running || !m.engineMaterialId" aria-label="重新生成素材" title="重新生成素材" @click="emit('action', 'regenerate', m.id)"><ReferenceIcon name="sparkle" /></button>
                   <button class="iconbtn" type="button" :disabled="busy || running" aria-label="删除素材" title="删除" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button>
@@ -76,7 +78,7 @@ import '../reference/creative-workspace.css';
 import type { CreationState, CreationMaterial, CreationAdditionBody } from '@/features/delivery/creationApi';
 const props = defineProps<{ state: CreationState; busy: boolean; account?: { awemeName: string; awemeId: string; avatar?: string }; accountChips: string[]; readOnly?: boolean; embedded?: boolean }>();
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
+const emit = defineEmits<{ visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
 const tabs = { VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文', TITLE: '标题' };
 const productId = ref(props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>('VIDEO'), selectedId = ref('');
 const materials = computed(() => props.state.materials.filter(m => m.productId === productId.value));
@@ -84,6 +86,7 @@ const visible = computed(() => materials.value.filter(m => m.type === tab.value)
 const active = computed(() => tab.value === 'TITLE' ? materials.value.find(m => m.id === selectedId.value) || materials.value[0] : visible.value.find(m => m.id === selectedId.value) || visible.value[0]);
 const previewProduct = computed(() => props.state.products.find(p => p.qcProductId === (active.value?.productId || productId.value)));
 const previewableCount = computed(() => props.state.materials.filter(m => m.previewUrl || m.posterUrl || m.imageUrls?.length).length);
+const typographyPendingCount = computed(() => props.state.materials.filter(m => m.typographyStatus === 'pending').length);
 const titleCount = computed(() => materials.value.reduce((count,m) => count + m.titles.length, 0));
 const previewTitle = ref('');
 function selectTitle(id: string, text: string) { selectedId.value = id; previewTitle.value = text; }
@@ -145,6 +148,11 @@ const additionPreset = ref<{ type: CreationAdditionBody['type'] }>({ type: 'VIDE
 const additionHistory = computed(() => (props.state.generationAdditions || []).filter(r => r.productId === productId.value).slice(-10).reverse());
 const additionStatus: Record<string, string> = { QUEUED: '等待生成', SUBMITTING: '提交中', RUNNING: '生成中', IMPORTING: '正在同步千川', UNCERTAIN: '提交状态待确认', SUCCEEDED: '已完成', FAILED: '失败' };
 function openAddition(type: CreationAdditionBody['type'] = tab.value === 'TITLE' ? 'VIDEO' : tab.value) { additionPreset.value = { type }; addOpen.value = true; }
+const materialSourceLabel = (m: CreationMaterial) => m.deliverySource === 'product_reference' ? '商品原图版'
+  : m.typographyStatus === 'pending' ? (m.type === 'VIDEO' ? '封面文字待完善' : '图片文字待完善')
+  : m.deliveryMode === 'image_only' ? 'AI 图片 · 无字版'
+  : m.deliveryMode === 'simplified' ? 'AI 图片 · 简洁版'
+  : m.engineMaterialId ? 'AI 智能生成' : '人工上传';
 const statusLabel = (m: CreationMaterial) => {
   const generated = !!m.engineMaterialId && !!(m.previewUrl || m.posterUrl || m.imageUrls?.length);
   if (generated && m.status === 'FAILED') return '已生成 · 千川同步失败';
@@ -170,6 +178,7 @@ watch(() => props.state.materials, (next, previous) => {
 watch(productId, () => { selectedId.value = ''; previewTitle.value = ''; const first = materials.value[0]; if (first && tab.value !== 'TITLE' && !visible.value.length) tab.value = first.type; });
 </script>
 <style scoped>
+.typography-repair{border:1px solid #deddfc;border-radius:8px;padding:7px 10px;color:#5b54ff;background:#f8f7ff;white-space:nowrap;font-size:12px}.typography-repair:disabled{opacity:.5;cursor:wait}
 .material-actions{display:flex;align-items:center;gap:4px}@media(max-width:600px){.matrow{flex-wrap:wrap}.material-select{flex:1 1 100%}.material-actions{width:100%;justify-content:flex-end}}
 .material-generation-description{display:block;font-size:11px;color:#878aa5;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .addition-history{border:1px solid #e7e7f5;border-radius:10px;padding:12px 16px;margin:16px 0;color:#656a89;font-size:12px}.addition-history summary{cursor:pointer}.addition-history ul{list-style:none;padding:0;margin:12px 0 0}.addition-history li+li{border-top:1px solid #ececf5;padding-top:12px;margin-top:12px}.addition-history li>div{display:flex;align-items:center;gap:12px}.addition-history button{margin-left:auto;color:#575cf6}.addition-history p{margin:8px 0;overflow-wrap:anywhere}

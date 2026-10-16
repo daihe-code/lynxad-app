@@ -7,6 +7,18 @@ import com.lynx.ad.modules.delivery.domain.model.CreationState;
 import org.junit.jupiter.api.Test;
 
 class CreationViewTest {
+    @Test void deliverySourceSurvivesStorageAndIsVisibleWithoutInternalCertificates() throws Exception {
+        var json=new ObjectMapper().findAndRegisterModules();var s=new CreationState();
+        var m=new CreationState.Material();m.id="base";m.type="IMAGE";
+        m.deliverySource="product_reference";m.deliveryMode="image_only";m.deliveryFamilyId="family";
+        m.typographyStatus="pending";
+        s.materials.add(m);
+        var restored=json.readValue(json.writeValueAsString(s),CreationState.class);
+        var browser=json.valueToTree(CreationView.of(restored));
+        assertEquals("product_reference",browser.path("materials").get(0).path("deliverySource").asText());
+        assertEquals("image_only",browser.path("materials").get(0).path("deliveryMode").asText());
+        assertEquals("pending",browser.path("materials").get(0).path("typographyStatus").asText());
+    }
     @Test void pricesPersistWithExactIdsAndOlderSnapshotsRemainReadable() throws Exception {
         var json=new ObjectMapper().findAndRegisterModules();
         var old=json.readValue("{\"productId\":\"3841023363610968621\",\"qcProductId\":\"3841023363610968621\",\"name\":\"手套\",\"tags\":[],\"unavailableReasons\":[]}",CreationState.Product.class);

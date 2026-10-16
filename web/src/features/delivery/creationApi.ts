@@ -12,6 +12,9 @@ export interface CreationMaterial {
   titles: string[]; imageUrls?: string[];
   generationRequestId?: string; generationDescription?: string;
   creativeProfile?: Record<string, unknown>; creativeProfileStatus?: string;
+  deliverySource?: 'product_reference' | 'ai_generated';
+  deliveryMode?: 'full' | 'simplified' | 'image_only'; deliveryFamilyId?: string;
+  typographyStatus?: 'complete' | 'core_only' | 'pending';
 }
 export type ProductAnalysisDimensionKey = 'competitor_count' | 'search_heat_7d' | 'audience_match' | 'estimated_roi';
 export interface ProductAnalysisDimension {
@@ -81,5 +84,6 @@ export const creationDiscard = (id: string) => apiDelete(`${root}/${id}`);
 
 export const creationTitles = (s: CreationState, id: string, titles: string[]) => apiPut<CreationState>(`${root}/${s.planId}/materials/${id}/titles`, { revision: s.revision, titles }, slow);
 export const creationRecheck = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/recheck`, { revision: s.revision });
+export const creationTypography = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/typography`, { revision: s.revision }, slow);
 
 export const creationReconcile = (s: CreationState, qcPlanId: string) => apiPost<CreationState>(`${root}/${s.planId}/reconcile`, { qcPlanId }, slow);

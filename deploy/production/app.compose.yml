@@ -2,7 +2,7 @@ name: lynxad-app
 
 services:
   app-api:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:20261016-analysis-evidence
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:20261016-seedream-layout
     env_file: ${LYNXAD_ENV_FILE:-./production.env}
     restart: unless-stopped
     healthcheck:
@@ -13,7 +13,7 @@ services:
       start_period: 60s
 
   app-web:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-demand-heat
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-seedream-layout
     ports:
       - "80:80"
     depends_on:
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   engine-console:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-engine-console
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-seedream-console
     env_file: ./engine-console.env
     restart: unless-stopped
     read_only: true
