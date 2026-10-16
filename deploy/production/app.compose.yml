@@ -13,7 +13,7 @@ services:
       start_period: 60s
 
   app-web:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-product-estimates
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-demand-heat
     ports:
       - "80:80"
     depends_on:

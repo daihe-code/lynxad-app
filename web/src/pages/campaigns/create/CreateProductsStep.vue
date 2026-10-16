@@ -105,8 +105,11 @@ const analysisCards = computed(() => dimensionDefinitions.map(definition => {
   const rangeText = Array.isArray(range) && range.length === 2 && range.every(value => typeof value === 'number' && Number.isFinite(value))
     ? `${displayMetric(range[0])}–${displayMetric(range[1])}` : undefined;
   const productEstimate = dimension?.source === 'product_semantics';
+  const demandEstimate = definition.key === 'search_heat_7d' && productEstimate;
   const value = (productEstimate ? rangeText ?? displayMetric(dimension?.value) : displayMetric(dimension?.value) ?? rangeText) ?? '—';
   return { ...definition, value, productEstimate, isEstimate: dimension?.is_estimate === true,
+    title: demandEstimate ? '需求热度' : definition.title,
+    sub: demandEstimate ? '根据商品信息推断的需求参考评分 · 0–100分' : definition.sub,
     conclusion: dimension?.missing_reason?.trim() || dimension?.conclusion?.trim() || (analyzing.value ? '正在分析，请稍候…' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? '缺少该指标所需数据，可补充后重新分析' : '历史结果尚未校验证据，请重新分析') : '等待分析结果'),
     method: dimension?.method?.trim(),
     scope: dimension?.evidence?.scope,
