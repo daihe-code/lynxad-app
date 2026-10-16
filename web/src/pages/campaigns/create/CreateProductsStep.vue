@@ -131,6 +131,7 @@ const publicSources = computed(() => (props.analysis?.public_sources || []).filt
 }));
 const analysisMessage = computed(() => analyzing.value ? '正在检索相关资料并核对指标依据，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? `分析调用已完成 · 有依据的指标 ${validCount.value}/4${validCount.value < 4 ? ' · 部分数据待补充，可继续下一步' : ' · 估算以实际投放效果为准'}` : '历史分析尚未校验证据，请重新分析以获取最新结果') : '等待商品分析开始');
 const evidenceMessage = computed(() => {
+  if (!evidenceAware.value) return '历史快照尚未校验搜索来源和有效期，请重新分析。';
   const process = props.analysis?.processing;
   const date = props.analysis?.data_freshness?.searched_at || props.analysis?.snapshot?.created_at;
   const search = process?.web_search_error ? '联网检索暂时失败，可重新分析' : process?.web_search_used ? `已返回搜索来源，${publicSources.value.length} 个来源用于指标` : '本次未获得可引用的搜索来源';
