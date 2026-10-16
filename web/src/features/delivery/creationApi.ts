@@ -23,7 +23,10 @@ export interface ProductAnalysisDimension {
   is_estimate?: boolean;
   confidence?: number;
   observed_at?: string | null;
+  estimated_at?: string | null;
   source?: string;
+  assumptions?: string[];
+  scenario?: { average_order_value: number; click_cost_range: [number, number]; conversion_rate_range: [number, number]; formula: string; basis: 'assumed' };
   missing_reason?: string | null;
   evidence_ids?: string[];
   evidence?: { platform?: string; scope?: string };
@@ -33,9 +36,9 @@ export interface ProductAnalysis {
   dimensions?: Partial<Record<ProductAnalysisDimensionKey, ProductAnalysisDimension>>;
   recommendations?: string[];
   public_sources?: { id: string; title: string; url: string; published_at?: string | null }[];
-  data_quality?: { status: 'complete' | 'partial' | 'insufficient'; available_dimensions: number; total_dimensions: number; retryable?: boolean };
+  data_quality?: { status: 'complete' | 'partial' | 'insufficient'; available_dimensions: number; total_dimensions: number; retryable?: boolean; product_estimated_dimensions?: ProductAnalysisDimensionKey[] };
   data_freshness?: { searched_at?: string; notes?: string };
-  processing?: { web_search_triggered?: boolean; web_search_executed?: boolean; web_search_used?: boolean; web_search_error?: string | null };
+  processing?: { web_search_triggered?: boolean; web_search_executed?: boolean; web_search_used?: boolean; web_search_error?: string | null; inference_attempted?: boolean; inference_error?: string | null };
   snapshot?: { created_at?: string; cache_hit?: boolean; version?: number };
 }
 export interface CreationState {

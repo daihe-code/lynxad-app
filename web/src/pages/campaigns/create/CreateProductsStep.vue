@@ -59,11 +59,12 @@
           <div class="an-grid">
             <article v-for="card in analysisCards" :key="card.key" class="an-card">
               <div class="an-head"><span class="an-head__icon" :style="{ background: card.bg }" aria-hidden="true">{{ card.icon }}</span><div><h3 class="an-head__title">{{ card.title }}</h3><p class="an-head__sub">{{ card.sub }}</p></div></div>
-              <div class="dimension-metric"><strong>{{ card.value }}</strong><span v-if="card.value !== '—'" class="dimension-unit">{{ card.unit }}</span><span v-if="card.isEstimate && card.value !== '—'" class="dimension-estimate">{{ card.key === 'audience_match' ? '场景适配估算' : '估算' }}</span></div>
+              <div class="dimension-metric"><strong>{{ card.value }}</strong><span v-if="card.value !== '—'" class="dimension-unit">{{ card.unit }}</span><span v-if="card.isEstimate && card.value !== '—'" class="dimension-estimate">{{ card.productEstimate ? 'AI估算' : '估算' }}</span></div>
               <p class="dimension-conclusion">{{ card.conclusion }}</p>
               <p v-if="card.method" class="dimension-method">分析依据：{{ card.method }}</p>
-              <p v-if="card.scope" class="dimension-method">统计范围：{{ card.scope }}</p>
-              <p v-if="card.observedAt || card.confidence" class="dimension-method">{{ [card.observedAt && `数据日期：${card.observedAt}`, card.confidence && `可信度：${card.confidence}`].filter(Boolean).join(' · ') }}</p>
+              <p v-if="card.scope" class="dimension-method">{{ card.productEstimate ? '估算范围' : '统计范围' }}：{{ card.scope }}</p>
+              <p v-for="(assumption, index) in card.assumptions" :key="index" class="dimension-method">假设：{{ assumption }}</p>
+              <p v-if="card.observedAt || card.confidence" class="dimension-method">{{ [card.observedAt && `${card.productEstimate ? '估算日期' : '数据日期'}：${card.observedAt}`, card.confidence && `${card.productEstimate ? '估算置信度' : '可信度'}：${card.confidence}`].filter(Boolean).join(' · ') }}</p>
               <p v-if="card.sources.length" class="dimension-method">来源：<a v-for="source in card.sources" :key="source.id" :href="source.url" target="_blank" rel="noopener noreferrer" class="analysis-source">{{ source.title }}</a></p>
             </article>
           </div>
@@ -103,12 +104,14 @@ const analysisCards = computed(() => dimensionDefinitions.map(definition => {
   const range = dimension?.value_range;
   const rangeText = Array.isArray(range) && range.length === 2 && range.every(value => typeof value === 'number' && Number.isFinite(value))
     ? `${displayMetric(range[0])}–${displayMetric(range[1])}` : undefined;
-  const value = displayMetric(dimension?.value) ?? rangeText ?? '—';
-  return { ...definition, value, isEstimate: dimension?.is_estimate === true,
+  const productEstimate = dimension?.source === 'product_semantics';
+  const value = (productEstimate ? rangeText ?? displayMetric(dimension?.value) : displayMetric(dimension?.value) ?? rangeText) ?? '—';
+  return { ...definition, value, productEstimate, isEstimate: dimension?.is_estimate === true,
     conclusion: dimension?.missing_reason?.trim() || dimension?.conclusion?.trim() || (analyzing.value ? '正在分析，请稍候…' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? '缺少该指标所需数据，可补充后重新分析' : '历史结果尚未校验证据，请重新分析') : '等待分析结果'),
     method: dimension?.method?.trim(),
     scope: dimension?.evidence?.scope,
-    observedAt: dimension?.observed_at?.slice(0, 10),
+    assumptions: Array.isArray(dimension?.assumptions) ? dimension.assumptions.filter(item => typeof item === 'string' && item.trim()) : [],
+    observedAt: (productEstimate ? dimension?.estimated_at : dimension?.observed_at)?.slice(0, 10),
     confidence: value !== '—' && typeof dimension?.confidence === 'number' ? `${Math.round(dimension.confidence * 100)}%` : '',
     sources: publicSources.value.filter(source => dimension?.evidence_ids?.includes(source.id)),
   };
@@ -126,16 +129,17 @@ const tabValues = ['ALL','BREAKTHROUGH_PRODUCT','GOOD_BOOST','NEW_PRODUCT','SEAR
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const evidenceAware = computed(() => typeof props.analysis?.data_quality?.available_dimensions === 'number');
 const validCount = computed(() => analysisCards.value.filter(card => card.value !== '—').length);
+const productEstimateCount = computed(() => analysisCards.value.filter(card => card.value !== '—' && card.productEstimate).length);
 const publicSources = computed(() => (props.analysis?.public_sources || []).filter(source => {
   try { const url = new URL(source.url); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password; } catch { return false; }
 }));
-const analysisMessage = computed(() => analyzing.value ? '正在检索相关资料并核对指标依据，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? `分析调用已完成 · 有依据的指标 ${validCount.value}/4${validCount.value < 4 ? ' · 部分数据待补充，可继续下一步' : ' · 估算以实际投放效果为准'}` : '历史分析尚未校验证据，请重新分析以获取最新结果') : '等待商品分析开始');
+const analysisMessage = computed(() => analyzing.value ? '正在检索资料并分析商品信息，请稍候…' : props.analysisStatus === 'FAILED' ? props.analysisError || '商品分析失败，请重试' : props.analysisStatus === 'SUCCEEDED' ? (evidenceAware.value ? `分析调用已完成 · 可用分析 ${validCount.value}/4${productEstimateCount.value ? ` · 其中 ${productEstimateCount.value} 项为AI估算` : ''}${validCount.value < 4 ? ' · 部分数据待补充，可继续下一步' : ' · 估算以实际投放效果为准'}` : '历史分析尚未校验证据，请重新分析以获取最新结果') : '等待商品分析开始');
 const evidenceMessage = computed(() => {
   if (!evidenceAware.value) return '历史快照尚未校验搜索来源和有效期，请重新分析。';
   const process = props.analysis?.processing;
   const date = props.analysis?.data_freshness?.searched_at || props.analysis?.snapshot?.created_at;
   const search = process?.web_search_error ? '联网检索暂时失败，可重新分析' : process?.web_search_used ? `已返回搜索来源，${publicSources.value.length} 个来源用于指标` : '本次未获得可引用的搜索来源';
-  return `${search}${date ? ` · 分析时间：${new Date(date).toLocaleString('zh-CN', { hour12: false })}` : ''}${props.analysis?.snapshot?.cache_hit ? ' · 使用有效期内缓存' : ''}。场景估算与真实市场统计分别标注。`;
+  return `${search}${process?.inference_error ? ' · 商品信息推断暂时失败，可重新分析' : ''}${date ? ` · 分析时间：${new Date(date).toLocaleString('zh-CN', { hour12: false })}` : ''}${props.analysis?.snapshot?.cache_hit ? ' · 使用有效期内缓存' : ''}。AI估算展示假设与置信度，不代表平台实测或收益承诺。`;
 });
 const conclusion = computed(() => evidenceAware.value ? props.analysis?.overall_conclusion?.trim() || '' : '');
 const recommendations = computed(() => evidenceAware.value ? (props.analysis?.recommendations || []).filter(item => typeof item === 'string' && item.trim()) : []);
