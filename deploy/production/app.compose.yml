@@ -13,10 +13,27 @@ services:
       start_period: 60s
 
   app-web:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-account-nav
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-engine-entry
     ports:
       - "80:80"
     depends_on:
       app-api:
         condition: service_healthy
+      engine-console:
+        condition: service_healthy
     restart: unless-stopped
+
+  engine-console:
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261016-engine-console
+    env_file: ./engine-console.env
+    restart: unless-stopped
+    read_only: true
+    user: node
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/__console/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
