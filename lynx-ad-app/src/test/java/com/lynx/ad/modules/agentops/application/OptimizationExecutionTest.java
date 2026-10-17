@@ -27,6 +27,15 @@ class OptimizationExecutionTest {
     @BeforeEach void setup(){facts=json.createObjectNode().put("qcId","123").put("status","DELIVERING").put("budget","400").put("roi","1.6").put("bidType","CUSTOM");((com.fasterxml.jackson.databind.node.ObjectNode)facts).putArray("productIds").add("p1");state=state(config("AUTO_LIMITED"),null,null,null,null);event=event("BUDGET","PERSISTENT_PROFIT","400","440","READY");
         when(plan.tenantId()).thenReturn(new TenantId("t"));when(plan.id()).thenReturn(new PlanId("p"));when(plan.accountId()).thenReturn(new AccountId("a"));when(gateway.plan("t","p")).thenReturn(plan);when(gateway.facts(plan)).thenReturn(facts);when(gateway.related(plan)).thenReturn(List.of("p"));when(store.get(new TenantId("t"),new PlanId("p"))).thenReturn(Optional.of(state));when(store.economics(plan)).thenReturn(config("AUTO_LIMITED").economics());when(journal.claimAccount(eq("t"),eq("a"),anyString())).thenReturn(true);when(journal.event("t","event")).thenReturn(Optional.of(event));when(journal.limit("t","a")).thenReturn(new BigDecimal("1000"));when(gateway.accountBudget(plan)).thenReturn(new BigDecimal("400"));when(insights.data(any(),any(),any(),eq(true))).thenReturn(new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal("100")),List.of(),"stat_time_hour",now,null));}
     @Test void approvedBoundedBudgetPasses(){assertDoesNotThrow(()->OptimizationExecutionService.validate(state,event,facts,now,0));}
+    @Test void automaticCostBudgetCanReach100ButCannotCrossThePlatformFloor() {
+        ((com.fasterxml.jackson.databind.node.ObjectNode)facts).put("budget","111");
+        var atMinimum=event("BUDGET","PERSISTENT_LOSS","111","100","READY");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)atMinimum.report()).put("estimated_contribution_profit","-10");
+        assertDoesNotThrow(()->OptimizationExecutionService.validate(state,atMinimum,facts,now,0));
+        var belowMinimum=event("BUDGET","PERSISTENT_LOSS","111","99.99","READY");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)belowMinimum.report()).put("estimated_contribution_profit","-10");
+        assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,belowMinimum,facts,now,0));
+    }
     @Test void observationModeNeverWrites(){assertThrows(BizException.class,()->OptimizationExecutionService.validate(state(config("OBSERVE"),null,null,null,null),event,facts,now,0));}
     @Test void staleOrNextDayAdviceNeverWrites(){assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,event,facts,now.plusSeconds(601),0));assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,event,facts,now.plus(Duration.ofDays(1)),0));}
     @Test void excessiveStepAndChangedRemoteValueNeverWrite(){assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,event("BUDGET","PERSISTENT_PROFIT","400","500","READY"),facts,now,0));((com.fasterxml.jackson.databind.node.ObjectNode)facts).put("budget","410");assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,event,facts,now,0));}

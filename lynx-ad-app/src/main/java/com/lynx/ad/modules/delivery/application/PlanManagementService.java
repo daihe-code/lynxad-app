@@ -106,7 +106,7 @@ public class PlanManagementService {
         String name=request.name()==null?null:new PlanName(request.name()).text();
         if(request.roi2Goal()!=null) number(request.roi2Goal(),new BigDecimal("0.01"),new BigDecimal("100"),"净成交ROI目标");
         AdPlan plan=require(tenant,id); editable(plan);
-        if(request.budget()!=null) number(request.budget(),new BigDecimal(plan.setting().bidType()==SmartBidType.CUSTOM?"300":"50"),new BigDecimal("999999999.99"),"日预算");
+        if(request.budget()!=null) number(request.budget(),plan.setting().bidType().minimumDailyBudget(),new BigDecimal("999999999.99"),"日预算");
         if(request.roi2Goal()!=null && plan.setting().bidType()!=SmartBidType.CUSTOM) throw new BizException(1402,"放量投放不设置净成交ROI目标");
         var c=credentials.getUsableCredential(tenant,plan.accountId());
         var detail=port.detail(c,plan.qcPlanId().get().value());

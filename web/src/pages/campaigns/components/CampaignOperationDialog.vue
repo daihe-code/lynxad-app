@@ -30,6 +30,7 @@ import { DataLine, InfoFilled, QuestionFilled } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormItemRule, FormRules } from 'element-plus';
 import { updatePlanSettings, type PlanListVo } from '@/features/delivery/deliveryApi';
+import { COST_DAILY_BUDGET_MINIMUM } from '@/features/delivery/budgetValidation';
 import { PLAN_STATUS } from '@/utils/labels';
 import CampaignToolsDialog from './CampaignToolsDialog.vue';
 
@@ -53,7 +54,7 @@ async function save() {
   finally { saving.value = false; }
 }
 const form = reactive({ name: '', budget: '', roi: '', bidType: '' });
-const budgetMinimum = computed(() => form.bidType === 'SMART_BID_CUSTOM' ? 300 : 50);
+const budgetMinimum = computed(() => form.bidType === 'SMART_BID_CUSTOM' ? COST_DAILY_BUDGET_MINIMUM : 50);
 function numericRule(min: number, max: number, label: string, exclusiveMin = false): FormItemRule {
   return { required: true, trigger: 'blur', validator: (_rule, value, callback) => {
     const s = String(value ?? '').trim();

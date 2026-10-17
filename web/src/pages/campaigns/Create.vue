@@ -16,6 +16,7 @@ import { ElMessage } from 'element-plus';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
+import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
@@ -40,7 +41,7 @@ const budget = ref(''), roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUST
 const today = () => new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
 const start = ref(today()), end = ref(today());
 const validNumber = (v: string) => /^\d+(\.\d{1,2})?$/.test(v);
-const budgetError = computed(() => !validNumber(budget.value) || Number(budget.value) <= 0 || Number(budget.value) > 100000 ? '日预算须大于 0、不超过 100000 元，最多两位小数' : '');
+const budgetError = computed(() => creationBudgetError(budget.value, mode.value));
 const roiError = computed(() => mode.value === 'CUSTOM' && (!validNumber(roi.value) || Number(roi.value) < .1 || Number(roi.value) > 50) ? '净成交ROI目标须为 0.1–50，最多两位小数' : '');
 const dateError = computed(() => duration.value === 'custom' && (!start.value || !end.value || start.value < today() || end.value < start.value) ? '开始日期不得早于今天，结束日期不得早于开始日期' : '');
 const budgetOptions = computed(() => recommendations.budgetOptions(state.value?.recommendations));

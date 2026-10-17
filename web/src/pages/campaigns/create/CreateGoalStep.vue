@@ -151,9 +151,9 @@
                   <el-popover v-model:visible="budgetOpen" trigger="click" placement="bottom-start" :width="438" :offset="8" :show-arrow="false" :disabled="mode !== 'SMART_BID_CONSERVATIVE' || saving || readOnly || (settingsOnly && !allowModeChange)" popper-class="budget-tiers-popover">
                     <template #reference>
                       <input class="field-input__box" id="in-budget" type="text" inputmode="decimal" v-model="budget" :disabled="saving || readOnly"
-                             autocomplete="off" @blur="budgetTouched = true" @keydown.down.prevent="focusBudgetOptions" @keydown.esc.stop="budgetOpen = false"
+                             autocomplete="off" @input="budgetTouched = true" @blur="budgetTouched = true" @keydown.down.prevent="focusBudgetOptions" @keydown.esc.stop="budgetOpen = false"
                              :aria-haspopup="mode === 'SMART_BID_CONSERVATIVE' ? 'dialog' : undefined" :aria-expanded="mode === 'SMART_BID_CONSERVATIVE' ? budgetOpen : undefined"
-                             aria-describedby="msg-budget" :aria-invalid="budgetTouched && !!budgetError">
+                             aria-describedby="hint-budget-minimum msg-budget" :aria-invalid="budgetTouched && !!budgetError">
                     </template>
                     <div ref="budgetList" class="budget-tiers" role="group" aria-label="推荐日预算档位" @keydown.esc.stop="budgetOpen = false">
                       <button v-for="option in budgetOptions" :key="option.budget" class="budget-tier" type="button" :aria-pressed="Number(budget) === option.budget" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="chooseBudget(option.budget)">
@@ -168,6 +168,7 @@
                   <span class="field-input__unit">元/天</span>
                 </div>
 
+                <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack" id="hint-budget-minimum">{{ COST_DAILY_BUDGET_HINT }}</p>
                 <p class="hint-stack" id="hint-budget" v-if="!budgetTouched || !(budgetError || budgetWarn)">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
@@ -176,7 +177,7 @@
                 </p>
 
                 <button v-if="!readOnly && !settingsOnly" class="recommendation-refresh" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('recommendations')">{{ saving ? '正在获取…' : '重新获取预算与ROI预估' }}</button>
-                <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" v-if="budgetTouched && (budgetError || budgetWarn)">
+                <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" role="alert" v-if="budgetTouched && (budgetError || budgetWarn)">
                   <svg class="field-msg__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>{{ budgetError || budgetWarn }}</span>
                 </p>
@@ -316,6 +317,7 @@ import { nextTick, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
+import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
 const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });

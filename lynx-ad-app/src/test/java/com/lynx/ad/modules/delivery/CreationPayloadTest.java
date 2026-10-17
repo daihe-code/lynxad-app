@@ -15,6 +15,8 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CreationPayloadTest {
     final AssetUploadService assets=mock(AssetUploadService.class);
@@ -42,6 +44,17 @@ class CreationPayloadTest {
         assertEquals("SMART_BID_CUSTOM",body.path("delivery_setting").path("smart_bid_type").asText());assertEquals(new BigDecimal("5.12"),body.path("delivery_setting").path("roi2_goal").decimalValue());
         var c=body.path("multi_product_creative_list").get(0);assertEquals("real-video-id",c.path("video_material").get(0).path("video_id").asText());assertTrue(c.path("hide_in_aweme").asBoolean());
         assertFalse(body.has("access_token"));assertFalse(body.has("budget"));
+    }
+    @ParameterizedTest @ValueSource(strings={"0","50","99.99"})
+    void costBudgetBelow100CannotReachMediaOrPublish(String amount) {
+        s.budget=new BigDecimal(amount);
+        assertTrue(assertThrows(BizException.class,()->builder.build(s)).getMessage().contains("控成本日预算不能低于 100 元"));
+        verify(assets,never()).detail(any(),any());
+    }
+    @ParameterizedTest @ValueSource(strings={"100","100.00","100.01","299.99"})
+    void costBudgetAtOrAbove100KeepsTheUserAmount(String amount) {
+        s.budget=new BigDecimal(amount);
+        assertEquals(0,s.budget.compareTo(builder.build(s).path("delivery_setting").path("budget").decimalValue()));
     }
     @Test void volumeHasNoRoiGoalOrFabricatedEstimates(){
         s.smartBidType="CONSERVATIVE";var setting=builder.build(s).path("delivery_setting");

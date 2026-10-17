@@ -177,7 +177,7 @@ class PlanManagementBoundaryTest {
         assertEquals(0,new BigDecimal("400").compareTo(plan.setting().dailyBudget().amount()));
     }
     @ParameterizedTest
-    @CsvSource({"CONSERVATIVE,50", "CONSERVATIVE,50.01", "CONSERVATIVE,100", "CONSERVATIVE,299.99", "CONSERVATIVE,999999999.99", "CUSTOM,300", "CUSTOM,300.01", "CUSTOM,999999999.99"})
+    @CsvSource({"CONSERVATIVE,50", "CONSERVATIVE,50.01", "CONSERVATIVE,100", "CONSERVATIVE,299.99", "CONSERVATIVE,999999999.99", "CUSTOM,100", "CUSTOM,100.01", "CUSTOM,299.99", "CUSTOM,300", "CUSTOM,300.01", "CUSTOM,999999999.99"})
     void budgetBoundsFollowTheSelectedPlansModeAndIncludeTheMinimum(SmartBidType mode,BigDecimal amount) throws Exception {
         plan.apply(PlanStatus.PAUSED);
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),mode==SmartBidType.CUSTOM?plan.setting().roi2Goal():Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
@@ -193,7 +193,7 @@ class PlanManagementBoundaryTest {
         assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(plans,never()).save(other);verify(transfers,never()).activeId(any(),any());
     }
     @ParameterizedTest
-    @CsvSource({"CONSERVATIVE,0,50", "CONSERVATIVE,49.99,50", "CONSERVATIVE,50.001,50", "CONSERVATIVE,1000000000,50", "CUSTOM,50,300", "CUSTOM,100,300", "CUSTOM,299.99,300", "CUSTOM,300.001,300", "CUSTOM,1000000000,300"})
+    @CsvSource({"CONSERVATIVE,0,50", "CONSERVATIVE,49.99,50", "CONSERVATIVE,50.001,50", "CONSERVATIVE,1000000000,50", "CUSTOM,0,100", "CUSTOM,50,100", "CUSTOM,99.99,100", "CUSTOM,100.001,100", "CUSTOM,1000000000,100"})
     void budgetOutsideModeBoundsIsRejectedBeforeCallingThePlatform(SmartBidType mode,BigDecimal amount,String minimum) {
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
         associatedPair(counterpart());

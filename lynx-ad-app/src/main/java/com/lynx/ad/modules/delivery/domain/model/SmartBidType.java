@@ -1,8 +1,14 @@
 package com.lynx.ad.modules.delivery.domain.model;
 
+import java.math.BigDecimal;
+
 public enum SmartBidType {
     CONSERVATIVE,
     CUSTOM;
+
+    public BigDecimal minimumDailyBudget() {
+        return new BigDecimal(this == CUSTOM ? "100" : "50");
+    }
 
     public String oceanValue() {
         return switch (this) {

@@ -221,7 +221,7 @@
                         placeholder="请输入"
                       /><span class="funit">元 / 日</span>
                     </div>
-                    <p class="frow__h">预算需要在 300–999,999,999.99 之间</p>
+                    <p class="frow__h">{{ form.mode === 'SMART_BID_CUSTOM' ? COST_DAILY_BUDGET_HINT : '预算需要在 300–999,999,999.99 之间' }}</p>
                     <p v-if="errors.budget" class="merr">{{ errors.budget }}</p>
                   </div>
                 </div>
@@ -418,6 +418,7 @@ import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceFooter from "./ReferenceFooter.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import { amount, mediaUrl } from "./planPresentation";
+import { COST_DAILY_BUDGET_MINIMUM, COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 import "./reference.css";
 const route = useRoute(),
   router = useRouter(),
@@ -538,9 +539,9 @@ function validate() {
     picked.value.length >= 1 && picked.value.length <= 10
       ? ""
       : "请选择 1–10 款商品";
-  errors.budget = validNumber(form.budget, 300, 999999999.99)
+  errors.budget = validNumber(form.budget, form.mode === 'SMART_BID_CUSTOM' ? COST_DAILY_BUDGET_MINIMUM : 300, 999999999.99)
     ? ""
-    : "日预算需为 300–999,999,999.99 之间的数字，最多两位小数";
+    : `日预算需为 ${form.mode === 'SMART_BID_CUSTOM' ? COST_DAILY_BUDGET_MINIMUM : 300}–999,999,999.99 之间的数字，最多两位小数`;
   errors.roi =
     form.mode !== "SMART_BID_CUSTOM" || validNumber(form.roi, 0.01, 100)
       ? ""

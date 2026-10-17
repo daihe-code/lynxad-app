@@ -71,6 +71,18 @@ class PlanTransferTest {
     }
     JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status);var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
     PlanTransferRequest cost(String key){return new PlanTransferRequest(key,"111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.18"));}
+    @Test void transferCostBudgetBelow100IsRejectedBeforePausingOrCreating() {
+        for(String amount:List.of("50","99.99")) {
+            var request=new PlanTransferRequest("budget-minimum","111","SMART_BID_CUSTOM",new BigDecimal(amount),new BigDecimal("4.18"));
+            assertTrue(assertThrows(BizException.class,()->service.transfer(tenant,root,request)).getMessage().contains("不能低于 100 元"));
+        }
+        assertTrue(calls.isEmpty());assertEquals(0,creates);assertEquals(PlanStatus.DELIVERING,physical.get("root").status());
+    }
+    @Test void transferCostBudgetAcceptsExactly100WithoutIncreasingIt() throws Exception {
+        var request=new PlanTransferRequest("budget-minimum","111","SMART_BID_CUSTOM",new BigDecimal("100"),new BigDecimal("4.18"));
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,request).status());
+        assertEquals(0,new BigDecimal("100").compareTo(json.readTree(attempts.get("budget-minimum").payload()).path("delivery_setting").path("budget").decimalValue()));
+    }
     @Test void firstTransferPausesThenCreatesAndEnablesWithIdenticalCreativeIds() throws Exception {
         assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("first-key")).status());
         assertEquals(List.of("DISABLE 111","CREATE","ENABLE 222"),calls);assertEquals(PlanStatus.PAUSED,physical.get("root").status());assertEquals(2,physical.size());

@@ -69,7 +69,7 @@ public class OptimizationMonitoringService {
         if(expectedVersion<0)throw new BizException(1802,"盯盘设置版本不正确");
         policy.validate(Set.copyOf(ids));
         if(gateway!=null && gateway.tactics()!=null)gateway.tactics().validateCandidates(p,policy);
-        if("AUTO_LIMITED".equals(policy.mode()) && policy.automation().budget() && p.setting().bidType()==SmartBidType.CUSTOM && policy.automation().minBudget().compareTo(new BigDecimal("300"))<0)throw new BizException(1802,"控成本自动预算下限不能低于300元");
+        if("AUTO_LIMITED".equals(policy.mode()) && policy.automation().budget() && p.setting().bidType()==SmartBidType.CUSTOM && policy.automation().minBudget().compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1802,"控成本自动预算下限不能低于 100 元");
         String owner="policy:"+UUID.randomUUID();
         if(journal!=null && !journal.claimAccount(tenant.value(),p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中，请稍后保存授权");
         try{if(journal!=null && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return view(tenant,id);

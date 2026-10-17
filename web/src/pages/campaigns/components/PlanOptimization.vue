@@ -67,7 +67,7 @@
         <div class="permissions"><el-checkbox v-model="form.automation.budget">自动增减日预算</el-checkbox><el-checkbox v-model="form.automation.roi" :disabled="view.bidType !== 'CUSTOM'">自动调整目标回报（ROI）</el-checkbox><el-checkbox v-model="form.automation.pause">达到花费或亏损限额时自动暂停</el-checkbox><el-checkbox v-model="form.automation.resumeNextDay">因每天花费达限暂停，第二天自动恢复</el-checkbox></div>
         <p v-if="form.automation.resumeNextDay" class="caption">只恢复由灵投每日限额规则暂停的计划。人工暂停及亏损止损不会自动恢复；转投关联计划运行时也不恢复。</p>
         <el-form label-position="top" class="policy-form">
-          <OptimizationField field="minBudget"><el-input-number v-model="form.automation.minBudget" :min="view.bidType === 'CUSTOM' ? 300 : 50" :precision="2" /></OptimizationField>
+          <OptimizationField field="minBudget"><el-input-number v-model="form.automation.minBudget" :min="view.bidType === 'CUSTOM' ? COST_DAILY_BUDGET_MINIMUM : 50" :precision="2" /></OptimizationField>
           <OptimizationField field="maxBudget"><el-input-number v-model="form.automation.maxBudget" :min="form.automation.minBudget" :max="999999999" :precision="2" /></OptimizationField>
           <OptimizationField field="maxStepPercent"><el-input-number v-model="form.automation.maxStepPercent" :min="1" :max="20" :precision="2" /></OptimizationField>
           <OptimizationField v-if="view.bidType === 'CUSTOM'" field="minRoi"><el-input-number v-model="form.automation.minRoi" :min=".01" :max="100" :precision="2" /></OptimizationField>
@@ -124,6 +124,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Refresh } from '@element-plus/icons-vue';
 import OptimizationField from './OptimizationField.vue';
 import OptimizationLabel from './OptimizationLabel.vue';
+import { COST_DAILY_BUDGET_MINIMUM } from '@/features/delivery/budgetValidation';
 import { checkOptimization, getOptimization, saveOptimization, defaultAutomation, defaultTactics, defaultCreativeGeneration, getCreativeJobs, reviewCreativeJob, type CreativeJob, type OptimizationPolicy, type OptimizationView } from '@/features/delivery/optimizationApi';
 const props = defineProps<{ planId: string; products?: { id: string; name: string }[] }>();
 const emit = defineEmits<{ data: [] }>();
@@ -151,7 +152,7 @@ function apply(value: OptimizationView, reset: boolean) {
     form.value!.creativeGeneration ||= defaultCreativeGeneration();
     form.value!.tactics.productAdd = false;
     form.value!.tactics.candidatePlanIds = [];
-    if (value.bidType === 'CUSTOM' && form.value!.automation.minBudget < 300) form.value!.automation.minBudget = 300;
+    if (value.bidType === 'CUSTOM' && form.value!.automation.minBudget < COST_DAILY_BUDGET_MINIMUM) form.value!.automation.minBudget = COST_DAILY_BUDGET_MINIMUM;
     economics.value = value.productIds.map(productId => { const e = value.policy.economics.find(p => p.productId === productId); return { productId, marginPct: Number(((e?.contributionMarginRate || 0) * 100).toFixed(4)), reservePct: Number(((e?.refundReserveRate || 0) * 100).toFixed(4)), verified: e?.verified || false }; });
     saved = JSON.stringify(body());
     savedVersion = value.version;

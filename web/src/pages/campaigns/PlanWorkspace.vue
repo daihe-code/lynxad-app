@@ -59,6 +59,7 @@ import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
+import { COST_DAILY_BUDGET_MINIMUM, creationBudgetError } from '@/features/delivery/budgetValidation';
 import CreateMaterialsStep from './create/CreateMaterialsStep.vue';
 import Create from './Create.vue';
 import './reference/reference.css';
@@ -102,9 +103,9 @@ const changedRoi = computed(() => isCost.value && plan.value != null && Number(r
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value));
 const validNumber = (value: string, min: number, max: number) => /^\d+(\.\d{1,2})?$/.test(value.trim()) && Number(value) >= min && Number(value) <= max;
 const nameError = computed(() => !transferring.value && editing.value && name.value.trim() !== plan.value?.name && (!name.value.trim() || name.value.trim().length > 30) ? '计划名称须为 1–30 字' : '');
-const budgetMinimum = computed(() => isCost.value ? 300 : 50);
+const budgetMinimum = computed(() => isCost.value ? COST_DAILY_BUDGET_MINIMUM : 50);
 const budgetHint = computed(() => transferring.value ? '设置转投后的日预算' : editing.value ? `预算范围 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数，保存后同步千川` : '当前计划的日预算');
-const budgetError = computed(() => transferring.value ? !validNumber(budget.value, .01, 100000) ? '日预算须大于0且不超过100,000元，最多两位小数' : '' : editing.value && changedBudget.value && !validNumber(budget.value, budgetMinimum.value, 999999999.99) ? `修改后的日预算须为 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数` : '');
+const budgetError = computed(() => transferring.value || draftEditor.value ? creationBudgetError(budget.value, bidType.value) : editing.value && changedBudget.value && !validNumber(budget.value, budgetMinimum.value, 999999999.99) ? `修改后的日预算须为 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数` : '');
 const roiError = computed(() => transferring.value ? isCost.value && !validNumber(roi.value, .1, 50) ? '控成本投放ROI须为0.1–50，最多两位小数' : '' : editing.value && changedRoi.value && !validNumber(roi.value, .01, 100) ? '净成交ROI目标须为 0.01–100，最多两位小数' : '');
 function resetForm() {
   const p = plan.value; if (!p) return;

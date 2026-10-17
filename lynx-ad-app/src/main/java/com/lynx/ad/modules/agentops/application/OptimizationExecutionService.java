@@ -8,6 +8,7 @@ import com.lynx.ad.modules.agentops.infrastructure.OptimizationAutomationStore.E
 import com.lynx.ad.modules.delivery.application.*;
 import com.lynx.ad.modules.delivery.domain.model.AdPlan;
 import com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange;
+import com.lynx.ad.modules.delivery.domain.model.SmartBidType;
 import java.math.*;
 import java.time.*;
 import java.util.*;
@@ -107,7 +108,7 @@ public class OptimizationExecutionService {
         if(Set.of("BUDGET","ROI").contains(kind)){
             String field="BUDGET".equals(kind)?"budget":"roi";var expected=decimal(e.proposal(),"expected");var target=decimal(e.proposal(),"target");
             if(expected.compareTo(decimal(facts,field))!=0 || target.stripTrailingZeros().scale()>2 || target.signum()<=0 || target.compareTo(expected)==0 || target.subtract(expected).abs().multiply(new BigDecimal("100")).compareTo(expected.multiply(a.maxStepPercent()))>0)throw new BizException(1803,"当前值变化或调整幅度超出授权");
-            if("BUDGET".equals(kind)){var floor="CUSTOM".equals(facts.path("bidType").asText())?new BigDecimal("300"):new BigDecimal("50");if(!a.budget() || target.compareTo(a.minBudget().max(floor))<0 || target.compareTo(a.maxBudget())>0 || !Set.of("PERSISTENT_LOSS","PERSISTENT_PROFIT").contains(cause) || "PERSISTENT_LOSS".equals(cause)!=(target.compareTo(expected)<0))throw new BizException(1802,"预算调整未授权或方向不符合规则");}
+            if("BUDGET".equals(kind)){var floor=SmartBidType.fromOcean(facts.path("bidType").asText()).minimumDailyBudget();if(!a.budget() || target.compareTo(a.minBudget().max(floor))<0 || target.compareTo(a.maxBudget())>0 || !Set.of("PERSISTENT_LOSS","PERSISTENT_PROFIT").contains(cause) || "PERSISTENT_LOSS".equals(cause)!=(target.compareTo(expected)<0))throw new BizException(1802,"预算调整未授权或方向不符合规则");}
             else if(!a.roi() || !"CUSTOM".equals(facts.path("bidType").asText()) || target.compareTo(a.minRoi())<0 || target.compareTo(a.maxRoi())>0 || !Set.of("PERSISTENT_LOSS","PROFITABLE_LOW_DELIVERY").contains(cause) || "PERSISTENT_LOSS".equals(cause)!=(target.compareTo(expected)>0))throw new BizException(1802,"ROI调整未授权或方向不符合规则");
         }
         if(!Set.of("DAILY_LIMIT","NEXT_DAY","TRIAL_LOSS").contains(cause)){
