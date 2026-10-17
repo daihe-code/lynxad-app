@@ -1,4 +1,4 @@
-export const COST_DAILY_BUDGET_MINIMUM = 100;
+export const COST_DAILY_BUDGET_MINIMUM = 300;
 export const COST_DAILY_BUDGET_HINT = `控成本日预算不能低于 ${COST_DAILY_BUDGET_MINIMUM} 元（含 ${COST_DAILY_BUDGET_MINIMUM} 元），最多两位小数`;
 
 export function creationBudgetError(value: string, mode: string): string {

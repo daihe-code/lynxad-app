@@ -45,14 +45,14 @@ class CreationPayloadTest {
         var c=body.path("multi_product_creative_list").get(0);assertEquals("real-video-id",c.path("video_material").get(0).path("video_id").asText());assertTrue(c.path("hide_in_aweme").asBoolean());
         assertFalse(body.has("access_token"));assertFalse(body.has("budget"));
     }
-    @ParameterizedTest @ValueSource(strings={"0","50","99.99"})
-    void costBudgetBelow100CannotReachMediaOrPublish(String amount) {
+    @ParameterizedTest @ValueSource(strings={"0","50","99.99","100","100.01","299.99"})
+    void costBudgetBelow300CannotReachMediaOrPublish(String amount) {
         s.budget=new BigDecimal(amount);
-        assertTrue(assertThrows(BizException.class,()->builder.build(s)).getMessage().contains("控成本日预算不能低于 100 元"));
+        assertTrue(assertThrows(BizException.class,()->builder.build(s)).getMessage().contains("控成本日预算不能低于 300 元"));
         verify(assets,never()).detail(any(),any());
     }
-    @ParameterizedTest @ValueSource(strings={"100","100.00","100.01","299.99"})
-    void costBudgetAtOrAbove100KeepsTheUserAmount(String amount) {
+    @ParameterizedTest @ValueSource(strings={"300","300.00","300.01","600.12"})
+    void costBudgetAtOrAbove300KeepsTheUserAmount(String amount) {
         s.budget=new BigDecimal(amount);
         assertEquals(0,s.budget.compareTo(builder.build(s).path("delivery_setting").path("budget").decimalValue()));
     }

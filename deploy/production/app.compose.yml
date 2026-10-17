@@ -2,7 +2,7 @@ name: lynxad-app
 
 services:
   app-api:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:20261017-budget-min100
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-api:20261017-budget-min300
     env_file: ${LYNXAD_ENV_FILE:-./production.env}
     restart: unless-stopped
     healthcheck:
@@ -13,7 +13,7 @@ services:
       start_period: 60s
 
   app-web:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261017-budget-hint-style
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261017-budget-min300
     ports:
       - "80:80"
     depends_on:

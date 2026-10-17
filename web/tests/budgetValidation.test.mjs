@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { creationBudgetError, COST_DAILY_BUDGET_HINT } from '../src/features/delivery/budgetValidation.ts';
 
-test('控成本的 50 和 99.99 元在保存前得到明确的 100 元下限提示', () => {
+test('控成本预算低于 300 元时提示，恰好 300 元可通过', () => {
   for (const mode of ['CUSTOM', 'SMART_BID_CUSTOM']) {
-    for (const budget of ['0', '50', '99.99']) assert.equal(creationBudgetError(budget, mode), COST_DAILY_BUDGET_HINT);
-    for (const budget of ['100', '100.00', '100.01', '299.99', '100000']) assert.equal(creationBudgetError(budget, mode), '');
+    for (const budget of ['0', '50', '99.99', '100', '100.01', '299.99']) assert.equal(creationBudgetError(budget, mode), COST_DAILY_BUDGET_HINT);
+    for (const budget of ['300', '300.00', '300.01', '100000']) assert.equal(creationBudgetError(budget, mode), '');
   }
 });
 test('金额格式、两位小数和原有上限仍然有效', () => {

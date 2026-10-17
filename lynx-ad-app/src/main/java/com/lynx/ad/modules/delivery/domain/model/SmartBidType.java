@@ -7,7 +7,7 @@ public enum SmartBidType {
     CUSTOM;
 
     public BigDecimal minimumDailyBudget() {
-        return new BigDecimal(this == CUSTOM ? "100" : "50");
+        return new BigDecimal(this == CUSTOM ? "300" : "50");
     }
 
     public String oceanValue() {
