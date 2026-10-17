@@ -168,7 +168,7 @@
                   <span class="field-input__unit">元/天</span>
                 </div>
 
-                <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack" id="hint-budget-minimum">{{ COST_DAILY_BUDGET_HINT }}</p>
+                <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack" id="hint-budget-minimum"><span class="hint">{{ COST_DAILY_BUDGET_HINT }}</span></p>
                 <p class="hint-stack" id="hint-budget" v-if="!budgetTouched || !(budgetError || budgetWarn)">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
