@@ -35,7 +35,7 @@ export const BID_TYPE: Record<string, string> = {
   SMART_BID_CUSTOM: "控成本投放",
 };
 
-export const PUBLISHED_BID_MODE_HINT = '首次转投需设置预算或ROI；已有两套计划时，直接暂停当前计划并启用另一套，沿用原有设置。';
+export const PUBLISHED_BID_MODE_HINT = '首次转投需设置预算或 ROI。\n已有两套计划时，直接暂停当前计划并启用另一套，沿用原有设置。';
 
 export function yuan(value?: number | string | null) {
   if (value === undefined || value === null || value === "") return "—";

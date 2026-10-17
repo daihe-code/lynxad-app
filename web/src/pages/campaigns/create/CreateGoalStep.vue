@@ -133,7 +133,7 @@
               </button>
             </div>
 
-            <p v-if="settingsOnly && !allowModeChange" class="hint-stack" role="status">{{ PUBLISHED_BID_MODE_HINT }}</p>
+            <p v-if="settingsOnly && !allowModeChange" class="hint-stack published-bid-hint" role="status">{{ PUBLISHED_BID_MODE_HINT }}</p>
 
             <div class="form-grid mt-6">
 
