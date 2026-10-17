@@ -878,6 +878,10 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .hint-stack {
   display: flex;
   flex-direction: column;
+  font-size: 13px;
+  line-height: 16.5px;
+  --tw-text-opacity: 1;
+  color: rgb(var(--c-text-3)/var(--tw-text-opacity,1));
 }
 .hint {
   display: flex;
