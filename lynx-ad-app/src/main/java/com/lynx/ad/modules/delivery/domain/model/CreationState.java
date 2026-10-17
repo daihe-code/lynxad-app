@@ -19,6 +19,16 @@ public class CreationState {
     /** Latest verified shared bindings, separate from immutable publish-attempt audit payloads. */
     public JsonNode verifiedPlatformCreatives, verifiedPlatformChannels;
     public String generationStatus = "NONE", generationMessage, engineTerminalStatus, pendingRegenerationId;
+    public int generationReconciliationAttempts;
+    public long generationReconciledAt;
+    /** Terminal engine summaries can precede the last resumed component. Reads only; never resubmit. */
+    public boolean hasFailedGenerationSummary() {
+        return "FAILED".equals(generationStatus) && engineJobId!=null && !engineJobId.isBlank()
+                && Set.of("partial_failed","failed").contains(Objects.toString(engineTerminalStatus,""))
+                && Set.of("NONE","FAILED").contains(publishStatus) && pendingAdditionId==null;
+    }
+    public boolean needsGenerationReconciliation() { return hasFailedGenerationSummary()&&generationReconciliationAttempts<10; }
+    public void resetGenerationReconciliation() { generationReconciliationAttempts=0;generationReconciledAt=0; }
     public int progress;
     public String generationStage;
     public List<GenerationCount> generationCounts = new ArrayList<>();

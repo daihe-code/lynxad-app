@@ -23,7 +23,7 @@ public class CreationWorker {
         for(var a:store.staleSending())service.failed(a,"UNCERTAIN","创建请求中断，平台结果待确认，请勿重复发布");
         for(var s:store.due()) {
             if(!Set.of("NONE","FAILED").contains(s.publishStatus))continue;
-            boolean work=Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","REVISING","UNCERTAIN","RUNNING","IMPORTING").contains(s.generationStatus)||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status));
+            boolean work=Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","REVISING","UNCERTAIN","RUNNING","IMPORTING").contains(s.generationStatus)||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status));
             if(!work||!slots.tryAcquire())continue;
             if(!store.claim(s)){slots.release();continue;}
             running.put(s.planId,s);

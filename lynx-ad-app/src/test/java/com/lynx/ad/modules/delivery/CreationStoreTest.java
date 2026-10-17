@@ -58,4 +58,15 @@ class CreationStoreTest {
         assertFalse(store.summariesByPlan("t",List.of("p")).containsKey("other-plan"));
         assertTrue(store.summariesByPlan("other-tenant",List.of("p")).isEmpty());
     }
+    @Test void failedSummaryStaysScheduledForBoundedReadOnlyReconciliation(){
+        state("reconcile");
+        store.mutate("t","reconcile",null,s->{s.engineJobId="job";s.engineTerminalStatus="partial_failed";s.generationStatus="FAILED";});
+        assertEquals(List.of("reconcile"),store.due().stream().map(s->s.planId).toList());
+        var failed=store.get("t","reconcile");assertTrue(store.claim(failed));store.release(failed);
+        assertTrue(store.due().isEmpty());
+        assertTrue(jdbc.queryForObject("SELECT lease_until FROM delivery_creation WHERE plan_id='reconcile'",java.sql.Timestamp.class)
+                .toInstant().isAfter(java.time.Instant.now().plusSeconds(20)));
+        store.mutate("t","reconcile",null,s->s.generationReconciliationAttempts=10);
+        assertEquals(0,jdbc.queryForObject("SELECT work_pending FROM delivery_creation WHERE plan_id='reconcile'",Integer.class));
+    }
 }

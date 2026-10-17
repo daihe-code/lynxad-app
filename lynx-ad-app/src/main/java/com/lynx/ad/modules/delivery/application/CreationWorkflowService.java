@@ -81,6 +81,7 @@ public class CreationWorkflowService {
                 catch(BizException conflict){if(conflict.code()!=1404)throw conflict;s=store.get(tenant.value(),id);}
             }
         }
+        s=reconcileGenerationOnRead(s);
         s=refreshGeneratedFiles(tenant,s);
         s.products=new ArrayList<>(currentProductPrices(tenant,s));
         for(var m:s.materials) {
@@ -94,6 +95,22 @@ public class CreationWorkflowService {
         }
         if(creativeContexts!=null)creativeContexts.hydrate(s);
         return s;
+    }
+    private CreationState reconcileGenerationOnRead(CreationState s) {
+        // This also repairs legacy rows with work_pending=0. The existing lease
+        // prevents a page read and the background worker from importing twice.
+        if(engine==null||Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!s.hasFailedGenerationSummary()
+                ||System.currentTimeMillis()-s.generationReconciledAt<30000||!store.claim(s))return s;
+        try {
+            // Reopening a draft after the background budget expires still gets
+            // one throttled result read, without restarting automatic retries.
+            if(s.generationReconciliationAttempts>=10)store.mutate(s.tenantId,s.planId,null,current->{
+                if(Objects.equals(current.engineJobId,s.engineJobId)&&current.hasFailedGenerationSummary())current.generationReconciliationAttempts=9;
+            });
+            process(s);
+            return store.get(s.tenantId,s.planId);
+        }catch(BizException unavailable){return store.get(s.tenantId,s.planId);}
+        finally{store.release(s);}
     }
     private CreationState refreshGeneratedFiles(TenantId tenant,CreationState snapshot) {
         if(importer==null||!Set.of("NONE","FAILED").contains(snapshot.publishStatus)
@@ -231,7 +248,7 @@ public class CreationWorkflowService {
             if(!"SUCCEEDED".equals(s.analysisStatus))throw new BizException(1403,"请先完成商品分析");
             if(g.productIds==null||g.productIds.isEmpty()||!ids(s).containsAll(g.productIds))throw new BizException(1503,"请选择当前计划中的商品生成素材");
             s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
-            s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();
+            s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
         });
     }
     public CreationState addition(TenantId tenant,String requestedId,Addition request) {
@@ -262,7 +279,7 @@ public class CreationWorkflowService {
             for(int n=s.materials.size()-1;n>=0;n--){var m=s.materials.get(n);if(request.productId.equals(m.productId)&&m.engineJobId!=null&&m.groupId!=null){body.put("job_id",m.engineJobId);body.put("group_id",m.groupId);break;}}
             var r=new CreationState.GenerationAddition();r.id=request.requestId;r.productId=request.productId;r.type=request.type;r.description=description;r.status="QUEUED";r.createdAt=Instant.now().toString();r.engineRequest=json.valueToTree(body);
             s.generationAdditions.add(r);s.pendingAdditionId=r.id;s.generationProductIds=new ArrayList<>(List.of(r.productId));s.generationStatus="QUEUED";s.generationMessage="等待生成新增素材";s.generationStage="queued";s.progress=0;
-            s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,0,1)));s.generationIssues.clear();s.revision++;
+            s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,0,1)));s.generationIssues.clear();s.resetGenerationReconciliation();s.revision++;
         });
     }
     private static String additionTarget(String type){return switch(type){case "VIDEO"->"video";case "IMAGE"->"product_card";case "CAROUSEL"->"image_text";default->throw new BizException(1503,"不支持的素材类型");};}
@@ -318,9 +335,9 @@ public class CreationWorkflowService {
         if(s.revision!=v.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
         var original=find(s,material);
         if(original.engineMaterialId==null||original.engineJobId==null||original.groupId==null||s.enginePlanId==null||!"READY".equals(original.status)
-                ||!("pending".equals(original.typographyStatus)||"core_only".equals(original.typographyStatus))
+                ||!Set.of("pending","core_only","complete").contains(Objects.toString(original.typographyStatus,""))
                 ||!Set.of("IMAGE","VIDEO").contains(original.type))
-            throw new BizException(1503,"仅支持完善已就绪的 AI 图片或视频封面文字");
+            throw new BizException(1503,"仅支持重排已就绪的 AI 图片或视频封面文字");
         String request=UUID.nameUUIDFromBytes((id+":"+material+":typography:"+v.revision).getBytes(StandardCharsets.UTF_8)).toString();
         var receipt=engine.post("/api/v1/capabilities/generation/materials/"+CreationEngineClient.query(original.engineMaterialId)+"/typography",
                 Map.of("store_id",s.tenantId,"job_id",original.engineJobId,"ai_plan_task_id",s.enginePlanId,
@@ -343,7 +360,7 @@ public class CreationWorkflowService {
         }
         return store.mutate(tenant.value(),id,v.revision,state->{
             editable(state);find(state,material);state.materials.add(next);state.engineJobId=original.engineJobId;
-            state.engineTerminalStatus="succeeded";state.pendingRegenerationId=original.id;
+            state.engineTerminalStatus="succeeded";state.pendingRegenerationId=original.id;state.resetGenerationReconciliation();
             state.generationProductIds=new ArrayList<>(List.of(original.productId));state.generationStatus="IMPORTING";
             state.generationMessage="文字已处理，正在同步图片；原素材暂时保留";state.generationStage="syncing";state.progress=80;state.mediaChanged();
         });
@@ -352,7 +369,7 @@ public class CreationWorkflowService {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var s=store.get(tenant.value(),id);editable(s);var m=find(s,material);
         if(m.engineMaterialId==null||m.engineJobId==null)throw new BizException(1503,"该素材为本地上传，请重新上传替换；AI 素材可重新生成");
-        store.mutate(tenant.value(),id,feedback.revision,state->{recordFeedback(state,material,"regenerate",feedback);state.engineJobId=m.engineJobId;state.engineTerminalStatus=null;state.pendingRegenerationId=m.id;state.generationProductIds=new ArrayList<>(List.of(m.productId));state.generationStatus="REVISING";state.generationMessage="正在提交素材重新生成";state.progress=0;state.generationStage="queued";state.generationCounts.clear();state.generationIssues.clear();state.changed();});
+        store.mutate(tenant.value(),id,feedback.revision,state->{recordFeedback(state,material,"regenerate",feedback);state.engineJobId=m.engineJobId;state.engineTerminalStatus=null;state.pendingRegenerationId=m.id;state.generationProductIds=new ArrayList<>(List.of(m.productId));state.generationStatus="REVISING";state.generationMessage="正在提交素材重新生成";state.progress=0;state.generationStage="queued";state.generationCounts.clear();state.generationIssues.clear();state.resetGenerationReconciliation();state.changed();});
         try {
             String target=switch(m.type){case "VIDEO"->"video";case "IMAGE"->"product_card";default->"image_text";};
             var body=new LinkedHashMap<String,Object>();body.put("job_id",m.engineJobId);body.put("ai_plan_task_id",s.enginePlanId);body.put("store_id",s.tenantId);body.put("group_id",m.groupId);body.put("operation","regenerate");body.put("target",target);
@@ -443,10 +460,16 @@ public class CreationWorkflowService {
             return;
         }
         var current=store.get(snapshot.tenantId,id);
-        boolean recoveringSummary="FAILED".equals(current.generationStatus)&&current.materials.stream().anyMatch(m->"PROCESSING".equals(m.status));
+        boolean recoveringSummary="FAILED".equals(current.generationStatus)&&(current.needsGenerationReconciliation()||current.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)));
         if(current.engineJobId!=null && (Set.of("RUNNING","IMPORTING").contains(current.generationStatus)||recoveringSummary)) {
-            var job=engine.get("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(current.engineJobId)+"?store_id="+CreationEngineClient.query(current.tenantId));
-            if(!current.engineJobId.equals(job.path("job_id").asText()))throw new BizException(8002,"生成任务响应不匹配");
+            String polledJobId=current.engineJobId;
+            if(current.needsGenerationReconciliation())store.mutate(current.tenantId,id,null,s->{
+                if(Objects.equals(s.engineJobId,polledJobId)&&s.needsGenerationReconciliation()) {
+                    s.generationReconciliationAttempts++;s.generationReconciledAt=System.currentTimeMillis();
+                }
+            });
+            var job=engine.get("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(polledJobId)+"?store_id="+CreationEngineClient.query(current.tenantId));
+            if(!polledJobId.equals(job.path("job_id").asText()))throw new BizException(8002,"生成任务响应不匹配");
             var ready=new ArrayList<CreationState.Material>();
             for(var group:job.path("groups")) {
                 String groupId=group.path("group_id").asText();int index;
@@ -472,12 +495,13 @@ public class CreationWorkflowService {
             }
             String status=job.path("status").asText();
             store.mutate(current.tenantId,id,null,s->{
-                if(!Set.of("RUNNING","IMPORTING","FAILED").contains(s.generationStatus))return;
+                if(!Objects.equals(s.engineJobId,polledJobId)||!Set.of("RUNNING","IMPORTING","FAILED").contains(s.generationStatus))return;
                 for(var m:ready)if(!s.removedMaterialIds.contains(m.id)&&s.materials.stream().noneMatch(x->x.id.equals(m.id))&&s.materials.size()<100){s.materials.add(m);s.mediaChanged();}
                 s.progress=Math.min(80,job.path("progress").path("percent").asInt(80));s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
                 updateGenerationSummary(s,job);
                 s.generationStage=job.path("progress").path("stage").asText("generation");
                 if(Set.of("succeeded","partial_failed","failed","cancelled").contains(status)){s.engineTerminalStatus=status;s.generationStatus="IMPORTING";s.generationStage="syncing";s.progress=80;}
+                else {s.engineTerminalStatus=null;s.generationStatus="RUNNING";s.resetGenerationReconciliation();}
             });
         }
         current=store.get(snapshot.tenantId,id);
@@ -489,7 +513,8 @@ public class CreationWorkflowService {
             if(finished<s.materials.size()){s.progress=80+(int)(19*finished/s.materials.size());return;}
             boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
             boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->s.pendingRegenerationId.equals(m.replacesId)&&"READY".equals(m.status));
-            boolean succeeded=all&&replacement&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
+            boolean completeCounts=s.generationCounts.stream().allMatch(c->c.total()==null||c.completed()>=c.total());
+            boolean succeeded=all&&replacement&&completeCounts&&!s.materials.isEmpty()&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
             s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:80;
             s.generationMessage=succeeded?"素材已就绪并同步千川":s.materials.stream().anyMatch(m->"FAILED".equals(m.status))?
                 "部分素材同步未完成，可继续使用已就绪素材":"部分 AI 创意未完成，已有可用素材已保留，可从下方选用";

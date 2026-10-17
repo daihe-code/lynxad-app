@@ -51,7 +51,7 @@ public class CreationStore {
     public boolean claim(CreationState s) { return jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=? AND (lease_until IS NULL OR lease_until<?)",
             Timestamp.from(Instant.now().plusSeconds(600)),s.tenantId,s.planId,now())==1; }
     public void heartbeat(CreationState s) { jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=?", Timestamp.from(Instant.now().plusSeconds(600)),s.tenantId,s.planId); }
-    public void release(CreationState s) { jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=?",Timestamp.from(Instant.now().plusSeconds(5)),s.tenantId,s.planId); }
+    public void release(CreationState s) { jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=?",Timestamp.from(Instant.now().plusSeconds(s.needsGenerationReconciliation()?30:5)),s.tenantId,s.planId); }
     public record Attempt(String id,String tenant,String planId,int revision,String key,String hash,String payload,String status,String qcId,String error) {}
     public Optional<Attempt> attempt(String tenant,String key) {
         return jdbc.query("SELECT * FROM delivery_publish_attempt WHERE tenant_id=? AND request_key=?",(r,n)->new Attempt(r.getString("id"),tenant,r.getString("plan_id"),r.getInt("revision"),key,r.getString("payload_hash"),r.getString("payload_json"),r.getString("status"),r.getString("qc_plan_id"),r.getString("error_message")),tenant,key).stream().findFirst();
@@ -66,7 +66,7 @@ public class CreationStore {
     public List<Attempt> staleSending() { return jdbc.query("SELECT tenant_id,request_key FROM delivery_publish_attempt WHERE status='SENDING' AND updated_at<?",(r,n)->attempt(r.getString(1),r.getString(2)).orElseThrow(),Timestamp.from(Instant.now().minusSeconds(300))); }
     public List<Attempt> receipts() { return jdbc.query("SELECT tenant_id,request_key FROM delivery_publish_attempt WHERE status='CREATED' AND applied=0 LIMIT 20",(r,n)->attempt(r.getString(1),r.getString(2)).orElseThrow()); }
     public void applied(Attempt a) { jdbc.update("UPDATE delivery_publish_attempt SET applied=1 WHERE tenant_id=? AND request_key=? AND status='CREATED'",a.tenant,a.key); }
-    private static int work(CreationState s) { return Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0; }
+    private static int work(CreationState s) { return Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0; }
     public Set<String> usedMedia(String tenant) {
         Set<String> result=new HashSet<>();
         for(String body:jdbc.query("SELECT payload_json FROM delivery_publish_attempt WHERE tenant_id=? AND status='CREATED'",(r,n)->r.getString(1),tenant))try {

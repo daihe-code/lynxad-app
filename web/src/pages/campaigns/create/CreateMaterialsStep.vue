@@ -33,7 +33,7 @@
                 </button>
                 <div class="material-actions"><MaterialCreativeProfile :material="m" :can-retry="!readOnly" :busy="busy || running" @retry="emit('context', m.id)" />
                 <span v-if="!readOnly" class="matrow__ops">
-                  <button v-if="m.engineMaterialId && m.status === 'READY' && ['pending','core_only'].includes(m.typographyStatus || '')" class="typography-repair" type="button" :disabled="busy || running" @click="emit('typography', m.id)">完善文字</button>
+                  <button v-if="m.engineMaterialId && m.status === 'READY' && ['IMAGE','VIDEO'].includes(m.type) && ['pending','core_only','complete'].includes(m.typographyStatus || '')" class="typography-repair" type="button" :disabled="busy || running" @click="emit('typography', m.id)">{{ m.typographyStatus === 'complete' ? '重排文字' : '完善文字' }}</button>
                   <button v-if="m.status === 'FAILED'" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
                   <button class="iconbtn" type="button" :disabled="busy || running || !m.engineMaterialId" aria-label="重新生成素材" title="重新生成素材" @click="emit('action', 'regenerate', m.id)"><ReferenceIcon name="sparkle" /></button>
                   <button class="iconbtn" type="button" :disabled="busy || running" aria-label="删除素材" title="删除" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button>

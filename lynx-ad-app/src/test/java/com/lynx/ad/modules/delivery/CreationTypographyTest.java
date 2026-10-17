@@ -13,14 +13,17 @@ import com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore;
 import java.util.*;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.PlatformTransactionManager;
 
 class CreationTypographyTest {
-    @Test void coverRepairKeepsPlayableVideoAndOldSelectionUntilNewImageIsImported() throws Exception {
+    @ParameterizedTest @ValueSource(strings={"pending","complete"})
+    void coverRepairKeepsPlayableVideoAndOldSelectionUntilNewImageIsImported(String typographyStatus) throws Exception {
         var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);var mapper=new ObjectMapper();
         var s=new CreationState();s.tenantId="tenant";s.planId="plan";s.enginePlanId="task";s.generationStatus="SUCCEEDED";
         var m=new CreationState.Material();m.id="old";m.productId="product";m.type="VIDEO";m.status="READY";
-        m.engineMaterialId="engine-old";m.engineJobId="job";m.groupId="group-1";m.typographyStatus="pending";
+        m.engineMaterialId="engine-old";m.engineJobId="job";m.groupId="group-1";m.typographyStatus=typographyStatus;
         m.videoAssetId="playable-video";m.coverAssetId="old-cover";m.textAssetId="original-title";s.materials.add(m);
         when(store.get("tenant","plan")).thenReturn(s);
         when(store.mutate(eq("tenant"),eq("plan"),eq(1),any())).thenAnswer(call->{Consumer<CreationState> change=call.getArgument(3);change.accept(s);return s;});
