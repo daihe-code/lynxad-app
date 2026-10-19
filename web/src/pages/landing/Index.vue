@@ -501,7 +501,7 @@
             </p>
             <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合已有稳定出单、需要放量的成长型商家。</p>
             <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>5 个广告账户</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>3 个广告账户</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>全流程 AI 托管</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>每日素材生成 200 条</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>智能盯盘与自动优化</li>
@@ -520,7 +520,7 @@
             </p>
             <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合多品牌、多门店或需要私有化部署的团队。</p>
             <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>账户数量不限</li>
+              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>10 个广告账户</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>行业专属策略模板</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>素材生成不设上限</li>
               <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>私有化部署与数据隔离</li>
@@ -752,10 +752,6 @@ function goSubscription() {
 
 async function openContact() {
   menuOpen.value = false;
-  if (!user.isLoggedIn) {
-    await router.push({ path: "/login", query: { redirect: "/?modal=contact" } });
-    return;
-  }
   const session = ++contactSession;
   lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   phone.value = "";

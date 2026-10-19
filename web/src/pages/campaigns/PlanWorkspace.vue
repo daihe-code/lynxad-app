@@ -59,7 +59,7 @@ import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
-import { COST_DAILY_BUDGET_MINIMUM, creationBudgetError } from '@/features/delivery/budgetValidation';
+import { COST_DAILY_BUDGET_MINIMUM, creationBudgetError, creationRoiError } from '@/features/delivery/budgetValidation';
 import CreateMaterialsStep from './create/CreateMaterialsStep.vue';
 import Create from './Create.vue';
 import './reference/reference.css';
@@ -106,7 +106,7 @@ const nameError = computed(() => !transferring.value && editing.value && name.va
 const budgetMinimum = computed(() => isCost.value ? COST_DAILY_BUDGET_MINIMUM : 50);
 const budgetHint = computed(() => transferring.value ? '设置转投后的日预算' : editing.value ? `预算范围 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数，保存后同步千川` : '当前计划的日预算');
 const budgetError = computed(() => transferring.value || draftEditor.value ? creationBudgetError(budget.value, bidType.value) : editing.value && changedBudget.value && !validNumber(budget.value, budgetMinimum.value, 999999999.99) ? `修改后的日预算须为 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数` : '');
-const roiError = computed(() => transferring.value ? isCost.value && !validNumber(roi.value, .1, 50) ? '控成本投放ROI须为0.1–50，最多两位小数' : '' : editing.value && changedRoi.value && !validNumber(roi.value, .01, 100) ? '净成交ROI目标须为 0.01–100，最多两位小数' : '');
+const roiError = computed(() => transferring.value ? creationRoiError(roi.value, bidType.value) : editing.value && changedRoi.value && !validNumber(roi.value, .01, 100) ? '净成交ROI目标须为 0.01–100，最多两位小数' : '');
 function resetForm() {
   const p = plan.value; if (!p) return;
   name.value = p.name; budget.value = p.budget == null ? '' : String(p.budget); roi.value = p.roi2Goal == null ? '' : String(p.roi2Goal);

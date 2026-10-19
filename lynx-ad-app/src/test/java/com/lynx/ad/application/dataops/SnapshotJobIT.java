@@ -90,6 +90,8 @@ class SnapshotJobIT extends AbstractContainerIT {
         }
         assertTrue(found);
         verify(watcherJob, atLeastOnce()).afterSnapshot(any());
+        com.lynx.ad.support.BackendRegressionEvidence.record("B5-01",java.util.Map.of(
+                "planId",planId,"snapshotRows",rows,"costYuan",cost,"conversions",convert,"watcherInvoked",true));
     }
 
     private String publishDelivering(String token) throws Exception {
@@ -119,8 +121,8 @@ class SnapshotJobIT extends AbstractContainerIT {
         String packageId = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token)
                 .path("packageId")
                 .asText();
-        post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);
-        post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"snap-1\"}", token);
+        assertEquals(0,json(post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token)).path("code").asInt());
+        assertEquals(0,json(post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"snap-1\"}", token)).path("code").asInt());
         auditPollJob.pollPendingAudits();
         return planId;
     }

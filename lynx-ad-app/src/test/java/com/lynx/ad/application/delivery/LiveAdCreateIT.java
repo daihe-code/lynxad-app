@@ -86,15 +86,20 @@ class LiveAdCreateIT extends AbstractContainerIT {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanRemoteStore remote;
+
     @Test
     void createIdHasNoMockPrefixAndAppearsInList() {
-        Credential cred = new Credential("tok", new AdvertiserId("adv_live_1"));
+        Credential cred = new Credential("tok", new AdvertiserId("991001"));
         var id = adCreatePort.create(
                 cred, new OceanAdCreateCommand("p1", "真链计划", "SMART_BID_CONSERVATIVE", Money.ofYuan(300)));
         assertFalse(id.value().startsWith("mock_"));
-        assertEquals("qc_live_1001", id.value());
+        assertEquals("991001001", id.value());
         var rows = adListPort.list(cred, SmartBidType.CONSERVATIVE);
         assertTrue(rows.stream().anyMatch(r -> id.value().equals(r.qcPlanId())));
+        com.lynx.ad.support.BackendRegressionEvidence.record("B5-04",java.util.Map.of(
+                "advertiserId",cred.advertiserId().value(),"returnedPlanId",id.value(),"listedRows",rows.size(),
+                "localCreateHits",FIXTURE.createHits.get(),"fixtureOrigin",FIXTURE.base()));
     }
 
     @Test
@@ -102,7 +107,7 @@ class LiveAdCreateIT extends AbstractContainerIT {
         Session s = onboard("13900008021", "报表店");
         bindLive(s);
         String accountId = jdbc.queryForObject("select id from oauth_account where tenant_id = ?", String.class, s.tenantId);
-        var pulled = reportPullPort.pull(new com.lynx.ad.modules.delivery.domain.model.AdPlan(
+        var plan = new com.lynx.ad.modules.delivery.domain.model.AdPlan(
                 new PlanId("plan-report-1"),
                 new TenantId(s.tenantId),
                 new com.lynx.ad.common.domain.Ids.AccountId(accountId),
@@ -115,15 +120,36 @@ class LiveAdCreateIT extends AbstractContainerIT {
                         com.lynx.ad.modules.delivery.domain.model.Schedule.fromNow(),
                         com.lynx.ad.modules.delivery.domain.model.AudienceJson.empty()),
                 java.util.List.of(),
-                new QcPlanId("qc_live_1001"),
+                new QcPlanId("991001001"),
                 "DELIVERING",
                 null,
                 1,
                 null,
-                java.util.List.of()));
+                java.util.List.of());
+        assertEquals(1406,assertThrows(BizException.class,()->reportPullPort.pull(plan)).code(),"unsynchronized statistics must be rejected");
+        // The current adapter consumes a fresh tenant-scoped sync cache; the custom report returns yuan.
+        var day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        var metrics=objectMapper.createObjectNode().put("stat_cost",new BigDecimal("2.00"))
+                .put("total_pay_order_gmv_include_coupon_for_roi2",new BigDecimal("4.00"))
+                .put("total_pay_order_count_for_roi2",1).put("total_prepay_and_pay_order_roi2",new BigDecimal("2.00"))
+                .put("show_cnt",100).put("click_cnt",10);
+        remote.save(plan.tenantId(),plan.accountId(),plan.qcPlanId().orElseThrow().value(),plan.id().value(),objectMapper.createObjectNode().put("ad_id","991001001"));
+        remote.report(plan.tenantId(),plan.id().value(),metrics,null,day,java.time.Instant.now());
+        var pulled=reportPullPort.pull(plan);
         Money yuan = new AmountConversion().toYuan(pulled.costOcean());
         assertEquals(0, yuan.amount().compareTo(new BigDecimal("2.00")));
         assertEquals(200000, pulled.costOcean());
+        assertEquals(0,new BigDecimal("4.00").compareTo(new AmountConversion().toYuan(pulled.gmvOcean()).amount()));
+        assertEquals(100,pulled.impression());assertEquals(10,pulled.click());
+        remote.report(plan.tenantId(),plan.id().value(),metrics,null,day,java.time.Instant.now().minusSeconds(601));
+        assertEquals(1406,assertThrows(BizException.class,()->reportPullPort.pull(plan)).code(),"stale statistics must not produce snapshots");
+        var incomplete=metrics.deepCopy();incomplete.remove("click_cnt");
+        remote.report(plan.tenantId(),plan.id().value(),incomplete,null,day,java.time.Instant.now());
+        assertEquals(1406,assertThrows(BizException.class,()->reportPullPort.pull(plan)).code(),"incomplete statistics must not be treated as zero");
+        com.lynx.ad.support.BackendRegressionEvidence.record("B5-05",java.util.Map.of(
+                "cachedCostYuan",metrics.path("stat_cost").decimalValue(),"rawLegacyUnits",pulled.costOcean(),
+                "convertedYuan",yuan.amount(),"gmvYuan",new AmountConversion().toYuan(pulled.gmvOcean()).amount(),
+                "unsynchronizedRejected",true,"staleRejected",true,"incompleteRejected",true));
     }
 
     @Test
@@ -139,13 +165,15 @@ class LiveAdCreateIT extends AbstractContainerIT {
                                 + "\",\"awemeId\":\"aweme_live\",\"name\":\"启停计划\",\"smartBidType\":\"SMART_BID_CONSERVATIVE\",\"dailyBudget\":300,\"productIds\":[\"qp01\"]}"))
                 .andReturn();
         String planId = objectMapper.readTree(draft.getResponse().getContentAsString()).path("data").path("plan").path("planId").asText();
-        jdbc.update("update ad_plan set qc_plan_id = 'qc_live_1001', status = 'DELIVERING' where id = ?", planId);
+        jdbc.update("update ad_plan set qc_plan_id = '991001001', status = 'DELIVERING' where id = ?", planId);
         String before = jdbc.queryForObject("select status from ad_plan where id = ?", String.class, planId);
         FIXTURE.statusFail = true;
         try {
+            int hits=FIXTURE.statusHits.get();
             assertThrows(BizException.class, () -> planCommandService.act(new TenantId(s.tenantId), new PlanId(planId), PlanAction.DISABLE));
             String after = jdbc.queryForObject("select status from ad_plan where id = ?", String.class, planId);
             assertEquals(before, after);
+            assertTrue(FIXTURE.statusHits.get()>hits,"status failure must come from the local HTTP fixture");
         } finally {
             FIXTURE.statusFail = false;
         }
@@ -165,7 +193,7 @@ class LiveAdCreateIT extends AbstractContainerIT {
                 .andReturn();
         FIXTURE.createFail = true;
         try {
-            Credential cred = new Credential("tok", new AdvertiserId("adv_live_1"));
+            Credential cred = new Credential("tok", new AdvertiserId("991001"));
             BizException ex = assertThrows(
                     BizException.class,
                     () -> adCreatePort.create(

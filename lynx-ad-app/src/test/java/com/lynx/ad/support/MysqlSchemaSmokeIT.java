@@ -61,6 +61,17 @@ class MysqlSchemaSmokeIT {
 
     @Autowired
     private MetricSnapshotMapper metricSnapshotMapper;
+    @Autowired
+    private com.lynx.ad.modules.creative.domain.port.CreativeTaskRepository creativePackages;
+
+    @Test
+    void creativePackageConfirmationRoundTrips() {
+        CreativePackagePersistenceAssertions.verifyConfirmationRoundTrip(jdbc(),creativePackages);
+    }
+
+    private org.springframework.jdbc.core.JdbcTemplate jdbc() {
+        return new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+    }
 
     @DynamicPropertySource
     static void register(DynamicPropertyRegistry registry) {
@@ -77,7 +88,7 @@ class MysqlSchemaSmokeIT {
     @Test
     void migratedSchemaRoundTrips() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("33", latestVersion(connection));
+            assertEquals("35", latestVersion(connection));
             assertTrue(businessTableCount(connection) >= 24);
 
             try (PreparedStatement update = connection.prepareStatement(
@@ -159,11 +170,11 @@ class MysqlSchemaSmokeIT {
         assertTrue(postgresVendor.getMessage().contains("does not match"));
 
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("33", latestVersion(connection));
+            assertEquals("35", latestVersion(connection));
         }
         assertThrows(IllegalStateException.class, () -> DbVendorFlywayConfig.prepare(dataSource, "postgresql"));
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("33", latestVersion(connection));
+            assertEquals("35", latestVersion(connection));
         }
     }
 

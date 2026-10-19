@@ -24,8 +24,8 @@ public class CreationPayloadBuilder {
     public static void settings(CreationState s) {
         if(s.smartBidType==null||!Set.of("CUSTOM","CONSERVATIVE").contains(s.smartBidType))throw new BizException(1402,"请选择控成本或放量投放");
         if("CUSTOM".equals(s.smartBidType) && s.budget!=null && s.budget.compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1402,"控成本日预算不能低于 300 元（含 300 元）");
-        if(s.budget==null || s.budget.signum()<=0 || s.budget.compareTo(new BigDecimal("100000"))>0 || s.budget.stripTrailingZeros().scale()>2)throw new BizException(1402,"日预算须大于 0、不超过 100000 元且最多两位小数");
-        if("CUSTOM".equals(s.smartBidType)&&(s.roi2Goal==null||s.roi2Goal.compareTo(new BigDecimal("0.1"))<0||s.roi2Goal.compareTo(new BigDecimal("50"))>0||s.roi2Goal.stripTrailingZeros().scale()>2))throw new BizException(1402,"净成交 ROI 目标须在 0.1–50 之间且最多两位小数");
+        if(s.budget==null || s.budget.signum()<=0 || s.budget.compareTo(new BigDecimal("999999999.99"))>0 || s.budget.stripTrailingZeros().scale()>2)throw new BizException(1402,"日预算须大于 0、不超过 999999999.99 元且最多两位小数");
+        if("CUSTOM".equals(s.smartBidType)&&(s.roi2Goal==null||s.roi2Goal.compareTo(new BigDecimal("0.01"))<0||s.roi2Goal.compareTo(new BigDecimal("100"))>0||s.roi2Goal.stripTrailingZeros().scale()>2))throw new BizException(1402,"净成交 ROI 目标须在 0.01–100 之间且最多两位小数");
         if(s.scheduleType==null||!Set.of("FROM_NOW","DATE_RANGE").contains(s.scheduleType))throw new BizException(1402,"投放日期类型不合法");
         if("DATE_RANGE".equals(s.scheduleType))try{
             var start=LocalDate.parse(s.startDate);var end=LocalDate.parse(s.endDate);var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));

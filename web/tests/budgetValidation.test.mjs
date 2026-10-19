@@ -9,7 +9,7 @@ test('控成本预算低于 300 元时提示，恰好 300 元可通过', () => {
   }
 });
 test('金额格式、两位小数和原有上限仍然有效', () => {
-  for (const budget of ['', '-100', '100.001', '1e2', 'NaN', '100000.01']) assert.notEqual(creationBudgetError(budget, 'CUSTOM'), '');
+  for (const budget of ['', '-100', '100.001', '1e2', 'NaN', '1000000000']) assert.notEqual(creationBudgetError(budget, 'CUSTOM'), '');
 });
 test('切换到控成本时重新校验同一金额，不自动增加用户预算', () => {
   const budget = '50';

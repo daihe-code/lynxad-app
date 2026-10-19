@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AccountLimitIT extends AbstractContainerIT {
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired com.lynx.ad.modules.billing.application.EntitlementQueryService entitlements;
 
     @Autowired
     private MockMvc mvc;
@@ -27,7 +29,7 @@ class AccountLimitIT extends AbstractContainerIT {
     private ObjectMapper mapper;
 
     @Test
-    void professionalTrialCannotBindSecondAccount() throws Exception {
+    void professionalTrialAllowsThreeAndRejectsFourthAccount() throws Exception {
         String token = BillingItSupport.onboard(mvc, mapper, "13904000012");
         JsonNode first = BillingItSupport.json(
                 mapper,
@@ -35,6 +37,11 @@ class AccountLimitIT extends AbstractContainerIT {
                 MockMvcRequestBuilders.post("/api/v1/identity/oauth/accounts/mock-bind")
                         .header("Authorization", "Bearer " + token));
         assertEquals(0, first.path("code").asInt());
+        String account = first.path("data").path("accountId").asText();
+        String tenant = jdbc.queryForObject("SELECT tenant_id FROM oauth_account WHERE id=?",String.class,account);
+        assertEquals(3,entitlements.adAccountLimit(new com.lynx.ad.common.domain.Ids.TenantId(tenant)));
+        // The demo binder uses a fixed advertiser ID; distinct isolated fixtures exercise the quota guard.
+        for(int i=2;i<=3;i++) jdbc.update("INSERT INTO oauth_account(id,tenant_id,platform,advertiser_id,account_name,access_token_enc,status) SELECT ?,tenant_id,platform,?,account_name,access_token_enc,status FROM oauth_account WHERE id=?",java.util.UUID.randomUUID().toString(),"quota-fixture-"+i,account);
         JsonNode second = BillingItSupport.json(
                 mapper,
                 mvc,

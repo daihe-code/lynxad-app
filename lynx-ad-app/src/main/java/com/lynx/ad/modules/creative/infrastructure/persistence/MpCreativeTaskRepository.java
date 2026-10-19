@@ -79,11 +79,13 @@ public class MpCreativeTaskRepository implements CreativeTaskRepository {
         if (existing == null) {
             throw new IllegalStateException("素材包不存在");
         }
-        existing.setVersion(pkg.version());
-        existing.setConfirmedAt(pkg.confirmedAt());
-        existing.setArtifactsJson(json.artifacts(pkg.items()));
-        packageMapper.update(existing, new LambdaUpdateWrapper<CreativePackagePo>()
+        // confirmed_at has one writer: the wrapper also persists explicit nulls.
+        CreativePackagePo update = new CreativePackagePo();
+        update.setVersion(pkg.version());
+        update.setArtifactsJson(json.artifacts(pkg.items()));
+        packageMapper.update(update, new LambdaUpdateWrapper<CreativePackagePo>()
                 .eq(CreativePackagePo::getId, pkg.id().value())
+                .eq(CreativePackagePo::getTenantId, existing.getTenantId())
                 .set(CreativePackagePo::getConfirmedAt, pkg.confirmedAt()));
     }
 

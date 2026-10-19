@@ -295,8 +295,8 @@ public class PlanTransferService {
         if(r.existingOnly())return;
         if(!Set.of("SMART_BID_CUSTOM","SMART_BID_CONSERVATIVE").contains(r.smartBidType()==null?"":r.smartBidType()))throw new BizException(1402,"转投参数不完整");
         if("SMART_BID_CUSTOM".equals(r.smartBidType()) && r.budget()!=null && r.budget().compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1402,"控成本日预算不能低于 300 元（含 300 元）");
-        if(r.budget()==null || r.budget().scale()>2 || r.budget().signum()<=0 || r.budget().compareTo(new BigDecimal("100000"))>0)throw new BizException(1402,"日预算须大于0且不超过100,000元，最多两位小数");
-        if(r.smartBidType().endsWith("CUSTOM") && (r.roi2Goal()==null || r.roi2Goal().scale()>2 || r.roi2Goal().compareTo(new BigDecimal("0.1"))<0 || r.roi2Goal().compareTo(new BigDecimal("50"))>0))throw new BizException(1402,"控成本投放ROI须为0.1–50，最多两位小数");
+        if(r.budget()==null || r.budget().scale()>2 || r.budget().signum()<=0 || r.budget().compareTo(new BigDecimal("999999999.99"))>0)throw new BizException(1402,"日预算须大于0且不超过999999999.99元，最多两位小数");
+        if(r.smartBidType().endsWith("CUSTOM") && (r.roi2Goal()==null || r.roi2Goal().scale()>2 || r.roi2Goal().compareTo(new BigDecimal("0.01"))<0 || r.roi2Goal().compareTo(new BigDecimal("100"))>0))throw new BizException(1402,"控成本投放ROI须为0.01–100，最多两位小数");
         if(r.smartBidType().endsWith("CONSERVATIVE") && r.roi2Goal()!=null)throw new BizException(1402,"放量投放不设置固定ROI目标");
     }
 }
