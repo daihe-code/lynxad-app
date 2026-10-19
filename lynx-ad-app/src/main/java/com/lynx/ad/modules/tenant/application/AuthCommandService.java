@@ -109,11 +109,23 @@ public class AuthCommandService {
 
     @Transactional
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
-        User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "账号或密码错误"));
+        User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
         if (!user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
             throw new BizException(1101, "账号或密码错误");
         }
         return issue(user);
+    }
+
+    @Transactional
+    public void resetPassword(PhoneNumber phone, String code, String password) {
+        com.lynx.ad.modules.tenant.domain.service.PasswordRules.require(password);
+        if (!otpStore.verifyAndConsume(phone, code)) {
+            throw new BizException(1101, "验证码不正确或已过期");
+        }
+        User user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
+        user.setPassword(password, passwordHasher);
+        userRepository.save(user);
     }
 
     public void logout(com.lynx.ad.common.domain.Ids.UserId userId) {
@@ -140,7 +152,7 @@ public class AuthCommandService {
     private LoginResponse issue(User user) {
         Optional<Tenant> tenant = tenantRepository.findByUserId(user.id());
         MemberRole role = tenant.flatMap(t -> t.memberOf(user.id())).map(m -> m.role()).orElse(null);
-        String token = jwtService.issue(user.id(), tenant.map(Tenant::id), role, SysRole.USER);
+        String token = jwtService.issueForUser(user, tenant.map(Tenant::id), role);
         boolean needOnboarding = tenant.isEmpty() || user.profile().isEmpty() || user.profile().filter(p -> p.isCompleted()).isEmpty();
         recordLogin(user, tenant.orElse(null), token);
         return new LoginResponse(token, properties.getJwt().getTtlSec(), needOnboarding, properties.isDemoMode());

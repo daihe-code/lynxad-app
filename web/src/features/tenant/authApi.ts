@@ -76,6 +76,10 @@ export function passwordLogin(phone: string, password: string) {
   return apiPost<LoginResult>("/api/v1/tenant/auth/password/login", { phone, password });
 }
 
+export function resetPassword(phone: string, code: string, password: string) {
+  return apiPost<void>("/api/v1/tenant/auth/password/reset", { phone, code, password });
+}
+
 export function logoutApi() {
   return apiPost<void>("/api/v1/tenant/auth/logout");
 }

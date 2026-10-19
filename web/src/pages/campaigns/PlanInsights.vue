@@ -10,6 +10,12 @@
       <div v-if="activeTab !== 'optimization'" class="insights-date"><el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" :shortcuts="shortcuts" :disabled-date="disabledDate" @calendar-change="calendarChange" @visible-change="calendarVisible" @change="changeRange" /><small>区间最长180天</small></div>
     </div>
     <section class="insights-section" v-loading="sectionLoading" :aria-label="tabLabel">
+      <details v-if="activeTab === 'data' && plan" @toggle="loadPlanDetails">
+        <summary>计划信息</summary>
+        <p v-if="detailLoading" role="status">正在加载计划信息…</p>
+        <p v-if="detailError" role="alert">{{ detailError }} <button @click="loadPlanDetails()">重试</button></p>
+        <PlanDetails :plan="plan" :creation="creation" :account="previewAccount" :account-name="boundAccount?.accountName" @products="emit('tab', 'products')" />
+      </details>
       <div v-if="sectionError" class="section-error" role="alert"><span>{{ sectionError }}</span><el-button @click="loadSection(true)">重新加载</el-button></div>
       <template v-if="activeTab === 'data' && !sectionError">
         <div class="section-title"><h3>数据概览</h3><span>{{ range[0] }} ～ {{ range[1] }} · 当前计划</span></div>
@@ -26,9 +32,12 @@
         <template v-else><el-empty description="草稿尚未发布，可在计划修改页面管理商品" /><router-link class="wizard-link" :to="`/campaigns/${planId}/edit`">进入计划修改页面 →</router-link></template>
       </template>
       <PlanMaterials v-else-if="activeTab === 'materials'" :plan-id="planId" :range="range" :refresh-token="productRefresh" :account="previewAccount" />
-      <PlanControls v-else-if="activeTab === 'controls' && plan?.smartBidType === 'SMART_BID_CUSTOM'" :plan-id="planId" :range="range" :refresh-token="productRefresh" :plan-status="plan.status" :account-active="boundAccount?.status === 'ACTIVE'" :account="previewAccount" />
-      <PlanOptimization v-else-if="activeTab === 'optimization'" :key="planId" :plan-id="planId" :products="plan?.products" @data="emit('tab', 'data')" />
-      <PlanDetails v-else-if="activeTab === 'details' && plan && !sectionError" :plan="plan" :creation="creation" :account="previewAccount" :account-name="boundAccount?.accountName" @products="emit('tab', 'products')" />
+      <template v-else-if="activeTab === 'controls'">
+        <el-button @click="emit('tab', props.tab === 'optimization' ? 'controls' : 'optimization')">{{ props.tab === 'optimization' ? '返回调控任务' : '配置自动盯盘' }}</el-button>
+        <PlanOptimization v-if="props.tab === 'optimization'" :key="planId" :plan-id="planId" :products="plan?.products" @data="emit('tab', 'data')" />
+        <PlanControls v-else-if="plan?.smartBidType === 'SMART_BID_CUSTOM'" :plan-id="planId" :range="range" :refresh-token="productRefresh" :plan-status="plan.status" :account-active="boundAccount?.status === 'ACTIVE'" :account="previewAccount" />
+        <el-empty v-else description="放量投放不支持调控任务" />
+      </template>
       <template v-else-if="activeTab === 'logs'">
         <div class="section-title"><h3>操作日志</h3><el-radio-group v-model="logSource" @change="logPage = 1; loadSection()"><el-radio-button value="PLATFORM">千川日志</el-radio-button><el-radio-button value="LINGTOU">灵投日志</el-radio-button></el-radio-group></div>
         <el-table v-if="!sectionError" :data="logs?.records || []" empty-text="所选区间没有该计划的操作记录"><el-table-column label="操作时间" width="170"><template #default="{ row }">{{ timeText(row.time) }}</template></el-table-column><el-table-column prop="actor" label="操作人" width="120" /><el-table-column label="操作内容" min-width="300"><template #default="{ row }"><strong>{{ row.detail || row.operation }}</strong><p v-for="(line, i) in row.details || []" :key="i" class="log-detail">{{ line }}</p></template></el-table-column><el-table-column v-if="logSource === 'LINGTOU'" label="结果" width="100"><template #default="{ row }">{{ row.result === 'SUCCESS' ? '成功' : row.result === 'FAILED' ? '失败' : row.result }}</template></el-table-column></el-table>
@@ -58,11 +67,20 @@ import PlanControls from './components/PlanControls.vue';
 import PlanOptimization from './components/PlanOptimization.vue';
 const props = defineProps<{ planId: string; tab?: string; initialRange: StatisticsRange }>();
 const emit = defineEmits<{ tab: [value: string]; range: [value: StatisticsRange]; changed: [] }>();
-const tabs = computed(() => [{ id: 'data', label: '数据' }, { id: 'products', label: '商品' }, { id: 'materials', label: '素材' }, ...(plan.value?.smartBidType === 'SMART_BID_CUSTOM' ? [{ id: 'controls', label: '调控' }] : []), { id: 'optimization', label: '自动盯盘' }, { id: 'details', label: '详情' }, { id: 'logs', label: '日志' }, { id: 'guarantee', label: '保障历史' }]);
-const activeTab = computed(() => tabs.value.some(t => t.id === props.tab) ? props.tab! : 'data');
+const tabs = computed(() => [{ id: 'data', label: '数据' }, { id: 'products', label: '商品' }, { id: 'materials', label: '素材' }, { id: 'controls', label: '调控' }, { id: 'logs', label: '日志' }, { id: 'guarantee', label: '保障历史' }]);
+const activeTab = computed(() => props.tab === 'optimization' ? 'controls' : tabs.value.some(t => t.id === props.tab) ? props.tab! : 'data');
 const tabLabel = computed(() => tabs.value.find(t => t.id === activeTab.value)!.label);
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const initialLoading = ref(true), initialError = ref(''), refreshing = ref(false), sectionLoading = ref(false), sectionError = ref('');
+const detailLoading = ref(false), detailError = ref('');
+async function loadPlanDetails(event?: Event) {
+  if (event && !(event.target as HTMLDetailsElement).open) return;
+  if (!plan.value?.qcPlanId || plan.value.platformDetail || detailLoading.value) return;
+  detailLoading.value = true; detailError.value = '';
+  try { const detail = await syncPlanDetail(props.planId); if (!disposed) plan.value = detail; }
+  catch (error) { if (!disposed) detailError.value = errorText(error); }
+  finally { if (!disposed) detailLoading.value = false; }
+}
 const productRefresh = ref(0);
 const range = ref<StatisticsRange>(rangeError(props.initialRange) ? recentRange(7) : [...props.initialRange]), rangeDraft = ref<StatisticsRange>([...range.value]);
 const calendarStart = ref<string | null>(null);
@@ -103,7 +121,6 @@ async function loadSection(force = false) {
     if (tab === 'data') { const value = await insightData(props.planId, [...range.value], force); if (turn === request && !disposed) statistics.value = value; }
     else if (tab === 'logs') { const value = await insightLogs(props.planId, [...range.value], logSource.value, logPage.value); if (turn === request && !disposed) logs.value = value; }
     else if (tab === 'guarantee') { const value = await insightGuarantee(props.planId, [...range.value], guaranteePage.value); if (turn === request && !disposed) guarantee.value = value; }
-    else if (tab === 'details' && plan.value.qcPlanId && !plan.value.platformDetail) { const value = await syncPlanDetail(props.planId); if (turn === request && !disposed) plan.value = value; }
   } catch (error) { if (turn === request && !disposed) sectionError.value = errorText(error); }
   finally { if (turn === request && !disposed) sectionLoading.value = false; }
 }

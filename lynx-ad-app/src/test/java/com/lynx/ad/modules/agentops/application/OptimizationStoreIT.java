@@ -23,7 +23,7 @@ import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /** Creates and drops only its freshly named verification database, never the application DB. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_OPT_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_optimization_verify_[a-zA-Z0-9_]+\\?.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_OPT_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_optimization_verify_[a-zA-Z0-9_]+\\?.*")
 class OptimizationStoreIT {
     static JdbcTemplate jdbc;static OptimizationStore store;static String database,server,user,password;static boolean created;
     static final ObjectMapper json=new ObjectMapper().findAndRegisterModules();

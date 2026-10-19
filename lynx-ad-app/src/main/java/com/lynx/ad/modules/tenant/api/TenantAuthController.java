@@ -49,6 +49,12 @@ public class TenantAuthController {
         return recorded(req.phone(),"PASSWORD",()->authCommandService.passwordLogin(new PhoneNumber(req.phone()), req.password()));
     }
 
+    @PostMapping("/password/reset")
+    public ApiResponse<Void> resetPassword(@RequestBody com.lynx.ad.modules.tenant.api.dto.ResetPasswordRequest req) {
+        authCommandService.resetPassword(new PhoneNumber(req.phone()), req.code(), req.password());
+        return ApiResponse.ok(null);
+    }
+
     private ApiResponse<LoginResponse> recorded(String phone,String method,java.util.function.Supplier<LoginResponse> command) {
         LoginResponse login;
         try { login=command.get(); }

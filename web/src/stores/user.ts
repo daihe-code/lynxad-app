@@ -44,6 +44,7 @@ export const useUserStore = defineStore("user", () => {
 
   async function onboard(payload: OnboardingPayload) {
     me.value = await completeOnboarding(payload);
+    token.value = localStorage.getItem('lynx.token') || '';
     return me.value;
   }
 

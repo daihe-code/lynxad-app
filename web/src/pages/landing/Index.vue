@@ -51,7 +51,7 @@
         </nav>
 
         <div class="ml-auto flex items-center gap-2 sm:gap-3">
-          <template v-if="user.isLoggedIn">
+          <template v-if="verifiedLogin">
             <a class="home-workspace" href="/campaigns" :aria-busy="checkingTrial" @click.prevent="goTrial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.7"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.7"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.7"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.7"/></svg><span>进入工作台</span></a>
             <span class="home-account hidden sm:inline-flex"><UserMenu appearance="home" /></span>
           </template>
@@ -72,7 +72,7 @@
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#industries" @click="menuOpen = false">解决方案</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
-        <router-link v-if="user.isLoggedIn" class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/accounts" @click="menuOpen = false">{{ userName }} · 账户信息</router-link>
+        <router-link v-if="verifiedLogin" class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/accounts" @click="menuOpen = false">{{ userName }} · 账户信息</router-link>
         <router-link v-else class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/login" @click="menuOpen = false">登录</router-link>
       </nav>
     </header>
@@ -445,8 +445,9 @@
 
         <div class="mt-[60px] grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <article class="rounded-card bg-deep-card p-8">
-            <h3 class="text-gradient-1 text-[18px] font-semibold">7 天免费试用</h3>
-            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">注册即可开通全部功能，免费试用 7 天，期间不限制功能，也不需要先付费。</p>
+            <h3 class="text-gradient-1 text-[18px] font-semibold">{{ verifiedLogin ? '继续投放' : '7 天免费试用' }}</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">{{ verifiedLogin ? '进入工作台，继续查看投放计划、素材与投放效果。' : '注册即可开通全部功能，免费试用 7 天，期间不限制功能，也不需要先付费。' }}</p>
+            <router-link v-if="verifiedLogin" class="mt-3 inline-block text-[14px] text-white" to="/campaigns">进入工作台</router-link>
           </article>
           <article class="rounded-card bg-deep-card p-8">
             <h3 class="text-gradient-2 text-[18px] font-semibold">效果看得见</h3>
@@ -703,7 +704,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import UserMenu from "@/layouts/UserMenu.vue";
 import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
-import { loginLandingPath } from "@/features/identity/oauthApi";
 import { isCnMobile } from "@/utils/phone";
 import hero1 from "@/assets/landing/hero-1.jpg";
 import hero2 from "@/assets/landing/hero-2.jpg";
@@ -713,6 +713,7 @@ import hero4 from "@/assets/landing/hero-4.jpg";
 const router = useRouter();
 const route = useRoute();
 const user = useUserStore();
+const verifiedLogin = computed(() => user.isLoggedIn && user.me !== null);
 const userName = computed(() => user.me?.nickname || user.me?.phone || "已登录");
 const menuOpen = ref(false);
 const checkingTrial = ref(false);
@@ -732,14 +733,13 @@ let disposed = false;
 async function goTrial() {
   if (checkingTrial.value) return;
   menuOpen.value = false;
-  if (!user.isLoggedIn) {
+  if (!verifiedLogin.value) {
     await router.push("/login");
     return;
   }
   checkingTrial.value = true;
   try {
-    const destination = await loginLandingPath();
-    if (!disposed) await router.push(destination);
+    if (!disposed) await router.push('/campaigns');
   } finally {
     checkingTrial.value = false;
   }

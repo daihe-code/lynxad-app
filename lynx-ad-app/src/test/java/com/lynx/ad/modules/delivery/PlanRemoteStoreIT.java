@@ -13,7 +13,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /** Real persistence and migration checks only in an explicitly named isolated test database. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_TRANSFER_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_transfer_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_TRANSFER_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_transfer_verify_[a-zA-Z0-9_]+.*")
 class PlanRemoteStoreIT {
     static JdbcTemplate jdbc;static PlanRemoteStore store;static ObjectMapper json=new ObjectMapper();
     final TenantId tenant=new TenantId("tenant-a");final AccountId account=new AccountId("account");

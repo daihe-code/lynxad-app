@@ -15,7 +15,7 @@ import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@EnabledIfEnvironmentVariable(named="LYNXAD_INSIGHTS_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_plan_insights_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_INSIGHTS_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_plan_insights_verify_[a-zA-Z0-9_]+.*")
 class PlanInsightsStoreIT {
     static JdbcTemplate jdbc;static PlanInsightsStore store;static TransactionTemplate transaction;
     final TenantId tenant=new TenantId("tenant-a");final LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));final PlanStatisticsRange range=new PlanStatisticsRange(today,today);

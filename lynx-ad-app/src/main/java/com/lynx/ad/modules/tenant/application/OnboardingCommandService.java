@@ -5,9 +5,7 @@ import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.JwtService;
 import com.lynx.ad.common.security.MemberRole;
-import com.lynx.ad.common.security.SysRole;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
-import com.lynx.ad.modules.tenant.api.dto.CurrentUserResponse;
 import com.lynx.ad.modules.tenant.api.dto.OnboardingRequest;
 import com.lynx.ad.modules.tenant.domain.model.OnboardingCommand;
 import com.lynx.ad.modules.tenant.domain.model.PasswordHasher;
@@ -50,7 +48,7 @@ public class OnboardingCommandService {
     }
 
     @Transactional
-    public CurrentUserResponse complete(UserId userId, OnboardingRequest req) {
+    public AuthenticatedUserUpdate complete(UserId userId, OnboardingRequest req) {
         User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
         OnboardingCommand cmd = new OnboardingCommand(
                 req.nickname(),
@@ -77,13 +75,14 @@ public class OnboardingCommandService {
             tenantRepository.save(tenant);
             billingTrialService.start(tenant.id(), Instant.now());
         }
-        return querySupport.current(userId);
+        return new AuthenticatedUserUpdate(querySupport.current(userId), reissueToken(user));
     }
 
-    public String reissueToken(UserId userId) {
-        Tenant tenant = tenantRepository.findByUserId(userId).orElse(null);
-        MemberRole role = tenant == null ? null : tenant.memberOf(userId).map(m -> m.role()).orElse(null);
-        return jwtService.issue(userId, java.util.Optional.ofNullable(tenant).map(Tenant::id), role, SysRole.USER);
+    private String reissueToken(User user) {
+        Tenant tenant = tenantRepository.findByUserId(user.id()).orElse(null);
+        MemberRole role = tenant == null ? null : tenant.memberOf(user.id()).map(m -> m.role()).orElse(null);
+        // Keep this operation's credential snapshot if another reset commits before the response is sent.
+        return jwtService.issueForUser(user, java.util.Optional.ofNullable(tenant).map(Tenant::id), role);
     }
 
     public boolean demoMode() {

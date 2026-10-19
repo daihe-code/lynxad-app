@@ -14,7 +14,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /** Uses only a freshly named verification database, never the application's data. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_CONTEXT_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_context_verify_[a-zA-Z0-9_]+\\?.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_CONTEXT_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_context_verify_[a-zA-Z0-9_]+\\?.*")
 class MaterialCreativeContextStoreIT {
     static String database,server,user,password;static boolean created;static JdbcTemplate jdbc;static MaterialCreativeContextStore store;
     static final ObjectMapper json=new ObjectMapper();

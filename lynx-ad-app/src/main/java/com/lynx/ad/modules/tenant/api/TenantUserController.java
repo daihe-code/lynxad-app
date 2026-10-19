@@ -39,13 +39,15 @@ public class TenantUserController {
     }
 
     @PutMapping("/me")
-    public ApiResponse<CurrentUserResponse> onboarding(@RequestBody OnboardingRequest req) {
-        return ApiResponse.ok(onboardingCommandService.complete(TenantContext.userId(), req));
+    public ApiResponse<CurrentUserResponse> onboarding(@RequestBody OnboardingRequest req, jakarta.servlet.http.HttpServletResponse response) {
+        var updated = onboardingCommandService.complete(TenantContext.userId(), req);
+        response.setHeader("X-Auth-Token", updated.token());
+        return ApiResponse.ok(updated.currentUser());
     }
 
     @PutMapping("/me/onboarding")
-    public ApiResponse<CurrentUserResponse> onboardingAlias(@RequestBody OnboardingRequest req) {
-        return onboarding(req);
+    public ApiResponse<CurrentUserResponse> onboardingAlias(@RequestBody OnboardingRequest req, jakarta.servlet.http.HttpServletResponse response) {
+        return onboarding(req, response);
     }
 
     @PutMapping("/me/profile")
@@ -54,8 +56,10 @@ public class TenantUserController {
     }
 
     @PutMapping("/me/password")
-    public ApiResponse<CurrentUserResponse> password(@RequestBody UpdatePasswordRequest req) {
-        return ApiResponse.ok(accountCommandService.updatePassword(TenantContext.userId(), req));
+    public ApiResponse<CurrentUserResponse> password(@RequestBody UpdatePasswordRequest req, jakarta.servlet.http.HttpServletResponse response) {
+        var updated = accountCommandService.updatePassword(TenantContext.userId(), req);
+        response.setHeader("X-Auth-Token", updated.token());
+        return ApiResponse.ok(updated.currentUser());
     }
 
     @PutMapping("/me/phone")

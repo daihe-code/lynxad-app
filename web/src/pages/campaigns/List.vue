@@ -41,7 +41,7 @@
             <p class="settings-hint">显示偏好会保存在当前浏览器中。</p>
           </el-popover>
           <el-tooltip :content="compact ? '切换为舒适行距' : '切换为紧凑行距'" popper-class="campaign-tooltip"><el-button class="square-button" :class="{ 'filter-active': compact }" aria-label="切换行距" @click="compact = !compact"><el-icon><Sort /></el-icon></el-button></el-tooltip>
-          <el-tooltip :content="selectedIds.length ? `导出已选 ${selectedIds.length} 条计划` : '导出筛选结果'" popper-class="campaign-tooltip"><el-button class="square-button" :disabled="!filtered.length" aria-label="导出计划" @click="exportRows"><el-icon><Download /></el-icon></el-button></el-tooltip>
+          <el-tooltip content="导出筛选结果" popper-class="campaign-tooltip"><el-button class="square-button" :disabled="!filtered.length" aria-label="导出计划" @click="exportRows"><el-icon><Download /></el-icon></el-button></el-tooltip>
         </div>
       </div>
       <div v-if="filtersExpanded" id="campaign-extra-filters" class="extra-filters">
@@ -49,21 +49,18 @@
         <div class="inline-filter-group" role="group" aria-label="投放模式"><span>投放模式</span><button v-for="option in bidOptions" :key="option.value" type="button" :class="{ active: bidType === option.value }" :aria-pressed="bidType === option.value" @click="bidType = bidType === option.value ? '' : option.value">{{ option.label }}</button></div>
         <div class="inline-filter-group" role="group" aria-label="创建时间"><span>创建时间</span><button v-for="days in [7, 30]" :key="days" type="button" :class="{ active: createdWithin === days }" :aria-pressed="createdWithin === days" @click="createdWithin = createdWithin === days ? null : days">近 {{ days }} 天</button></div>
       </div>
-      <div v-if="selectedIds.length" class="selection-bar">已选择 {{ selectedIds.length }} 条计划<el-button text type="primary" @click="selectedIds = []">取消选择</el-button><el-button text type="primary" @click="exportRows">导出已选</el-button></div>
       <div class="table-scroll" v-loading="loading">
         <table class="plan-table" :class="{ compact, 'without-tools': !showTools }">
-          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 112px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
+          <colgroup><col style="width: 244px"><col style="width: 112px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
           <thead><tr>
-            <th><el-checkbox :model-value="allPageSelected" :indeterminate="somePageSelected && !allPageSelected" aria-label="选择本页全部计划" @change="togglePageSelection" /></th>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
             <th v-for="column in metricColumns" :key="column.field"><button class="sort-heading" @click="toggleSort(column.field)">{{ column.label }}<el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></th>
             <th v-if="showTools">调控工具</th><th>操作</th>
           </tr></thead>
           <tbody>
-            <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">
-              <td><el-checkbox v-model="selectedIds" :value="row.planId" :aria-label="`选择计划 ${row.name}`" /></td>
+            <tr v-for="row in pagedRows" :key="row.planId" >
               <td class="plan-info-cell">
-                  <router-link class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
+                  <router-link class="plan-name" :to="`/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <div class="product-line">
                   <template v-if="row.products?.length">
@@ -112,14 +109,14 @@
               <td class="actions-cell">
                 <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
                 <template v-else>
-                  <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
+                  <router-link :to="insightsLink(row.planId)">查看详情</router-link>
                   <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
                   <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
                 </template>
                 <button type="button" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
-            <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 11 : 10" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
+            <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 10 : 9" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
           </tbody>
         </table>
       </div>
@@ -181,7 +178,7 @@ const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = r
 const accounts = ref<AccountVo[]>([]);
 const keyword = ref(''), status = ref(''), bidType = ref('');
 const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(null);
-const records = ref<PlanListVo[]>([]), selectedIds = ref<string[]>([]);
+const records = ref<PlanListVo[]>([]);
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
 type SortField = 'costYuan' | 'gmvYuan' | 'convert' | 'roi';
@@ -278,21 +275,14 @@ const canSwitchDraft = (row: PlanListVo) => user.trialActive && !row.qcPlanId &&
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
 const pagedRows = computed(() => records.value);
-const allPageSelected = computed(() => pagedRows.value.length > 0 && pagedRows.value.every(r => selectedIds.value.includes(r.planId)));
-const somePageSelected = computed(() => pagedRows.value.some(r => selectedIds.value.includes(r.planId)));
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
 let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
-watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange], () => { requestVersion++; pageNum.value = 1; selectedIds.value = []; scheduleLoad(); });
+watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
 onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; });
 function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
-function togglePageSelection(checked: boolean | string | number) {
-  const ids = new Set(selectedIds.value);
-  pagedRows.value.forEach(r => checked ? ids.add(r.planId) : ids.delete(r.planId));
-  selectedIds.value = [...ids];
-}
 function remainingDays(date: string) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
   const days = Math.round((new Date(`${date}T00:00:00`).getTime() - now.getTime()) / 86400000);
@@ -309,7 +299,6 @@ async function load(refreshStatistics = false) {
       records.value = result.records; total.value = result.total; summary.value = result.summary;
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
       snapshotDate.value = result.summary?.snapshotTs ? new Date(result.summary.snapshotTs).toLocaleString('zh-CN') : '';
-      selectedIds.value = selectedIds.value.filter(id => records.value.some(r => r.planId === id));
     } catch { if (version === requestVersion) loadFailed.value = true; }
     finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
   })();
@@ -361,7 +350,6 @@ async function confirmDelete() {
     requestVersion++;
     deleteOpen.value = false; deleteTarget.value = null;
     records.value = records.value.filter(p => p.planId !== row.planId);
-    selectedIds.value = selectedIds.value.filter(id => id !== row.planId);
     total.value = Math.max(0, total.value - 1);
     pageNum.value = Math.min(pageNum.value, Math.max(1, Math.ceil(total.value / pageSize.value)));
     ElMessage.success('计划已删除');
@@ -392,8 +380,8 @@ async function onTransfer(row: PlanListVo) {
 }
 async function exportRows() {
   const exportFilters = { ...queryFilters(), startDate: displayedRange.value[0], endDate: displayedRange.value[1] };
-  let rows = selectedIds.value.length ? filtered.value.filter(r => selectedIds.value.includes(r.planId)) : [...records.value];
-  if (!selectedIds.value.length) {
+  let rows: PlanListVo[];
+  {
     try {
       const first = await listPlans(1, 100, exportFilters); rows = [...first.records];
       for (let page = 2; page <= Math.ceil(first.total / 100); page++) rows.push(...(await listPlans(page, 100, exportFilters)).records);

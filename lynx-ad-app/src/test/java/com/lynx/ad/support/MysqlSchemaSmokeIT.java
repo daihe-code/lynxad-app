@@ -88,7 +88,7 @@ class MysqlSchemaSmokeIT {
     @Test
     void migratedSchemaRoundTrips() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("35", latestVersion(connection));
+            assertEquals(latestAvailableVersion(), latestVersion(connection));
             assertTrue(businessTableCount(connection) >= 24);
 
             try (PreparedStatement update = connection.prepareStatement(
@@ -170,11 +170,11 @@ class MysqlSchemaSmokeIT {
         assertTrue(postgresVendor.getMessage().contains("does not match"));
 
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("35", latestVersion(connection));
+            assertEquals(latestAvailableVersion(), latestVersion(connection));
         }
         assertThrows(IllegalStateException.class, () -> DbVendorFlywayConfig.prepare(dataSource, "postgresql"));
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("35", latestVersion(connection));
+            assertEquals(latestAvailableVersion(), latestVersion(connection));
         }
     }
 
@@ -292,6 +292,18 @@ class MysqlSchemaSmokeIT {
                 return rows.getInt(1);
             }
         }
+    }
+
+    private static String latestAvailableVersion() throws java.io.IOException {
+        var resources = new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/migration-mysql/V*__*.sql");
+        return java.util.Arrays.stream(resources)
+                .map(resource -> resource.getFilename())
+                .map(name -> name.substring(1, name.indexOf("__")))
+                .map(org.flywaydb.core.api.MigrationVersion::fromVersion)
+                .max(org.flywaydb.core.api.MigrationVersion::compareTo)
+                .orElseThrow(() -> new IllegalStateException("MySQL migrations are missing"))
+                .getVersion();
     }
 
     private static String latestVersion(Connection connection) throws SQLException {

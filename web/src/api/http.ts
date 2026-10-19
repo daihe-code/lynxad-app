@@ -28,11 +28,17 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (res) => {
+    // Auth mutations rotate the signed session only after a successful commit.
+    const refreshed = res.headers['x-auth-token'];
+    if (res.data?.code === 0 && typeof refreshed === 'string' && refreshed) {
+      localStorage.setItem('lynx.token', refreshed);
+    }
     const body = res.data as ApiEnvelope<unknown>;
     if (body && typeof body.code === "number" && body.code !== 0) {
       if (body.code === 401) {
         localStorage.removeItem("lynx.token");
-        if (!location.pathname.startsWith("/login")) {
+        const publicPage = ['/', '/legal/terms', '/legal/privacy'].includes(location.pathname);
+        if (!publicPage && !location.pathname.startsWith("/login")) {
           location.href = "/login";
         }
       }

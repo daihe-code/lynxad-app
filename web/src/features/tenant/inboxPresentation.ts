@@ -1,6 +1,20 @@
 import type { InboxMessage } from './inboxApi';
 import { WATCHER_TYPES } from '@/features/agentops/agentopsApi';
 
+export type InboxFilterCategory = 'system' | 'warning' | 'approval' | 'optimization';
+
+export function filterCategory(item: InboxMessage): InboxFilterCategory {
+  const type = item.bizType || '';
+  if (WATCHER_TYPES.includes(type as (typeof WATCHER_TYPES)[number]) || type === 'OPTIMIZATION_ERROR') return 'warning';
+  if (type === 'AUDIT_PASS' || type === 'AUDIT_REJECT') return 'approval';
+  if (type.startsWith('OPTIMIZATION_') || type.startsWith('CREATIVE_')) return 'optimization';
+  return 'system';
+}
+
+export function filterInbox(items: InboxMessage[], tab: 'all' | 'unread', category: InboxFilterCategory | 'all') {
+  return items.filter(item => (tab === 'all' || item.unread) && (category === 'all' || filterCategory(item) === category));
+}
+
 export function inboxPresentation(item: InboxMessage) {
   const type = item.bizType || '';
   if (type.startsWith('OPTIMIZATION_')) return { category: '自动盯盘', tone: 'warning', action: '查看盯盘', destination: 'optimization' as const };
