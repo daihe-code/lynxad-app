@@ -1,13 +1,13 @@
 -- LynxAd Flyway V1 for MySQL 8.0. Table names match the PostgreSQL scripts.
 
-CREATE TABLE sys_tenant (
+CREATE TABLE IF NOT EXISTS sys_tenant (
   id            VARCHAR(36) PRIMARY KEY,
   name          VARCHAR(128) NOT NULL,
   status        VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
   created_at    DATETIME(3)  NOT NULL DEFAULT (CURRENT_TIMESTAMP(3))
 ) ENGINE=InnoDB;
 
-CREATE TABLE sys_user (
+CREATE TABLE IF NOT EXISTS sys_user (
   id             VARCHAR(36) PRIMARY KEY,
   phone          VARCHAR(20) NOT NULL UNIQUE,
   password_hash  VARCHAR(128),
@@ -15,7 +15,7 @@ CREATE TABLE sys_user (
   created_at     DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3))
 ) ENGINE=InnoDB;
 
-CREATE TABLE tenant_member (
+CREATE TABLE IF NOT EXISTS tenant_member (
   tenant_id    VARCHAR(36) NOT NULL REFERENCES sys_tenant(id),
   user_id      VARCHAR(36) NOT NULL REFERENCES sys_user(id),
   member_role  VARCHAR(16) NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE tenant_member (
   PRIMARY KEY (tenant_id, user_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE user_profile (
+CREATE TABLE IF NOT EXISTS user_profile (
   user_id          VARCHAR(36) PRIMARY KEY REFERENCES sys_user(id),
   nickname         VARCHAR(64),
   email            VARCHAR(128),
@@ -37,7 +37,7 @@ CREATE TABLE user_profile (
   completed_at     DATETIME(3)
 ) ENGINE=InnoDB;
 
-CREATE TABLE oauth_account (
+CREATE TABLE IF NOT EXISTS oauth_account (
   id                   VARCHAR(36) PRIMARY KEY,
   tenant_id            VARCHAR(36) NOT NULL,
   platform             VARCHAR(16) NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE oauth_account (
   UNIQUE (tenant_id, platform, advertiser_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE oauth_aweme (
+CREATE TABLE IF NOT EXISTS oauth_aweme (
   id                VARCHAR(36) PRIMARY KEY,
   oauth_account_id  VARCHAR(36) NOT NULL REFERENCES oauth_account(id),
   aweme_id          VARCHAR(32) NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE oauth_aweme (
   UNIQUE (oauth_account_id, aweme_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE product (
+CREATE TABLE IF NOT EXISTS product (
   id               VARCHAR(36) PRIMARY KEY,
   tenant_id        VARCHAR(36) NOT NULL,
   aweme_id         VARCHAR(32) NOT NULL,
@@ -80,7 +80,7 @@ CREATE TABLE product (
   UNIQUE (tenant_id, aweme_id, qc_product_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE ad_plan (
+CREATE TABLE IF NOT EXISTS ad_plan (
   id                 VARCHAR(36) PRIMARY KEY,
   tenant_id          VARCHAR(36) NOT NULL,
   oauth_account_id   VARCHAR(36),
@@ -107,13 +107,11 @@ CREATE TABLE ad_plan (
       WHEN status COLLATE utf8mb4_bin <> 'finished' THEN name
       ELSE NULL
     END
-  ) STORED
+  ) STORED,
+  UNIQUE KEY uk_ad_plan_aweme_name (tenant_id, aweme_id, name_active)
 ) ENGINE=InnoDB;
 
-CREATE UNIQUE INDEX uk_ad_plan_aweme_name
-  ON ad_plan (tenant_id, aweme_id, name_active);
-
-CREATE TABLE creative_task (
+CREATE TABLE IF NOT EXISTS creative_task (
   id           VARCHAR(36) PRIMARY KEY,
   tenant_id    VARCHAR(36) NOT NULL,
   plan_id      VARCHAR(36),
@@ -124,7 +122,7 @@ CREATE TABLE creative_task (
   finished_at  DATETIME(3)
 ) ENGINE=InnoDB;
 
-CREATE TABLE creative_package (
+CREATE TABLE IF NOT EXISTS creative_package (
   id                  VARCHAR(36) PRIMARY KEY,
   tenant_id           VARCHAR(36) NOT NULL,
   task_id             VARCHAR(36) NOT NULL,
@@ -134,7 +132,7 @@ CREATE TABLE creative_package (
   confirmed_at        DATETIME(3)
 ) ENGINE=InnoDB;
 
-CREATE TABLE ad_plan_creative (
+CREATE TABLE IF NOT EXISTS ad_plan_creative (
   ad_plan_id      VARCHAR(36) NOT NULL,
   package_id      VARCHAR(36) NOT NULL,
   product_id      VARCHAR(32) NOT NULL,
@@ -144,7 +142,7 @@ CREATE TABLE ad_plan_creative (
   PRIMARY KEY (ad_plan_id, product_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE plan_metric_snapshot (
+CREATE TABLE IF NOT EXISTS plan_metric_snapshot (
   id            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   tenant_id     VARCHAR(36) NOT NULL,
   ad_plan_id    VARCHAR(36),
@@ -156,12 +154,11 @@ CREATE TABLE plan_metric_snapshot (
   `convert`      BIGINT,
   gmv           DECIMAL(14,4),
   roi           DECIMAL(10,4),
-  ctr           DECIMAL(10,6)
+  ctr           DECIMAL(10,6),
+  INDEX idx_snapshot_plan_ts (ad_plan_id, snapshot_ts DESC)
 ) ENGINE=InnoDB;
 
-CREATE INDEX idx_snapshot_plan_ts ON plan_metric_snapshot (ad_plan_id, snapshot_ts DESC);
-
-CREATE TABLE agent_action (
+CREATE TABLE IF NOT EXISTS agent_action (
   id                VARCHAR(36) PRIMARY KEY,
   tenant_id         VARCHAR(36) NOT NULL,
   ad_plan_id        VARCHAR(36) NOT NULL,
@@ -175,7 +172,7 @@ CREATE TABLE agent_action (
   UNIQUE (ad_plan_id, action_type, snapshot_ts)
 ) ENGINE=InnoDB;
 
-CREATE TABLE notification (
+CREATE TABLE IF NOT EXISTS notification (
   id          VARCHAR(36) PRIMARY KEY,
   tenant_id   VARCHAR(36) NOT NULL,
   channel     VARCHAR(16) NOT NULL DEFAULT 'INBOX',
@@ -187,7 +184,7 @@ CREATE TABLE notification (
   sent_at     DATETIME(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3))
 ) ENGINE=InnoDB;
 
-CREATE TABLE billing_trial (
+CREATE TABLE IF NOT EXISTS billing_trial (
   tenant_id    VARCHAR(36) PRIMARY KEY,
   started_at   DATETIME(3) NOT NULL,
   expires_at   DATETIME(3) NOT NULL

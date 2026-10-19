@@ -16,7 +16,12 @@ import com.lynx.ad.starter.LynxAdApplication;
 import com.lynx.ad.support.AbstractContainerIT;
 import com.lynx.ad.support.LiveFixtureServer;
 import java.lang.reflect.Method;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -67,6 +72,24 @@ class OauthLiveExchangeIT extends AbstractContainerIT {
 
     private final OauthStateSigner signer = new OauthStateSigner("dev-only-aes256-key-32bytes!!!!");
 
+    @BeforeEach
+    void resetExchangeFixture() {
+        restoreExchangeFixture();
+    }
+
+    @AfterEach
+    void restoreExchangeFixtureAfter() {
+        restoreExchangeFixture();
+    }
+
+    private static void restoreExchangeFixture() {
+        FIXTURE.exchangeAdvertiserId = "adv_live_1";
+        FIXTURE.exchangeAdvertiserIds = null;
+        FIXTURE.exchangeAccessToken = "live-access";
+        FIXTURE.exchangeAdvertiserName = "夹具账户";
+        FIXTURE.awemeMode = "ok";
+    }
+
     @Test
     void liveExchangePersistsCipherAndOperatorFromFourPartState() throws Exception {
         Session a = onboard("13900008001", "真链店");
@@ -105,10 +128,19 @@ class OauthLiveExchangeIT extends AbstractContainerIT {
                 a.tenantId);
         assertEquals(a.userId, auditUser);
 
-        mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/callback")
+        MvcResult reused = mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/callback")
                         .param("auth_code", "live-code-1")
                         .param("state", signer.sign(new TenantId(a.tenantId), new UserId(a.userId))))
                 .andReturn();
+        assertEquals(302, reused.getResponse().getStatus());
+        String reusedLoc = reused.getResponse().getHeader("Location");
+        assertTrue(reusedLoc != null && reusedLoc.contains("ok=0"));
+        assertTrue(reusedLoc.contains(URLEncoder.encode("授权码已使用", StandardCharsets.UTF_8)));
+        Integer advertisers = jdbc.queryForObject(
+                "select count(*) from oauth_account where tenant_id = ? and advertiser_id = 'adv_live_1'",
+                Integer.class,
+                a.tenantId);
+        assertEquals(1, advertisers);
         Integer used = jdbc.queryForObject(
                 "select count(*) from oauth_auth_code_audit where tenant_id = ? and status = 'USED'",
                 Integer.class,
@@ -149,6 +181,190 @@ class OauthLiveExchangeIT extends AbstractContainerIT {
             }
         }
         assertEquals(1, mappings);
+    }
+
+    @Test
+    void secondAdvertiserThenReconfirmKeepsOriginalRow() throws Exception {
+        Session session = onboard("13900008003", "多账户店");
+        String limitMessage = URLEncoder.encode("当前套餐最多绑定", StandardCharsets.UTF_8);
+
+        FIXTURE.exchangeAdvertiserId = "adv_live_1";
+        FIXTURE.exchangeAccessToken = "live-access";
+        FIXTURE.exchangeAdvertiserName = "夹具账户";
+        String firstLoc = callback(session, "live-multi-1");
+        assertTrue(firstLoc.contains("ok=1"));
+        assertFalse(firstLoc.contains(limitMessage));
+        String firstId = accountId(session.tenantId, "adv_live_1");
+        String firstEnc = accessToken(session.tenantId, "adv_live_1");
+
+        FIXTURE.exchangeAdvertiserId = "adv_live_2";
+        FIXTURE.exchangeAccessToken = "live-access-2";
+        FIXTURE.exchangeAdvertiserName = "夹具账户二";
+        String secondLoc = callback(session, "live-multi-2");
+        assertTrue(secondLoc.contains("ok=1"));
+        assertFalse(secondLoc.contains(limitMessage));
+        assertEquals(2, accountCount(session.tenantId));
+
+        jdbc.update(
+                "update oauth_account set status = 'UNBOUND', account_name = '旧名称', authorized_at = authorized_at - interval '1 minute' where id = ?",
+                firstId);
+        Timestamp backdated = jdbc.queryForObject(
+                "select authorized_at from oauth_account where id = ?",
+                Timestamp.class,
+                firstId);
+
+        FIXTURE.exchangeAdvertiserId = "adv_live_1";
+        FIXTURE.exchangeAccessToken = "live-access-3";
+        FIXTURE.exchangeAdvertiserName = "夹具账户-再次";
+        String thirdLoc = callback(session, "live-multi-3");
+        assertTrue(thirdLoc.contains("ok=1"));
+        assertEquals(2, accountCount(session.tenantId));
+        assertEquals(firstId, accountId(session.tenantId, "adv_live_1"));
+        assertEquals("ACTIVE", accountColumn(session.tenantId, "adv_live_1", "status"));
+        assertEquals("夹具账户-再次", accountColumn(session.tenantId, "adv_live_1", "account_name"));
+        String thirdEnc = accessToken(session.tenantId, "adv_live_1");
+        assertNotEquals(firstEnc, thirdEnc);
+        assertFalse(thirdEnc.contains("live-access-3"));
+        Timestamp renewed = jdbc.queryForObject(
+                "select authorized_at from oauth_account where id = ?",
+                Timestamp.class,
+                firstId);
+        assertTrue(renewed.after(backdated));
+
+        String reusedLoc = callback(session, "live-multi-1");
+        assertTrue(reusedLoc.contains("ok=0"));
+        assertTrue(reusedLoc.contains(URLEncoder.encode("授权码已使用", StandardCharsets.UTF_8)));
+        assertEquals(2, accountCount(session.tenantId));
+    }
+
+    @Test
+    void awemeBusinessErrorPersistsNeitherAccountNorBinding() throws Exception {
+        Session session = onboard("13900008021", "抖音失败店");
+        FIXTURE.awemeMode = "error";
+        String location = callback(session, "live-aweme-err");
+        assertTrue(location.contains("ok=0"));
+        assertTrue(location.contains(URLEncoder.encode("抖音号列表失败", StandardCharsets.UTF_8)));
+        assertEquals(0, accountCount(session.tenantId));
+        assertEquals(0, bindingCount(session.tenantId));
+        assertEquals(0, placeholderAwemeCount(session.tenantId));
+    }
+
+    @Test
+    void emptyAwemeListPersistsAccountAndQianchuanBinding() throws Exception {
+        Session session = onboard("13900008022", "空抖音店");
+        FIXTURE.awemeMode = "empty";
+        String location = callback(session, "live-aweme-empty");
+        assertTrue(location.contains("ok=1"));
+        assertEquals(1, accountCount(session.tenantId));
+        assertEquals(0, awemeCount(session.tenantId));
+        assertEquals(0, placeholderAwemeCount(session.tenantId));
+        assertEquals(1, bindingCount(session.tenantId));
+        assertEquals("QIANCHUAN", bindingColumn(session.tenantId, "app_code"));
+        assertEquals(accountId(session.tenantId, "adv_live_1"), bindingColumn(session.tenantId, "oauth_account_id"));
+    }
+
+    @Test
+    void advertiserIdsWithoutSingleFieldKeepsOnlyFirst() throws Exception {
+        Session session = onboard("13900008023", "双广告主店");
+        FIXTURE.exchangeAdvertiserIds = "adv_ids_1,adv_ids_2";
+        String location = callback(session, "live-ids-1");
+        assertTrue(location.contains("ok=1"));
+        assertEquals(1, accountCount(session.tenantId));
+        assertEquals(1, bindingCount(session.tenantId));
+        String account = accountId(session.tenantId, "adv_ids_1");
+        assertEquals(account, bindingColumn(session.tenantId, "oauth_account_id"));
+        Integer second = jdbc.queryForObject(
+                "select count(*) from oauth_account where tenant_id = ? and advertiser_id = 'adv_ids_2'",
+                Integer.class,
+                session.tenantId);
+        assertEquals(0, second == null ? 0 : second);
+    }
+
+    @Test
+    void secondSuccessKeepsSameAccountAndOneBinding() throws Exception {
+        Session session = onboard("13900008024", "再次绑定店");
+        String firstLocation = callback(session, "live-rebind-1");
+        assertTrue(firstLocation.contains("ok=1"));
+        String account = accountId(session.tenantId, "adv_live_1");
+        String firstBinding = bindingColumn(session.tenantId, "id");
+
+        FIXTURE.exchangeAdvertiserName = "夹具账户-再次";
+        String secondLocation = callback(session, "live-rebind-2");
+        assertTrue(secondLocation.contains("ok=1"));
+        assertEquals(1, accountCount(session.tenantId));
+        assertEquals(1, bindingCount(session.tenantId));
+        assertEquals(account, accountId(session.tenantId, "adv_live_1"));
+        assertEquals(account, bindingColumn(session.tenantId, "oauth_account_id"));
+        assertEquals(firstBinding, bindingColumn(session.tenantId, "id"));
+        assertEquals("夹具账户-再次", accountColumn(session.tenantId, "adv_live_1", "account_name"));
+    }
+
+    private String callback(Session session, String authCode) throws Exception {
+        String state = signer.sign(new TenantId(session.tenantId), new UserId(session.userId));
+        MvcResult result = mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/callback")
+                        .param("auth_code", authCode)
+                        .param("state", state))
+                .andReturn();
+        assertEquals(302, result.getResponse().getStatus());
+        String location = result.getResponse().getHeader("Location");
+        assertTrue(location != null);
+        return location;
+    }
+
+    private int accountCount(String tenantId) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from oauth_account where tenant_id = ?",
+                Integer.class,
+                tenantId);
+        return count == null ? 0 : count;
+    }
+
+    private String accountId(String tenantId, String advertiserId) {
+        return accountColumn(tenantId, advertiserId, "id");
+    }
+
+    private String accessToken(String tenantId, String advertiserId) {
+        return accountColumn(tenantId, advertiserId, "access_token_enc");
+    }
+
+    private int bindingCount(String tenantId) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from oauth_app_binding where tenant_id = ?",
+                Integer.class,
+                tenantId);
+        return count == null ? 0 : count;
+    }
+
+    private int awemeCount(String tenantId) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from oauth_aweme w join oauth_account a on a.id = w.oauth_account_id where a.tenant_id = ?",
+                Integer.class,
+                tenantId);
+        return count == null ? 0 : count;
+    }
+
+    private int placeholderAwemeCount(String tenantId) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from oauth_aweme w join oauth_account a on a.id = w.oauth_account_id where a.tenant_id = ? and w.name = ?",
+                Integer.class,
+                tenantId,
+                "授权抖音号");
+        return count == null ? 0 : count;
+    }
+
+    private String bindingColumn(String tenantId, String column) {
+        return jdbc.queryForObject(
+                "select " + column + " from oauth_app_binding where tenant_id = ?",
+                String.class,
+                tenantId);
+    }
+
+    private String accountColumn(String tenantId, String advertiserId, String column) {
+        return jdbc.queryForObject(
+                "select " + column + " from oauth_account where tenant_id = ? and advertiser_id = ?",
+                String.class,
+                tenantId,
+                advertiserId);
     }
 
     private Session onboard(String phone, String company) throws Exception {

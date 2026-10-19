@@ -1,12 +1,16 @@
 package com.lynx.ad.modules.identity.application;
 
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+
+import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.modules.identity.api.dto.AccountVo;
 import com.lynx.ad.modules.identity.api.dto.AwemeVo;
 import com.lynx.ad.modules.identity.domain.model.OauthAccount;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
-import java.util.List;
-import org.springframework.stereotype.Service;
 
 @Service
 public class OauthQueryService {
@@ -55,6 +59,13 @@ public class OauthQueryService {
     private boolean idMatches(OauthAccount account,com.fasterxml.jackson.databind.JsonNode candidate) {
         return account.advertiserId().value().equals(candidate.path("advertiserId").asText());
     }
+
+    public Optional<OauthAccountSnapshot> findSnapshot(AccountId id) {
+        return repository.findByIdOnly(id).map(account -> new OauthAccountSnapshot(
+                account.advertiserId().value(), account.status()));
+    }
+
+    public record OauthAccountSnapshot(String advertiserId, String status) {}
 
     public static AccountVo toVo(OauthAccount account) {
         return new AccountVo(

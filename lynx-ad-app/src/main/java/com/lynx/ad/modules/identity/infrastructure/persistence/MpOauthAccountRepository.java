@@ -123,11 +123,23 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
     @Override
     @Transactional
     public void save(OauthAccount account) {
+        persist(account, false);
+    }
+
+    @Override
+    @Transactional
+    public void saveRenewingAuthorization(OauthAccount account) {
+        persist(account, true);
+    }
+
+    private void persist(OauthAccount account, boolean renewAuthorizedAt) {
         OauthAccountPo po = accountMapper.selectById(account.id().value());
         boolean insert = po == null;
         if (insert) {
             po = new OauthAccountPo();
             po.setId(account.id().value());
+            po.setAuthorizedAt(Instant.now());
+        } else if (renewAuthorizedAt) {
             po.setAuthorizedAt(Instant.now());
         }
         po.setTenantId(account.tenantId().value());
@@ -174,6 +186,16 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
     @Override
     public Optional<OauthAccount> findById(TenantId tenantId, AccountId id) {
         return findByIdOnly(id).filter(a -> a.tenantId().equals(tenantId));
+    }
+
+    @Override
+    public void deleteAwemes(AccountId id) {
+        awemeMapper.delete(new LambdaQueryWrapper<OauthAwemePo>().eq(OauthAwemePo::getOauthAccountId, id.value()));
+    }
+
+    @Override
+    public void deleteById(AccountId id) {
+        accountMapper.deleteById(id.value());
     }
 
     @Override

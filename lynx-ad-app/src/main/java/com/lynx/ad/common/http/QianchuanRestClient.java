@@ -66,6 +66,9 @@ public class QianchuanRestClient {
                 }
                 return exchangeOnce(retry, type);
             } catch (BizException second) {
+                if (second.code() == 40105) {
+                    throw new BizException(1211, "访问令牌无效，请重新授权");
+                }
                 if (Qianchuan401ReplayCodes.isAuthExpired(second)) {
                     throw new BizException(1211, "授权已失效，请重新授权");
                 }
@@ -96,7 +99,9 @@ public class QianchuanRestClient {
         int status = response.statusCode();
         int ocean = OceanJson.peekCode(response.body());
         if (Qianchuan401ReplayCodes.isAuthExpiredCode(status) || Qianchuan401ReplayCodes.isAuthExpiredCode(ocean)) {
-            throw new BizException(status == 401 ? 401 : ocean, "授权已失效");
+            int code = status == 401 ? 401 : ocean;
+            String message = code == 40105 ? "访问令牌无效" : "授权已失效";
+            throw new BizException(code, message);
         }
         if (status >= 400) {
             throw new BizException(status, "千川调用失败");

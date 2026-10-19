@@ -1,5 +1,15 @@
 package com.lynx.ad.modules.identity.application;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.crypto.Encryptor;
 import com.lynx.ad.common.domain.Ids.AccountId;
@@ -10,10 +20,10 @@ import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.RequestMeta;
 import com.lynx.ad.common.security.TenantContext;
-import com.lynx.ad.modules.billing.application.EntitlementQueryService;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.audit.application.SuccessAuditCommand;
 import com.lynx.ad.modules.audit.domain.model.AuditActionType;
+import com.lynx.ad.modules.delivery.application.PlanAccountLinkService;
 import com.lynx.ad.modules.identity.api.dto.AccountVo;
 import com.lynx.ad.modules.identity.api.dto.OauthUrlResponse;
 import com.lynx.ad.modules.identity.domain.model.Aweme;
@@ -22,23 +32,20 @@ import com.lynx.ad.modules.identity.domain.model.OauthAccount;
 import com.lynx.ad.modules.identity.domain.model.OauthAuthCodeAudit;
 import com.lynx.ad.modules.identity.domain.model.Platform;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
+import com.lynx.ad.modules.identity.domain.port.OauthAppBindingRepository;
 import com.lynx.ad.modules.identity.domain.port.OauthAuthCodeAuditRepository;
 import com.lynx.ad.modules.identity.domain.port.OauthTokenPort;
 import com.lynx.ad.modules.identity.domain.service.OauthStateSigner;
 import com.lynx.ad.modules.identity.infrastructure.adapter.MockQianchuanClient;
 import com.lynx.ad.modules.tenant.application.TenantQuerySupport;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.List;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.stereotype.Service;
 
 @Service
 public class OauthCommandService {
 
     private final OauthAccountRepository repository;
+    private final OauthAppBindingRepository bindingRepository;
     private final OauthAuthCodeAuditRepository auditRepository;
+    private final TransactionTemplate transactionTemplate;
     private final MockQianchuanClient mockClient;
     private final LynxAdProperties properties;
     private final OauthStateSigner stateSigner;
@@ -46,12 +53,14 @@ public class OauthCommandService {
     private final Encryptor encryptor;
     private final TenantQuerySupport tenantQuery;
     private final AuditRecorder auditRecorder;
-    private final EntitlementQueryService entitlementQueryService;
+    private final PlanAccountLinkService planAccountLinkService;
+
     @org.springframework.beans.factory.annotation.Autowired
     private LiveQianchuanAuthorizationService liveAuthorization;
 
     public OauthCommandService(
             OauthAccountRepository repository,
+            OauthAppBindingRepository bindingRepository,
             OauthAuthCodeAuditRepository auditRepository,
             MockQianchuanClient mockClient,
             LynxAdProperties properties,
@@ -59,16 +68,19 @@ public class OauthCommandService {
             Encryptor encryptor,
             TenantQuerySupport tenantQuery,
             AuditRecorder auditRecorder,
-            EntitlementQueryService entitlementQueryService) {
+            PlanAccountLinkService planAccountLinkService,
+            PlatformTransactionManager transactionManager) {
         this.repository = repository;
+        this.bindingRepository = bindingRepository;
         this.auditRepository = auditRepository;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.mockClient = mockClient;
         this.properties = properties;
         this.tokenPort = tokenPort;
         this.encryptor = encryptor;
         this.tenantQuery = tenantQuery;
         this.auditRecorder = auditRecorder;
-        this.entitlementQueryService = entitlementQueryService;
+        this.planAccountLinkService = planAccountLinkService;
         this.stateSigner = new OauthStateSigner(properties.getCrypto().getAesKey());
     }
 
@@ -129,20 +141,41 @@ public class OauthCommandService {
                             d.primary(),
                             d.sceneHint()))
                     .toList();
-            assertAccountLimit(tenantId);
-            OauthAccount account = OauthAccount.authorize(
-                    tenantId,
-                    new AdvertiserId(exchanged.advertiserId()),
-                    exchanged.accountName(),
-                    new EncryptedToken(encryptor.encrypt(exchanged.accessTokenPlain())),
-                    new EncryptedToken(encryptor.encrypt(exchanged.refreshTokenPlain())),
-                    exchanged.accessExpiresAt(),
-                    exchanged.refreshExpiresAt(),
-                    awemes,
-                    operatorUserId);
-            repository.save(account);
-            audit.markUsed(exchanged.advertiserId());
-            auditRepository.save(audit);
+            EncryptedToken access = new EncryptedToken(encryptor.encrypt(exchanged.accessTokenPlain()));
+            EncryptedToken refresh = new EncryptedToken(encryptor.encrypt(exchanged.refreshTokenPlain()));
+            OauthAccount existingAccount = findQianchuan(tenantId, exchanged.advertiserId());
+            OauthAccount account = existingAccount == null
+                    ? OauthAccount.authorize(
+                            tenantId,
+                            new AdvertiserId(exchanged.advertiserId()),
+                            exchanged.accountName(),
+                            access,
+                            refresh,
+                            exchanged.accessExpiresAt(),
+                            exchanged.refreshExpiresAt(),
+                            awemes,
+                            operatorUserId)
+                    : OauthAccount.reconfirm(
+                            existingAccount,
+                            exchanged.accountName(),
+                            access,
+                            refresh,
+                            exchanged.accessExpiresAt(),
+                            exchanged.refreshExpiresAt(),
+                            awemes,
+                            operatorUserId);
+            boolean renew = existingAccount != null;
+            OauthAuthCodeAudit auditRow = audit;
+            transactionTemplate.executeWithoutResult(status -> {
+                if (renew) {
+                    repository.saveRenewingAuthorization(account);
+                } else {
+                    repository.save(account);
+                }
+                bindingRepository.upsertQianchuan(tenantId, exchanged.advertiserId(), account.id());
+                auditRow.markUsed(exchanged.advertiserId());
+                auditRepository.save(auditRow);
+            });
             recordOauth(tenantId, account.id().value(), account.accountName(), operatorUserId);
             return OauthCallbackResult.success();
         } catch (BizException ex) {
@@ -159,9 +192,30 @@ public class OauthCommandService {
         if (!mockClient.mockEnabled()) {
             throw new BizException(1205, "Mock 授权未开启");
         }
-        assertAccountLimit(tenantId);
-        OauthAccount account = mockClient.bindDemo(tenantId);
-        repository.save(account);
+        OauthAccount draft = mockClient.bindDemo(tenantId);
+        OauthAccount existing = findQianchuan(tenantId, draft.advertiserId().value());
+        OauthAccount account;
+        if (existing == null) {
+            account = draft;
+            repository.save(account);
+        } else {
+            String operator = existing.authorizedByUserId().orElse(null);
+            try {
+                operator = TenantContext.userId().value();
+            } catch (RuntimeException ignored) {
+                // 没有登录用户时保留原操作者
+            }
+            account = OauthAccount.reconfirm(
+                    existing,
+                    draft.accountName(),
+                    draft.accessToken(),
+                    draft.refreshToken(),
+                    draft.tokenExpiresAt(),
+                    draft.refreshExpiresAt(),
+                    draft.awemes(),
+                    operator);
+            repository.saveRenewingAuthorization(account);
+        }
         recordOauth(tenantId, account.id().value(), account.accountName(), null);
         return OauthQueryService.toVo(account);
     }
@@ -224,23 +278,31 @@ public class OauthCommandService {
 
     public void remove(TenantId tenantId, AccountId id) {
         OauthAccount account = repository.findById(tenantId, id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
-        if (!account.canRemove(Instant.now())) {
-            throw new BizException(1211, "请先取消有效授权再删除记录");
+        if (stillUsable(account)) {
+            throw new BizException(1208, "授权仍有效，请先取消授权");
         }
-        if ("DELETED".equals(account.status())) return;
-        if(account.grantId()!=null) liveAuthorization.changeLocalStatus(tenantId,id,true);
-        else { account.remove(); repository.save(account); }
-        recordOauth(tenantId, account.id().value(), "删除失效授权记录「" + account.accountName() + "」", null);
+        transactionTemplate.executeWithoutResult(status -> {
+            repository.deleteAwemes(id);
+            bindingRepository.deleteByAccount(id);
+            planAccountLinkService.detach(id);
+            repository.deleteById(id);
+        });
     }
 
-    private void assertAccountLimit(TenantId tenantId) {
-        int limit = entitlementQueryService.adAccountLimit(tenantId);
-        long active = repository.findByTenant(tenantId).stream()
-                .filter(a -> "ACTIVE".equals(a.status()))
-                .count();
-        if (active >= limit) {
-            throw new BizException(1206, "当前套餐最多绑定 " + limit + " 个广告账户");
+    private static boolean stillUsable(OauthAccount account) {
+        if (!"ACTIVE".equals(account.status())) {
+            return false;
         }
+        Instant exp = account.refreshExpiresAt();
+        return exp == null || exp.isAfter(Instant.now());
+    }
+
+    private OauthAccount findQianchuan(TenantId tenantId, String advertiserId) {
+        return repository.findByTenant(tenantId).stream()
+                .filter(account -> account.platform() == Platform.QIANCHUAN
+                        && account.advertiserId().value().equals(advertiserId))
+                .findFirst()
+                .orElse(null);
     }
 
     private void recordOauth(TenantId tenantId, String accountId, String name, String stateUserId) {

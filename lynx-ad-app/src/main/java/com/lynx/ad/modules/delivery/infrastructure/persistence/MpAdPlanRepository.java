@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.AwemeId;
@@ -208,6 +209,15 @@ public class MpAdPlanRepository implements AdPlanRepository {
     @Override
     public Optional<AdPlan> findByIdOnly(PlanId id) {
         return Optional.ofNullable(mapper.selectById(id.value())).map(this::toDomain);
+    }
+
+    @Override
+    public void detachOauthAccount(AccountId accountId) {
+        mapper.update(
+                null,
+                new UpdateWrapper<AdPlanPo>()
+                        .eq("oauth_account_id", accountId.value())
+                        .setSql("oauth_account_id = null"));
     }
 
     @Override

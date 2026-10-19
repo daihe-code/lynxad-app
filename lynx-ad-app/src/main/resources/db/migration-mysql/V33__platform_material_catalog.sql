@@ -1,4 +1,4 @@
-CREATE TABLE platform_material_catalog (
+CREATE TABLE IF NOT EXISTS platform_material_catalog (
   tenant_id VARCHAR(36) NOT NULL,
   account_id VARCHAR(36) NOT NULL,
   advertiser_id VARCHAR(32) NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE platform_material_catalog (
   PRIMARY KEY (tenant_id, account_id, material_type, entry_key),
   INDEX idx_platform_material_catalog_tenant(tenant_id, material_type, created_at)
 );
-CREATE TABLE platform_material_sync (
+CREATE TABLE IF NOT EXISTS platform_material_sync (
   account_id VARCHAR(36) PRIMARY KEY,
   tenant_id VARCHAR(36) NOT NULL,
   next_sync_at TIMESTAMP(3) NOT NULL,

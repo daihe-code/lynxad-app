@@ -1,5 +1,16 @@
 package com.lynx.ad.modules.identity.infrastructure.adapter;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.config.LynxAdProperties;
@@ -10,13 +21,8 @@ import com.lynx.ad.common.http.RequestSpec;
 import com.lynx.ad.modules.identity.domain.model.AwemeType;
 import com.lynx.ad.modules.identity.domain.port.OauthTokenPort;
 import com.lynx.ad.modules.identity.domain.service.AwemeCatalog;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.*;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
+
+
 
 @Component
 @Primary
@@ -31,6 +37,9 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
     public record TokenBundle(String accessToken,String refreshToken,Instant accessExpiresAt,Instant refreshExpiresAt) {
         @Override public String toString() { return "OAuth tokens [redacted]"; }
     }
+
+  
+
     public static class RemoteFailure extends BizException {
         private final boolean permanent;
         public RemoteFailure(int code,String message,boolean permanent) { super(code,message); this.permanent=permanent; }

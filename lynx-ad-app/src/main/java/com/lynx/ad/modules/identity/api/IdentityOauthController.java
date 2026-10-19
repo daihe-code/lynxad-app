@@ -10,9 +10,13 @@ import com.lynx.ad.modules.identity.application.OauthCallbackResult;
 import com.lynx.ad.modules.identity.application.OauthCommandService;
 import com.lynx.ad.modules.identity.application.OauthQueryService;
 import com.lynx.ad.modules.identity.domain.model.Platform;
+import jakarta.servlet.http.HttpServletRequest;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -70,6 +74,16 @@ public class IdentityOauthController {
         }
         view.setExposeModelAttributes(false);
         return view;
+    }
+
+    @GetMapping("/api/v1/identity/oauth/relay")
+    public ResponseEntity<String> relay(HttpServletRequest request) {
+        String html = OauthRelayPage.render(
+                request.getQueryString(), properties.getOauth().getQianchuan().getRedirectUri());
+        return ResponseEntity.ok()
+                .contentType(new MediaType("text", "html", StandardCharsets.UTF_8))
+                .cacheControl(CacheControl.noStore())
+                .body(html);
     }
 
     @PostMapping("/api/v1/identity/oauth/accounts/mock-bind")

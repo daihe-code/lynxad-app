@@ -25,4 +25,6 @@ lynx:
     oauth:
       web-callback-uri: ${LYNX_OAUTH_WEB_CALLBACK_URI}
       qianchuan:
+        app-id: ${QIANCHUAN_APPID:}
+        app-secret: ${QIANCHUAN_SECRET:}
         redirect-uri: ${QIANCHUAN_REDIRECT_URI}

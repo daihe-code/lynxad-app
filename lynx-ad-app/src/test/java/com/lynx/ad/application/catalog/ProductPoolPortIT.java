@@ -69,7 +69,7 @@ class ProductPoolPortIT extends AbstractContainerIT {
             org.mockito.Mockito.when(accounts.findByIdOnly(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.Optional.of(account));
             var encryptor = org.mockito.Mockito.mock(com.lynx.ad.common.crypto.Encryptor.class);
             org.mockito.Mockito.when(encryptor.decrypt(org.mockito.ArgumentMatchers.any())).thenReturn("tok");
-            var facade = new com.lynx.ad.modules.identity.application.QianchuanCredentialFacade(accounts, encryptor);
+            var facade = new com.lynx.ad.modules.identity.application.QianchuanCredentialFacade(accounts, encryptor, props);
             var live = new com.lynx.ad.modules.catalog.infrastructure.adapter.LiveProductPoolAdapter(rest, props, ocean, facade);
             var items = live.list(account.id(), "aweme");
             assertTrue(items.stream().noneMatch(p -> p.id().value().startsWith("qp0")));
@@ -78,6 +78,46 @@ class ProductPoolPortIT extends AbstractContainerIT {
             BizException ex = assertThrows(BizException.class, () -> live.list(account.id(), "aweme"));
             assertEquals(1306, ex.code());
         } finally {
+            fixture.productFail = false;
+            fixture.stop();
+        }
+    }
+
+    @Test
+    void livePoolReadsProductNameAndImg() throws Exception {
+        LiveFixtureServer fixture = new LiveFixtureServer();
+        fixture.productAltFields = true;
+        try {
+            var props = new com.lynx.ad.common.config.LynxAdProperties();
+            props.getQianchuan().getCatalog().setProductGetUrl(fixture.base() + "/catalog/product");
+            var rest = new com.lynx.ad.common.http.QianchuanRestClient(
+                    mapper, ms -> {}, java.net.http.HttpClient.newHttpClient());
+            var ocean = new com.lynx.ad.common.http.OceanJson(mapper);
+            var accounts = org.mockito.Mockito.mock(com.lynx.ad.modules.identity.domain.port.OauthAccountRepository.class);
+            var account = com.lynx.ad.modules.identity.domain.model.OauthAccount.authorize(
+                    new com.lynx.ad.common.domain.Ids.TenantId("t"),
+                    new com.lynx.ad.common.domain.Ids.AdvertiserId("adv"),
+                    "n",
+                    new com.lynx.ad.modules.identity.domain.model.EncryptedToken("a"),
+                    new com.lynx.ad.modules.identity.domain.model.EncryptedToken("r"),
+                    java.time.Instant.now().plusSeconds(60),
+                    java.time.Instant.now().plusSeconds(60),
+                    java.util.List.of());
+            org.mockito.Mockito.when(accounts.findByIdOnly(org.mockito.ArgumentMatchers.any()))
+                    .thenReturn(java.util.Optional.of(account));
+            var encryptor = org.mockito.Mockito.mock(com.lynx.ad.common.crypto.Encryptor.class);
+            org.mockito.Mockito.when(encryptor.decrypt(org.mockito.ArgumentMatchers.any())).thenReturn("tok");
+            var facade = new com.lynx.ad.modules.identity.application.QianchuanCredentialFacade(accounts, encryptor, props);
+            var live = new com.lynx.ad.modules.catalog.infrastructure.adapter.LiveProductPoolAdapter(
+                    rest, props, ocean, facade);
+            var items = live.list(account.id(), "aweme");
+            assertEquals(1, items.size());
+            assertEquals("live_p02", items.get(0).id().value());
+            assertEquals("回退面包", items.get(0).name());
+            assertEquals("http://img.example/p.png", items.get(0).imageUrl());
+            assertEquals(0, items.get(0).price().amount().compareTo(new java.math.BigDecimal("19.9")));
+        } finally {
+            fixture.productAltFields = false;
             fixture.stop();
         }
     }

@@ -17,6 +17,9 @@ public class OceanJson {
     public JsonNode dataOrThrow(String body, int failCode, String failMessage) {
         JsonNode root = root(body);
         int code = root.path("code").asInt(-1);
+        if (code == 40105) {
+            throw new BizException(code, "访问令牌无效");
+        }
         if (Qianchuan401ReplayCodes.isAuthExpiredCode(code)) {
             throw new BizException(code, "授权已失效");
         }

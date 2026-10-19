@@ -1,4 +1,4 @@
-CREATE TABLE tenant_legal_profile (
+CREATE TABLE IF NOT EXISTS tenant_legal_profile (
  tenant_id VARCHAR(36) PRIMARY KEY,
  company_name VARCHAR(200) NOT NULL,
  credit_code VARCHAR(18) NOT NULL,
@@ -7,10 +7,10 @@ CREATE TABLE tenant_legal_profile (
  revision INTEGER NOT NULL,
  submitted_at DATETIME(3) NOT NULL,
  reviewed_at DATETIME(3),
- reviewed_by VARCHAR(36)
+ reviewed_by VARCHAR(36),
+ INDEX idx_legal_review_queue (verification_status, submitted_at)
 );
-CREATE INDEX idx_legal_review_queue ON tenant_legal_profile(verification_status, submitted_at);
-CREATE TABLE tenant_invoice_profile (
+CREATE TABLE IF NOT EXISTS tenant_invoice_profile (
  tenant_id VARCHAR(36) PRIMARY KEY,
  title VARCHAR(200) NOT NULL,
  invoice_type VARCHAR(32) NOT NULL,

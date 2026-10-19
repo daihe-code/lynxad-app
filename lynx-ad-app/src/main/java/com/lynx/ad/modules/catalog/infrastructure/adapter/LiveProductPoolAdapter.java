@@ -1,5 +1,13 @@
 package com.lynx.ad.modules.catalog.infrastructure.adapter;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.AccountId;
@@ -12,12 +20,6 @@ import com.lynx.ad.common.http.RequestSpec;
 import com.lynx.ad.modules.catalog.domain.port.ProductPoolPort;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.Credential;
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
 
 @Component
 @Primary
@@ -67,7 +69,10 @@ public class LiveProductPoolAdapter implements ProductPoolPort {
                     com.lynx.ad.common.security.TenantContext.requireTenantId(),c,awemeId,refs,refreshPrices);
             List<PoolItem> items = new ArrayList<>();
             for (JsonNode n : list) {
-                String id = n.path("product_id").asText(n.path("id").asText(""));
+                String id = text(n, "product_id");
+                if (id.isBlank()) {
+                    id = text(n, "id");
+                }
                 if (id.isBlank() || id.startsWith("qp0")) {
                     continue;
                 }
@@ -82,6 +87,9 @@ public class LiveProductPoolAdapter implements ProductPoolPort {
             }
             return items;
         } catch (BizException ex) {
+            if (ex.code() == 1207) {
+                throw ex;
+            }
             if (ex.code() == 1306 || ex.code() == 1201 || ex.code() == 1205) {
                 throw ex.code() == 1201 || ex.code() == 1205 ? new BizException(1306, "商品池查询失败") : ex;
             }
@@ -89,5 +97,24 @@ public class LiveProductPoolAdapter implements ProductPoolPort {
         } catch (RuntimeException ex) {
             throw new BizException(1306, "商品池查询失败");
         }
+    }
+
+    private static String text(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) {
+            return "";
+        }
+        String text = value.asText("");
+        return text == null ? "" : text.trim();
+    }
+
+    private static String firstImage(JsonNode node) {
+        for (String field : List.of("image_url", "image", "img")) {
+            String value = text(node, field);
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

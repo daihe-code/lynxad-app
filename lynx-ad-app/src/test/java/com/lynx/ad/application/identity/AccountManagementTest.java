@@ -1,6 +1,7 @@
 package com.lynx.ad.application.identity;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.lynx.ad.common.config.LynxAdProperties;
@@ -8,7 +9,7 @@ import com.lynx.ad.common.crypto.Encryptor;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
-import com.lynx.ad.modules.billing.application.EntitlementQueryService;
+import com.lynx.ad.modules.delivery.application.PlanAccountLinkService;
 import com.lynx.ad.modules.identity.application.OauthCommandService;
 import com.lynx.ad.modules.identity.application.OauthQueryService;
 import com.lynx.ad.modules.identity.domain.model.*;
@@ -20,6 +21,8 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class AccountManagementTest {
     private final TenantId tenant = new TenantId("account-owner");
@@ -27,10 +30,13 @@ class AccountManagementTest {
 
     @SuppressWarnings("unchecked")
     private OauthCommandService commands() {
-        return new OauthCommandService(repository, mock(OauthAuthCodeAuditRepository.class),
+        PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
+        when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        return new OauthCommandService(repository, mock(OauthAppBindingRepository.class),
+                mock(OauthAuthCodeAuditRepository.class),
                 mock(MockQianchuanClient.class), new LynxAdProperties(), mock(ObjectProvider.class),
                 mock(Encryptor.class), mock(TenantQuerySupport.class), mock(AuditRecorder.class),
-                mock(EntitlementQueryService.class));
+                mock(PlanAccountLinkService.class), transactions);
     }
 
     private OauthAccount account(String id, String status) {

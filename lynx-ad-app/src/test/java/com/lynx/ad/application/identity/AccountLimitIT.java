@@ -47,6 +47,17 @@ class AccountLimitIT extends AbstractContainerIT {
                 mvc,
                 MockMvcRequestBuilders.post("/api/v1/identity/oauth/accounts/mock-bind")
                         .header("Authorization", "Bearer " + token));
-        assertEquals(1206, second.path("code").asInt());
+        assertEquals(0, second.path("code").asInt());
+        String tenantId = BillingItSupport.tenantId(mapper, mvc, token);
+        Integer rows = jdbc.queryForObject(
+                "select count(*) from oauth_account where tenant_id = ? and advertiser_id = 'adv_demo'",
+                Integer.class,
+                tenantId);
+        assertEquals(1, rows);
+        String status = jdbc.queryForObject(
+                "select status from oauth_account where tenant_id = ? and advertiser_id = 'adv_demo'",
+                String.class,
+                tenantId);
+        assertEquals("ACTIVE", status);
     }
 }

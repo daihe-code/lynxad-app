@@ -391,7 +391,9 @@ public class LynxAdProperties {
         public boolean isLive() { return "live".equalsIgnoreCase(mode); }
         private String appId = "";
         private String appSecret = "";
-        private String redirectUri = "http://localhost:5173/oauth/callback";
+        private String redirectUri = ""; //http://localhost:5173/oauth/callback
+        /** 开放平台登记的中转页。非空时授权地址用它做 redirect_uri，为空时仍用 redirectUri。 */
+        private String platformRedirectUri = "";
         /** Demo 对照：千川开放平台授权页 */
         private String authorizeUrl = "https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html";
 
@@ -417,6 +419,22 @@ public class LynxAdProperties {
 
         public void setRedirectUri(String redirectUri) {
             this.redirectUri = redirectUri;
+        }
+
+        public String getPlatformRedirectUri() {
+            return platformRedirectUri;
+        }
+
+        public void setPlatformRedirectUri(String platformRedirectUri) {
+            this.platformRedirectUri = platformRedirectUri;
+        }
+
+        /** 授权地址里的 redirect_uri。公网中转地址优先，未配置时沿用拼接基址。 */
+        public String authorizeRedirectUri() {
+            if (platformRedirectUri != null && !platformRedirectUri.isBlank()) {
+                return platformRedirectUri;
+            }
+            return redirectUri == null ? "" : redirectUri;
         }
 
         public String getAuthorizeUrl() {

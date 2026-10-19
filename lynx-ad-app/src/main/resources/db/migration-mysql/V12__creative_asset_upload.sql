@@ -1,4 +1,4 @@
-CREATE TABLE creative_asset (
+CREATE TABLE IF NOT EXISTS creative_asset (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL,
     user_id VARCHAR(64) NOT NULL,
@@ -20,13 +20,13 @@ CREATE TABLE creative_asset (
     text_content LONGTEXT,
     canonical_id VARCHAR(36),
     error_message VARCHAR(512),
-    created_at TIMESTAMP(6) NOT NULL,
-    updated_at TIMESTAMP(6) NOT NULL,
+    created_at DATETIME(3) NOT NULL,
+    updated_at DATETIME(3) NOT NULL,
     UNIQUE KEY uq_asset_request (tenant_id, request_id),
     UNIQUE KEY uq_asset_content (tenant_id, content_key),
     INDEX ix_asset_tenant (tenant_id, created_at)
 );
-CREATE TABLE creative_asset_platform (
+CREATE TABLE IF NOT EXISTS creative_asset_platform (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL,
     asset_id VARCHAR(36) NOT NULL,
@@ -38,11 +38,11 @@ CREATE TABLE creative_asset_platform (
     request_id VARCHAR(128),
     review_status VARCHAR(24) NOT NULL DEFAULT 'UNKNOWN',
     attempts INT NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMP(6) NOT NULL,
-    lease_until TIMESTAMP(6),
+    next_attempt_at DATETIME(3) NOT NULL,
+    lease_until DATETIME(3),
     error_message VARCHAR(512),
-    created_at TIMESTAMP(6) NOT NULL,
-    updated_at TIMESTAMP(6) NOT NULL,
+    created_at DATETIME(3) NOT NULL,
+    updated_at DATETIME(3) NOT NULL,
     UNIQUE KEY uq_asset_account (tenant_id, asset_id, account_id),
     INDEX ix_asset_sync_queue (status, next_attempt_at),
     INDEX ix_asset_sync_tenant (tenant_id, asset_id)

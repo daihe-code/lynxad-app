@@ -128,6 +128,30 @@ public class OauthAccount {
                 authorizedByUserId);
     }
 
+    public static OauthAccount reconfirm(
+            OauthAccount existing,
+            String accountName,
+            EncryptedToken access,
+            EncryptedToken refresh,
+            Instant accessExp,
+            Instant refreshExp,
+            List<Aweme> awemes,
+            String authorizedByUserId) {
+        return new OauthAccount(
+                existing.id(),
+                existing.tenantId(),
+                existing.platform(),
+                existing.advertiserId(),
+                accountName,
+                access,
+                refresh,
+                accessExp,
+                refreshExp,
+                "ACTIVE",
+                awemes,
+                authorizedByUserId);
+    }
+
     public void unbind() {
         this.status = "UNBOUND";
     }

@@ -12,6 +12,8 @@ import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.modules.identity.domain.service.OauthStateSigner;
 import com.lynx.ad.starter.LynxAdApplication;
 import com.lynx.ad.support.AbstractContainerIT;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -31,7 +33,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 @ActiveProfiles("test")
 class OauthCallbackIT extends AbstractContainerIT {
 
-    private static final String WEB_CB = "http://localhost:5173/oauth/callback";
+    private static final String WEB_CB = "http://localhost:5174/oauth/callback";
 
     @Autowired
     private MockMvc mvc;
@@ -133,6 +135,64 @@ class OauthCallbackIT extends AbstractContainerIT {
                 Integer.class,
                 a.tenantId);
         assertEquals(0, rows);
+    }
+
+    @Test
+    void authorizeUrlCarriesStateAndHidesAccessToken() throws Exception {
+        Session a = onboard("13900001004", "地址店");
+        MvcResult url = mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/url")
+                        .header("Authorization", "Bearer " + a.token))
+                .andReturn();
+        String raw = url.getResponse().getContentAsString();
+        assertFalse(raw.contains("access_token"));
+        assertTrue(objectMapper.readTree(raw).path("data").path("url").asText().contains("state="));
+    }
+
+    @Test
+    void missingAuthCodeDoesNotPersist() throws Exception {
+        Session a = onboard("13900001005", "缺码店");
+        String state = signer.sign(new TenantId(a.tenantId), new UserId(a.userId));
+        MvcResult cb = mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/callback")
+                        .param("state", state))
+                .andReturn();
+        assertEquals(302, cb.getResponse().getStatus());
+        String loc = cb.getResponse().getHeader("Location");
+        assertTrue(loc != null && loc.contains("ok=0"));
+        assertTrue(loc.contains(URLEncoder.encode("缺少授权码", StandardCharsets.UTF_8)));
+        Integer rows = jdbc.queryForObject(
+                "select count(*) from oauth_account where tenant_id = ?",
+                Integer.class,
+                a.tenantId);
+        assertEquals(0, rows);
+    }
+
+    @Test
+    void relayShowsParamsAndDoesNotPersist() throws Exception {
+        Integer accountsBefore = jdbc.queryForObject("select count(*) from oauth_account", Integer.class);
+        Integer auditsBefore = jdbc.queryForObject("select count(*) from oauth_auth_code_audit", Integer.class);
+        MvcResult page = mvc.perform(MockMvcRequestBuilders.get(
+                        "/api/v1/identity/oauth/relay?auth_code=relay-code&state=state-1"))
+                .andReturn();
+        assertEquals(200, page.getResponse().getStatus());
+        assertTrue(page.getResponse().getContentType().contains("text/html"));
+        assertEquals("no-store", page.getResponse().getHeader("Cache-Control"));
+        String body = page.getResponse().getContentAsString();
+        assertTrue(body.contains("auth_code = relay-code"));
+        assertTrue(body.contains("state = state-1"));
+        assertTrue(body.contains(
+                "http://localhost:8080/lynx-ad/api/v1/identity/oauth/callback?auth_code=relay-code&amp;state=state-1"));
+        assertEquals(accountsBefore, jdbc.queryForObject("select count(*) from oauth_account", Integer.class));
+        assertEquals(auditsBefore, jdbc.queryForObject("select count(*) from oauth_auth_code_audit", Integer.class));
+    }
+
+    @Test
+    void relayWithoutQueryShowsEmptyMessage() throws Exception {
+        MvcResult page = mvc.perform(MockMvcRequestBuilders.get("/api/v1/identity/oauth/relay"))
+                .andReturn();
+        assertEquals(200, page.getResponse().getStatus());
+        String body = page.getResponse().getContentAsString();
+        assertTrue(body.contains("未收到回调参数"));
+        assertFalse(body.contains("完整地址"));
     }
 
     private Session onboard(String phone, String company) throws Exception {

@@ -1,11 +1,13 @@
 package com.lynx.ad.support;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import org.springframework.test.context.DynamicPropertyRegistry;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 public final class LiveFixtureServer {
 
@@ -16,8 +18,17 @@ public final class LiveFixtureServer {
     public volatile boolean statusFail;
     public volatile boolean createFail;
     public volatile boolean libraryFail;
+    public final AtomicInteger productHits = new AtomicInteger();
+    public final AtomicInteger reportHits = new AtomicInteger();
     public volatile boolean productFail;
-    public volatile String createdAdId = "991001001";
+    public volatile boolean productEmpty;
+    public volatile boolean productAltFields;
+    public volatile String exchangeAdvertiserId = "adv_live_1";
+    public volatile String exchangeAdvertiserIds;
+    public volatile String exchangeAccessToken = "live-access";
+    public volatile String exchangeAdvertiserName = "夹具账户";
+    public volatile String awemeMode = "ok";
+    public volatile String createdAdId = "991001001";  //"qc_live_1001"
 
     public LiveFixtureServer() throws java.io.IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1",0), 0);
@@ -60,6 +71,46 @@ public final class LiveFixtureServer {
         server.stop(0);
     }
 
+    private String tokenJson() {
+        if (exchangeAdvertiserIds != null && !exchangeAdvertiserIds.isBlank()) {
+            StringBuilder ids = new StringBuilder();
+            for (String raw : exchangeAdvertiserIds.split(",")) {
+                String id = raw.trim();
+                if (id.isEmpty()) {
+                    continue;
+                }
+                if (!ids.isEmpty()) {
+                    ids.append(',');
+                }
+                ids.append('"').append(id).append('"');
+            }
+            return "{\"code\":0,\"data\":{\"access_token\":\""
+                    + exchangeAccessToken
+                    + "\",\"refresh_token\":\"live-refresh\",\"expires_in\":3600,\"advertiser_ids\":["
+                    + ids
+                    + "],\"advertiser_name\":\""
+                    + exchangeAdvertiserName
+                    + "\"}}";
+        }
+        return "{\"code\":0,\"data\":{\"access_token\":\""
+                + exchangeAccessToken
+                + "\",\"refresh_token\":\"live-refresh\",\"expires_in\":3600,\"advertiser_id\":\""
+                + exchangeAdvertiserId
+                + "\",\"advertiser_name\":\""
+                + exchangeAdvertiserName
+                + "\"}}";
+    }
+
+    private String awemeJson() {
+        if ("error".equals(awemeMode)) {
+            return "{\"code\":40000}";
+        }
+        if ("empty".equals(awemeMode)) {
+            return "{\"code\":0,\"data\":{\"list\":[]}}";
+        }
+        return "{\"code\":0,\"data\":{\"list\":[{\"aweme_id\":\"aweme_live\",\"aweme_name\":\"夹具号\"}]}}";
+    }
+
     private void handle(HttpExchange ex) throws java.io.IOException {
         String path = ex.getRequestURI().getPath();
         String json;
@@ -70,7 +121,7 @@ public final class LiveFixtureServer {
         } else if (path.contains("/oauth/advertiser")) {
             json = "{\"code\":0,\"data\":{\"list\":[{\"account_id\":991001,\"account_name\":\"夹具账户\",\"account_role\":\"ADVERTISER\",\"account_type\":\"QIANCHUAN\"}]}}";
         } else if (path.contains("/oauth/aweme")) {
-            json = "{\"code\":0,\"data\":{\"list\":[{\"aweme_id\":\"aweme_live\",\"aweme_name\":\"夹具号\"}]}}";
+            json = awemeJson();
         } else if (path.contains("/delivery/create")) {
             createHits.incrementAndGet();
             if (createFail) {
@@ -96,11 +147,17 @@ public final class LiveFixtureServer {
         } else if (path.contains("/delivery/roi")) {
             json = "{\"code\":0,\"data\":{\"suggest_roi\":2.5}}";
         } else if (path.contains("/report")) {
+            reportHits.incrementAndGet();
             json = "{\"code\":0,\"data\":{\"list\":[{\"stat_cost\":200000,\"show_cnt\":100,\"click_cnt\":10,\"convert_cnt\":1,\"pay_order_amount\":200000,\"roi\":2.0,\"ctr\":0.1}]}}";
         } else if (path.contains("/catalog/product")) {
+            productHits.incrementAndGet();
             if (productFail) {
                 status = 500;
                 json = "{\"code\":500,\"message\":\"pool fail\"}";
+            } else if (productEmpty) {
+                json = "{\"code\":0,\"data\":{\"list\":[]}}";
+            } else if (productAltFields) {
+                json = "{\"code\":0,\"data\":{\"product_list\":[{\"id\":\"live_p02\",\"product_name\":\"回退面包\",\"img\":\"http://img.example/p.png\",\"price\":19.9}]}}";
             } else {
                 json = "{\"code\":0,\"data\":{\"list\":[{\"product_id\":\"live_p01\",\"name\":\"真链面包\",\"price\":19.9}]}}";
             }

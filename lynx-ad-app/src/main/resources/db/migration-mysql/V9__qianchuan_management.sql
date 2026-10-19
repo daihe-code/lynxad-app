@@ -1,4 +1,4 @@
-CREATE TABLE qc_plan_metadata (
+CREATE TABLE IF NOT EXISTS qc_plan_metadata (
   plan_id VARCHAR(36) PRIMARY KEY,
   tenant_id VARCHAR(36) NOT NULL,
   oauth_account_id VARCHAR(36) NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE qc_plan_metadata (
   UNIQUE (tenant_id, oauth_account_id, qc_plan_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE qc_control_submission (
+CREATE TABLE IF NOT EXISTS qc_control_submission (
   tenant_id VARCHAR(36) NOT NULL,
   request_key VARCHAR(64) NOT NULL,
   plan_id VARCHAR(36) NOT NULL,

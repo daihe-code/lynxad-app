@@ -1,4 +1,4 @@
-CREATE TABLE oauth_application (
+CREATE TABLE IF NOT EXISTS oauth_application (
   id VARCHAR(36) PRIMARY KEY,
   platform VARCHAR(24) NOT NULL,
   app_id VARCHAR(64) NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE oauth_application (
   UNIQUE (platform, app_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE oauth_grant (
+CREATE TABLE IF NOT EXISTS oauth_grant (
   id VARCHAR(36) PRIMARY KEY,
   tenant_id VARCHAR(36) NOT NULL,
   application_id VARCHAR(36) NOT NULL,
@@ -22,11 +22,11 @@ CREATE TABLE oauth_grant (
   version BIGINT NOT NULL DEFAULT 0,
   refresh_owner VARCHAR(36),
   refresh_locked_until DATETIME(3),
-  created_at DATETIME(3) NOT NULL
+  created_at DATETIME(3) NOT NULL,
+  INDEX idx_oauth_grant_tenant (tenant_id, platform)
 ) ENGINE=InnoDB;
-CREATE INDEX idx_oauth_grant_tenant ON oauth_grant (tenant_id, platform);
 
-CREATE TABLE oauth_authorization_session (
+CREATE TABLE IF NOT EXISTS oauth_authorization_session (
   id VARCHAR(36) PRIMARY KEY,
   tenant_id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
@@ -40,11 +40,26 @@ CREATE TABLE oauth_authorization_session (
   error_message VARCHAR(256),
   return_path VARCHAR(128) NOT NULL,
   expires_at DATETIME(3) NOT NULL,
-  created_at DATETIME(3) NOT NULL
+  created_at DATETIME(3) NOT NULL,
+  INDEX idx_oauth_session_tenant (tenant_id, user_id)
 ) ENGINE=InnoDB;
-CREATE INDEX idx_oauth_session_tenant ON oauth_authorization_session (tenant_id, user_id);
 
-ALTER TABLE oauth_account ADD COLUMN grant_id VARCHAR(36);
-ALTER TABLE oauth_account ADD COLUMN application_id VARCHAR(36);
-ALTER TABLE oauth_account ADD COLUMN catalog_error VARCHAR(256);
-CREATE INDEX idx_oauth_account_grant ON oauth_account (grant_id, status);
+SET @ddl = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE oauth_account ADD COLUMN grant_id VARCHAR(36)', 'SELECT 1') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'oauth_account' AND column_name = 'grant_id');
+PREPARE lynx_stmt FROM @ddl;
+EXECUTE lynx_stmt;
+DEALLOCATE PREPARE lynx_stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE oauth_account ADD COLUMN application_id VARCHAR(36)', 'SELECT 1') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'oauth_account' AND column_name = 'application_id');
+PREPARE lynx_stmt FROM @ddl;
+EXECUTE lynx_stmt;
+DEALLOCATE PREPARE lynx_stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE oauth_account ADD COLUMN catalog_error VARCHAR(256)', 'SELECT 1') FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'oauth_account' AND column_name = 'catalog_error');
+PREPARE lynx_stmt FROM @ddl;
+EXECUTE lynx_stmt;
+DEALLOCATE PREPARE lynx_stmt;
+
+SET @ddl = (SELECT IF(COUNT(*) = 0, 'CREATE INDEX idx_oauth_account_grant ON oauth_account (grant_id, status)', 'SELECT 1') FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'oauth_account' AND index_name = 'idx_oauth_account_grant');
+PREPARE lynx_stmt FROM @ddl;
+EXECUTE lynx_stmt;
+DEALLOCATE PREPARE lynx_stmt;

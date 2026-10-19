@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.delivery.domain.port;
 
+import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.AwemeId;
 import com.lynx.ad.common.domain.Ids.PlanId;
 import com.lynx.ad.common.domain.Ids.QcPlanId;
@@ -36,6 +37,8 @@ public interface AdPlanRepository {
     record ListMetadata(Instant createdAt, String deliveryPlatform) {}
 
     List<AdPlan> findPendingAudit();
+
+    void detachOauthAccount(AccountId accountId);
 
     Optional<AdPlan> findByIdOnly(PlanId id);
 }

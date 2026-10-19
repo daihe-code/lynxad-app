@@ -36,7 +36,7 @@ lynx:
     crypto:
       aes-key: "dev-only-aes256-key-32bytes!!!!"
     oauth:
-      web-callback-uri: http://localhost:5173/oauth/callback
+      web-callback-uri: http://localhost:5174/oauth/callback
       qianchuan:
         redirect-uri: http://localhost:8080/lynx-ad/api/v1/identity/oauth/callback
         authorize-url: https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html

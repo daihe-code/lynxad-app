@@ -69,6 +69,9 @@ public class Qianchuan401ReplayInterceptor {
             try {
                 return call.get();
             } catch (BizException second) {
+                if (second.code() == 40105) {
+                    throw new BizException(1211, "访问令牌无效，请重新授权");
+                }
                 if (Qianchuan401ReplayCodes.isAuthExpired(second)) {
                     throw new BizException(1211, "授权已失效，请重新授权");
                 }

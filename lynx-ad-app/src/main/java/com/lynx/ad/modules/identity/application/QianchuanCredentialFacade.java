@@ -1,27 +1,33 @@
 package com.lynx.ad.modules.identity.application;
 
+import java.time.Instant;
+
+import org.springframework.stereotype.Component;
+
+import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.crypto.Encryptor;
 import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.TenantContext;
-import com.lynx.ad.modules.identity.domain.model.OauthAccount;
-import java.time.Instant;
 import com.lynx.ad.modules.identity.domain.model.Credential;
+import com.lynx.ad.modules.identity.domain.model.OauthAccount;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
-import org.springframework.stereotype.Component;
 
 @Component
 public class QianchuanCredentialFacade {
 
     private final OauthAccountRepository repository;
     private final Encryptor encryptor;
+    private final LynxAdProperties properties;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private LiveQianchuanAuthorizationService liveAuthorization;
 
-    public QianchuanCredentialFacade(OauthAccountRepository repository, Encryptor encryptor) {
+    public QianchuanCredentialFacade(
+            OauthAccountRepository repository, Encryptor encryptor, LynxAdProperties properties) {
         this.repository = repository;
         this.encryptor = encryptor;
+        this.properties = properties;
     }
 
     public Credential get(AccountId accountId) {
@@ -51,6 +57,11 @@ public class QianchuanCredentialFacade {
             throw new BizException(1211, "授权令牌已过期，等待授权模块更新或重新授权");
         if (account.accessToken() == null || account.advertiserId() == null)
             throw new BizException(1205, "授权信息不完整");
+        if (!properties.getMock().isQianchuan()
+            && (DemoLiveCredentialRules.isDemoAdvertiser(account.advertiserId().value())
+                    || DemoLiveCredentialRules.isDemoAccessToken(encryptor.decrypt(account.accessToken().cipherText())))) {
+            throw new BizException(1207, "演示授权不能用于千川真链");
+        }
         String token = encryptor.decrypt(account.accessToken().cipherText());
         if (token == null || token.isBlank()) throw new BizException(1205, "授权信息不完整");
         return new Credential(token, account.advertiserId(),account.id().value());

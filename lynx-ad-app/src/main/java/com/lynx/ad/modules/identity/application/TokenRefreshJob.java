@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.identity.application;
 
+import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.modules.identity.domain.model.OauthAccount;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
 import com.lynx.ad.modules.identity.domain.service.TokenRefreshPolicy;
@@ -19,15 +20,18 @@ public class TokenRefreshJob {
     private final OauthAccountRepository repository;
     private final InboxCommandService inboxCommandService;
     private final OauthCommandService commandService;
+    private final LynxAdProperties properties;
     private final TokenRefreshPolicy policy = new TokenRefreshPolicy();
 
     public TokenRefreshJob(
             OauthAccountRepository repository,
             InboxCommandService inboxCommandService,
-            OauthCommandService commandService) {
+            OauthCommandService commandService,
+            LynxAdProperties properties) {
         this.repository = repository;
         this.inboxCommandService = inboxCommandService;
         this.commandService = commandService;
+        this.properties = properties;
     }
 
     @Scheduled(fixedDelayString = "${lynx.ad.schedule.token-refresh-ms:600000}")
@@ -37,6 +41,10 @@ public class TokenRefreshJob {
         for (OauthAccount account : repository.findDueRefresh(deadline)) {
             if (commandService.liveAuthorizationEnabled() && account.grantId() == null) continue;
             if (!policy.due(account, now)) {
+                continue;
+            }
+            if (!properties.getMock().isQianchuan()
+                    && DemoLiveCredentialRules.isDemoAdvertiser(account.advertiserId().value())) {
                 continue;
             }
             try {

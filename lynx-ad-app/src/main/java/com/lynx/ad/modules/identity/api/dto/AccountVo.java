@@ -1,7 +1,7 @@
 package com.lynx.ad.modules.identity.api.dto;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.List;
 
 public record AccountVo(
         String accountId,

@@ -8,7 +8,7 @@ import com.lynx.ad.common.crypto.Encryptor;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
-import com.lynx.ad.modules.billing.application.EntitlementQueryService;
+import com.lynx.ad.modules.delivery.application.PlanAccountLinkService;
 import com.lynx.ad.modules.identity.application.OauthCommandService;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.identity.domain.port.*;
@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class OauthRefreshValidityTest {
     private final TenantId tenant = new TenantId("refresh-tenant");
@@ -33,10 +34,11 @@ class OauthRefreshValidityTest {
         when(encryptor.decrypt("old-refresh-enc")).thenReturn("old-refresh");
         when(encryptor.encrypt("new-access")).thenReturn("new-access-enc");
         when(encryptor.encrypt("new-refresh")).thenReturn("new-refresh-enc");
-        return new OauthCommandService(repository, mock(OauthAuthCodeAuditRepository.class),
+        return new OauthCommandService(repository, mock(OauthAppBindingRepository.class),
+                mock(OauthAuthCodeAuditRepository.class),
                 mock(MockQianchuanClient.class), new LynxAdProperties(), provider,
                 encryptor, mock(TenantQuerySupport.class), mock(AuditRecorder.class),
-                mock(EntitlementQueryService.class));
+                mock(PlanAccountLinkService.class), mock(PlatformTransactionManager.class));
     }
 
     private OauthAccount account() {

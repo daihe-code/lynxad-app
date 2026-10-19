@@ -1,5 +1,11 @@
 package com.lynx.ad.modules.catalog.application;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+
 import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.domain.Ids.AwemeId;
 import com.lynx.ad.common.domain.Ids.ProductId;
@@ -14,37 +20,27 @@ import com.lynx.ad.modules.catalog.domain.model.ProductSelection;
 import com.lynx.ad.modules.catalog.domain.port.ProductPoolPort;
 import com.lynx.ad.modules.catalog.domain.port.ProductRepository;
 import com.lynx.ad.modules.catalog.domain.service.ProductSelectPolicy;
-import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import org.springframework.stereotype.Service;
 
 @Service
 public class ProductCommandService {
 
     private final ProductRepository repository;
     private final ProductPoolPort productPoolPort;
-    private final OauthAccountRepository oauthAccountRepository;
+    private final OwningAccountLookup owningAccountLookup;
     private final ProductSelectPolicy policy = new ProductSelectPolicy();
 
     public ProductCommandService(
             ProductRepository repository,
             ProductPoolPort productPoolPort,
-            OauthAccountRepository oauthAccountRepository) {
+            OwningAccountLookup owningAccountLookup) {
         this.repository = repository;
         this.productPoolPort = productPoolPort;
-        this.oauthAccountRepository = oauthAccountRepository;
+        this.owningAccountLookup = owningAccountLookup;
     }
 
     public SelectProductsResponse select(TenantId tenantId, AwemeId awemeId, List<QcProductId> ids) {
         policy.assertSelectable(new ProductSelection(awemeId, ids));
-        AccountId accountId = oauthAccountRepository.findByTenant(tenantId).stream()
-                .filter(a -> a.platform()==com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN && "ACTIVE".equals(a.status()))
-                .filter(a -> a.awemes().stream().anyMatch(w -> w.awemeId().equals(awemeId)))
-                .findFirst()
-                .map(a -> a.id())
-                .orElse(new AccountId("unbound"));
+        AccountId accountId = owningAccountLookup.require(tenantId, awemeId.value());
         List<ProductPoolPort.PoolItem> pool = productPoolPort.list(accountId, awemeId.value());
         // Selecting again must reuse the same tenant/aweme/product record.
         // The database enforces uniqueness on this combination.

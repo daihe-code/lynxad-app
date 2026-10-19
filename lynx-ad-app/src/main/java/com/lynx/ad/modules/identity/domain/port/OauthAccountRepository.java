@@ -11,6 +11,8 @@ public interface OauthAccountRepository {
 
     void save(OauthAccount account);
 
+    void saveRenewingAuthorization(OauthAccount account);
+
     List<OauthAccount> findByTenant(TenantId id);
 
     Optional<OauthAccount> findById(TenantId tenantId, AccountId id);
@@ -18,4 +20,8 @@ public interface OauthAccountRepository {
     List<OauthAccount> findDueRefresh(Instant deadline);
 
     Optional<OauthAccount> findByIdOnly(AccountId id);
+
+    void deleteAwemes(AccountId id);
+
+    void deleteById(AccountId id);
 }

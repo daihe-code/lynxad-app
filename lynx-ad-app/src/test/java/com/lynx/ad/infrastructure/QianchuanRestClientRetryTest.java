@@ -5,10 +5,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.http.OceanJson;
 import com.lynx.ad.common.http.QianchuanRestClient;
 import com.lynx.ad.common.http.RequestSpec;
+import com.lynx.ad.modules.identity.infrastructure.adapter.Qianchuan401ReplayInterceptor;
+import org.springframework.beans.factory.ObjectProvider;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
@@ -83,6 +89,60 @@ class QianchuanRestClientRetryTest {
             assertTrue(logs.contains("code=40001"));assertTrue(logs.contains("request_id=request-123"));assertTrue(logs.contains("start_time格式错误"));
             assertFalse(logs.contains("short-sensitive-token"));assertFalse(logs.contains("another-sensitive-token"));assertFalse(logs.contains("query-sensitive-token"));assertFalse(logs.contains("header-sensitive-token"));
         } finally {logger.detachAppender(appender);appender.stop();}
+    }
+
+    @Test
+    void invalidTokenSaysAccessTokenInvalid() throws Exception {
+        start(json("{\"code\":40105,\"message\":\"bad\"}"));
+        BizException ex = assertThrows(
+                BizException.class, () -> client().exchange(RequestSpec.get(url()).build(), String.class));
+        assertEquals(40105, ex.code());
+        assertEquals("访问令牌无效", ex.getMessage());
+        BizException parsed = assertThrows(
+                BizException.class, () -> new OceanJson(new ObjectMapper()).dataOrThrow("{\"code\":40105}", 1406, "报表失败"));
+        assertEquals("访问令牌无效", parsed.getMessage());
+    }
+
+    @Test
+    void expiredTokenSaysAuthorizationExpired() throws Exception {
+        start(json("{\"code\":40102,\"message\":\"expired\"}"));
+        BizException ex = assertThrows(
+                BizException.class, () -> client().exchange(RequestSpec.get(url()).build(), String.class));
+        assertEquals(40102, ex.code());
+        assertEquals("授权已失效", ex.getMessage());
+    }
+
+    @Test
+    void replayedInvalidTokenAsksToReauthorize() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        start(ex -> {
+            hits.incrementAndGet();
+            write(ex, 200, "{\"code\":40105,\"message\":\"bad\"}");
+        });
+        Qianchuan401ReplayInterceptor interceptor = mock(Qianchuan401ReplayInterceptor.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<Qianchuan401ReplayInterceptor> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(interceptor);
+        when(provider.getObject()).thenReturn(interceptor);
+        QianchuanRestClient client = new QianchuanRestClient(
+                new ObjectMapper(), millis -> {}, HttpClient.newHttpClient(), provider);
+        BizException ex = assertThrows(
+                BizException.class,
+                () -> client.exchange(RequestSpec.get(url()).replayAccountId("acc-1").build(), String.class));
+        assertEquals(1211, ex.code());
+        assertEquals("访问令牌无效，请重新授权", ex.getMessage());
+        assertEquals(2, hits.get());
+    }
+
+    private com.sun.net.httpserver.HttpHandler json(String body) {
+        return ex -> write(ex, 200, body);
+    }
+
+    private static void write(com.sun.net.httpserver.HttpExchange ex, int status, String body) throws java.io.IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        ex.sendResponseHeaders(status, bytes.length);
+        ex.getResponseBody().write(bytes);
+        ex.close();
     }
 
     private void start(com.sun.net.httpserver.HttpHandler handler) throws Exception {
