@@ -33,7 +33,7 @@ class AssetSyncReconciliationTest {
         jdbc=new JdbcTemplate(ds);var manager=new DataSourceTransactionManager(ds);
         if(mode.equals("PostgreSQL"))jdbc.execute("CREATE DOMAIN IF NOT EXISTS TIMESTAMPTZ AS TIMESTAMP WITH TIME ZONE");
         try(var c=ds.getConnection()){for(String file:List.of("V12__creative_asset_upload.sql","V13__asset_sync_credential_version.sql","V14__asset_ai_review.sql","V19__engine_asset_reference.sql","V39__asset_upload_reconciliation.sql")) {
-            if(file.startsWith("V37"))for(String old:List.of("文件读取或同步任务失败，请重试","千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 9999）","千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 1511）")) {
+            if(file.endsWith("__asset_upload_reconciliation.sql"))for(String old:List.of("文件读取或同步任务失败，请重试","千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 9999）","千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 1511）")) {
                 String key=old.equals("文件读取或同步任务失败，请重试")?"historical":old.contains("9999")?"old-parse":"old-no-code";
                 jdbc.update("INSERT INTO creative_asset_platform(id,tenant_id,asset_id,account_id,status,attempts,error_message,next_attempt_at,created_at,updated_at) VALUES(?,'legacy',?,'a','FAILED',1,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",key,key.equals("historical")?"old":key,old);
             }
