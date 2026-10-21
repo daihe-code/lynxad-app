@@ -37,7 +37,16 @@ class CreationPayloadTest {
     static AssetUploadService.Detail asset(String id,String kind,String review,String account,String sync,String object){
         var r=new Review(id,"tenant",review,null,null,"",List.of(),null,1,Instant.now());
         var targets=account==null?List.<Sync>of():List.of(new Sync("sync","tenant",id,account,"123",sync,object,null,null,"UNKNOWN",1,null,null,null));
-        return new AssetUploadService.Detail(id,kind,id,10,"STORED","oss",false,"md5",1080,1920,"标题","url",null,"2026-10-08",targets,r);
+        return new AssetUploadService.Detail(id,kind,id,10,"STORED","oss",false,"md5",1080,"IMAGE".equals(kind)?1080:1920,"标题","url",null,"2026-10-08",targets,r);
+    }
+    @Test void nonSquareCardIsRejectedEvenIfItWasAlreadyUploadedSuccessfully() {
+        var image=asset("image","IMAGE","APPROVED","account","UPLOADED","native-image");
+        var portrait=new AssetUploadService.Detail(image.id(),image.kind(),image.filename(),image.sizeBytes(),image.storageStatus(),image.storageMode(),false,image.md5(),1080,1920,image.textContent(),image.url(),null,image.createdAt(),image.syncs(),image.aiReview());
+        var m=s.materials.getFirst();m.type="IMAGE";m.imageAssetIds=List.of("image");m.imageMode="SQUARE";
+        when(assets.detail(any(),eq("image"))).thenReturn(portrait);
+        assertTrue(assertThrows(BizException.class,()->builder.build(s)).getMessage().contains("1:1"));
+        when(assets.detail(any(),eq("image"))).thenReturn(image);
+        assertDoesNotThrow(()->builder.build(s));
     }
     @Test void costPayloadKeepsIntegerIdsAndAccountSpecificRealMedia(){
         var body=builder.build(s);assertTrue(body.path("advertiser_id").isIntegralNumber());assertEquals("9007199254740997",body.path("advertiser_id").asText());
@@ -67,7 +76,7 @@ class CreationPayloadTest {
         s.mediaChanged();assertThrows(BizException.class,()->builder.build(s));
     }
     @Test void volumeUsesOnlyAnExactPlatformBudgetRecommendation() throws Exception {
-        s.smartBidType="CONSERVATIVE";s.recommendations=new ObjectMapper().readTree("{\"budget\":{\"estimate_trans_cost_list\":[{\"budget\":600.12,\"estimate_convert\":7,\"min_estimate_convert\":6,\"estimate_roi\":3.92,\"min_estimate_roi\":3.14}]}}");
+        s.smartBidType="CONSERVATIVE";s.recommendations=new ObjectMapper().readTree("{\"accountId\":\"account\",\"awemeId\":\"9007199254740993\",\"productIds\":[\"9007199254740995\"],\"budget\":{\"estimate_trans_cost_list\":[{\"budget\":600.12,\"estimate_convert\":7,\"min_estimate_convert\":6,\"estimate_roi\":3.92,\"min_estimate_roi\":3.14}]}}");
         var setting=builder.build(s).path("delivery_setting");assertEquals(7,setting.path("estimate_convert").asInt());assertEquals(3.14,setting.path("min_estimate_roi_goal").asDouble());
         s.budget=new BigDecimal("601");assertFalse(builder.build(s).path("delivery_setting").has("estimate_convert"));
     }
@@ -77,7 +86,7 @@ class CreationPayloadTest {
         s.startDate=today.minusDays(1).toString();assertThrows(BizException.class,()->builder.build(s));
     }
     @Test void changedSelectionOrPackageCannotReuseConfirmation(){
-        s.mediaChanged();assertThrows(BizException.class,()->builder.build(s));s.confirmedVersion=s.packageVersion;s.analysisStatus="RUNNING";assertThrows(BizException.class,()->builder.build(s));
+        s.mediaChanged();assertThrows(BizException.class,()->builder.build(s));s.confirmedVersion=s.packageVersion;s.analysisStatus="RUNNING";assertDoesNotThrow(()->builder.build(s));
     }
     @Test void RejectedTextOrOtherAccountMediaBlocksPublish(){
         when(assets.detail(any(),eq("text"))).thenReturn(asset("text","TEXT","REJECTED",null,null,null));assertThrows(BizException.class,()->builder.build(s));
@@ -178,4 +187,13 @@ class CreationPayloadTest {
         s.materials.getFirst().titles=List.of("1234567890");assertDoesNotThrow(()->builder.build(s));
         verify(gateway,never()).create(any(),any(),any(),any());
     }
+    @ParameterizedTest @ValueSource(strings={"NONE","QUEUED","RUNNING","FAILED"})
+    void advisoryAnalysisDoesNotBlockReadyMediaButCannotBypassProductChecks(String analysis) {
+        s.analysisStatus=analysis;assertDoesNotThrow(()->builder.build(s));
+        var p=s.products.getFirst();
+        s.products.set(0,new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),0L,p.tags(),p.unavailableReasons()));
+        assertThrows(BizException.class,()->builder.build(s));
+        verify(gateway,never()).create(any(),any(),any(),any());
+    }
+
 }

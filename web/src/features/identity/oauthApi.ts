@@ -67,6 +67,8 @@ export interface AccountAuthorizationDetail {
 export function accountAuthorizationDetail(id: string) {
   return apiGet<AccountAuthorizationDetail>(`/api/v1/identity/accounts/${encodeURIComponent(id)}`);
 }
+export interface AuthorizationCapabilityCheck {accountId:string;status:'UNKNOWN'|'LIMITED'|'UNAVAILABLE';accountStatus:string;materialStatus:'UNKNOWN'|'MISSING';source:string;checkedAt:string;message:string}
+export function checkAuthorizationCapabilities(id:string) {return apiPost<AuthorizationCapabilityCheck>(`/api/v1/identity/accounts/${encodeURIComponent(id)}/capabilities`);}
 
 export function unbindAccount(id: string) {
   return apiDelete<void>(`/api/v1/identity/accounts/${id}`);

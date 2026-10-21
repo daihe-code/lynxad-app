@@ -1,0 +1,177 @@
+[
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "299.99",
+    "roi": "1.5",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300",
+    "roi": "0.1",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300.0000",
+    "roi": "50.00",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300.001",
+    "roi": "1.5",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "100000.01",
+    "roi": "1.5",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "100000",
+    "roi": "50.01",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": null,
+    "roi": "1.5",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300",
+    "roi": null,
+    "valid": false
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "49.99",
+    "roi": null,
+    "valid": true
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "50",
+    "roi": null,
+    "valid": true
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "100000",
+    "roi": null,
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "update",
+    "budget": "300",
+    "roi": "0.01",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "update",
+    "budget": "999999999.99",
+    "roi": "100",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "update",
+    "budget": "1000000000",
+    "roi": "100",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "update",
+    "budget": "300",
+    "roi": "0.009",
+    "valid": false
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "update",
+    "budget": "50.000",
+    "roi": null,
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "999999999.99",
+    "roi": "10000",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "1000000000",
+    "roi": "1",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300",
+    "roi": "10000.01",
+    "valid": false
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300",
+    "roi": "0.01",
+    "valid": true
+  },
+  {
+    "mode": "CUSTOM",
+    "profile": "creation",
+    "budget": "300",
+    "roi": "0",
+    "valid": false
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "29.99",
+    "roi": null,
+    "valid": false
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "30",
+    "roi": null,
+    "valid": true
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "20000",
+    "roi": null,
+    "valid": true
+  },
+  {
+    "mode": "CONSERVATIVE",
+    "profile": "creation",
+    "budget": "20000.01",
+    "roi": null,
+    "valid": false
+  }
+]

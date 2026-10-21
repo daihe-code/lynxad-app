@@ -86,7 +86,7 @@
         <select v-if="account" class="account-mobile" :disabled="saving || readOnly || settingsOnly" :value="account.key" aria-label="选择抖音号" @change="emit('account', ($event.target as HTMLSelectElement).value)"><option v-for="opt in accounts" :key="opt.key" :value="opt.key">{{ opt.awemeName }} · {{ opt.awemeId }}</option></select>
       </div>
     </section>
-    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><span class="step" :class="{ 'step--done': i === 0 }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></span><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
+    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i === 0 }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
 </template><main class="ad-main">
   <div class="container-page">
 
@@ -95,7 +95,7 @@
         <div class="panel__head">
           <div class="min-w-0">
             <h2 class="panel__title" id="panel-goal">设置投放目标</h2>
-            <p class="panel__sub">系统智能托管模式，自动优化出价和投放节奏，你只需设定预算和时间</p>
+            <p class="panel__sub">确认预算、目标和时间，我会据此准备投放方案</p>
           </div>
         </div>
 
@@ -120,7 +120,7 @@
                   <span class="opt__title">控成本投放</span>
                   <span class="opt__badge opt__badge--rec">推荐</span>
                 </span>
-                <span class="opt__sub">守住单价，少亏钱，适合测款</span>
+                <span class="opt__sub">按你设置的 ROI 目标争取成交，目标设置过高可能影响起量</span>
               </button>
 
               <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
@@ -129,7 +129,7 @@
                   <span class="opt__title">放量投放</span>
                   <span class="opt__badge opt__badge--fast">起量快</span>
                 </span>
-                <span class="opt__sub">预算范围内，多推流量多接单，前期成本可能偏高</span>
+                <span class="opt__sub">在预算范围内争取更多成交，实际成本可能出现波动</span>
               </button>
             </div>
 
@@ -140,10 +140,10 @@
               <div class="field field--prefixed" data-field="budget">
                 <p class="field__label">
                   <label for="in-budget">日预算</label>
-                  <button class="field__label-btn" type="button" @click="hint('日预算：系统按商品与类目给出推荐值，可在推荐区间内自行调整')"
+                  <el-popover trigger="click" placement="bottom-start" :width="300"><template #reference><button class="field__label-btn" type="button"
                           aria-label="日预算说明：系统根据商品与类目给出推荐日预算，可自行调整">
                     <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-help-fill"/></svg>
-                  </button>
+                  </button></template><p style="font-size:13px;line-height:1.7">日预算：系统按商品与类目给出推荐值，可在推荐区间内自行调整</p></el-popover>
                 </p>
 
                 <div class="field-input mt-[14px]">
@@ -169,14 +169,14 @@
                 </div>
 
                 <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack" id="hint-budget-minimum"><span class="hint">{{ COST_DAILY_BUDGET_HINT }}</span></p>
-                <p class="hint-stack" id="hint-budget" v-if="!budgetTouched || !(budgetError || budgetWarn)">
+                <p class="hint-stack" id="hint-budget" v-if="mode === 'SMART_BID_CONSERVATIVE' && (!budgetTouched || !(budgetError || budgetWarn))">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
                     <span>{{ budgetHint || '请根据实际经营情况填写日预算' }}</span>
                   </span>
                 </p>
 
-                <button v-if="!readOnly && !settingsOnly" class="recommendation-refresh" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('recommendations')">{{ saving ? '正在获取…' : '重新获取预算与ROI预估' }}</button>
+                <button v-if="!readOnly && !settingsOnly && mode === 'SMART_BID_CONSERVATIVE'" class="recommendation-refresh" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('recommendations')">{{ saving ? '正在获取…' : '重新获取预算与ROI预估' }}</button>
                 <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" role="alert" v-if="budgetTouched && (budgetError || budgetWarn)">
                   <svg class="field-msg__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>{{ budgetError || budgetWarn }}</span>
@@ -187,10 +187,10 @@
               <div class="field" data-field="roi" v-if="mode === 'SMART_BID_CUSTOM'">
                 <p class="field__label">
                   <label for="in-roi">净成交ROI目标</label>
-                  <button class="field__label-btn" type="button" @click="hint('净成交ROI =（整体成交金额 - 秒退订单成交额）/ 消耗')"
+                  <el-popover trigger="click" placement="bottom-start" :width="300"><template #reference><button class="field__label-btn" type="button"
                           aria-label="净成交ROI目标说明：净成交ROI=（整体成交金额-秒退订单成交额）/ 消耗">
                     <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-help-fill"/></svg>
-                  </button>
+                  </button></template><p style="font-size:13px;line-height:1.7">净成交ROI =（整体成交金额 - 秒退订单成交额）/ 消耗</p></el-popover>
                 </p>
 
                 <div class="field-input mt-[14px]">
@@ -314,18 +314,18 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; maxStep?: number }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ recommendations: []; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
+const emit = defineEmits<{ navigate: [step:number]; recommendations: []; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const accountOpen = ref(false), budgetTouched = ref(false), roiTouched = ref(false);
@@ -342,7 +342,7 @@ async function focusBudgetOptions() {
 watch(() => props.saving, value => { if (value) budgetOpen.value = false; });
 
 
-const hint = (message: string) => ElMessage.info(message);
+
 watch(() => props.mode, () => { budgetTouched.value = false; roiTouched.value = false; budgetOpen.value = false; });
 function nextStep() {
   budgetTouched.value = true; roiTouched.value = true;

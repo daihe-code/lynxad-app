@@ -26,4 +26,14 @@ class CreationEngineContractTest {
             assertEquals("test-engine-key",receivedKey.get());
         }finally{server.stop(0);}
     }
+    @Test void redirectsTimeoutResponsesAndOversizedPostReceiptsAreNotSafeToRepeat()throws Exception {
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);var status=new AtomicInteger(302);var calls=new AtomicInteger();var large=new java.util.concurrent.atomic.AtomicBoolean();
+        server.createContext("/revision",e->{calls.incrementAndGet();e.getRequestBody().readAllBytes();byte[] body=large.get()?new byte[8*1024*1024+1]:"{}".getBytes(java.nio.charset.StandardCharsets.UTF_8);e.sendResponseHeaders(status.get(),body.length);e.getResponseBody().write(body);e.close();});server.start();
+        try {
+            var props=new LynxAdProperties();props.getAi().getReview().setBaseUrl("http://127.0.0.1:"+server.getAddress().getPort());var client=new CreationEngineClient(props,new ObjectMapper(),"test-engine-key");
+            for(int code:new int[]{302,408,503}){status.set(code);assertEquals(8003,assertThrows(BizException.class,()->client.post("/revision",java.util.Map.of("store_id","tenant"))).code());}
+            status.set(422);assertEquals(8002,assertThrows(BizException.class,()->client.post("/revision",java.util.Map.of("store_id","tenant"))).code());
+            status.set(200);large.set(true);assertEquals(8003,assertThrows(BizException.class,()->client.post("/revision",java.util.Map.of("store_id","tenant"))).code());assertEquals(8002,assertThrows(BizException.class,()->client.get("/revision")).code());assertEquals(6,calls.get());
+        }finally{server.stop(0);}
+    }
 }

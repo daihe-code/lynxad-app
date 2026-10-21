@@ -1,7 +1,7 @@
 <template>
   <div class="campaign-reference creative-workspace wizard plan-workspace">
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
-    <div v-else-if="loadError" class="workspace-loading" role="alert"><p>{{ loadError }}</p><button class="btn-prev" @click="load">重新加载</button><router-link to="/campaigns">返回投放列表</router-link></div>
+    <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
       <header class="workspace-header container-page">
         <div class="workspace-heading"><router-link class="workspace-back" to="/campaigns"><ReferenceIcon name="arrow-left" />返回投放列表</router-link><span class="workspace-mode">{{ transferring ? '转投计划' : draftEditor ? '继续编辑草稿' : editing ? '修改投放计划' : '查看投放计划' }}</span><span class="stpill" :class="`stpill--${statusInfo(plan.status)[1]}`">{{ planStatusLabel(plan.status, plan.qcStatus) }}</span></div>
@@ -15,14 +15,28 @@
         <p v-if="transferring && transferMessage" class="workspace-notice" role="status">{{ transferMessage }}</p>
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
         <p v-else-if="editing && !transferring && !draftEditor" class="workspace-notice">可修改计划名称、日预算{{ isCost ? '与净成交ROI目标' : '' }}。已发布计划的商品、投放方式、日期与素材沿用原设置。</p>
-        <p v-if="mediaError" class="workspace-notice" role="status">{{ mediaError }}<button class="panel__toggle" @click="load">重新加载素材</button></p>
+        <section v-if="editing && !transferring && plan.qcPlanId && (settingsFailure || settingsMessage || settingsPending || settingsConflict || !plan.settingsEdit?.version || latestSettings)" class="settings-recovery" aria-label="计划修改核对" aria-live="polite">
+          <p v-if="settingsMessage">{{ settingsMessage }}</p>
+          <RequestFailureNotice :failure="settingsFailure" :busy="saving || settingsChecking" @retry="settingsFailure?.action === 'VERIFY' ? verifySettingsResult() : readLatestSettings()" />
+          <p v-if="!plan.settingsEdit?.version">当前页面缺少计划版本，请读取最新设置后核对。</p>
+          <p v-if="settingsPending">{{ (latestSettings || plan).settingsEdit?.message || '上次修改结果尚未确认，当前输入已保留，暂不重复提交。' }}</p>
+          <div class="settings-actions"><button v-if="settingsPending" type="button" :disabled="saving || settingsChecking" @click="verifySettingsResult()">{{ settingsChecking ? '核查中…' : '核查上次修改结果' }}</button><button type="button" :disabled="saving || settingsChecking" @click="readLatestSettings()">{{ settingsChecking ? '读取中…' : '读取最新值并核对' }}</button></div>
+          <template v-if="latestSettings">
+            <p>当前填写内容未被覆盖。请核对后选择采用最新值，或仅保留自己改过的字段。</p>
+            <div class="settings-table-scroll"><table><thead><tr><th>字段</th><th>原值</th><th>我的输入</th><th>最新值</th></tr></thead><tbody><tr v-for="row in settingsComparison" :key="row.key" :class="{'settings-changed':row.changed}"><th>{{ row.label }}</th><td>{{ row.before }}</td><td>{{ row.mine }}</td><td>{{ row.latest }}</td></tr></tbody></table></div>
+            <p v-if="!canKeepSettings && latestSettings.settingsEdit?.status === 'IDLE'">计划绑定、投放方式或可编辑状态已变化，请采用最新设置后重新编辑。</p>
+            <div class="settings-actions"><button type="button" :disabled="settingsChecking || latestSettings.settingsEdit?.status !== 'IDLE' || !latestSettings.settingsEdit?.version" @click="applyLatestSettings(false)">采用最新值</button><button v-if="canKeepSettings" type="button" :disabled="settingsChecking" @click="applyLatestSettings(true)">保留我的修改，采用最新版本</button><button v-if="canAcceptCurrent" type="button" :disabled="settingsChecking" @click="acceptCurrentSettings">接受千川当前设置，结束本次核查</button></div>
+          </template>
+        </section>
+        <PlanReviewNotice v-if="!editing" :plan="plan" auto-read @updated="plan = $event" />
+        <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
         <p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p>
       </header>
 
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
         <CreationFrame :step="step" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
-        <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" read-only embedded />
+        <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
           <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="false" :account="account" :account-chips="accountChips" read-only embedded />
@@ -34,7 +48,7 @@
           <button v-if="step < 4" class="btn-next-primary" type="button" :disabled="saving" @click="navigate(step + 1)">下一步</button>
           <button v-if="transferring && !transferPending" class="btn-next-primary" type="button" :disabled="saving || !transferAllowed || bidType === plan.smartBidType || !!budgetError || !!roiError" @click="submitTransfer">{{ saving ? '转投处理中…' : '确认转投' }}</button>
           <button v-else-if="transferring && user.trialActive" class="btn-next-primary" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '核查转投结果' }}</button>
-          <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || !dirty || !!nameError || !!budgetError || !!roiError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
+          <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
           <button v-if="editing" class="btn-cancel" type="button" :disabled="saving" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
           <router-link v-else class="btn-cancel" to="/campaigns">返回投放列表</router-link>
         </div></div>
@@ -46,8 +60,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
-import { getPlan, updatePlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
+import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
+import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
+import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
 import { creationGet, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
@@ -57,9 +74,10 @@ import { dateText, statusInfo } from './reference/planPresentation';
 import CreationFrame from './reference/CreationFrame.vue';
 import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
+import PlanReviewNotice from './components/PlanReviewNotice.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
-import { COST_DAILY_BUDGET_MINIMUM, creationBudgetError } from '@/features/delivery/budgetValidation';
+import { budgetInputError, roiInputError, planNameError, budgetMinimum as minimumBudget, deliveryInputRules } from '@/features/delivery/inputValidation';
 import CreateMaterialsStep from './create/CreateMaterialsStep.vue';
 import Create from './Create.vue';
 import './reference/reference.css';
@@ -69,7 +87,16 @@ import './create/create-theme.css';
 const props = defineProps<{ mode: 'view' | 'edit' | 'transfer' }>();
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
-const loading = ref(true), saving = ref(false), loadError = ref(''), mediaError = ref('');
+const loading = ref(true), saving = ref(false), loadError = ref('');
+const loadFailure = ref<ApiRequestError>(), mediaFailure = ref<ApiRequestError>(), mediaLoading = ref(false);
+const settingsFailure = ref<ApiRequestError>(), latestSettings = ref<PlanVo>();
+const settingsChecking = ref(false), settingsConflict = ref(false), settingsUnknown = ref(false), canAcceptCurrent = ref(false), settingsMessage = ref('');
+const settingsPending = computed(() => settingsUnknown.value || !!(latestSettings.value || plan.value)?.settingsEdit && (latestSettings.value || plan.value)!.settingsEdit!.status !== 'IDLE');
+const settingsBlocked = computed(() => !!plan.value?.qcPlanId && (settingsChecking.value || settingsConflict.value || settingsPending.value || !plan.value.settingsEdit?.version));
+const settingsInputs = () => ({name:name.value,budget:budget.value,roi:roi.value});
+const settingsComparison = computed(() => plan.value && latestSettings.value ? planEditComparison(plan.value,latestSettings.value,settingsInputs()) : []);
+const canKeepSettings = computed(() => !!plan.value && !!latestSettings.value && canRebasePlan(plan.value,latestSettings.value));
+function clearSettingsRecovery() {settingsChecking.value=false;settingsFailure.value=undefined;latestSettings.value=undefined;settingsConflict.value=false;settingsUnknown.value=false;canAcceptCurrent.value=false;settingsMessage.value='';}
 const name = ref(''), budget = ref(''), roi = ref(''), duration = ref<'long' | 'custom'>('long'), start = ref(''), end = ref('');
 let loadNumber = 0;
 const transferring = computed(() => props.mode === 'transfer');
@@ -101,12 +128,12 @@ const estimates = computed(() => budgetEstimateHints(creation.value?.recommendat
 const changedBudget = computed(() => plan.value != null && Number(budget.value) !== plan.value.budget);
 const changedRoi = computed(() => isCost.value && plan.value != null && Number(roi.value) !== plan.value.roi2Goal);
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value));
-const validNumber = (value: string, min: number, max: number) => /^\d+(\.\d{1,2})?$/.test(value.trim()) && Number(value) >= min && Number(value) <= max;
-const nameError = computed(() => !transferring.value && editing.value && name.value.trim() !== plan.value?.name && (!name.value.trim() || name.value.trim().length > 30) ? '计划名称须为 1–30 字' : '');
-const budgetMinimum = computed(() => isCost.value ? COST_DAILY_BUDGET_MINIMUM : 50);
-const budgetHint = computed(() => transferring.value ? '设置转投后的日预算' : editing.value ? `预算范围 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数，保存后同步千川` : '当前计划的日预算');
-const budgetError = computed(() => transferring.value || draftEditor.value ? creationBudgetError(budget.value, bidType.value) : editing.value && changedBudget.value && !validNumber(budget.value, budgetMinimum.value, 999999999.99) ? `修改后的日预算须为 ${budgetMinimum.value}–999,999,999.99 元，最多两位小数` : '');
-const roiError = computed(() => transferring.value ? isCost.value && !validNumber(roi.value, .1, 50) ? '控成本投放ROI须为0.1–50，最多两位小数' : '' : editing.value && changedRoi.value && !validNumber(roi.value, .01, 100) ? '净成交ROI目标须为 0.01–100，最多两位小数' : '');
+const nameError = computed(() => !transferring.value && editing.value && name.value.trim() !== plan.value?.name ? planNameError(name.value) : '');
+const inputProfile = computed(() => transferring.value || draftEditor.value ? 'creation' : 'update');
+const budgetMinimum = computed(() => minimumBudget(bidType.value));
+const budgetHint = computed(() => transferring.value ? '设置转投后的日预算' : editing.value ? `预算范围 ${budgetMinimum.value}–${deliveryInputRules[inputProfile.value].budgetMaximum.toLocaleString()} 元，最多两位小数，保存后同步千川` : '当前计划的日预算');
+const budgetError = computed(() => transferring.value || draftEditor.value || editing.value && changedBudget.value ? budgetInputError(budget.value,bidType.value,inputProfile.value) : '');
+const roiError = computed(() => transferring.value || draftEditor.value || editing.value && changedRoi.value ? roiInputError(roi.value,bidType.value,inputProfile.value) : '');
 function resetForm() {
   const p = plan.value; if (!p) return;
   name.value = p.name; budget.value = p.budget == null ? '' : String(p.budget); roi.value = p.roi2Goal == null ? '' : String(p.roi2Goal);
@@ -118,21 +145,30 @@ function resetForm() {
   }
 }
 async function load() {
-  const request = ++loadNumber, id = String(route.params.id || ''); loading.value = true; loadError.value = ''; mediaError.value = '';
+  const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
   const [p, a, c, t] = results;
-  if (p.status === 'rejected') { plan.value = undefined; loadError.value = '计划加载失败，请重试。'; }
+  if (p.status === 'rejected') { plan.value = undefined; loadFailure.value = requestFailure(p.reason,{method:'GET'}); loadError.value = loadFailure.value.message; }
   else {
     plan.value = p.value; accounts.value = a.status === 'fulfilled' ? a.value : [];
     creation.value = c.status === 'fulfilled' ? c.value : undefined;
     transferContext.value = t.status === 'fulfilled' ? t.value : undefined;
     if (transferring.value && t.status === 'rejected') transferMessage.value = '转投配置加载失败，请重新加载。';
     else if (transferring.value) transferMessage.value = transferContext.value?.pendingError || transferContext.value?.reason || '';
-    if (c.status === 'rejected' && ![1403, 1405].includes(Number(c.reason?.code))) mediaError.value = '素材预览加载失败，请重新加载。';
+    if (c.status === 'rejected' && ![1403, 1405].includes(Number(c.reason?.code))) mediaFailure.value = requestFailure(c.reason,{method:'GET'});
     resetForm();
   }
   loading.value = false;
+}
+async function reloadMedia() {
+  if (!plan.value || mediaLoading.value) return;
+  const id=plan.value.planId, version=loadNumber; mediaLoading.value = true;
+  try {
+    const result=await creationGet(id);
+    if (version === loadNumber && plan.value?.planId === id) { creation.value=result; mediaFailure.value=undefined; }
+  } catch(error) { if (version === loadNumber && plan.value?.planId === id) mediaFailure.value=requestFailure(error,{method:'GET'}); }
+  finally { mediaLoading.value=false; }
 }
 function navigate(value: number) { if (!saving.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
 function enterEdit() { if (plan.value && canEdit.value) void router.push({ path: `/campaigns/${plan.value.planId}/edit`, query: { step: String(step.value) } }); }
@@ -184,19 +220,73 @@ async function reconcileTransfer() {
 }
 async function save() {
   const p = plan.value;
-  if (!editing.value || !canEdit.value || !p || saving.value || !dirty.value || nameError.value || budgetError.value || roiError.value) return;
+  if (!editing.value || !canEdit.value || !p || saving.value || !dirty.value || settingsBlocked.value || nameError.value || budgetError.value || roiError.value) return;
   const body: { name?: string; budget?: number; roi2Goal?: number } = {};
   if (name.value.trim() !== p.name) body.name = name.value.trim();
   if (changedBudget.value) body.budget = Number(budget.value);
   if (changedRoi.value) body.roi2Goal = Number(roi.value);
+  settingsFailure.value=undefined;settingsMessage.value='';canAcceptCurrent.value=false;
   saving.value = true;
   try {
-    plan.value = p.qcPlanId ? await updatePlanSettings(p.planId, body) : await updateDraft(p.planId, { accountId: p.accountId!, awemeId: p.awemeId!, name: name.value.trim(), smartBidType: bidType.value, dailyBudget: Number(budget.value), ...(isCost.value ? { roi2Goal: Number(roi.value) } : {}), productIds: products.value.map(x => x.qcProductId) });
+    plan.value = p.qcPlanId ? await updatePlanSettings(p.planId, { ...body, expectedVersion:p.settingsEdit!.version }) : await updateDraft(p.planId, { accountId: p.accountId!, awemeId: p.awemeId!, name: name.value.trim(), smartBidType: bidType.value, dailyBudget: Number(budget.value), ...(isCost.value ? { roi2Goal: Number(roi.value) } : {}), productIds: products.value.map(x => x.qcProductId) });
     resetForm(); ElMessage.success('计划修改已保存');
     await router.replace({ path: `/campaigns/${p.planId}`, query: { step: String(step.value) } });
-  } catch { /* Keep entered values; the API interceptor shows the platform error. */ }
+  } catch(error) {
+    settingsFailure.value=requestFailure(error,{method:'PUT'});
+    if(p.qcPlanId) {
+      settingsConflict.value=settingsFailure.value.kind === 'CONFLICT';
+      settingsUnknown.value=settingsFailure.value.kind === 'UNCERTAIN';
+    }
+  }
   finally { saving.value = false; }
 }
+async function readLatestSettings() {
+  const p=plan.value, version=loadNumber;if(!p?.qcPlanId || settingsChecking.value || saving.value)return;
+  settingsChecking.value=true;
+  try {
+    const current=await getPlan(p.planId);
+    if(version!==loadNumber)return;
+    // Pending settings are reconciled through a dedicated readback; ordinary sync must not erase their claim.
+    const latest=current.settingsEdit && current.settingsEdit.status !== 'IDLE' ? current : await refreshPlanSettings(p.planId);
+    if(version!==loadNumber)return;
+    latestSettings.value=latest;settingsConflict.value=true;settingsFailure.value=undefined;canAcceptCurrent.value=false;
+    settingsMessage.value='已读取最新设置，请核对下表；当前输入保持原样。';
+  }catch(error){if(version===loadNumber)settingsFailure.value=requestFailure(error,{method:'GET'});}
+  finally{if(version===loadNumber)settingsChecking.value=false;}
+}
+function applyLatestSettings(keepMine:boolean) {
+  const base=plan.value,latest=latestSettings.value;
+  if(!base || !latest || latest.settingsEdit?.status!=='IDLE' || !latest.settingsEdit.version)return;
+  const values=keepMine?rebasePlanInputs(base,latest,settingsInputs()):undefined;
+  plan.value=latest;resetForm();
+  if(values){name.value=values.name;budget.value=values.budget;roi.value=values.roi;}
+  clearSettingsRecovery();
+  settingsMessage.value=keepMine?'已保留你改过的字段，其他字段采用最新值；核对后点击保存修改。':'已采用最新设置，可继续编辑。';
+}
+async function verifySettingsResult(acceptCurrent=false) {
+  const p=plan.value, version=loadNumber;if(!p?.qcPlanId || settingsChecking.value || saving.value)return;
+  settingsChecking.value=true;
+  try {
+    const current=acceptCurrent ? latestSettings.value : await getPlan(p.planId);
+    if(version!==loadNumber || !current)return;
+    if(!current.settingsEdit?.version)throw new Error('当前页面缺少有效版本，请重新读取计划');
+    if(current.settingsEdit.status === 'IDLE') {
+      latestSettings.value=current;settingsConflict.value=true;settingsFailure.value=undefined;
+      settingsUnknown.value=false;canAcceptCurrent.value=false;settingsMessage.value='服务端已无待确认修改，请核对最新设置；当前输入保持原样。';return;
+    }
+    const result=await verifyPlanSettings(p.planId,current.settingsEdit.version,acceptCurrent);
+    if(version!==loadNumber)return;
+    latestSettings.value=result.plan;settingsConflict.value=true;settingsUnknown.value=result.status==='UNCERTAIN';
+    canAcceptCurrent.value=result.canAcceptCurrent;settingsMessage.value=result.message;settingsFailure.value=undefined;
+  }catch(error){if(version===loadNumber)settingsFailure.value=requestFailure(error,{method:'GET'});}
+  finally{if(version===loadNumber)settingsChecking.value=false;}
+}
+async function acceptCurrentSettings() {
+  try {await ElMessageBox.confirm('这会结束上次修改的待确认状态，并采用刚核查的千川当前设置。尚未生效的修改不会自动重发；当前输入继续保留，核对后可重新编辑。','核对千川当前设置',{confirmButtonText:'接受当前设置',cancelButtonText:'继续核查'});}
+  catch{return;}
+  await verifySettingsResult(true);
+}
+
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
 onUnmounted(() => { loadNumber++; });
@@ -211,4 +301,8 @@ onUnmounted(() => { loadNumber++; });
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
 .plan-workspace > .actionbar .actionbar__inner { height: auto; min-height: 75px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; gap: 12px; }
 @media(max-width:639px) { .workspace-title h1 { flex-basis: 100%; font-size: 18px; }.workspace-title input { flex-basis: 100%; }.workspace-heading { gap: 10px; }.workspace-meta { font-size: 12px; } }
+</style>
+
+<style scoped>
+.settings-recovery{margin-top:16px;padding:14px 16px;border:1px solid #dcdcf3;border-radius:12px;background:#fafaff;font-size:13px;line-height:1.7;color:#555875;overflow-wrap:anywhere}.settings-recovery p+p{margin-top:8px}.settings-actions{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:12px}.settings-actions button{font:inherit;color:#575cf6;text-decoration:underline;white-space:normal;text-align:left}.settings-actions button:disabled{opacity:.45;cursor:not-allowed}.settings-table-scroll{max-width:100%;overflow:auto;margin-top:12px}.settings-table-scroll table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:440px}.settings-table-scroll th,.settings-table-scroll td{padding:8px;border:1px solid #e4e4f3;vertical-align:top;overflow-wrap:anywhere;text-align:left;font-size:12px}.settings-table-scroll thead th{font-weight:600;background:#f0f0ff}.settings-table-scroll tbody th{font-weight:500}.settings-changed td:nth-child(3){color:#575cf6;background:#f0f0ff}
 </style>

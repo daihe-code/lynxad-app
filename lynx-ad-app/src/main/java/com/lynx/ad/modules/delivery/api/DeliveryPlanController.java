@@ -13,6 +13,7 @@ import com.lynx.ad.modules.delivery.api.dto.PlanVo;
 import com.lynx.ad.modules.delivery.api.dto.PublishRequest;
 import com.lynx.ad.modules.delivery.api.dto.PublishResponse;
 import com.lynx.ad.modules.delivery.application.PlanCommandService;
+import com.lynx.ad.modules.delivery.application.PlanManagementService;
 import com.lynx.ad.modules.delivery.application.PlanQueryService;
 import com.lynx.ad.modules.delivery.domain.model.PlanAction;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +45,20 @@ public class DeliveryPlanController {
     private final PlanQueryService queryService;
     private final com.lynx.ad.modules.delivery.application.PlanSyncService syncService;
     private final com.lynx.ad.modules.delivery.application.PlanManagementService managementService;
+    private com.lynx.ad.modules.dataops.application.AuditPollJob reviews;
+    @org.springframework.beans.factory.annotation.Autowired public void reviewJob(com.lynx.ad.modules.dataops.application.AuditPollJob value){reviews=value;}
+
+    @PostMapping("/api/v1/delivery/plans/{id}/audit-refresh")
+    public ApiResponse<PlanVo> refreshAudit(@PathVariable String id) {
+        var tenant=TenantContext.requireTenantId();var planId=new PlanId(id);
+        // Query visibility/ownership before any platform read. No publishing or write-trial gate.
+        queryService.get(tenant,planId);
+        var plan=reviewPlans.findById(tenant,planId).orElseThrow(()->new com.lynx.ad.common.exception.BizException(1405,"计划不存在"));
+        reviews.refresh(plan);
+        return ApiResponse.ok(queryService.get(tenant,planId));
+    }
+    private com.lynx.ad.modules.delivery.domain.port.AdPlanRepository reviewPlans;
+    @org.springframework.beans.factory.annotation.Autowired public void reviewPlans(com.lynx.ad.modules.delivery.domain.port.AdPlanRepository value){reviewPlans=value;}
 
     public DeliveryPlanController(PlanCommandService commandService, PlanQueryService queryService,
             com.lynx.ad.modules.delivery.application.PlanSyncService syncService,
@@ -96,6 +111,11 @@ public class DeliveryPlanController {
     @PutMapping("/api/v1/delivery/plans/{id}/settings")
     public ApiResponse<PlanVo> settings(@PathVariable String id,@RequestBody com.lynx.ad.modules.delivery.api.dto.PlanSettingsRequest req) {
         return ApiResponse.ok(managementService.settings(TenantContext.requireTenantId(),new PlanId(id),req));
+    }
+    @RequiresActiveTrial
+    @PostMapping("/api/v1/delivery/plans/{id}/settings/reconcile")
+    public ApiResponse<PlanManagementService.SettingsResult> verifySettings(@PathVariable String id,@RequestBody PlanManagementService.SettingsVerification request) {
+        return ApiResponse.ok(managementService.verifySettings(TenantContext.requireTenantId(),new PlanId(id),request));
     }
     @GetMapping("/api/v1/delivery/plans/{id}/materials")
     public ApiResponse<java.util.List<com.lynx.ad.modules.delivery.application.PlanManagementService.Material>> materials(@PathVariable String id) {

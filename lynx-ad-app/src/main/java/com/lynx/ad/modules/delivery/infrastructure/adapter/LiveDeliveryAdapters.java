@@ -128,19 +128,26 @@ public class LiveDeliveryAdapters implements AdCreatePort, AdUpdatePort, AdListP
 
     @Override
     public List<OceanPlanRow> list(Credential c, SmartBidType bidType) {
-        if (bidType != null) return listOne(c, bidType);
+        return list(c,bidType,false);
+    }
+    @Override
+    public List<OceanPlanRow> listIncludingDeleted(Credential c, SmartBidType bidType) {
+        return list(c,bidType,true);
+    }
+    private List<OceanPlanRow> list(Credential c, SmartBidType bidType,boolean includeDeleted) {
+        if (bidType != null) return listOne(c, bidType,includeDeleted);
         List<OceanPlanRow> merged = new ArrayList<>();
-        merged.addAll(listOne(c, SmartBidType.CONSERVATIVE));
-        merged.addAll(listOne(c, SmartBidType.CUSTOM));
+        merged.addAll(listOne(c, SmartBidType.CONSERVATIVE,includeDeleted));
+        merged.addAll(listOne(c, SmartBidType.CUSTOM,includeDeleted));
         return merged;
     }
 
-    private List<OceanPlanRow> listOne(Credential c, SmartBidType bidType) {
+    private List<OceanPlanRow> listOne(Credential c, SmartBidType bidType,boolean includeDeleted) {
         List<OceanPlanRow> rows = new ArrayList<>();
         var day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
         var charset=java.nio.charset.StandardCharsets.UTF_8;
         for (int page=1; page<=1000; page++) {
-            String filtering = java.net.URLEncoder.encode("{\"smart_bid_type\":\""+bidType.oceanValue()+"\"}",java.nio.charset.StandardCharsets.UTF_8);
+            String filtering = java.net.URLEncoder.encode("{\"smart_bid_type\":\""+bidType.oceanValue()+"\""+(includeDeleted?",\"status\":\"ALL_INCLUDE_DELETED\"":"")+"}",java.nio.charset.StandardCharsets.UTF_8);
             String url = properties.getQianchuan().getDelivery().getAdListUrl()+"?advertiser_id="
                     +LiveAdManagementAdapter.numericId(c.advertiserId().value())+"&marketing_goal=VIDEO_PROM_GOODS&filtering="+filtering+"&page="+page+"&page_size=20"
                     +"&start_time="+java.net.URLEncoder.encode(day+" 00:00:00",charset)

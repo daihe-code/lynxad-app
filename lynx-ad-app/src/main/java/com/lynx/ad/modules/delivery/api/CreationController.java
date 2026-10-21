@@ -13,8 +13,26 @@ import org.springframework.web.bind.annotation.*;
 public class CreationController {
     private final CreationWorkflowService service;
     private final CreationQianchuanGateway qc;
+    private com.lynx.ad.modules.delivery.application.ProductRecommendationService productSuggestions;
+    @org.springframework.beans.factory.annotation.Autowired public void productSuggestions(com.lynx.ad.modules.delivery.application.ProductRecommendationService value){productSuggestions=value;}
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore draftProducts;
+    @org.springframework.beans.factory.annotation.Autowired public void draftProducts(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore value){draftProducts=value;}
     public CreationController(CreationWorkflowService service,CreationQianchuanGateway qc){this.service=service;this.qc=qc;}
-    @GetMapping("/products") public ApiResponse<CreationQianchuanGateway.Page> products(@RequestParam String accountId,@RequestParam String awemeId,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="30") int pageSize,@RequestParam(required=false) String keyword,@RequestParam(defaultValue="ALL") String tab,@RequestParam(defaultValue="false") boolean unpromoted,@RequestParam(defaultValue="false") boolean refreshPrices){return ApiResponse.ok(qc.products(TenantContext.requireTenantId(),accountId,awemeId,page,pageSize,keyword,tab,unpromoted,null,refreshPrices));}
+    @GetMapping("/products/suggestions") public ApiResponse<com.lynx.ad.modules.delivery.application.ProductRecommendationService.Result> productSuggestions(
+            @RequestParam String accountId,@RequestParam String awemeId,@RequestParam java.util.List<String> productIds,
+            @RequestParam(required=false) String draftId,@RequestParam(defaultValue="false") boolean refresh) {
+        return ApiResponse.ok(productSuggestions.recommend(TenantContext.requireTenantId(),accountId,awemeId,productIds,draftId,refresh));
+    }
+    @GetMapping("/products/restore") public ApiResponse<java.util.List<CreationState.Product>> restoreProducts(
+            @RequestParam String accountId,@RequestParam String awemeId,@RequestParam java.util.List<String> productIds,@RequestParam(required=false) String draftId) {
+        var tenant=TenantContext.requireTenantId();
+        var products=qc.restorable(tenant,accountId,awemeId,productIds);
+        return ApiResponse.ok(draftProducts==null?products:draftProducts.decorate(tenant.value(),accountId,draftId,products));
+    }
+    @GetMapping("/products") public ApiResponse<CreationQianchuanGateway.Page> products(@RequestParam String accountId,@RequestParam String awemeId,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="10") int pageSize,@RequestParam(required=false) String keyword,@RequestParam(defaultValue="ALL") String tab,@RequestParam(defaultValue="false") boolean unpromoted,@RequestParam(defaultValue="false") boolean refreshPrices,@RequestParam(required=false) String draftId){
+        var tenant=TenantContext.requireTenantId();var result=qc.products(tenant,accountId,awemeId,page,pageSize,keyword,tab,unpromoted,null,refreshPrices);
+        return ApiResponse.ok(draftProducts==null?result:new CreationQianchuanGateway.Page(draftProducts.decorate(tenant.value(),accountId,draftId,result.items()),result.total(),result.page(),result.pageSize()));
+    }
     @RequiresActiveTrial @PostMapping public ApiResponse<CreationView> select(@RequestBody CreationWorkflowService.Selection req){return view(service.select(TenantContext.requireTenantId(),req));}
     @GetMapping("/{id}") public ApiResponse<CreationView> get(@PathVariable String id){return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(),id)));}
     @RequiresActiveTrial @PostMapping("/{id}/analysis") public ApiResponse<CreationView> analysis(@PathVariable String id,@RequestBody CreationWorkflowService.Analysis req){return view(service.analyze(TenantContext.requireTenantId(),id,req));}
@@ -29,6 +47,8 @@ public class CreationController {
     @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/regenerate") public ApiResponse<CreationView> regenerate(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Feedback req){return view(service.regenerate(TenantContext.requireTenantId(),id,material,req));}
     @RequiresActiveTrial @PutMapping("/{id}/materials/{material}/titles") public ApiResponse<CreationView> titles(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Titles req){return view(service.titles(TenantContext.requireTenantId(),id,material,req));}
     @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/recheck") public ApiResponse<CreationView> recheck(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Version req){return view(service.recheck(TenantContext.requireTenantId(),id,material,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/sync/retry") public ApiResponse<CreationView> retrySync(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Version req){return view(service.retryMaterialSync(TenantContext.requireTenantId(),id,material,req));}
+    @PostMapping("/{id}/materials/{material}/sync/reconcile") public ApiResponse<CreationWorkflowService.MaterialSyncVerification> verifySync(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Version req){return ApiResponse.ok(service.verifyMaterialSync(TenantContext.requireTenantId(),id,material,req));}
     @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/typography") public ApiResponse<CreationView> typography(@PathVariable String id,@PathVariable String material,@RequestBody CreationWorkflowService.Version req){return view(service.repairTypography(TenantContext.requireTenantId(),id,material,req));}
     @RequiresActiveTrial @PostMapping("/{id}/materials/{material}/context") public ApiResponse<CreationView> context(@PathVariable String id,@PathVariable String material){return view(service.retryContext(TenantContext.requireTenantId(),id,material));}
     @RequiresActiveTrial @PostMapping("/{id}/confirm") public ApiResponse<CreationView> confirm(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(service.confirm(TenantContext.requireTenantId(),id,req));}
@@ -37,5 +57,8 @@ public class CreationController {
     private ApiResponse<CreationView> view(CreationState state) {
         return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(), state.planId)));
     }
+    @PutMapping("/{id}/groups/keep") public ApiResponse<CreationView> keepGroup(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(service.keepProductGroup(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/generation/retry") public ApiResponse<CreationView> retryGeneration(@PathVariable String id,@RequestBody CreationWorkflowService.RetryGeneration req){return view(service.retryGeneration(TenantContext.requireTenantId(),id,req));}
+    @RequiresActiveTrial @PutMapping("/{id}/products/{product}/titles") public ApiResponse<CreationView> productTitles(@PathVariable String id,@PathVariable String product,@RequestBody CreationWorkflowService.ProductTitles req){return view(service.productTitles(TenantContext.requireTenantId(),id,product,req));}
     @DeleteMapping("/{id}") public ApiResponse<Void> discard(@PathVariable String id){service.discard(TenantContext.requireTenantId(),id);return ApiResponse.ok(null);}
 }

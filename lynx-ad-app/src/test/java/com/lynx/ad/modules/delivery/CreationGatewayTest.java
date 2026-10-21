@@ -40,8 +40,31 @@ class CreationGatewayTest {
         assertEquals(42,page.total());assertEquals("9007199254740995",page.items().getFirst().qcProductId());assertNull(page.items().getFirst().price());
         assertTrue(query.contains("page=2"));var decoded=URLDecoder.decode(query,StandardCharsets.UTF_8);assertTrue(decoded.contains("create_roi2_limit_product"));assertTrue(decoded.contains("商品"));
     }
+    @Test void recommendationScanDoesNotFanOutSkuPriceRequests() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":9007199254740995,\"name\":\"真实商品\",\"price\":800}],\"page_info\":{\"total_number\":42}}}",200);
+        var prices=mock(com.lynx.ad.modules.catalog.application.ProductPriceService.class);gateway.productPrices(prices);
+        var result=gateway.recommendationCandidates(new TenantId("t"),"a","123",1,100);
+        assertEquals("9007199254740995",result.items().getFirst().qcProductId());assertEquals(800,result.items().getFirst().price().intValueExact());
+        verifyNoInteractions(prices);assertEquals(1,requests.get());
+        assertTrue(URLDecoder.decode(query,StandardCharsets.UTF_8).contains("\"tab\":\"ALL\""));
+    }
     @Test void CrossTenantOrForeignAwemeNeverCallsPlatform(){
         assertThrows(BizException.class,()->gateway.credential(new TenantId("other"),"a","123"));assertThrows(BizException.class,()->gateway.credential(new TenantId("t"),"a","999"));verifyNoInteractions(credentials);
+    }
+    @Test void recoveryReadsSelectedIdsWithoutCreatingPlansAndIncludesUnavailableReasons() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":123,\"name\":\"审核商品\",\"gray_reason\":[\"审核中\"]},{\"id\":456,\"name\":\"正常商品\"}]}}",200);
+        var rows=gateway.restorable(new TenantId("t"),"a","123",List.of("123","456"));
+        assertEquals(2,rows.size());assertEquals(List.of("审核中"),rows.getFirst().unavailableReasons());
+        assertEquals(1,requests.get());
+        String decoded=URLDecoder.decode(query,StandardCharsets.UTF_8);
+        assertTrue(decoded.contains("\"product_ids\":[123,456]"));assertFalse(decoded.contains("create_roi2_limit_product"));
+    }
+    @Test void recoveryRejectsInvalidOrCrossAccountIdsBeforePlatformAccess() {
+        for(var ids:List.of(List.<String>of(),List.of("123","123"),List.of("bad"),java.util.stream.IntStream.range(0,11).mapToObj(i->String.valueOf(i+1)).toList()))
+            assertThrows(BizException.class,()->gateway.restorable(new TenantId("t"),"a","123",ids));
+        assertThrows(BizException.class,()->gateway.restorable(new TenantId("other"),"a","123",List.of("123")));
+        assertThrows(BizException.class,()->gateway.restorable(new TenantId("t"),"a","999",List.of("123")));
+        verifyNoInteractions(credentials);assertEquals(0,requests.get());
     }
     @Test void AcceptedWithoutIdAndMalformedResponseAreUncertain() throws Exception {
         serve("{\"code\":0,\"data\":{}}",200);assertEquals(1523,assertThrows(BizException.class,()->gateway.create(new TenantId("t"),"a","123",json.createObjectNode())).code());assertEquals(1,requests.get());

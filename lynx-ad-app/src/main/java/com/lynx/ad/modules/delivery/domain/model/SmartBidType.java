@@ -7,7 +7,7 @@ public enum SmartBidType {
     CUSTOM;
 
     public BigDecimal minimumDailyBudget() {
-        return new BigDecimal(this == CUSTOM ? "300" : "50");
+        return com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy.minimum(this);
     }
 
     public String oceanValue() {

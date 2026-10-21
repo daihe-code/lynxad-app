@@ -46,6 +46,7 @@ public class AuthCommandService {
     private final JwtService jwtService;
     private final LynxAdProperties properties;
     private final AuditRecorder auditRecorder;
+    private final PasswordLoginGuard passwordGuard;
     private final SingleTenantMembershipPolicy membershipPolicy = new SingleTenantMembershipPolicy();
 
     public AuthCommandService(
@@ -57,7 +58,7 @@ public class AuthCommandService {
             PasswordHasher passwordHasher,
             JwtService jwtService,
             LynxAdProperties properties,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder, PasswordLoginGuard passwordGuard) {
         this.otpStore = otpStore;
         this.smsGateway = smsGateway;
         this.userRepository = userRepository;
@@ -67,6 +68,7 @@ public class AuthCommandService {
         this.jwtService = jwtService;
         this.properties = properties;
         this.auditRecorder = auditRecorder;
+        this.passwordGuard = passwordGuard;
     }
 
     public SendSmsResponse sendSms(PhoneNumber phone) {
@@ -104,15 +106,19 @@ public class AuthCommandService {
             return created;
         });
         claimInviteIfPresent(user, phone);
+        passwordGuard.clear(phone.value());
         return issue(user);
     }
 
     @Transactional
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
-        User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "账号或密码错误"));
-        if (!user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
-            throw new BizException(1101, "账号或密码错误");
+        passwordGuard.check(phone.value());
+        User user = userRepository.findByPhone(phone).orElse(null);
+        if (user == null || !user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
+            passwordGuard.failed(phone.value());
+            throw new BizException(1101, "手机号或密码错误");
         }
+        passwordGuard.clear(phone.value());
         return issue(user);
     }
 

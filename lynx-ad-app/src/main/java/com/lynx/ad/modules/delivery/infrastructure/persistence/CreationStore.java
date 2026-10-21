@@ -66,7 +66,12 @@ public class CreationStore {
     public List<Attempt> staleSending() { return jdbc.query("SELECT tenant_id,request_key FROM delivery_publish_attempt WHERE status='SENDING' AND updated_at<?",(r,n)->attempt(r.getString(1),r.getString(2)).orElseThrow(),Timestamp.from(Instant.now().minusSeconds(300))); }
     public List<Attempt> receipts() { return jdbc.query("SELECT tenant_id,request_key FROM delivery_publish_attempt WHERE status='CREATED' AND applied=0 LIMIT 20",(r,n)->attempt(r.getString(1),r.getString(2)).orElseThrow()); }
     public void applied(Attempt a) { jdbc.update("UPDATE delivery_publish_attempt SET applied=1 WHERE tenant_id=? AND request_key=? AND status='CREATED'",a.tenant,a.key); }
-    private static int work(CreationState s) { return Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0; }
+    private static int work(CreationState s) {
+        boolean missingRevisionReceipt=s.regeneration!=null&&"UNCERTAIN".equals(s.regeneration.status)
+                &&(s.regeneration.revisionId==null||s.regeneration.executionJobId==null);
+        return Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!missingRevisionReceipt&&Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
+                ||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0;
+    }
     public Set<String> usedMedia(String tenant) {
         Set<String> result=new HashSet<>();
         for(String body:jdbc.query("SELECT payload_json FROM delivery_publish_attempt WHERE tenant_id=? AND status='CREATED'",(r,n)->r.getString(1),tenant))try {

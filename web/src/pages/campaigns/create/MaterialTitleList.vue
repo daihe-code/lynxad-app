@@ -10,7 +10,7 @@
           <span v-if="row.material.engineMaterialId && editingKey !== row.key" class="srctag srctag--ai"><ReferenceIcon name="sparkle" />AI 智能生成</span>
           <span class="trow__count">{{ (editingKey === row.key ? draft : row.text).length }}/55</span>
           <span v-if="!readOnly" class="trow__ops">
-            <button v-if="editingKey === row.key" type="button" class="iconbtn" :disabled="busy || !draft.trim() || draft.trim() === row.text" aria-label="保存标题" title="保存标题并重新质检" @click.stop="save(row)"><ReferenceIcon name="check" /></button>
+            <button v-if="editingKey === row.key" type="button" class="iconbtn" :disabled="busy || !!titlesInputError([draft]) || draft.trim() === row.text" aria-label="保存标题" title="保存标题并重新质检" @click.stop="save(row)"><ReferenceIcon name="check" /></button>
             <button v-else type="button" class="iconbtn" :disabled="busy" aria-label="编辑标题" title="编辑标题" @click.stop="edit(row)"><ReferenceIcon name="edit" /></button>
             <button type="button" class="iconbtn" :disabled="busy || row.material.titles.length <= 1" aria-label="删除标题" :title="row.material.titles.length <= 1 ? '每条素材至少保留一个标题' : '删除标题并重新质检'" @click.stop="remove(row)"><ReferenceIcon name="trash" /></button>
           </span>
@@ -18,15 +18,18 @@
       </div>
       <p v-if="!rows(group.id).length" class="title-empty">当前商品暂无{{ group.label }}</p>
       <div v-if="!readOnly && groupMaterials(group.id).length" class="title-add">
-        <label class="title-add__target"><span class="title-add__label">新增标题 · 关联素材</span><select v-model="targets[group.id]" class="title-target" :disabled="busy" :aria-label="`新增${group.label}对应素材`"><option value="">选择对应素材</option><option v-for="m in groupMaterials(group.id)" :key="m.id" :value="m.id" :title="m.title">{{ materialLabel(m) }}</option></select></label>
+        <label class="title-add__target"><span class="title-add__label">新增标题 · 关联素材</span><select v-model="targets[group.id]" class="title-target" :disabled="busy" :aria-label="`新增${group.label}对应素材`"><option value="">选择对应素材</option><option v-for="m in groupMaterials(group.id)" :key="m.id" :value="m.id" :title="m.displayName || m.title">{{ materialLabel(m) }}</option></select></label>
         <div class="trow"><input v-model="newTitles[group.id]" class="trow__box" maxlength="55" :disabled="busy" :aria-label="`新增${group.label}`" placeholder="输入新标题，最多55字" /><span class="trow__count">{{ newTitles[group.id].length }}/55</span><button class="iconbtn" type="button" :disabled="busy || !canAdd(group.id)" aria-label="添加标题" title="添加标题并质检" @click="add(group.id)"><ReferenceIcon name="plus" /></button></div>
+        <p v-if="newTitles[group.id].trim() && titlesInputError([newTitles[group.id]])" class="title-input-error" role="status">{{ titlesInputError([newTitles[group.id]]) }}</p>
       </div>
+      <p v-if="editingKey && rows(group.id).some(r => r.key === editingKey) && titlesInputError([draft])" class="title-input-error" role="status">{{ titlesInputError([draft]) }}</p>
     </section>
     <p v-if="!readOnly" class="title-help">标题与对应素材关联；修改后重新质检并确认素材包。每个商品最多29条自定义标题。</p>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { titlesInputError } from '@/features/delivery/inputValidation';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import type { CreationMaterial } from '@/features/delivery/creationApi';
 const props = defineProps<{ materials: CreationMaterial[]; busy: boolean; readOnly?: boolean }>();
@@ -38,6 +41,7 @@ const selectedKey = ref(''), editingKey = ref(''), draft = ref('');
 const targets = ref<Record<Group,string>>({ video: '', card: '' }), newTitles = ref<Record<Group,string>>({ video: '', card: '' });
 const groupMaterials = (id: Group) => props.materials.filter(m => id === 'video' ? m.type === 'VIDEO' : m.type !== 'VIDEO');
 function materialLabel(material: CreationMaterial) {
+  if(material.displayName) return material.displayName;
   const labels = { VIDEO: '视频素材', IMAGE: '商品卡图片', CAROUSEL: '图文素材' };
   const index = props.materials.filter(m => m.type === material.type).findIndex(m => m.id === material.id) + 1;
   return `${labels[material.type]} ${index}`;
@@ -48,7 +52,7 @@ function select(row: Row, text = row.text) { selectedKey.value = row.key; emit('
 function edit(row: Row) { if (props.readOnly || props.busy) return; editingKey.value = row.key; draft.value = row.text; select(row); }
 function save(row: Row) {
   const text = draft.value.trim();
-  if (props.readOnly || props.busy || editingKey.value !== row.key || !text || text.length > 55 || text === row.text) return;
+  if (props.readOnly || props.busy || editingKey.value !== row.key || !!titlesInputError([text]) || text === row.text) return;
   const titles = [...row.material.titles]; titles[row.index] = text;
   emit('save', row.material.id, titles); editingKey.value = ''; select(row, text);
 }
@@ -59,7 +63,7 @@ function remove(row: Row) {
 function canAdd(group: Group) {
   const m = groupMaterials(group).find(x => x.id === targets.value[group]), text = newTitles.value[group].trim();
   const unique = new Set(props.materials.flatMap(x => x.titles));
-  return !!m && !!text && text.length <= 55 && m.titles.length < 29 && !m.titles.includes(text) && (unique.has(text) || unique.size < 29);
+  return !!m && !titlesInputError([text]) && m.titles.length < 29 && !m.titles.includes(text) && (unique.has(text) || unique.size < 29);
 }
 function add(group: Group) {
   if (props.readOnly || props.busy || !canAdd(group)) return;
@@ -82,4 +86,8 @@ watch(allRows, current => {
 .title-empty,.title-help { color: #8588a5; font-size: 12px; line-height: 1.7; margin-top: 14px; }
 .iconbtn:disabled { opacity: .4; cursor: not-allowed; }
 @media (max-width:639px) { .trow { flex-wrap: wrap; } .trow .srctag { display: none; } }
+</style>
+
+<style scoped>
+.title-input-error{font-size:12px;line-height:1.6;color:#e5484d;overflow-wrap:anywhere;margin-top:8px}
 </style>

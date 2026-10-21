@@ -306,7 +306,7 @@ img,video {
 @media (min-width:1024px) {
   .auth__brand {
     display: flex;
-    width: 55%;
+    width: 40%;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -470,7 +470,7 @@ img,video {
 }
 @media (min-width:1024px) {
   .auth__panel {
-    width: 45%;
+    width: 60%;
     padding-left: 1.5rem;
     padding-right: 1.5rem;
   }
@@ -1057,3 +1057,6 @@ img,video {
   --radius-card: 20px;
   --radius-tile: 14px;
 }
+
+.legal-error{display:flex;align-items:flex-start;gap:6px;color:#d84152;font-size:14px;line-height:1.6;margin-top:10px;text-align:left}.legal-error svg{flex-shrink:0;margin-top:3px}
+.auth input::-ms-reveal,.auth input::-ms-clear{display:none}

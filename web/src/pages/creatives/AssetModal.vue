@@ -27,7 +27,7 @@
             <div class="ac-dmeta"><span>{{ item.materialId || item.objectId || item.id }}</span><span>{{ { VIDEO: '视频库', IMAGE: '图片库', CAROUSEL: '图文库', AUDIO: '音频库', TEXT: '文本库' }[item.type] }}</span><span class="ac-use" :class="assetStatus(item).cls"><i></i>{{ assetStatus(item).label }}</span></div>
             <div class="ac-tags"><span v-if="item.category" class="ac-tag">{{ item.category }}</span></div><p class="ac-dnote">{{ item.reviewBadge === 'REJECTED' ? '素材审核未通过，请检查素材内容后重新提交审核。' : item.reviewBadge === 'REVIEWING' ? '素材正在审核中，请等待平台审核结果。' : '素材信息来自当前素材库，预览以实际文件为准。' }}</p>
             <div class="ac-dl"><div v-for="spec in specs" :key="spec[0]"><p class="ac-dl__k">{{ spec[0] }}</p><p class="ac-dl__v">{{ spec[1] }}</p></div></div>
-            <div v-if="item.assetId" class="ac-dsec asset-sync-detail"><div class="ac-dsec__t"><span>平台入库与千川同步</span></div><p v-if="detailError" role="alert">{{ detailError }} <button type="button" @click="loadDetail">重新加载</button></p><p>平台存储：{{ uploaded?.storageStatus === 'STORED' ? '已入库' : item.storageStatus }}</p><p v-if="item.type === 'TEXT'">{{ uploaded?.aiReview?.status === 'NOT_REQUIRED' ? '引擎文案已登记，无需上传审核。' : '文本已入库，须通过 AI 审核后使用。' }}文本不作为独立千川文件上传。</p><p v-else-if="uploaded && !uploaded.syncs.length">上传时未选择千川同步账户，仅保存在本平台。</p><div v-for="s in uploaded?.syncs || item.syncs || []" :key="s.id" class="asset-sync-row"><div><b>{{ s.advertiserId ? `广告账户 ${s.advertiserId}` : `授权记录 ${s.accountId}` }}</b><p>{{ syncLabel(s.status, s.reviewStatus) }}</p><small>{{ s.errorMessage }}</small><p v-if="s.objectId">文件 ID：{{ s.objectId }}<br>素材 ID：{{ s.materialId }}</p></div><button v-if="['FAILED', 'WAITING_AUTH', 'PAUSED', 'UNCERTAIN'].includes(s.status)" type="button" :disabled="retrying === s.id || !['APPROVED','NOT_REQUIRED'].includes(uploaded?.aiReview?.status || '')" @click="retrySync(s)">重试同步</button></div></div>
+            <div v-if="item.assetId" class="ac-dsec asset-sync-detail"><div class="ac-dsec__t"><span>平台入库与千川同步</span></div><p v-if="detailError" role="alert">{{ detailError }} <button type="button" @click="loadDetail">重新加载</button></p><p>平台存储：{{ uploaded?.storageStatus === 'STORED' ? '已入库' : item.storageStatus }}</p><p v-if="item.type === 'TEXT'">{{ uploaded?.aiReview?.status === 'NOT_REQUIRED' ? '引擎文案已登记，无需上传审核。' : '文本已入库，须通过 AI 审核后使用。' }}文本不作为独立千川文件上传。</p><p v-else-if="uploaded && !uploaded.syncs.length">上传时未选择千川同步账户，仅保存在本平台。</p><div v-for="s in uploaded?.syncs || item.syncs || []" :key="s.id" class="asset-sync-row"><div><b>{{ s.advertiserId ? `广告账户 ${s.advertiserId}` : `授权记录 ${s.accountId}` }}</b><p>{{ syncLabel(s.status, s.reviewStatus) }}</p><small>{{ s.errorMessage }}</small><p v-if="s.objectId">文件 ID：{{ s.objectId }}<br>素材 ID：{{ s.materialId }}</p></div><AssetSyncAction :sync="s" :busy="retrying === s.id" :can-retry="['APPROVED','NOT_REQUIRED'].includes(uploaded?.aiReview?.status || '')" @retry="retrySync(s)" @verify="verifySync(s)" /></div></div>
             <AssetReviewStatus v-if="item.assetId" :review="uploaded?.aiReview || item.aiReview" :retrying="reviewRetrying" @retry="retryReview" />
             <div class="ac-dsec"><div class="ac-dsec__t"><span>投放效果</span><span class="ac-dsec__h">近 7 天 · 净成交口径</span></div><div class="ac-dempty">当前接口尚未返回该素材的投放效果数据。</div></div>
             <div class="ac-dsec"><div class="ac-dsec__t"><span>被引用的投放计划</span><span class="ac-dsec__h">{{ item.used ? '引用中' : '未被引用' }}</span></div><div class="ac-refs"><div class="ac-dempty">{{ item.used ? '该素材已被投放计划引用，引用计划明细待接口提供。' : '尚未被任何投放计划引用。' }}</div></div></div>
@@ -40,7 +40,7 @@
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import AssetIcon from "./AssetIcon.vue";
 import AssetThumbnail from "./AssetThumbnail.vue";
@@ -48,7 +48,8 @@ import AssetUploadPanel from "./AssetUploadPanel.vue";
 import CarouselUploadPanel from './CarouselUploadPanel.vue';
 import CarouselPreview from './CarouselPreview.vue';
 import AssetReviewStatus from './AssetReviewStatus.vue';
-import { getUploadedAsset, retryAssetSync, retryAssetReview, type AssetSync, type UploadedAsset } from "@/features/creative/creativeApi";
+import AssetSyncAction from './AssetSyncAction.vue';
+import { getUploadedAsset, reconcileAssetSync, retryAssetSync, retryAssetReview, type AssetSync, type UploadedAsset } from "@/features/creative/creativeApi";
 import { syncLabel, reviewPending } from "@/features/creative/assetUploads";
 import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
 const reviewRetrying = ref(false);
@@ -72,11 +73,13 @@ watch(() => [props.kind, props.item?.id], () => {
   if (item?.id.startsWith('EXT:') && props.kind !== 'upload') void resolveAssetPreview(item, true);
 }, { immediate: true });
 let previousOverflow = "";
+let disposed = false, detailRequestNo = 0, syncRequestNo = 0;
 let detailTimer: ReturnType<typeof setInterval> | undefined;
 async function loadDetail() {
-  const id = props.item?.assetId; if (!id) return;
-  try { const result = await getUploadedAsset(id); if (props.item?.assetId === id) { uploaded.value = result; detailError.value = ''; } }
-  catch { detailError.value = '素材详情暂时无法加载'; }
+  const id = props.item?.assetId; if (!id || retrying.value) return;
+  const current = ++detailRequestNo;
+  try { const result = await getUploadedAsset(id); if (!disposed && current === detailRequestNo && props.item?.assetId === id) { uploaded.value = result; detailError.value = ''; } }
+  catch { if (!disposed && current === detailRequestNo && props.item?.assetId === id) detailError.value = '素材详情暂时无法加载'; }
 }
 async function copyText() { try { await navigator.clipboard.writeText(uploaded.value?.textContent || ''); ElMessage.success('文本已复制'); } catch { ElMessage.warning('无法自动复制，请选中文本后复制'); } }
 async function retryReview() {
@@ -86,13 +89,27 @@ async function retryReview() {
   finally { reviewRetrying.value = false; }
 }
 async function retrySync(sync: AssetSync) {
-  if (!props.item?.assetId) return;
-  if (sync.status === 'UNCERTAIN') { try { await ElMessageBox.confirm('上次上传可能已被千川接收，请先核对平台结果，避免重复上传。', '确认重试', { confirmButtonText: '已核对，重新上传', cancelButtonText: '取消' }); } catch { return; } }
+  const id = props.item?.assetId;
+  if (!id || sync.status === 'UNCERTAIN' || retrying.value) return;
+  const current = ++syncRequestNo;
+  ++detailRequestNo;
   retrying.value = sync.id;
-  try { uploaded.value = await retryAssetSync(props.item.assetId, sync.accountId, sync.status === 'UNCERTAIN'); emit('changed'); }
-  finally { retrying.value = ''; }
+  try { const result = await retryAssetSync(id, sync.accountId); if (!disposed && current === syncRequestNo && props.item?.assetId === id) { uploaded.value = result; emit('changed'); } }
+  finally { if (current === syncRequestNo) retrying.value = ''; }
 }
-watch(() => props.item?.assetId, () => { uploaded.value = undefined; detailError.value = ''; void loadDetail(); });
+async function verifySync(sync: AssetSync) {
+  const id = props.item?.assetId;
+  if (!id || retrying.value) return;
+  const current = ++syncRequestNo;
+  ++detailRequestNo;
+  retrying.value = sync.id;
+  try {
+    const result = await reconcileAssetSync(id, sync.accountId);
+    if (!disposed && current === syncRequestNo && props.item?.assetId === id) { uploaded.value = result.asset; emit('changed'); }
+  } catch { if (!disposed && current === syncRequestNo && props.item?.assetId === id) ElMessage.warning('核查暂未完成，上传记录已保留，请稍后重试'); }
+  finally { if (current === syncRequestNo) retrying.value = ''; }
+}
+watch(() => props.item?.assetId, () => { ++syncRequestNo; retrying.value = ''; uploaded.value = undefined; detailError.value = ''; void loadDetail(); });
 const specs = computed(() => {
   const a = props.item; if (!a) return [];
   const values = [["素材规格", dimensions.value], ["画幅比例", assetRatio(a)], ["文件大小", fileSize(a.sizeBytes)]];
@@ -111,7 +128,7 @@ function onKey(event: KeyboardEvent) {
 }
 watch(() => props.kind, async () => { mediaError.value = false; await nextTick(); box.value?.focus(); });
 onMounted(() => { previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; box.value?.focus(); void loadDetail(); detailTimer = setInterval(() => { if (reviewPending(uploaded.value?.aiReview?.status) || uploaded.value?.syncs.some(s => ['QUEUED', 'RUNNING'].includes(s.status))) void loadDetail(); }, 4000); });
-onUnmounted(() => { document.body.style.overflow = previousOverflow; clearInterval(detailTimer); });
+onUnmounted(() => { disposed = true; ++detailRequestNo; ++syncRequestNo; document.body.style.overflow = previousOverflow; clearInterval(detailTimer); });
 </script>
 <style scoped>
 .modal { z-index: 200; }

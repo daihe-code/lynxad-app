@@ -1,7 +1,10 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
+import type { PlanReviewProgress } from './planReview';
 
 export interface PlanVo {
+  review?: PlanReviewProgress | null;
+  settingsEdit?: { version: string; status: 'IDLE' | 'PREPARING' | 'SENDING' | 'VERIFYING' | 'UNCERTAIN'; message?: string | null } | null;
   statisticsDate?: string | null;
   historicalMetrics?: boolean;
   planId: string;
@@ -34,6 +37,7 @@ export interface PlanVo {
 }
 
 export interface PlanListVo {
+  review?: PlanReviewProgress | null;
   statisticsDate?: string | null;
   historicalMetrics?: boolean;
   roiEstimate?: { value?: number | null; min?: number | null; max?: number | null } | null;
@@ -120,8 +124,16 @@ export function syncPlans(accountId?: string) {
   return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000 });
 }
 export function syncPlanDetail(id: string) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000 }); }
-export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number }) {
-  return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000 });
+export function refreshPlanAudit(id:string){return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/audit-refresh`,undefined,{timeout:60000,headers:{'X-Quiet-Request':'true'}});}
+export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number; expectedVersion: string }) {
+  return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000,headers:{'X-Quiet-Request':'true'} });
+}
+export function refreshPlanSettings(id: string) {
+  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`,undefined,{timeout:60000,headers:{'X-Quiet-Request':'true'}});
+}
+export interface PlanSettingsResult {plan: PlanVo; status:'CONFIRMED'|'ACCEPTED_CURRENT'|'UNCERTAIN';message:string;canAcceptCurrent:boolean}
+export function verifyPlanSettings(id: string, expectedVersion: string, acceptCurrent=false) {
+  return apiPost<PlanSettingsResult>(`/api/v1/delivery/plans/${id}/settings/reconcile`,{expectedVersion,acceptCurrent},{timeout:60000,headers:{'X-Quiet-Request':'true'}});
 }
 export interface PlanTransferContext {
   planId: string; currentQcPlanId: string; targetMode: string; budget: number; roi2Goal?: number | null;

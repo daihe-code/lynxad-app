@@ -116,6 +116,9 @@ export function updateProfile(body: UpdateProfilePayload) {
   return apiPut<CurrentUser>("/api/v1/tenant/users/me/profile", body);
 }
 
+export function welcomeStatus() { return apiGet<{ acknowledged: boolean }>("/api/v1/tenant/users/me/welcome"); }
+export function acknowledgeWelcome() { return apiPut<{ acknowledged: boolean }>("/api/v1/tenant/users/me/welcome", {}); }
+
 export function updatePassword(body: { oldPassword?: string; newPassword: string }) {
   return apiPut<void>("/api/v1/tenant/users/me/password", body);
 }

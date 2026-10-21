@@ -1,5 +1,7 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.agents.plan.PlanAgent;
 import com.lynx.ad.common.domain.Ids.AccountId;
@@ -75,6 +77,8 @@ public class PlanCommandService {
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     private PlanTransferService transferService;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore draftProducts;
+    @org.springframework.beans.factory.annotation.Autowired public void draftProducts(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore value) { draftProducts=value; }
     @org.springframework.beans.factory.annotation.Autowired public void transferService(PlanTransferService value) { transferService=value; }
 
     public PlanCommandService(
@@ -109,6 +113,7 @@ public class PlanCommandService {
     @Transactional
     public PlanDraftResponse createDraft(TenantId tenantId, PlanDraftRequest cmd) {
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
+        if(draftProducts!=null)draftProducts.assertAvailable(tenantId.value(),cmd.accountId(),cmd.productIds(),null);
         PlanName name = new PlanName(cmd.name());
         namePolicy.assertUnique(planRepository.existsUnfinishedName(tenantId, new AwemeId(cmd.awemeId()), name, Optional.empty()));
         DeliverySetting setting = settingOf(cmd);
@@ -129,6 +134,7 @@ public class PlanCommandService {
     @Transactional
     public PlanVo updateDraft(TenantId tenantId, PlanId id, PlanDraftRequest cmd) {
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
+        if(draftProducts!=null)draftProducts.assertAvailable(tenantId.value(),cmd.accountId(),cmd.productIds(),id.value());
         AdPlan plan = require(tenantId, id);
         if (plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DRAFT
                 && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.REJECTED) {
@@ -335,9 +341,11 @@ public class PlanCommandService {
     }
 
     private static DeliverySetting settingOf(PlanDraftRequest cmd) {
+        var mode=DeliveryInputPolicy.mode(cmd.smartBidType());
+        DeliveryInputPolicy.settings(mode,cmd.dailyBudget(),cmd.roi2Goal(),DeliveryInputPolicy.RULES.creation());
         return new DeliverySetting(
-                SmartBidType.fromOcean(cmd.smartBidType()),
-                Money.ofYuan(cmd.dailyBudget() == null ? java.math.BigDecimal.valueOf(300) : cmd.dailyBudget()),
+                mode,
+                Money.ofYuan(cmd.dailyBudget()),
                 Optional.ofNullable(cmd.roi2Goal()).map(RoiGoal::new),
                 Schedule.fromNow(),
                 AudienceJson.empty());

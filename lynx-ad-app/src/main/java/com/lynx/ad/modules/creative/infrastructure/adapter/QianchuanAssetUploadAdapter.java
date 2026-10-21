@@ -32,6 +32,8 @@ public class QianchuanAssetUploadAdapter implements AssetUploadPort {
         if (kind != AssetKind.AUDIO) { fields.put("filename", filename); fields.put("is_aigc", String.valueOf(aigc)); }
         String body = client.multipart(url, credential.accessToken(), fields, prefix + "_file", file, filename, mime);
         var root = json.root(body);
+        if(!root.path("code").isIntegralNumber() || root.path("code").asLong(-1)<0)
+            throw new BizException(1523,"千川未返回有效业务状态，上传结果待确认");
         int code = root.path("code").asInt(-1);
         if (code == 429) throw new BizException(429, "千川上传限流，请稍后重试");
         var data = json.dataOrThrow(body, 1511, "千川素材上传失败");

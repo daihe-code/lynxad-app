@@ -16,6 +16,8 @@ import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.*;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanRemoteStore;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore;
+import com.lynx.ad.modules.delivery.domain.service.PlanEditVersion;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
@@ -38,13 +40,39 @@ class PlanManagementBoundaryTest {
     final JdbcTemplate jdbc=mock(JdbcTemplate.class);
     final Credential credential=new Credential("token",new AdvertiserId("123"));
     final PlanManagementService service=new PlanManagementService(plans,port,credentials,store,query,billing,audit,jdbc,json);
-    AdPlan plan;
+    AdPlan plan;JsonNode afterWrite;
+    final PlanSettingsEditStore settingsEdits=mock(PlanSettingsEditStore.class);
     @BeforeEach void setup() {
         plan=new AdPlan(id,tenant,account,new AwemeId("aweme"),new PlanName("原计划"),PlanStatus.DELIVERING,PlanSource.LINGTOU,
                 new DeliverySetting(SmartBidType.CUSTOM,Money.ofYuan(new BigDecimal("300")),Optional.of(new RoiGoal(new BigDecimal("2"))),Schedule.fromNow(),AudienceJson.empty()),List.of(),new QcPlanId("456"),"DELIVERY_OK",null,0,null,List.of());
         when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));when(credentials.getUsableCredential(tenant,account)).thenReturn(credential);
-        when(port.detail(credential,"456")).thenReturn(json.createObjectNode());
+        when(port.detail(credential,"456")).thenAnswer(i->afterWrite==null?facts("{}"):afterWrite);
+        service.settingsEdits(settingsEdits);
+        when(settingsEdits.state(any())).thenAnswer(i->new PlanSettingsEditStore.State(PlanEditVersion.version(i.getArgument(0),0),"IDLE",null));
+        when(settingsEdits.claim(any(),any(),any())).thenAnswer(i->{
+            var request=(PlanSettingsRequest)i.getArgument(2);PlanEditVersion.require(request.expectedVersion(),plan,0);
+            return new PlanSettingsEditStore.Claim(plan,new PlanSettingsEditStore.Pending(tenant.value(),id.value(),1,"PREPARING","settings:test",id.value(),"{}",null,Instant.now(),Instant.now()));
+        });
+        doAnswer(i->{((Runnable)i.getArgument(1)).run();return null;}).when(settingsEdits).complete(any(),any());
+        doAnswer(i->{((Runnable)i.getArgument(2)).run();return null;}).when(settingsEdits).applyRead(any(),any(),any());
+        org.mockito.stubbing.Answer<Void> apply=i->{
+            var row=(com.fasterxml.jackson.databind.node.ObjectNode)facts("{}");var ds=(com.fasterxml.jackson.databind.node.ObjectNode)row.path("delivery_setting");
+            String name=i.getArgument(2);BigDecimal budget=i.getArgument(3),roi=i.getArgument(4);
+            if(name!=null)row.put("name",name);if(budget!=null)ds.put("budget",budget);if(roi!=null)ds.put("roi2_goal",roi);afterWrite=row;return null;
+        };
+        doAnswer(apply).when(port).settings(any(),any(),nullable(String.class),nullable(BigDecimal.class),nullable(BigDecimal.class));
+        doAnswer(apply).when(port).settings(any(),any(),nullable(String.class),nullable(BigDecimal.class),nullable(BigDecimal.class),nullable(String.class));
         TenantContext.set(new TenantPrincipal(new UserId("user-a"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+    }
+    private PlanSettingsRequest request(String name,BigDecimal budget,BigDecimal roi){return new PlanSettingsRequest(name,budget,roi,PlanEditVersion.version(plan,0));}
+    private com.fasterxml.jackson.databind.node.ObjectNode facts(String raw) {
+        try {
+            var base=json.createObjectNode().put("ad_id","456").put("name",plan.name().text()).put("status",plan.status()==PlanStatus.PAUSED?"DISABLE":"DELIVERY_OK");
+            var ds=base.putObject("delivery_setting").put("smart_bid_type",plan.setting().bidType().oceanValue()).put("budget",plan.setting().dailyBudget().amount());
+            plan.setting().roi2Goal().ifPresent(r->ds.put("roi2_goal",r.value()));
+            var supplied=json.readTree(raw);supplied.fields().forEachRemaining(e->{if(e.getKey().equals("delivery_setting"))ds.setAll((com.fasterxml.jackson.databind.node.ObjectNode)e.getValue());else base.set(e.getKey(),e.getValue());});
+            return base;
+        }catch(Exception e){throw new IllegalArgumentException(e);}
     }
     @AfterEach void clear() { TenantContext.clear(); }
     private void taskWithStatus(String status) {
@@ -141,7 +169,7 @@ class PlanManagementBoundaryTest {
     }
     @Test void editingPausedTransferredMemberDoesNotRenameOrChangeItsCounterpart() {
         plan.apply(PlanStatus.PAUSED);var other=counterpart();var transfers=associatedPair(other);
-        service.settings(tenant,id,new PlanSettingsRequest("控成本改名",new BigDecimal("350"),null));
+        service.settings(tenant,id,request("控成本改名",new BigDecimal("350"),null));
         verify(port).settings(credential,"456","控成本改名",new BigDecimal("350"),null);
         assertEquals("控成本改名",plan.name().text());assertEquals(0,new BigDecimal("350").compareTo(plan.setting().dailyBudget().amount()));
         assertEquals("放量计划",other.name().text());assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));
@@ -149,16 +177,16 @@ class PlanManagementBoundaryTest {
     }
     @Test void platformRejectionDoesNotMutateLocalPlanOrWriteSuccessLog() {
         doThrow(new BizException(1406,"平台拒绝")).when(port).settings(credential,"456",null,new BigDecimal("350"),null);
-        assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("350"),null)));
+        assertThrows(BizException.class,()->service.settings(tenant,id,request(null,new BigDecimal("350"),null)));
         assertEquals(0,plan.setting().dailyBudget().amount().compareTo(new BigDecimal("300")));
         verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void pausedBudgetChangeConfirmsFreshPlatformValueAndKeepsCounterpartAndModeUntouched() throws Exception {
         plan.apply(PlanStatus.PAUSED);var other=counterpart();associatedPair(other);
         when(port.detail(credential,"456")).thenReturn(
-                json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"),
-                json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":2}}"));
-        service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("400"),null));
+                facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"),
+                facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":2}}"));
+        service.settings(tenant,id,request(null,new BigDecimal("400"),null));
         verify(port).settings(credential,"456",null,new BigDecimal("400"),null);verify(port,times(2)).detail(credential,"456");
         assertEquals(0,new BigDecimal("400").compareTo(plan.setting().dailyBudget().amount()));assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());
         assertEquals(new BigDecimal("2"),plan.setting().roi2Goal().orElseThrow().value());assertEquals(PlanStatus.PAUSED,plan.status());
@@ -170,11 +198,20 @@ class PlanManagementBoundaryTest {
     @Test void volumeBudgetUsesTheSameFlowWithoutAddingAnRoiTarget() throws Exception {
         plan.updateSetting(new DeliverySetting(SmartBidType.CONSERVATIVE,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
         when(port.detail(credential,"456")).thenReturn(
-                json.readTree("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":300}}"),
-                json.readTree("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":400}}"));
-        service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("400"),null));
+                facts("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":300}}"),
+                facts("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":400}}"));
+        service.settings(tenant,id,request(null,new BigDecimal("400"),null));
         verify(port).settings(credential,"456",null,new BigDecimal("400"),null);assertTrue(plan.setting().roi2Goal().isEmpty());
         assertEquals(0,new BigDecimal("400").compareTo(plan.setting().dailyBudget().amount()));
+    }
+    @Test void unrelatedNameEditRetainsLegacyAmountsOutsideTheCreationProfile() throws Exception {
+        plan.apply(PlanStatus.PAUSED);
+        plan.updateSetting(new DeliverySetting(SmartBidType.CUSTOM,Money.ofYuan(new BigDecimal("150000")),Optional.of(new RoiGoal(new BigDecimal("75"))),Schedule.fromNow(),AudienceJson.empty()));
+        when(port.detail(credential,"456")).thenAnswer(i->afterWrite==null?facts("{}"):afterWrite);
+        service.settings(tenant,id,request("仅修改名称",null,null));
+        verify(port).settings(credential,"456","仅修改名称",null,null);
+        assertEquals(0,new BigDecimal("150000").compareTo(plan.setting().dailyBudget().amount()));
+        assertEquals(0,new BigDecimal("75").compareTo(plan.setting().roi2Goal().orElseThrow().value()));
     }
     @ParameterizedTest
     @CsvSource({"CONSERVATIVE,50", "CONSERVATIVE,50.01", "CONSERVATIVE,100", "CONSERVATIVE,299.99", "CONSERVATIVE,999999999.99", "CUSTOM,300", "CUSTOM,300.01", "CUSTOM,999999999.99"})
@@ -182,12 +219,12 @@ class PlanManagementBoundaryTest {
         plan.apply(PlanStatus.PAUSED);
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),mode==SmartBidType.CUSTOM?plan.setting().roi2Goal():Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
         var other=counterpart();var transfers=associatedPair(other);
-        var current=json.createObjectNode().put("status","DISABLE");
+        var current=facts("{}").put("status","DISABLE");
         current.putObject("delivery_setting").put("smart_bid_type",mode.oceanValue()).put("budget",300);
         var updated=current.deepCopy();updated.withObject("/delivery_setting").put("budget",amount);
         if(mode==SmartBidType.CUSTOM){current.withObject("/delivery_setting").put("roi2_goal",2);updated.withObject("/delivery_setting").put("roi2_goal",2);}
         when(port.detail(credential,"456")).thenReturn(current,updated);
-        service.settings(tenant,id,new PlanSettingsRequest(null,amount,null));
+        service.settings(tenant,id,request(null,amount,null));
         verify(port).settings(credential,"456",null,amount,null);
         assertEquals(0,amount.compareTo(plan.setting().dailyBudget().amount()));assertEquals(mode,plan.setting().bidType());assertEquals(PlanStatus.PAUSED,plan.status());
         assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(plans,never()).save(other);verify(transfers,never()).activeId(any(),any());
@@ -197,74 +234,75 @@ class PlanManagementBoundaryTest {
     void budgetOutsideModeBoundsIsRejectedBeforeCallingThePlatform(SmartBidType mode,BigDecimal amount,String minimum) {
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
         associatedPair(counterpart());
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,amount,null)));
-        assertTrue(error.getMessage().contains("日预算范围为 "+minimum+"–"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,amount,null)));
+        assertEquals(1402,error.code());assertTrue(error.getMessage().contains(minimum));
         verifyNoInteractions(port,credentials,audit);verify(plans,never()).save(any());
     }
     @Test void changedPlatformModeStopsBudgetUpdateUntilThePlanIsSynced() throws Exception {
         plan.updateSetting(new DeliverySetting(SmartBidType.CONSERVATIVE,Money.ofYuan(100),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
-        when(port.detail(credential,"456")).thenReturn(json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"smart_bid_type\":\"SMART_BID_CUSTOM\",\"budget\":300}}"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("50"),null)));
-        assertTrue(error.getMessage().contains("平台投放方式已变化"));verify(port,never()).settings(any(),any(),any(),any(),any());
+        when(port.detail(credential,"456")).thenReturn(facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"smart_bid_type\":\"SMART_BID_CUSTOM\",\"budget\":300}}"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,new BigDecimal("50"),null)));
+        assertEquals(1404,error.code());verify(port,never()).settings(any(),any(),any(),any(),any());
         verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void acknowledgedBudgetWithoutFreshConfirmationDoesNotReportLocalSuccessOrRetry() throws Exception {
-        when(port.detail(credential,"456")).thenReturn(json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":300}}"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("400"),null)));
+        plan.apply(PlanStatus.PAUSED);
+        when(port.detail(credential,"456")).thenReturn(facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":300}}"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,new BigDecimal("400"),null)));
         assertTrue(error.getMessage().contains("勿重复提交"));verify(port).settings(credential,"456",null,new BigDecimal("400"),null);
         assertEquals(0,new BigDecimal("300").compareTo(plan.setting().dailyBudget().amount()));verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void pausedRoiChangeConfirmsFreshPlatformValueAndDoesNotTouchItsCounterpart() throws Exception {
+        plan.updateSetting(new DeliverySetting(SmartBidType.CUSTOM,Money.ofYuan(400),plan.setting().roi2Goal(),Schedule.fromNow(),AudienceJson.empty()));
         plan.apply(PlanStatus.PAUSED);var other=counterpart();associatedPair(other);
         when(port.detail(credential,"456")).thenReturn(
-                json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"smart_bid_type\":\"SMART_BID_CUSTOM\",\"budget\":400,\"roi2_goal\":2,\"deep_external_action\":\"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI\"}}"),
-                json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":1.6}}"));
-        service.settings(tenant,id,new PlanSettingsRequest(null,null,new BigDecimal("1.6")));
+                facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"smart_bid_type\":\"SMART_BID_CUSTOM\",\"budget\":400,\"roi2_goal\":2,\"deep_external_action\":\"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI\"}}"),
+                facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":1.6}}"));
+        service.settings(tenant,id,request(null,null,new BigDecimal("1.6")));
         verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");verify(port,times(2)).detail(credential,"456");
         assertEquals(new BigDecimal("1.6"),plan.setting().roi2Goal().orElseThrow().value());assertEquals(0,new BigDecimal("400").compareTo(plan.setting().dailyBudget().amount()));
         assertEquals(PlanStatus.PAUSED,plan.status());assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());verify(plans,never()).save(other);
         assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(audit).record(any());
     }
     @Test void platformRoiRejectionDoesNotPersistRequestedValueOrWriteSuccessAudit() throws Exception {
-        when(port.detail(credential,"456")).thenReturn(json.readTree("{\"delivery_setting\":{\"deep_external_action\":\"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI\"}}"));
+        when(port.detail(credential,"456")).thenReturn(facts("{\"delivery_setting\":{\"deep_external_action\":\"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI\"}}"));
         doThrow(new BizException(1406,"千川ROI修改失败：ROI不可修改")).when(port).settings(credential,"456",null,null,new BigDecimal("1.6"),"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,new BigDecimal("1.6"))));
-        assertTrue(error.getMessage().contains("ROI不可修改"));assertEquals(new BigDecimal("2"),plan.setting().roi2Goal().orElseThrow().value());verify(plans,never()).save(any());verifyNoInteractions(audit);
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,null,new BigDecimal("1.6"))));
+        assertEquals(1406,error.code());assertTrue(error.getMessage().contains("勿重复提交"));assertEquals(new BigDecimal("2"),plan.setting().roi2Goal().orElseThrow().value());verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void acknowledgedRoiWithoutFreshConfirmationDoesNotReportLocalSuccessOrRetry() throws Exception {
-        when(port.detail(credential,"456")).thenReturn(json.readTree("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":2}}"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,new BigDecimal("1.6"))));
-        assertTrue(error.getMessage().contains("最新ROI尚未确认"));verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),null);
+        when(port.detail(credential,"456")).thenReturn(facts("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,null,new BigDecimal("1.6"))));
+        assertEquals(1406,error.code());assertTrue(error.getMessage().contains("勿重复提交"));verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),null);
         assertEquals(new BigDecimal("2"),plan.setting().roi2Goal().orElseThrow().value());verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void readbackFailureAfterRoiAcknowledgementDoesNotBlindlyRepeatTheWrite() {
-        when(port.detail(credential,"456")).thenReturn(json.createObjectNode()).thenThrow(new BizException(1406,"读取超时"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,new BigDecimal("1.6"))));
-        assertTrue(error.getMessage().contains("千川已接受ROI修改"));verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),null);verify(plans,never()).save(any());verifyNoInteractions(audit);
+        when(port.detail(credential,"456")).thenReturn(facts("{}")).thenThrow(new BizException(1406,"读取超时"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,null,new BigDecimal("1.6"))));
+        assertEquals(1406,error.code());assertTrue(error.getMessage().contains("勿重复提交"));verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),null);verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void combinedBudgetAndRoiUpdateMustConfirmBothValues() throws Exception {
         when(port.detail(credential,"456")).thenReturn(
-                json.readTree("{\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"),
-                json.readTree("{\"delivery_setting\":{\"budget\":300,\"roi2_goal\":1.6}}"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("400"),new BigDecimal("1.6"))));
-        assertTrue(error.getMessage().contains("预算与ROI尚未确认"));verify(port).settings(credential,"456",null,new BigDecimal("400"),new BigDecimal("1.6"),null);
+                facts("{\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"),
+                facts("{\"delivery_setting\":{\"budget\":300,\"roi2_goal\":1.6}}"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,new BigDecimal("400"),new BigDecimal("1.6"))));
+        assertEquals(1406,error.code());assertTrue(error.getMessage().contains("勿重复提交"));verify(port).settings(credential,"456",null,new BigDecimal("400"),new BigDecimal("1.6"),null);
         verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void readbackFailureAfterAcknowledgementExplainsThatBudgetMayAlreadyHaveChanged() {
-        when(port.detail(credential,"456")).thenReturn(json.createObjectNode()).thenThrow(new BizException(1406,"读取超时"));
-        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,new BigDecimal("400"),null)));
-        assertTrue(error.getMessage().contains("千川已接受预算修改"));verify(plans,never()).save(any());verifyNoInteractions(audit);
+        when(port.detail(credential,"456")).thenReturn(facts("{}")).thenThrow(new BizException(1406,"读取超时"));
+        BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,new BigDecimal("400"),null)));
+        assertEquals(1406,error.code());assertTrue(error.getMessage().contains("勿重复提交"));verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
-    @Test void nameOnlyChangeUsesFreshPlatformBudgetLocallyWithoutResendingIt() throws Exception {
-        when(port.detail(credential,"456")).thenReturn(json.readTree("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":500,\"roi2_goal\":3}}"));
-        service.settings(tenant,id,new PlanSettingsRequest("新计划",null,null));
-        verify(port).settings(credential,"456","新计划",null,null);
-        assertEquals(0,plan.setting().dailyBudget().amount().compareTo(new BigDecimal("500")));
-        assertEquals(new BigDecimal("3"),plan.setting().roi2Goal().orElseThrow().value());verify(plans).save(plan);verify(audit).record(any());
+    @Test void nameOnlyChangeDetectsExternalBudgetOrRoiChangeBeforeResendingAnything() {
+        when(port.detail(credential,"456")).thenReturn(facts("{\"status\":\"DELIVERY_OK\",\"delivery_setting\":{\"budget\":500,\"roi2_goal\":3}}"));
+        var error=assertThrows(BizException.class,()->service.settings(tenant,id,request("新计划",null,null)));
+        assertEquals(1404,error.code());verify(port,never()).settings(any(),any(),any(),any(),any());
+        assertEquals(0,plan.setting().dailyBudget().amount().compareTo(new BigDecimal("300")));verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
     @Test void conservativeModeCannotReceiveCostControlRoi() {
         plan.updateSetting(new DeliverySetting(SmartBidType.CONSERVATIVE,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
-        assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,new BigDecimal("2"))));
+        assertThrows(BizException.class,()->service.settings(tenant,id,request(null,null,new BigDecimal("2"))));
         verifyNoInteractions(port,credentials);
     }
     @Test void searchScreenNeverUsesAnotherToolApiAsSubstitute() {
@@ -330,7 +368,7 @@ class PlanManagementBoundaryTest {
         var secondCredential=new Credential("token-b",new AdvertiserId("124"));when(credentials.getUsableCredential(tenant,second)).thenReturn(secondCredential);
         JsonNode payload=json.readTree("{\"ad_info\":{\"id\":456,\"name\":\"平台计划\",\"status\":\"DISABLE\",\"budget\":300,\"roi2_goal\":2,\"create_time\":\"2026-10-06 10:00:00\"}}");
         var row=new OceanPlanRow("456","平台计划","DISABLE",SmartBidType.CUSTOM,Money.ofYuan(new BigDecimal("300")),null,null,payload);
-        when(list.list(credential,null)).thenReturn(List.of(row));when(list.list(secondCredential,null)).thenReturn(List.of(row));
+        when(list.listIncludingDeleted(credential,null)).thenReturn(List.of(row));when(list.listIncludingDeleted(secondCredential,null)).thenReturn(List.of(row));
         when(plans.findByTenant(tenant)).thenReturn(List.of());when(store.findId(eq(tenant),any(),eq("456"))).thenReturn(Optional.empty());
         when(port.report(any(),any())).thenThrow(new BizException(1406,"统计失败"));
         var sync=new PlanSyncService(plans,accounts,credentials,list,port,store,tx);var result=sync.sync(tenant,null);
@@ -338,7 +376,18 @@ class PlanManagementBoundaryTest {
         var capture=ArgumentCaptor.forClass(AdPlan.class);verify(plans,times(2)).save(capture.capture());
         assertNotEquals(capture.getAllValues().get(0).id(),capture.getAllValues().get(1).id());
         assertTrue(capture.getAllValues().stream().allMatch(p->p.status()==PlanStatus.PAUSED && p.source()==PlanSource.EXTERNAL && p.bindings().isEmpty()));
-        verify(list).list(credential,null);verify(list).list(secondCredential,null);verify(store,never()).report(any(),any(),any(),any(),any(),any());
+        verify(list).listIncludingDeleted(credential,null);verify(list).listIncludingDeleted(secondCredential,null);verify(store,never()).report(any(),any(),any(),any(),any(),any());
+    }
+    @Test void synchronizationPersistsDeletedPlatformPlansAsTombstones() throws Exception {
+        var accounts=mock(OauthAccountRepository.class);var list=mock(AdListPort.class);var tx=mock(PlatformTransactionManager.class);
+        when(tx.getTransaction(any())).thenReturn(mock(TransactionStatus.class));when(accounts.findByTenant(tenant)).thenReturn(List.of(oauth(account)));
+        when(plans.findByTenant(tenant)).thenReturn(List.of());when(store.findId(tenant,account,"456")).thenReturn(Optional.empty());
+        var payload=json.readTree("{\"ad_info\":{\"id\":456,\"name\":\"已删除的平台计划\",\"status\":\"DELETE\",\"budget\":300}}");
+        when(list.listIncludingDeleted(credential,null)).thenReturn(List.of(new OceanPlanRow("456","已删除的平台计划","DELETE",SmartBidType.CUSTOM,Money.ofYuan(300),null,null,payload)));
+        var sync=new PlanSyncService(plans,accounts,credentials,list,port,store,tx);assertEquals(1,sync.sync(tenant,null).accounts().getFirst().plans());
+        var captured=ArgumentCaptor.forClass(AdPlan.class);verify(plans).save(captured.capture());
+        assertEquals(PlanStatus.DELETED,captured.getValue().status());assertEquals("DELETE",captured.getValue().qcStatus());
+        verify(list,never()).list(any(),any());verify(port,never()).detail(any(),any());
     }
     private OauthAccount oauth(AccountId id) { return new OauthAccount(id,tenant,Platform.QIANCHUAN,new AdvertiserId("123"),"账户",null,null,Instant.now().plusSeconds(3600),null,"ACTIVE",List.of()); }
     @Test void liveSyncSkipsDemoAndOtherPlatformsAndUsesTenantScopedCredentials() {
@@ -346,13 +395,13 @@ class PlanManagementBoundaryTest {
         var real=oauth(account).withAuthorizationBinding("grant-real","app-real",null);
         var demo=oauth(new AccountId("demo"));
         var marketing=new OauthAccount(new AccountId("marketing"),tenant,Platform.OCEANENGINE,new AdvertiserId("999"),"营销账户",null,null,null,null,"ACTIVE",List.of());
-        when(accounts.findByTenant(tenant)).thenReturn(List.of(demo,marketing,real));when(list.list(credential,null)).thenReturn(List.of());
+        when(accounts.findByTenant(tenant)).thenReturn(List.of(demo,marketing,real));when(list.listIncludingDeleted(credential,null)).thenReturn(List.of());
         var sync=new PlanSyncService(plans,accounts,credentials,list,port,store,tx);
         var properties=new com.lynx.ad.common.config.LynxAdProperties();properties.getOauth().getQianchuan().setMode("live");sync.configuration(properties);
         var result=sync.sync(tenant,null);
         assertEquals(1,result.accounts().size());assertEquals(account.value(),result.accounts().getFirst().accountId());
         verify(credentials).getUsableCredential(tenant,account);verify(credentials,never()).get(any());
-        verify(list,times(1)).list(any(),any());verifyNoInteractions(port);
+        verify(list,times(1)).listIncludingDeleted(any(),any());verifyNoInteractions(port);
     }
     @Test void liveListHidesDemoPlansButRetainsRealAuthorizationHistory() {
         var accounts=mock(OauthAccountRepository.class);

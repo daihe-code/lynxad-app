@@ -36,8 +36,8 @@ public class CreationEngineClient {
             if(payload==null)req.GET();else req.header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload),StandardCharsets.UTF_8));
             var response=http.send(req.build(),HttpResponse.BodyHandlers.ofByteArray());
             if(missingAllowed&&response.statusCode()==404)return null;
-            if(response.statusCode()<200||response.statusCode()>=300) throw new BizException(payload!=null&&response.statusCode()>=500?8003:8002,"AI 引擎请求异常（HTTP "+response.statusCode()+"），请检查任务状态与引擎配置");
-            if(response.body().length>8*1024*1024)throw new BizException(8002,"AI 引擎响应超出限制");
+            if(response.statusCode()<200||response.statusCode()>=300) throw new BizException(payload!=null&&(response.statusCode()>=500||response.statusCode()<400||response.statusCode()==408)?8003:8002,"AI 引擎请求异常（HTTP "+response.statusCode()+"），请检查任务状态与引擎配置");
+            if(response.body().length>8*1024*1024)throw new BizException(payload==null?8002:8003,"AI 引擎响应超出限制，已提交请求时请核查结果");
             return json.readTree(response.body());
         }catch(BizException e){throw e;}catch(InterruptedException e){Thread.currentThread().interrupt();throw new BizException(payload==null?8002:8003,"AI 引擎请求中断，提交结果待确认");}
         catch(Exception e){throw new BizException(payload==null?8002:8003,"AI 引擎连接失败或响应超时；已提交任务时请先查询状态");}

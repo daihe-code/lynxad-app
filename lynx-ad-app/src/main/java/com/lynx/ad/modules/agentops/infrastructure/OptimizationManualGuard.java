@@ -22,7 +22,7 @@ public class OptimizationManualGuard implements WebMvcConfigurer {
         @Override public boolean preHandle(HttpServletRequest request,HttpServletResponse response,Object handler){
             if(!Set.of("POST","PUT","PATCH","DELETE").contains(request.getMethod()))return true;
             String path=request.getRequestURI().substring(request.getContextPath().length());var match=PATH.matcher(path);if(!match.matches())return true;
-            String suffix=match.group(2);if(suffix!=null && (suffix.startsWith("/optimization") || suffix.equals("/sync-detail")))return true;
+            String suffix=match.group(2);if(suffix!=null && (suffix.startsWith("/optimization") || suffix.equals("/sync-detail") || suffix.equals("/settings/reconcile") || suffix.equals("/audit-refresh")))return true;
             var tenant=TenantContext.requireTenantId();var p=plans.findById(tenant,new PlanId(match.group(1))).orElse(null);if(p==null)return true;
             String owner=execution.manualClaim(p);request.setAttribute(ATTRIBUTE,new Object[]{p,owner});return true;
         }

@@ -41,4 +41,8 @@ class InboxReadTest {
         assertFalse(value.getValue().isBefore(start));
         assertFalse(value.getValue().isAfter(Instant.now()));
     }
+    @Test void inboxReadAttemptsOnlyTheCurrentTenantsDueRecovery() {
+        var delivery=mock(com.lynx.ad.modules.tenant.application.InboxDeliveryJob.class);service.deliveryJob(delivery);
+        service.list(tenant);verify(delivery).recover(tenant);verify(repository).listByTenant(tenant);
+    }
 }

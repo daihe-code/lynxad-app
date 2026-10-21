@@ -822,6 +822,9 @@ public class LynxAdProperties {
         private String videoUploadUrl = "https://api.oceanengine.com/open_api/2/file/video/ad/";
         private String imageUploadUrl = "https://api.oceanengine.com/open_api/2/file/image/ad/";
         private String audioUploadUrl = "https://api.oceanengine.com/open_api/2/file/audio/ad/";
+        private String audioGetUrl = "https://api.oceanengine.com/open_api/2/file/audio/get/";
+        public String getAudioGetUrl(){return audioGetUrl;}
+        public void setAudioGetUrl(String value){audioGetUrl=value;}
         public String getImageUploadUrl() { return imageUploadUrl; }
         public void setImageUploadUrl(String value) { imageUploadUrl = value; }
         public String getAudioUploadUrl() { return audioUploadUrl; }

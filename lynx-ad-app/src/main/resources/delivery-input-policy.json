@@ -1,0 +1,12 @@
+{
+  "costBudgetMinimum": 300,
+  "volumeBudgetMinimum": 30,
+  "creation": { "budgetMaximum": 999999999.99, "volumeBudgetMinimum": 30, "volumeBudgetMaximum": 20000, "roiMinimum": 0.01, "roiMaximum": 10000 },
+  "update": { "budgetMaximum": 999999999.99, "volumeBudgetMinimum": 50, "volumeBudgetMaximum": 999999999.99, "roiMinimum": 0.01, "roiMaximum": 100 },
+  "decimalPlaces": 2,
+  "nameMaxLength": 30,
+  "customTitleMaximum": 29,
+  "titleMaxLength": 55,
+  "titlePlatformMinimum": 10,
+  "titlePlatformMaximum": 110
+}

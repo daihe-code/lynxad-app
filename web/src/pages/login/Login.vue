@@ -56,7 +56,7 @@
               <svg class="h-[26px] w-[26px]" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
             </span>
             <span class="auth-brand__name">灵投智营</span>
-            <p class="auth-brand__slogan">让中小微企业也能获得专家级广告投放效果</p>
+            <p class="auth-brand__slogan">让每一位商家都能获得专家级投放效果</p>
           </div>
 
           <ul class="auth-features">
@@ -65,8 +65,8 @@
                 <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-shield"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">7×24小时自主盯盘+优化</h3>
-                <p class="auth-feature__desc">全天候监控投放状态并自主优化，自动处置异常，不需人工盯盘，保障账户安全稳健、投放效果最优。</p>
+                <h3 class="auth-feature__title">持续盯盘，及时发现异常</h3>
+                <p class="auth-feature__desc">持续关注投放表现，发现异常及时提醒，并在你确认的托管范围内执行优化。</p>
               </div>
             </li>
             <li class="auth-feature">
@@ -74,8 +74,8 @@
                 <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-trend-up"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">先看效果再付费</h3>
-                <p class="auth-feature__desc">7天免费体验全部功能，效果到了再付费，降本增效看得见。</p>
+                <h3 class="auth-feature__title">平台服务免费体验 7 天</h3>
+                <p class="auth-feature__desc">先体验素材准备、投放管理与盯盘能力；广告费用仍由媒体平台收取。</p>
               </div>
             </li>
             <li class="auth-feature">
@@ -83,8 +83,8 @@
                 <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-bell"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">1分钟极速启动</h3>
-                <p class="auth-feature__desc">从注册到正式开始投放仅需1分钟，全自动化引导，零学习成本，上手快。</p>
+                <h3 class="auth-feature__title">确认后再启动投放</h3>
+                <p class="auth-feature__desc">授权不会立即投放，商品、预算、目标和素材均由你确认。</p>
               </div>
             </li>
             <li class="auth-feature">
@@ -111,13 +111,13 @@
             <span>返回首页</span>
           </router-link>
 
-          <h1 class="auth-title">登录灵投智营</h1>
+          <h1 class="auth-title">登录/注册</h1>
           <p class="auth-subtitle">开启智能广告投放新体验</p>
 
           <div class="auth-tabs" role="tablist" aria-label="登录方式">
             <button class="auth-tab" type="button" role="tab" id="tab-code"
                     :aria-selected="tab === 'sms'" :tabindex="tab === 'sms' ? 0 : -1" aria-controls="panel-code" @click="switchTab('sms')" @keydown="onTabKeydown($event, 'sms')">
-              验证码登录
+              验证码登录/注册
             </button>
             <button class="auth-tab" type="button" role="tab" id="tab-password"
                     :aria-selected="tab === 'password'" :tabindex="tab === 'password' ? 0 : -1" aria-controls="panel-password" @click="switchTab('password')" @keydown="onTabKeydown($event, 'password')">
@@ -167,7 +167,7 @@
                 <router-link class="auth-legal__link" to="/legal/privacy" target="_blank" rel="noopener">《隐私政策》</router-link>
               </label>
             </div>
-            <p v-if="legalError" class="sr-only" role="alert">{{ legalError }}</p>
+            <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg>{{ legalError }}</p>
           </form>
 
           <form class="auth-form" id="panel-password" role="tabpanel" aria-labelledby="tab-password"
@@ -216,7 +216,7 @@
                 <router-link class="auth-legal__link" to="/legal/privacy" target="_blank" rel="noopener">《隐私政策》</router-link>
               </label>
             </div>
-            <p v-if="legalError" class="sr-only" role="alert">{{ legalError }}</p>
+            <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg>{{ legalError }}</p>
           </form>
 
         </div>
@@ -239,7 +239,7 @@ type LoginTab = "sms" | "password";
 type FieldKey = "smsPhone" | "code" | "pwdPhone" | "password";
 const tab = ref<LoginTab>(route.query.tab === "password" ? "password" : "sms");
 const phone = ref(""), code = ref(""), pwdPhone = ref(""), password = ref("");
-const agreed = ref(true), showPassword = ref(false);
+const agreed = ref(false), showPassword = ref(false);
 const loading = ref(false), sending = ref(false), cooldown = ref(0);
 const errors = reactive<Record<FieldKey, string>>({ smsPhone: "", code: "", pwdPhone: "", password: "" });
 const legalAttention = ref(false), legalError = ref("");
@@ -250,7 +250,7 @@ let disposed = false;
 
 onMounted(() => {
   previousTitle = document.title;
-  document.title = "登录灵投智营 · 让中小微企业也能获得专家级广告投放效果";
+  document.title = "登录灵投智营 · 让每一位商家都能获得专家级投放效果";
 });
 onUnmounted(() => {
   disposed = true;

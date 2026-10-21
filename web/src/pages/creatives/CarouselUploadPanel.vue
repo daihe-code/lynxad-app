@@ -5,20 +5,20 @@
       <label>图文名称<input v-model="draft.name" maxlength="100" :disabled="locked" placeholder="选填，默认使用第一张图片的名称" /></label>
       <input ref="textInput" class="sr-only" type="file" accept=".txt" aria-label="导入图文文本" :disabled="locked" @change="textChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="textInput?.click()">导入 TXT 文件</button>
-      <textarea v-model="draft.text" aria-label="图文文本" :disabled="locked" maxlength="50000" rows="4" placeholder="请输入图文内容，将单独进行文本质检"></textarea>
-      <small>{{ draft.text.length.toLocaleString() }} / 50,000 字符 · UTF-8 文本不超过 1MB</small>
+      <textarea v-model="draft.text" aria-label="图文文本" :disabled="locked" :maxlength="assetFileRules.maxTextChars" rows="4" placeholder="请输入图文内容，将单独进行文本质检"></textarea>
+      <small>{{ draft.text.length.toLocaleString() }} / {{ assetFileRules.maxTextChars.toLocaleString() }} 字符 · {{ textPolicy.hint }}</small>
     </section>
     <section @dragover.prevent @drop.prevent="chooseImages($event.dataTransfer?.files)"><h3>2. 图片 <span>必填 · 支持多张</span></h3>
-      <input ref="imageInput" class="sr-only" type="file" accept=".jpg,.jpeg,.png" multiple aria-label="选择图文图片" :disabled="locked" @change="imagesChanged" />
+      <input ref="imageInput" class="sr-only" type="file" :accept="imagePolicy.extensions.map(e => `.${e}`).join(',')" multiple aria-label="选择图文图片" :disabled="locked" @change="imagesChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="imageInput?.click()">{{ draft.images.length ? '继续添加图片' : '选择图片（支持多选）' }}</button>
       <div class="images"><div v-for="(image, index) in previews" :key="image.url" class="image"><img :src="image.url" :alt="image.name" /><button type="button" :disabled="locked" :aria-label="`移除图片 ${index + 1}`" @click="draft.images.splice(index, 1)">×</button><small>{{ image.name }}</small></div></div>
-      <small>{{ draft.images.length }} / 18 张 · JPG / JPEG / PNG · 每张 ≤ 1.5MB、4,000 万像素</small>
+      <small>{{ draft.images.length }} / {{ assetFileRules.carouselMaxImages }} 张 · {{ imagePolicy.hint }} · {{ (assetFileRules.maxPixels / 10000).toLocaleString() }} 万像素</small>
     </section>
     <section @dragover.prevent @drop.prevent="chooseAudio($event.dataTransfer?.files)"><h3>3. 音频 <span>必填</span></h3>
-      <input ref="audioInput" class="sr-only" type="file" accept=".mp3,.m4a,.wav" aria-label="选择图文音频" :disabled="locked" @change="audioChanged" />
+      <input ref="audioInput" class="sr-only" type="file" :accept="audioPolicy.extensions.map(e => `.${e}`).join(',')" aria-label="选择图文音频" :disabled="locked" @change="audioChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="audioInput?.click()">{{ draft.audio ? '更换音频' : '选择音频' }}</button>
       <p v-if="draft.audio">{{ draft.audio.name }} · {{ fileSize(draft.audio.size) }} <button type="button" :disabled="locked" @click="draft.audio = undefined">移除</button></p>
-      <small>MP3 / AAC M4A / PCM WAV · ≤ 10MB，时长大于 0；WAV 仅存平台</small>
+      <small>{{ audioPolicy.hint }} · M4A 需 {{ assetFileRules.m4aCodec.toUpperCase() }} 编码，时长大于 0；WAV 仅存平台</small>
     </section>
     <label class="accounts">同步到千川账户<el-select v-model="draft.accounts" multiple collapse-tags :disabled="locked" placeholder="不选则仅保存到平台"><el-option v-for="a in accounts" :key="a.accountId" :value="a.accountId" :label="`${a.accountName}（${a.advertiserId}）`" /></el-select></label>
     <p v-if="accountError" class="error">{{ accountError }} <button type="button" @click="loadAccounts">重试</button></p>
@@ -39,7 +39,7 @@ import { ElMessage } from 'element-plus';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { beginCarouselDialog, carouselDraft as draft, uploadCarousel } from '@/features/creative/carouselUploads';
 import { uploadRows, reviewLabel } from '@/features/creative/assetUploads';
-import { libraryFileError } from '@/features/creative/assetUploadTypes';
+import { assetFileRules, libraryUploadPolicy, libraryFileError } from '@/features/creative/assetUploadTypes';
 import { decodeText, preflight } from '@/features/creative/assetPreflight';
 import { getUploadPolicy } from '@/features/creative/creativeApi';
 import AssetReviewStatus from './AssetReviewStatus.vue';
@@ -51,6 +51,7 @@ if (!draft.busy && !draft.result && !draft.accounts.length && props.defaultAccou
 const locked = computed(() => draft.busy || !!draft.result);
 const rows = computed(() => uploadRows.filter(r => draft.keys.includes(r.key)));
 const accounts = ref<AccountVo[]>([]), accountError = ref(''), textInput = ref<HTMLInputElement>(), imageInput = ref<HTMLInputElement>(), audioInput = ref<HTMLInputElement>();
+const imagePolicy = libraryUploadPolicy('IMAGE'), audioPolicy = libraryUploadPolicy('AUDIO'), textPolicy = libraryUploadPolicy('TEXT');
 const previews = ref<{ url: string; name: string }[]>([]);
 watch(() => [...draft.images], images => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); previews.value = images.map(f => ({ url: URL.createObjectURL(f), name: f.name })); }, { immediate: true });
 watch(() => draft.busy, blocked => emit('closeBlocked', blocked), { immediate: true, flush: 'sync' });
@@ -60,7 +61,7 @@ function chooseImages(files?: FileList | null) {
   for (const f of Array.from(files || [])) {
     const error = libraryFileError(f.name, 'IMAGE');
     if (error) { ElMessage.warning(error); continue; }
-    if (draft.images.length >= 18) { ElMessage.warning('最多上传 18 张图片'); break; }
+    if (draft.images.length >= assetFileRules.carouselMaxImages) { ElMessage.warning(`最多上传 ${assetFileRules.carouselMaxImages} 张图片`); break; }
     if (!draft.images.some(v => v.name === f.name && v.size === f.size && v.lastModified === f.lastModified)) draft.images.push(f);
   }
 }

@@ -1,8 +1,10 @@
 import type { UploadPolicy } from './creativeApi';
+import fileRules from '../../../../lynx-ad-app/src/main/resources/asset-file-policy.json' with { type: 'json' };
 
 export interface FileMetadata { width?: number; height?: number; duration?: number; characters?: number; summary: string }
 export function targetError(file: File, sync: boolean) {
-  return sync && /\.wav$/i.test(file.name) ? '千川仅支持 MP3/M4A 音频，请转换 WAV 或取消同步账户后仅保存到平台' : '';
+  const rule = fileRules.files.find(r => r.extension === file.name.split('.').pop()?.toLowerCase());
+  return sync && rule && rule.kind !== 'TEXT' && !rule.qianchuanSupported ? '千川仅支持 MP3/M4A 音频，请转换 WAV 或取消同步账户后仅保存到平台' : '';
 }
 function fail(message = '文件内容损坏或与扩展名不匹配'): never { throw new Error(message); }
 function ascii(bytes: Uint8Array, start: number, length: number) { return String.fromCharCode(...bytes.slice(start, start + length)); }

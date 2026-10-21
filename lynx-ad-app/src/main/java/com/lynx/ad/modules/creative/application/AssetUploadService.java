@@ -236,6 +236,7 @@ public class AssetUploadService {
     }
     public Detail retry(TenantId tenant, String id, String account, boolean acknowledged) {
         var asset=repository.require(tenant.value(),id);
+        if(acknowledged)throw new BizException(1523,"待确认任务只能核查结果，不可直接重新上传");
         if (!"STORED".equals(asset.storageStatus())) throw new BizException(1520,"文件尚未入库");
         if (!repository.approved(tenant.value(),id)) throw new BizException(1525,"AI 审核尚未通过，不能同步千川，请先查看审核结果");
         AssetFilePolicy.target(asset.filename(),true);

@@ -53,11 +53,18 @@ public class CreationQianchuanGateway {
         return products(tenant,account,aweme,page,size,keyword,tab,unpromoted,ids,false);
     }
     public Page products(TenantId tenant,String account,String aweme,int page,int size,String keyword,String tab,boolean unpromoted,List<String> ids,boolean refreshPrices) {
+        return products(tenant,account,aweme,page,size,keyword,tab,unpromoted,ids,refreshPrices,true);
+    }
+    /** Recommendation scanning uses catalog prices; do not fan out SKU-price requests for every candidate. */
+    public Page recommendationCandidates(TenantId tenant,String account,String aweme,int page,int size) {
+        return products(tenant,account,aweme,page,size,null,"ALL",false,null,false,false);
+    }
+    private Page products(TenantId tenant,String account,String aweme,int page,int size,String keyword,String tab,boolean unpromoted,List<String> ids,boolean refreshPrices,boolean fetchPrices) {
         if(page<1 || size<1 || size>100) throw new BizException(1302,"商品分页参数不合法");
         var c=credential(tenant,account,aweme);
         Map<String,Object> filtering=new LinkedHashMap<>();
         if(tab!=null && !tab.isBlank()) {
-            if(!Set.of("ALL","GOOD_BOOST","SEARCH_TREND","BREAKTHROUGH_PRODUCT").contains(tab)) throw new BizException(1302,"不支持的商品分类");
+            if(!com.lynx.ad.modules.delivery.domain.service.ProductCatalogPolicy.TABS.contains(tab)) throw new BizException(1302,"该商品分类暂未开放，请选择全部、跑量优价或搜索趋势品");
             filtering.put("tab",tab);
         }
         if(unpromoted && (tab==null || Set.of("ALL","GOOD_BOOST").contains(tab))) filtering.put("create_roi2_limit_product",true);
@@ -69,7 +76,7 @@ public class CreationQianchuanGateway {
         var refs=new ArrayList<com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref>();
         for(var p:data.path("product_list")) refs.add(new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(
                 p.path("id").asText(p.path("product_id").asText()),p.path("channel_id").asText(null)));
-        var quotes=prices==null?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,c,aweme,refs,refreshPrices);
+        var quotes=prices==null||!fetchPrices?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,c,aweme,refs,refreshPrices);
         var manual=manualPrices(tenant,aweme);
         var items=new ArrayList<Product>();
         for(var p:data.path("product_list")) {
@@ -95,6 +102,13 @@ public class CreationQianchuanGateway {
         }
         return result;
     }
+    /** Read-only recovery: keep unavailable rows visible so the browser can explain exclusions. */
+    public List<Product> restorable(TenantId tenant,String account,String aweme,List<String> ids) {
+        if(ids==null||ids.isEmpty()||ids.size()>10||new HashSet<>(ids).size()!=ids.size()
+                ||ids.stream().anyMatch(id->id==null||!id.matches("[1-9][0-9]{0,18}")))
+            throw new BizException(1302,"恢复选品需要 1–10 个不同的有效商品 ID");
+        return products(tenant,account,aweme,1,100,null,"ALL",false,ids).items();
+    }
     public List<Product> refreshPrices(TenantId tenant,String account,String aweme,List<Product> products) {
         if(prices==null || products.isEmpty())return products;
         var c=credential(tenant,account,aweme);
@@ -119,6 +133,9 @@ public class CreationQianchuanGateway {
         params.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
         try {result.set("roi",read(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params));}
         catch(BizException e){result.put("roiError","ROI 推荐获取失败："+recommendationError(e,c));}
+        result.put("fetchedAt",java.time.Instant.now().toString());
+        result.put("accountId",a);result.put("awemeId",aw);
+        result.set("productIds",json.valueToTree(ids));
         return result;
     }
     private static String recommendationError(BizException error,Credential credential) {

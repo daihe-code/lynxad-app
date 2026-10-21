@@ -5,13 +5,14 @@
       <p class="cancel-hint">若保存投放计划，可至“广告投放”功能列表查看</p>
     </template>
     <template v-else>
-      <p class="operation-warning">{{ action === 'regenerate' ? '重新生成新素材将导致对应老素材不可用且会消耗系统积分，请确认是否继续？' : '素材删除后将无法恢复，建议慎重操作。请确认是否继续？' }}</p>
+      <p class="operation-warning">{{ action === 'regenerate' ? '重新生成会调用模型。原素材会保留，待新素材生成、质检和同步完成后再替换。' : '素材删除后将无法恢复，建议慎重操作。请确认是否继续？' }}</p>
       <div class="feedback-row">
         <label for="material-feedback-reasons">{{ action === 'regenerate' ? '重新生成原因' : '删除素材原因' }}</label>
         <el-select id="material-feedback-reasons" v-model="reasons" multiple :teleported="false" :disabled="busy" placeholder="请如实选择原因，新生成素材将质量更高，可多选" aria-label="素材操作原因" @keydown.esc.stop="() => {}">
           <el-option v-for="reason in reasonOptions" :key="reason" :label="reason" :value="reason" />
         </el-select>
       </div>
+      <p v-if="action === 'regenerate' && feedbackError" class="feedback-error" role="status">{{ feedbackError }}</p>
       <div class="feedback-row feedback-row--description">
         <label for="material-feedback-description">{{ action === 'regenerate' ? '预期描述' : '补充说明' }}</label>
         <div class="feedback-description">
@@ -19,7 +20,8 @@
           <span class="feedback-count">{{ description.length }}/50</span>
         </div>
       </div>
-      <p class="operation-note"><span aria-hidden="true">i</span>{{ action === 'regenerate' ? '提交后系统将根据描述内容智能生成一条新的素材，将覆盖原有素材' : '提交后系统将删除所选素材，且不可恢复' }}</p>
+      <p class="operation-note"><span aria-hidden="true">i</span>{{ action === 'regenerate' ? '提交后可离开页面，后台会继续处理；结果待确认时不会自动重复生成。' : '提交后系统将删除所选素材，且不可恢复' }}</p>
+      <p v-if="action === 'regenerate' && waitSeconds" class="feedback-error" role="status">重新生成操作间隔为30秒，请在 {{ waitSeconds }} 秒后再试。</p>
     </template>
     <template #footer>
       <template v-if="action === 'cancel'">
@@ -28,19 +30,29 @@
       </template>
       <template v-else>
         <button class="dialog-secondary" type="button" :disabled="busy" @click="emit('close')">取消</button>
-        <button class="dialog-primary" type="button" :disabled="busy" @click="emit('confirm', { reasons: [...reasons], description: description.trim() })">{{ busy ? '处理中…' : '确定' }}</button>
+        <button class="dialog-primary" type="button" :disabled="busy || (action === 'regenerate' && (!!feedbackError || waitSeconds > 0))" @click="submitFeedback">{{ busy ? '处理中…' : '确定' }}</button>
       </template>
     </template>
   </ReferenceModal>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
-const props = defineProps<{ action: 'cancel' | 'regenerate' | 'delete'; busy: boolean }>();
+import { regenerationFeedbackError, regenerationWait } from '@/features/delivery/regenerationPolicy';
+const props = defineProps<{ action: 'cancel' | 'regenerate' | 'delete'; busy: boolean; retryAt?: number }>();
 const emit = defineEmits<{ close: []; save: []; discard: []; confirm: [feedback: MaterialFeedback] }>();
 const title = computed(() => props.action === 'cancel' ? '取消投放提醒' : props.action === 'regenerate' ? '重新生成素材提醒' : '删除素材提醒');
 const reasons = ref<string[]>([]), description = ref('');
+const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
+onUnmounted(() => clearInterval(timer));
+watch(() => props.retryAt, () => { now.value = Date.now(); }, { flush: 'sync' });
+const feedbackError = computed(() => regenerationFeedbackError(reasons.value, description.value));
+const waitSeconds = computed(() => regenerationWait(props.retryAt, now.value));
+function submitFeedback() {
+  if (props.busy || (props.action === 'regenerate' && (feedbackError.value || waitSeconds.value))) return;
+  emit('confirm', { reasons: [...reasons.value], description: description.value.trim() });
+}
 const reasonOptions = ['画面质量不佳', '文案不符合预期', '商品展示不清晰', '内容与商品不匹配', '素材重复', '其他'];
 </script>
 <style scoped>
@@ -66,6 +78,7 @@ const reasonOptions = ['画面质量不佳', '文案不符合预期', '商品展
 .feedback-count { position: absolute; top: 6px; right: 8px; font-size: 14px; color: #999; pointer-events: none; }
 .operation-note { margin: 16px 0 0 122px; display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 20px; color: #666; }
 .operation-note span { display: inline-flex; flex-shrink: 0; justify-content: center; align-items: center; width: 16px; height: 16px; margin-top: 2px; border-radius: 50%; background: #e7a24b; color: white; font-weight: 700; font-style: normal; }
+.feedback-error { margin:8px 0 0 122px; color:#b56b19; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
 .dialog-primary, .dialog-secondary { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; height: 32px; border-radius: 6px; padding: 0 20px; font: inherit; font-size: 13px; cursor: pointer; }
 .dialog-primary { color: white; background: #2855e6; border: 1px solid transparent; font-weight: 600; }
 .dialog-secondary { color: #555; background: white; border: 1px solid #bfbfbf; }
@@ -77,6 +90,7 @@ button:disabled { opacity: .6; cursor: not-allowed; }
   .creation-action-dialog :deep(.reference-modal__body) { margin: 32px 0; padding: 0; }
   .feedback-row { grid-template-columns: 1fr; gap: 8px; }
   .operation-note { margin-left: 0; }
+  .feedback-error { margin-left:0; }
   .cancel-question, .cancel-hint { font-size: 16px; line-height: 1.6; }
   .creation-action-dialog--cancel .dialog-primary, .creation-action-dialog--cancel .dialog-secondary { height: 42px; min-width: 90px; font-size: 16px; }
 }

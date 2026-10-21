@@ -44,6 +44,7 @@
           <nav class="library-pager cover-pager" aria-label="视频封面分页"><span>共 {{ coverTotal }} 张，每页 {{ pageSize }} 张</span><div><button type="button" :disabled="locked || coverLoading || coverPage <= 1" @click="changeCoverPage(coverPage - 1)">上一页封面</button><span aria-live="polite">第 {{ coverPage }} / {{ coverTotalPages }} 页</span><button type="button" :disabled="locked || coverLoading || coverPage >= coverTotalPages" @click="changeCoverPage(coverPage + 1)">下一页封面</button></div></nav>
         </div>
       </div>
+      <p v-if="imageSpecError" class="dialog-error" role="alert">{{ imageSpecError }}</p>
       <div class="library-field"><label for="addition-titles">素材标题</label><textarea id="addition-titles" v-model="titles" :disabled="locked" rows="2" placeholder="每行一条标题，最多29条，每条55字" /><p v-if="titleError" class="dialog-error">{{ titleError }}</p></div>
     </template>
     <p v-if="submitError" class="dialog-error" role="alert">{{ submitError }}</p>
@@ -52,6 +53,7 @@
   </ReferenceModal>
 </template>
 <script setup lang="ts">
+import { titlesInputError } from '@/features/delivery/inputValidation';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
@@ -84,6 +86,7 @@ const loading = ref(false), loadError = ref('');
 const selected = computed(() => items.value.find(item => item.id === selectedId.value) || chosenItem.value);
 function selectItem(item: LibraryItemVo) { selectedId.value = item.id; chosenItem.value = item; }
 function selectCover(item: LibraryItemVo) { coverId.value = item.assetId!; chosenCover.value = item; coverPickerOpen.value = false; }
+const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片' : '');
 const selectedUrls = computed(() => selected.value ? assetPreview(selected.value) : undefined);
 const previewVersion = ref(0), selectedMediaError = ref(false);
 watch(selected, () => { selectedMediaError.value = false; });
@@ -99,8 +102,8 @@ async function refreshPreviews() {
   await Promise.all([loadLibrary(true), type.value === 'VIDEO' ? loadCovers() : Promise.resolve()]);
 }
 const titleList = computed(() => titles.value.split('\n').map(t => t.trim()).filter(Boolean));
-const titleError = computed(() => titleList.value.length > 29 || titleList.value.some(t => t.length > 55) ? '最多29条标题，每条最多55字' : '');
-const canSubmit = computed(() => !!product.value && (source.value === 'AI' || !!selected.value && !!titleList.value.length && !titleError.value && (type.value !== 'VIDEO' || !!coverId.value)));
+const titleError = computed(() => titles.value.trim() ? titlesInputError(titleList.value) : '');
+const canSubmit = computed(() => !!product.value && (source.value === 'AI' || !!selected.value && !!titleList.value.length && !titleError.value && !imageSpecError.value && (type.value !== 'VIDEO' || !!coverId.value)));
 let loadNumber = 0, coverLoadNumber = 0, previousIds = new Set<string>(), submissionSource: 'AI' | 'LIBRARY' = 'AI';
 let submissionKey = '';
 const available = (i: LibraryItemVo) => (i.assetId || i.carouselId) && i.storageStatus !== 'FAILED' && i.reviewBadge !== 'REJECTED';

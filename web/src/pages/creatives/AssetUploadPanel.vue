@@ -20,7 +20,7 @@
       <p v-if="row.metadata" class="upload-metadata">{{ row.metadata.summary }}</p>
       <p v-if="!row.result && targetError(row.file, !!selected.length)" class="upload-error">{{ targetError(row.file, !!selected.length) }}</p>
       <AssetReviewStatus v-if="row.result" :review="row.result.aiReview" :retrying="reviewRetrying === row.result.id" @retry="retryReview(row)" />
-      <div v-for="sync in row.result?.syncs || []" :key="sync.id" class="upload-sync"><span>{{ accountName(sync.accountId) }}：{{ syncLabel(sync.status, sync.reviewStatus) }}<small v-if="sync.errorMessage">{{ sync.errorMessage }}</small></span><button v-if="retryable(sync.status)" type="button" :disabled="retrying === sync.id || row.result?.aiReview?.status !== 'APPROVED'" @click="retry(row, sync)">重试同步</button></div>
+      <div v-for="sync in row.result?.syncs || []" :key="sync.id" class="upload-sync"><span>{{ accountName(sync.accountId) }}：{{ syncLabel(sync.status, sync.reviewStatus) }}<small v-if="sync.errorMessage">{{ sync.errorMessage }}</small></span><AssetSyncAction :sync="sync" :busy="retrying === sync.id" :can-retry="['APPROVED', 'NOT_REQUIRED'].includes(row.result?.aiReview?.status || '')" @retry="retry(row, sync)" @verify="verifySync(row, sync)" /></div>
     </div>
   </div>
   <p class="upload-note">{{ policy.note }}</p>
@@ -31,15 +31,16 @@
 </template>
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
-import { retryAssetSync, retryAssetReview, type AssetSync } from '@/features/creative/creativeApi';
+import { reconcileAssetSync, retryAssetSync, retryAssetReview, type AssetSync } from '@/features/creative/creativeApi';
 import { addUploadFiles, beginUploadDialog, reviewPending, startUploads, syncLabel, uploadRows, uploadStage, type UploadRow } from '@/features/creative/assetUploads';
 import { libraryFileError, libraryUploadPolicy, type UploadLibrary } from '@/features/creative/assetUploadTypes';
 import { targetError } from '@/features/creative/assetPreflight';
 import { fileSize } from './assetFormat';
 import AssetIcon from './AssetIcon.vue';
 import AssetReviewStatus from './AssetReviewStatus.vue';
+import AssetSyncAction from './AssetSyncAction.vue';
 const reviewRetrying = ref('');
 const props = defineProps<{ libraryType: UploadLibrary; defaultAccountIds?: string[] }>();
 const policy = computed(() => libraryUploadPolicy(props.libraryType));
@@ -59,7 +60,6 @@ function removeRow(row: UploadRow) { const index = uploadRows.indexOf(row); if (
 function changed(e: Event) { const element = e.target as HTMLInputElement; add(element.files); element.value = ''; }
 function icon(name: string) { return /\.mp4$/i.test(name) ? 'video' : /\.(mp3|m4a|wav)$/i.test(name) ? 'audio' : /\.txt$/i.test(name) ? 'note' : 'image'; }
 function accountName(id: string) { return accounts.value.find(a => a.accountId === id)?.accountName || '千川账户'; }
-function retryable(status: string) { return ['WAITING_AUTH', 'FAILED', 'UNCERTAIN', 'PAUSED'].includes(status); }
 async function start() { await startUploads([...selected.value], aigc.value, props.libraryType); emit('changed'); }
 async function retryReview(row: UploadRow) {
   if (!row.result) return;
@@ -70,10 +70,20 @@ async function retryReview(row: UploadRow) {
 }
 async function retry(row: UploadRow, sync: AssetSync) {
   if (!row.result) return;
-  if (sync.status === 'UNCERTAIN') { try { await ElMessageBox.confirm('上次上传可能已被千川接收。请先在平台核对，确认需要重新上传后继续。', '确认重试', { confirmButtonText: '已核对，重新上传', cancelButtonText: '取消' }); } catch { return; } }
+  if (sync.status === 'UNCERTAIN') return;
   retrying.value = sync.id;
   row.busy = true;
-  try { row.result = await retryAssetSync(row.result.id, sync.accountId, sync.status === 'UNCERTAIN'); row.stage = uploadStage(row.result); emit('changed'); } finally { retrying.value = ''; row.busy = false; }
+  try { row.result = await retryAssetSync(row.result.id, sync.accountId); row.stage = uploadStage(row.result); emit('changed'); } finally { retrying.value = ''; row.busy = false; }
+}
+async function verifySync(row: UploadRow, sync: AssetSync) {
+  if (!row.result || retrying.value) return;
+  const id = row.result.id;
+  retrying.value = sync.id;
+  try {
+    const result = await reconcileAssetSync(id, sync.accountId);
+    if (row.result?.id === id) { row.result = result.asset; row.stage = uploadStage(result.asset); emit('changed'); }
+  } catch { ElMessage.warning('核查暂未完成，上传记录已保留，请稍后重试'); }
+  finally { retrying.value = ''; }
 }
 onMounted(() => { void loadAccounts(); });
 </script>

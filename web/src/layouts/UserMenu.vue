@@ -16,6 +16,7 @@
 </template>
 
 <script setup lang="ts">
+import { accountNavigation } from '@/features/tenant/accountNavigation';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { UserFilled } from '@element-plus/icons-vue';
@@ -29,12 +30,7 @@ const subtitle = computed(() => {
   const role = user.me?.memberRole === 'OWNER' ? '主账号' : user.me?.memberRole === 'MEMBER' ? '子账号' : '';
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';
 });
-const entries = [
-  { label: '账户信息', to: '/accounts', icon: 'user' },
-  { label: '订阅与账单', to: '/subscription', icon: 'card' },
-  { label: '广告投放授权', to: '/accounts?tab=oauth', icon: 'shield' },
-  { label: '操作日志', to: '/accounts?tab=logs', icon: 'clock' },
-];
+const entries = accountNavigation;
 watch(() => route.fullPath, () => { open.value = false; });
 function close() { open.value = false; trigger.value?.focus(); }
 async function triggerKey(event: KeyboardEvent) {

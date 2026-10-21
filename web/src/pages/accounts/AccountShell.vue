@@ -16,18 +16,14 @@
   </div>
 </template>
 <script setup lang="ts">
+import { accountNavigation } from '@/features/tenant/accountNavigation';
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import AccountIcon from './AccountIcon.vue';
 const props = defineProps<{
     active: string;
 }>();
-const menus = [
-    { key: 'info', label: '账户信息', description: '管理企业信息、安全设置与发票信息', to: '/accounts' },
-    { key: 'oauth', label: '广告投放授权', description: '管理已授权的广告账户与投放权限', to: '/accounts?tab=oauth' },
-    { key: 'billing', label: '订阅与账单', description: '查看当前套餐、对比方案与账单记录', to: '/subscription' },
-    { key: 'logs', label: '操作日志', description: '查看账户操作记录，保障投放安全与可追溯', to: '/accounts?tab=logs' },
-];
+const menus = accountNavigation;
 const current = computed(() => menus.find(item => item.key === props.active));
 </script>
 <style src="./account.css"></style>

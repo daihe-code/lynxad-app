@@ -1,5 +1,9 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+import com.lynx.ad.modules.delivery.domain.service.PlanEditVersion;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore;
+
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lynx.ad.common.domain.Ids.*;
@@ -42,6 +46,8 @@ public class PlanManagementService {
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     private com.lynx.ad.modules.creative.application.AssetUploadService assets;
     @org.springframework.beans.factory.annotation.Autowired public void assetUploadService(com.lynx.ad.modules.creative.application.AssetUploadService value) { assets=value; }
+    private PlanSettingsEditStore settingsEdits;
+    @org.springframework.beans.factory.annotation.Autowired public void settingsEdits(PlanSettingsEditStore value){settingsEdits=value;}
     public PlanManagementService(AdPlanRepository plans,AdManagementPort port,QianchuanCredentialFacade credentials,
                                  PlanRemoteStore store,PlanQueryService query,BillingTrialService billing,AuditRecorder audit,
                                  JdbcTemplate jdbc,ObjectMapper json) {
@@ -66,89 +72,102 @@ public class PlanManagementService {
             throw new BizException(1403,"仅支持修改投放中或已暂停的千川计划");
     }
     public PlanVo detail(TenantId tenant,PlanId id) {
-        synchronized(store) { return detailLocked(tenant,id); }
-    }
-    private PlanVo detailLocked(TenantId tenant,PlanId id) {
-        AdPlan plan=require(tenant,id);
+        var plan=require(tenant,id);
         if(plan.qcPlanId().isPresent()) {
-            var c=credentials.getUsableCredential(tenant,plan.accountId());
-            JsonNode detail=port.detail(c,plan.qcPlanId().get().value());
-            // Mock responses do not claim to contain platform settings.
-            if(detail.has("delivery_setting")) {
-                var setting=detail.path("delivery_setting");
-                if(detail.hasNonNull("name")) plan.rename(PlanName.fromPlatform(detail.path("name").asText()));
-                if(detail.hasNonNull("status")) { plan.syncPlatformStatus(detail.path("status").asText());plan.apply(QianchuanPlanMapping.status(plan.qcStatus())); }
-                BigDecimal budget=QianchuanPlanMapping.number(setting,"budget");
-                var mode=setting.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(setting.path("smart_bid_type").asText()):plan.setting().bidType();
-                var schedule=new Schedule(plan.setting().schedule().type(),
-                        setting.has("start_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")):plan.setting().schedule().startDate(),
-                        setting.has("end_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")):plan.setting().schedule().endDate());
-                plan.updateSetting(new DeliverySetting(mode,budget==null?plan.setting().dailyBudget():Money.ofYuan(budget),
-                        Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),schedule,plan.setting().audience()));
-                plans.save(plan);
-                if(store.findId(tenant,plan.accountId(),plan.qcPlanId().get().value()).isEmpty())
-                    store.save(tenant,plan.accountId(),plan.qcPlanId().get().value(),id.value(),detail);
-                store.detail(tenant,id.value(),detail);
-            }
+            if(settingsEdits.pending(tenant,id).isPresent())throw new BizException(1523,"上次计划修改尚未确认，请使用核查修改结果");
+            String version=settingsEdits.state(plan).version();
+            var detail=port.detail(credentials.getUsableCredential(tenant,plan.accountId()),plan.qcPlanId().orElseThrow().value());
+            settingsEdits.applyRead(plan,version,()->cacheDetail(tenant,plan,detail));
         }
         return query.get(tenant,id);
     }
-    /** Serialized per process; platform acknowledgement always precedes local mutation. */
+    /** A durable claim precedes dispatch. No database transaction is held while calling Qianchuan. */
     public PlanVo settings(TenantId tenant,PlanId id,PlanSettingsRequest request) {
-        synchronized(store) {
-            if(transfers!=null)transfers.assertIdle(tenant,id);
-            return settingsLocked(tenant,id,request);
+        billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
+        if(request.name()==null && request.budget()==null && request.roi2Goal()==null)throw new BizException(1402,"请填写要修改的字段");
+        String name=request.name()==null?null:new PlanName(request.name()).text();
+        var current=require(tenant,id);editable(current);
+        validateSettings(current,request);
+        if(transfers!=null)transfers.assertIdle(tenant,id);
+        var claim=settingsEdits.claim(tenant,id,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion()));
+        var plan=claim.plan();var pending=claim.pending();boolean sent=false;
+        try {
+            editable(plan);validateSettings(plan,request);
+            var c=credentials.getUsableCredential(tenant,plan.accountId());
+            var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
+            PlanEditVersion.platformUnchanged(plan,detail);
+            if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
+                throw new BizException(1401,"同一抖音号存在同名计划");
+            String before=plan.name().text()+" / "+plan.setting().dailyBudget().amount()+" / "+plan.setting().roi2Goal().map(RoiGoal::value).orElse(null);
+            settingsEdits.dispatched(pending);sent=true;
+            if(request.roi2Goal()!=null)port.settings(c,plan.qcPlanId().orElseThrow().value(),name,request.budget(),request.roi2Goal(),QianchuanPlanMapping.text(detail.path("delivery_setting"),"deep_external_action"));
+            else port.settings(c,plan.qcPlanId().orElseThrow().value(),name,request.budget(),null);
+            var actual=port.detail(c,plan.qcPlanId().orElseThrow().value());
+            completeFacts(plan,actual);
+            if(!matches(request,actual))throw new BizException(1406,"千川已接收修改，但尚未确认全部修改值，请核查结果，勿重复提交");
+            settingsEdits.complete(pending,()->{cacheDetail(tenant,plan,actual);record(tenant,id,"修改计划："+plan.name().text(),"修改前："+before);});
+        }catch(RuntimeException failure) {
+            if(sent){settingsEdits.uncertain(pending);throw new BizException(1406,"计划修改结果待确认，请先核查千川当前设置，勿重复提交");}
+            settingsEdits.complete(pending,()->{});
+            if(failure instanceof BizException business && business.code()==1406)throw new BizException(1404,"尚未发送修改，千川当前设置暂无法核验，请读取最新值并核对；当前输入已保留");
+            throw failure;
+        }
+        return query.get(tenant,id);
+    }
+    private void validateSettings(AdPlan p,PlanSettingsRequest request) {
+        if(request.budget()!=null)DeliveryInputPolicy.budget(request.budget(),p.setting().bidType(),DeliveryInputPolicy.RULES.update());
+        if(request.roi2Goal()!=null) {
+            if(p.setting().bidType()!=SmartBidType.CUSTOM)throw new BizException(1402,"放量投放不设置净成交ROI目标");
+            DeliveryInputPolicy.roi(request.roi2Goal(),DeliveryInputPolicy.RULES.update());
         }
     }
-    private PlanVo settingsLocked(TenantId tenant,PlanId id,PlanSettingsRequest request) {
+    public record SettingsVerification(String expectedVersion,boolean acceptCurrent) {}
+    public record SettingsResult(PlanVo plan,String status,String message,boolean canAcceptCurrent) {}
+    /** Reads platform state and clears the claim only after proof, or an explicit acceptance of current facts. */
+    public SettingsResult verifySettings(TenantId tenant,PlanId id,SettingsVerification request) {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
-        if(request.name()==null && request.budget()==null && request.roi2Goal()==null) throw new BizException(1402,"请填写要修改的字段");
-        String name=request.name()==null?null:new PlanName(request.name()).text();
-        if(request.roi2Goal()!=null) number(request.roi2Goal(),new BigDecimal("0.01"),new BigDecimal("100"),"净成交ROI目标");
-        AdPlan plan=require(tenant,id); editable(plan);
-        if(request.budget()!=null) number(request.budget(),plan.setting().bidType().minimumDailyBudget(),new BigDecimal("999999999.99"),"日预算");
-        if(request.roi2Goal()!=null && plan.setting().bidType()!=SmartBidType.CUSTOM) throw new BizException(1402,"放量投放不设置净成交ROI目标");
-        var c=credentials.getUsableCredential(tenant,plan.accountId());
-        var detail=port.detail(c,plan.qcPlanId().get().value());
-        if((request.budget()!=null || request.roi2Goal()!=null) && detail.path("delivery_setting").hasNonNull("smart_bid_type") &&
-                SmartBidType.fromOcean(detail.path("delivery_setting").path("smart_bid_type").asText())!=plan.setting().bidType())
-            throw new BizException(1403,"平台投放方式已变化，请先同步计划");
-        if(detail.hasNonNull("status") && QianchuanPlanMapping.status(detail.path("status").asText())!=PlanStatus.DELIVERING &&
-                QianchuanPlanMapping.status(detail.path("status").asText())!=PlanStatus.PAUSED) throw new BizException(1403,"平台计划状态已变化，请先同步");
-        if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
-            throw new BizException(1401,"同一抖音号存在同名计划");
-        String before=plan.name().text()+" / "+plan.setting().dailyBudget().amount()+" / "+plan.setting().roi2Goal().map(RoiGoal::value).orElse(null);
-        if(request.roi2Goal()!=null)port.settings(c,plan.qcPlanId().get().value(),name,request.budget(),request.roi2Goal(),QianchuanPlanMapping.text(detail.path("delivery_setting"),"deep_external_action"));
-        else port.settings(c,plan.qcPlanId().get().value(),name,request.budget(),null);
-        if(name==null && (request.roi2Goal()!=null || request.budget()!=null)) {
-            String changed=request.roi2Goal()!=null?request.budget()!=null?"预算与ROI":"ROI":"预算";
-            try { detail=port.detail(c,plan.qcPlanId().get().value()); }
-            catch(RuntimeException ex) { throw new BizException(1406,"千川已接受"+changed+"修改，暂未取得最新结果，请同步核查，勿重复提交"); }
-            BigDecimal actualBudget=QianchuanPlanMapping.number(detail.path("delivery_setting"),"budget");
-            BigDecimal actualRoi=QianchuanPlanMapping.number(detail.path("delivery_setting"),"roi2_goal");
-            if(request.budget()!=null && (actualBudget==null || actualBudget.compareTo(request.budget())!=0) ||
-                    request.roi2Goal()!=null && (actualRoi==null || actualRoi.compareTo(request.roi2Goal())!=0))
-                throw new BizException(1406,"千川已接受"+changed+"修改，但最新"+changed+"尚未确认，请同步核查，勿重复提交");
-        }
-        if(name!=null) plan.rename(new PlanName(name));
-        BigDecimal currentBudget=QianchuanPlanMapping.number(detail.path("delivery_setting"),"budget");
-        BigDecimal currentRoi=QianchuanPlanMapping.number(detail.path("delivery_setting"),"roi2_goal");
-        plan.updateSetting(new DeliverySetting(plan.setting().bidType(),request.budget()!=null?Money.ofYuan(request.budget()):currentBudget!=null?Money.ofYuan(currentBudget):plan.setting().dailyBudget(),
-                request.roi2Goal()!=null?Optional.of(new RoiGoal(request.roi2Goal())):detail.has("delivery_setting")?Optional.ofNullable(currentRoi).map(RoiGoal::new):plan.setting().roi2Goal(),plan.setting().schedule(),plan.setting().audience()));
+        var pending=settingsEdits.verification(tenant,id,request.expectedVersion());
         try {
-            plans.save(plan);
-            var cached=store.list(tenant).get(id.value());
-            if(cached!=null) {
-                ObjectNode current=(detail.isObject()?detail:json.createObjectNode()).deepCopy();
-                current.put("name",plan.name().text());
-                ObjectNode setting=current.withObject("/delivery_setting");
-                setting.put("budget",plan.setting().dailyBudget().amount());
-                plan.setting().roi2Goal().ifPresent(goal->setting.put("roi2_goal",goal.value()));
-                store.detail(tenant,id.value(),current);
+            var plan=require(tenant,id);var target=settingsEdits.request(pending);
+            var actual=port.detail(credentials.getUsableCredential(tenant,plan.accountId()),plan.qcPlanId().orElseThrow().value());
+            completeFacts(plan,actual);
+            boolean applied=matches(target,actual),canAccept=pending.startedAt()!=null&&!pending.startedAt().plusSeconds(180).isAfter(Instant.now());
+            if(!applied && request.acceptCurrent() && !canAccept)throw new BizException(1523,"请等待原修改请求完成后再采用平台当前设置");
+            // Accept only the values the user reviewed; a newer console edit needs another comparison.
+            if(!applied && request.acceptCurrent())PlanEditVersion.platformUnchanged(plan,actual);
+            if(applied || request.acceptCurrent()) {
+                settingsEdits.complete(pending,()->{cacheDetail(tenant,plan,actual);record(tenant,id,applied?"核查计划修改成功":"核查并采用千川当前设置",applied?"已确认全部请求值":"用户接受平台当前设置，不代表原修改全部成功");});
+                return new SettingsResult(query.get(tenant,id),applied?"CONFIRMED":"ACCEPTED_CURRENT",applied?"已确认全部修改，计划设置已同步":"已采用千川当前设置，可核对后重新编辑；本次未重新发送修改请求",false);
             }
-            record(tenant,id,"修改计划："+plan.name().text(),"修改前："+before);
-        } catch(RuntimeException ex) { throw new BizException(1406,"千川已接受修改，本地保存失败，请同步核查，勿重复提交"); }
-        return query.get(tenant,id);
+            settingsEdits.observed(pending,()->cacheDetail(tenant,plan,actual));
+            return new SettingsResult(query.get(tenant,id),"UNCERTAIN","尚未确认全部修改，已读取千川当前值；请核对后再决定是否采用当前设置",canAccept);
+        }catch(RuntimeException failure){settingsEdits.uncertain(pending);throw failure;}
+    }
+    private static boolean matches(PlanSettingsRequest request,JsonNode detail) {
+        var ds=detail.path("delivery_setting");
+        return (request.name()==null||request.name().equals(DeliveryInputPolicy.text(detail.path("name").asText()))) &&
+            (request.budget()==null||equal(request.budget(),QianchuanPlanMapping.number(ds,"budget"))) &&
+            (request.roi2Goal()==null||equal(request.roi2Goal(),QianchuanPlanMapping.number(ds,"roi2_goal")));
+    }
+    private static boolean equal(BigDecimal a,BigDecimal b){return a!=null&&b!=null&&a.compareTo(b)==0;}
+    private static void completeFacts(AdPlan plan,JsonNode detail) {
+        var ds=detail.path("delivery_setting");
+        if(!plan.qcPlanId().orElseThrow().value().equals(detail.path("ad_id").asText())||!detail.hasNonNull("name")||!detail.hasNonNull("status")||!PlanEditVersion.validMode(ds)||QianchuanPlanMapping.number(ds,"budget")==null||SmartBidType.fromOcean(ds.path("smart_bid_type").asText())==SmartBidType.CUSTOM&&!ds.has("roi2_goal"))
+            throw new BizException(1406,"千川未返回完整计划设置，请稍后核查");
+    }
+    private void cacheDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
+        // Read-only sync may also see old mock responses without business settings.
+        if(!detail.has("delivery_setting"))return;
+        var setting=detail.path("delivery_setting");
+        if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(detail.path("name").asText()));
+        if(detail.hasNonNull("status")){plan.syncPlatformStatus(detail.path("status").asText());plan.apply(PlanEditVersion.platformStatus(detail));}
+        var mode=setting.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(setting.path("smart_bid_type").asText()):plan.setting().bidType();
+        var budget=QianchuanPlanMapping.number(setting,"budget");
+        var schedule=new Schedule(plan.setting().schedule().type(),setting.has("start_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")):plan.setting().schedule().startDate(),setting.has("end_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")):plan.setting().schedule().endDate());
+        plan.updateSetting(new DeliverySetting(mode,budget==null?plan.setting().dailyBudget():Money.ofYuan(budget),Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),schedule,plan.setting().audience()));
+        plans.save(plan);
+        if(store.findId(tenant,plan.accountId(),plan.qcPlanId().orElseThrow().value()).isEmpty())store.save(tenant,plan.accountId(),plan.qcPlanId().orElseThrow().value(),plan.id().value(),detail);
+        store.detail(tenant,plan.id().value(),detail);
     }
     private static void number(BigDecimal value,BigDecimal min,BigDecimal max,String label) {
         if(value.scale()>2 || value.compareTo(min)<0 || value.compareTo(max)>0) throw new BizException(1402,label+"范围为 "+min+"–"+max+"，最多两位小数");

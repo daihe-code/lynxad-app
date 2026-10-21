@@ -72,6 +72,7 @@ export interface AssetReview {
 export interface AssetSync {
   id: string; accountId: string; advertiserId?: string; status: 'WAITING_STORAGE' | 'WAITING_REVIEW' | 'QUEUED' | 'RUNNING' | 'UPLOADED' | 'WAITING_AUTH' | 'FAILED' | 'UNCERTAIN' | 'PAUSED';
   objectId?: string; materialId?: string; requestId?: string; reviewStatus: string; attempts: number; errorMessage?: string;
+  verification?: { state: string; checkedAt?: string; message?: string };
 }
 export interface AssetStorageMetadata {
   bucket?: string; objectKey?: string; endpoint?: string; pathVersion: string;
@@ -94,7 +95,7 @@ export function getCarousel(id: string) {
 }
 export interface UploadPolicy {
   files: { extension: string; kind: string; maxBytes: number; qianchuanSupported: boolean }[];
-  maxPixels: number; maxTextChars: number; maxFiles: number; videoCodec: string; m4aCodec: string;
+  maxPixels: number; maxTextChars: number; maxFiles: number; videoCodec: string; m4aCodec: string; carouselMaxImages?: number;
 }
 export function getUploadPolicy() { return apiGet<UploadPolicy>('/api/v1/creative/assets/upload-policy', { headers: { 'X-Quiet-Request': 'true' } }); }
 export function initAssetUpload(file: File, requestId: string, accountIds: string[], isAigc: boolean, libraryType?: LibraryItemVo['type']) {
@@ -111,7 +112,9 @@ export function getUploadedAsset(id: string) { return apiGet<UploadedAsset>(`/ap
 export function retryAssetReview(id: string) {
   return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/review/retry`, {}, { timeout: 15 * 60 * 1000 });
 }
-export function retryAssetSync(id: string, accountId?: string, acknowledgeUncertain = false) { return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/sync/retry`, { accountId, acknowledgeUncertain }); }
+export function retryAssetSync(id: string, accountId?: string) { return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/sync/retry`, { accountId }); }
+export interface AssetSyncVerification { state: string; message: string; asset: UploadedAsset }
+export function reconcileAssetSync(id: string, accountId: string) { return apiPost<AssetSyncVerification>(`/api/v1/creative/assets/${id}/sync/reconcile`, { accountId }, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } }); }
 
 export function generateCreatives(planId: string | undefined, productIds: string[]) {
   return apiPost<{ taskId: string }>("/api/v1/creative/creatives/generate", {

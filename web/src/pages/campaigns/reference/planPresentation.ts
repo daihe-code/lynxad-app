@@ -3,6 +3,7 @@ import { useRoute } from "vue-router";
 import {
   getPlan,
   syncPlanDetail,
+  refreshPlanAudit,
   type PlanVo,
   type PlanListVo,
 } from "@/features/delivery/deliveryApi";
@@ -65,7 +66,7 @@ export function usePlanPresentation(id?: () => string) {
   onUnmounted(() => {
     request++;
   });
-  async function load() {
+  async function load(refreshAudit: unknown = false) {
     const key = id ? id() : String(route.params.id || ""),
       seq = ++request;
     if (!key) {
@@ -76,7 +77,9 @@ export function usePlanPresentation(id?: () => string) {
     failed.value = false;
     try {
       let base = await getPlan(key);
-      if (base.qcPlanId) {
+      if(base.qcPlanId && base.status === 'PENDING_AUDIT') {
+        if(refreshAudit === true)try{base=await refreshPlanAudit(key);}catch{/* Preserve the cached status; the review notice provides a retry. */}
+      } else if (base.qcPlanId) {
         try { base = await syncPlanDetail(key); } catch { /* Keep the cached plan when the platform is unavailable. */ }
       }
       if (seq !== request) return;

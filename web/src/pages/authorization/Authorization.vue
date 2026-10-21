@@ -109,7 +109,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -462,7 +462,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -820,7 +820,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -873,9 +873,9 @@
                   </svg>
                 </span>
               </span>
-              <h2 class="result-head__title" id="result-title">授权成功！</h2>
+              <h2 class="result-head__title" id="result-title">账户已连接</h2>
               <p class="result-head__desc">
-                灵投已获得您的广告投放授权，后续将开启智能广告投放
+                账户连接已完成。授权不会立即启动广告投放，实际可用能力以平台授权为准。
               </p>
             </header>
 
@@ -1166,7 +1166,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -1451,12 +1451,14 @@ import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   oauthUrl,
+  checkAuthorizationCapabilities,
   listAccounts,
   type AccountVo,
   authorizationSession,
   hasQianchuanAuthorization,
   type AuthorizationSession,
 } from "@/features/identity/oauthApi";
+import { ElMessage } from 'element-plus';
 import QianchuanAccountSelection from './QianchuanAccountSelection.vue';
 import { useUserStore } from "@/stores/user";
 import { useWizardStore } from "@/stores/wizard";
@@ -1519,6 +1521,14 @@ async function verify() {
     accounts.value = await listAccounts();
     verified.value = accounts.value.some((a) => hasQianchuanAuthorization([a])
       && (!bindingSession.value || bindingSession.value.boundAccountIds.includes(a.accountId)));
+    if(verified.value) {
+      const bound=accounts.value.filter(a=>hasQianchuanAuthorization([a]) && (!bindingSession.value || bindingSession.value.boundAccountIds.includes(a.accountId)));
+      const checks=await Promise.allSettled(bound.map(a=>checkAuthorizationCapabilities(a.accountId)));
+      if(checks.some(r=>r.status === 'fulfilled' && (r.value.materialStatus === 'MISSING' || r.value.accountStatus !== 'AVAILABLE'))) {
+        await router.replace('/accounts?tab=oauth');return;
+      }
+      if(checks.some(r=>r.status === 'rejected' || r.value.status === 'UNKNOWN'))ElMessage.info({message:'账户已连接；完整授权能力尚待核验，可在账户管理中查看。',duration:6000});
+    }
     if (verified.value && bindingSession.value) {
       const destination = bindingSession.value.returnPath === '/accounts?tab=oauth' ? '/accounts?tab=oauth' : '/campaigns';
       await router.replace(destination);

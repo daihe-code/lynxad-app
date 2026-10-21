@@ -29,10 +29,10 @@
               v-if="['pending', 'reviewing', 'passed'].includes(tone)"
               class="resnote"
             >
-              <ReferenceIcon name="refresh" />以平台返回状态为准，页面每 60
-              秒自动同步
+              <ReferenceIcon name="refresh" />以平台返回状态为准，页面每60秒读取后台状态；审核等待较久时后台每3分钟查询
             </p>
           </div>
+          <PlanReviewNotice :plan="plan" @updated="plan = $event" />
           <details
             class="fold"
             :open="['pending', 'reviewing', 'passed'].includes(tone)"
@@ -400,6 +400,7 @@ import {
 import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
+import PlanReviewNotice from '../components/PlanReviewNotice.vue';
 import "./campaign-result.css";
 const props = defineProps<{ planId?: string }>(),
   route = useRoute();
@@ -576,7 +577,7 @@ const remaining = computed(() => {
   };
 });
 async function refresh() {
-  await load();
+  await load(true);
   refreshedAt.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   now.value = Date.now();
 }
@@ -602,7 +603,7 @@ onMounted(() => {
       ["pending", "reviewing", "passed", "running"].includes(tone.value) &&
       !loading.value
     )
-      void refresh();
+      void load();
   }, 60000);
 });
 onUnmounted(() => clearInterval(timer));

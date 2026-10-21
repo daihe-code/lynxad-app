@@ -1814,3 +1814,5 @@ details[open] .faq-icon:after {
 #top, #features, #industries, #pricing, #faq, #cta { scroll-margin-top: 72px; }
 /* Keep the decorative background behind the banner content and above the page. */
 #cta { isolation: isolate; }
+
+header .container-page{max-width:none;padding-left:24px;padding-right:24px}header .nav-link{background:transparent}header .nav-link:focus-visible{outline:2px solid #575cf6;outline-offset:4px}

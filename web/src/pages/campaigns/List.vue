@@ -27,7 +27,9 @@
         <div class="toolbar-left">
           <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
           <el-input v-model="keyword" class="search-input" clearable placeholder="搜索计划名称 / 商品名称 / 计划ID" aria-label="搜索计划名称或 ID"><template #prefix><el-icon><Search /></el-icon></template></el-input>
-          <el-select v-model="status" class="status-select" placeholder="全部状态" aria-label="计划状态" popper-class="campaign-dropdown"><el-option label="全部状态" value="" /><el-option v-for="(label, value) in PLAN_STATUS" :key="value" :label="label" :value="value" /></el-select>
+          <el-cascader ref="statusPicker" v-model="status" class="status-select" :options="planStatusOptions" :props="{ emitPath: false, checkStrictly: true, expandTrigger: 'click' }" :show-all-levels="false" clearable placeholder="全部状态" aria-label="计划状态" popper-class="campaign-status-menu" @change="closeStatusFilter">
+            <template #default="{ data }"><span class="status-option-label" @click="selectStatusLabel(data, $event)">{{ data.label }}</span></template>
+          </el-cascader>
           <el-select v-model="accountId" class="status-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown"><el-option label="全部广告账户" value="" /><el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId" /></el-select>
         </div>
         <div class="toolbar-right">
@@ -52,7 +54,7 @@
       <div v-if="selectedIds.length" class="selection-bar">已选择 {{ selectedIds.length }} 条计划<el-button text type="primary" @click="selectedIds = []">取消选择</el-button><el-button text type="primary" @click="exportRows">导出已选</el-button></div>
       <div class="table-scroll" v-loading="loading">
         <table class="plan-table" :class="{ compact, 'without-tools': !showTools }">
-          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 112px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
+          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 160px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
           <thead><tr>
             <th><el-checkbox :model-value="allPageSelected" :indeterminate="somePageSelected && !allPageSelected" aria-label="选择本页全部计划" @change="togglePageSelection" /></th>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
@@ -63,7 +65,8 @@
             <tr v-for="row in pagedRows" :key="row.planId" :class="{ selected: selectedIds.includes(row.planId) }">
               <td><el-checkbox v-model="selectedIds" :value="row.planId" :aria-label="`选择计划 ${row.name}`" /></td>
               <td class="plan-info-cell">
-                  <router-link class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
+                  <span v-if="isDeleted(row)" class="plan-name" :title="row.name">{{ row.name }}</span>
+                  <router-link v-else class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <div class="product-line">
                   <template v-if="row.products?.length">
@@ -80,9 +83,9 @@
                   <span v-else class="product-trigger muted"><span class="goods-thumb"><el-icon><Picture /></el-icon></span>商品（—）</span>
                   <span v-if="row.source === 'EXTERNAL'" class="source-tag external">外部</span>
                 </div>
-                <router-link v-if="alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
+                <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
-              <td><span class="status-pill" :class="row.status.toLowerCase()" :title="row.qcStatus || row.status"><i></i>{{ planStatusLabel(row.status, row.qcStatus) }}</span></td>
+              <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
               <td class="settings-cell">
                 <div><span>日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div v-if="row.smartBidType === 'SMART_BID_CONSERVATIVE'" class="roi-setting" :title="row.roiEstimate ? '千川对当前日预算的预估，非固定ROI目标，实际效果以平台为准' : '放量投放不设置固定ROI目标，平台暂无当前预算的ROI预估'"><span>预估净成交ROI</span><b>{{ estimateText(row.roiEstimate) }}</b></div>
@@ -105,18 +108,19 @@
                   <span v-else aria-hidden="true" />
                   <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
                 </div>
-                <div class="tool-shortcuts">
+                <div v-if="!isDeleted(row)" class="tool-shortcuts">
                   <router-link class="tool-name tool-monitor" :to="insightsLink(row.planId, 'optimization')" :aria-label="`打开 ${row.name} 的自动盯盘`">自动盯盘</router-link>
                 </div>
               </td>
               <td class="actions-cell">
                 <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
+                <span v-else-if="isDeleted(row)" class="muted">已删除</span>
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
                   <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
                   <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
                 </template>
-                <button type="button" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
+                <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
             <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 11 : 10" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
@@ -147,7 +151,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, type CascaderInstance } from 'element-plus';
 import { ArrowDown, ArrowRight, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
@@ -158,7 +162,8 @@ import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
-import { BID_TYPE, PLAN_STATUS, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
+import { BID_TYPE, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
+import { planStatusOptions, planStatusDisplay, type PlanStatusOption } from '@/features/delivery/planStatus';
 import { recentRange, rangeDays, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
 
 const user = useUserStore();
@@ -180,6 +185,12 @@ const loading = ref(false), summaryLoading = ref(false), loadFailed = ref(false)
 const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = ref('');
 const accounts = ref<AccountVo[]>([]);
 const keyword = ref(''), status = ref(''), bidType = ref('');
+const statusPicker = ref<CascaderInstance>();
+function closeStatusFilter() { statusPicker.value?.togglePopperVisible(false); }
+function selectStatusLabel(option: PlanStatusOption, event: MouseEvent) {
+  if(option.children?.length) return;
+  event.stopPropagation(); status.value = option.value; closeStatusFilter();
+}
 const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(null);
 const records = ref<PlanListVo[]>([]), selectedIds = ref<string[]>([]);
 const openByPlan = ref<Record<string, string[]>>({});
@@ -229,7 +240,7 @@ const quickReportOpen = ref(false), quickReportPlan = ref<PlanListVo>(), quickRe
 const quickReportTask = ref<ControlTask>(), quickReportTasks = ref<ControlTask[]>([]);
 const quickReportLoading = ref(false), quickReportError = ref(''), quickReportRange = ref<StatisticsRange>(recentRange(7));
 let quickReportSerial = 0;
-function canViewToolReport(row: PlanListVo, tool: string) { return row.smartBidType === 'SMART_BID_CUSTOM' && !!row.qcPlanId && ['一键起量', '素材追投'].includes(tool); }
+function canViewToolReport(row: PlanListVo, tool: string) { return !isDeleted(row) && row.smartBidType === 'SMART_BID_CUSTOM' && !!row.qcPlanId && ['一键起量', '素材追投'].includes(tool); }
 function openToolReport(row: PlanListVo, tool: string) {
   if (!canViewToolReport(row, tool)) return;
   quickReportPlan.value = row; quickReportKind.value = tool; quickReportRange.value = [...displayedRange.value]; quickReportOpen.value = true;
@@ -269,9 +280,10 @@ function estimateText(estimate: PlanListVo['roiEstimate']) {
   return '暂无预估';
 }
 function roiClass(row: PlanListVo) { return row.roi != null && row.roi > 0 ? 'roi-good' : ''; }
-const canManage = (row: PlanListVo) => user.trialActive && row.canEdit === true;
+const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
+const canManage = (row: PlanListVo) => !isDeleted(row) && user.trialActive && row.canEdit === true;
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
-const canDelete = (row: PlanListVo) => user.trialActive && (row.qcPlanId
+const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
   ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
   : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
 const canSwitchDraft = (row: PlanListVo) => user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
@@ -402,7 +414,7 @@ async function exportRows() {
   // Neutralize spreadsheet formulas in names and IDs before producing CSV.
   const cell = (value: unknown) => { let s = value == null ? '' : String(value); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return `"${s.replaceAll('"', '""')}"`; };
   const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '投放开始日期', '投放结束日期', '广告消耗', '成交订单', '成交金额', '支付ROI', '统计开始日期', '统计结束日期', '数据同步时间'];
-  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, PLAN_STATUS[r.status] || r.status, BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, r.costYuan, r.convert, r.gmvYuan, r.roi, exportFilters.startDate, exportFilters.endDate, r.snapshotTs])].map(row => row.map(cell).join(',')).join('\r\n');
+  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, planStatusLabel(r.status,r.qcStatus), BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, r.costYuan, r.convert, r.gmvYuan, r.roi, exportFilters.startDate, exportFilters.endDate, r.snapshotTs])].map(row => row.map(cell).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
   const link = document.createElement('a'); link.href = url; link.download = `投放计划-${new Date().toLocaleDateString('sv-SE')}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   ElMessage.success(`已导出 ${rows.length} 条计划`);
@@ -509,9 +521,12 @@ tr:hover .plan-info-cell .plan-name, tr:focus-within .plan-info-cell .plan-name 
 .product-image-trigger:hover, .product-image-trigger:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
 .goods-thumb { width: 36px; height: 36px; border: 1px solid #eeedf6; border-radius: 6px; overflow: hidden; }
 .goods-thumb .el-image { width: 100%; height: 100%; border-radius: 6px; }
+.review-delay-link{display:block;margin-top:5px;font-size:12px;line-height:1.5;color:#986226;white-space:normal;}
 .bid-edit { max-width: 0; opacity: 0; overflow: hidden; padding: 0; transition: max-width .18s, opacity .18s; }
 tr:hover .bid-edit, tr:focus-within .bid-edit { max-width: 120px; opacity: 1; }
 @media (hover: none) { .bid-edit { max-width: 120px; opacity: 1; } }
+.status-pill{max-width:100%;box-sizing:border-box;white-space:nowrap}.status-pill i{flex:none}.status-pill__label{min-width:0;overflow:hidden;text-overflow:ellipsis}.status-pill.audit,.status-pill.reaudit{color:#d08a1c;background:#fff8e7}.status-pill.completed,.status-pill.terminated,.status-pill.deleted{color:#89899b;background:#f4f4f8}
+:global(.campaign-status-menu.el-cascader__dropdown .status-option-label){display:block;width:100%}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-menu){min-width:185px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-menu__wrap){height:310px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-node){font-size:13px;min-height:34px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-node__label){padding-right:16px}
 </style>
 <style>
 .plan-insights-drawer .el-drawer__body{padding:0;overflow:auto}.plan-insights-drawer .insights-header{padding-right:65px}.plan-insights-drawer .insights-close{position:absolute;right:15px;top:16px;z-index:2;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid #e8e9f4;border-radius:7px;background:white;color:#737892;font-size:25px;cursor:pointer}.plan-insights-drawer .insights-close:hover{color:#5b57ff;background:#f6f6ff}@media(max-width:700px){.plan-insights-drawer{width:100%!important}}

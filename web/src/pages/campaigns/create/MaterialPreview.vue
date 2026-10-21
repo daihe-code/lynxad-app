@@ -3,10 +3,11 @@
     <p class="preview__title">投放效果预览</p>
     <div class="plats" role="tablist" aria-label="预览平台">
       <button v-for="p in platforms" :key="p.id" class="plat" type="button" role="tab" :aria-selected="platform === p.id" :aria-label="p.name" :title="`${p.name}效果示意`" @click="platform = p.id">
-        <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
+        <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><span v-else-if="p.id === 'pangolin'" class="plat__txt">▦</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
       </button>
     </div>
-    <div class="feed-phone" :class="{ 'feed-phone--landscape': landscape && material?.type === 'VIDEO', 'feed-phone--gallery': material?.type !== 'VIDEO', 'feed-phone--carousel': material?.type === 'CAROUSEL', 'feed-phone--landscape-carousel': imageLandscape && material?.type === 'CAROUSEL', 'feed-phone--product-card': material?.type === 'IMAGE', 'feed-phone--title': !!title }">
+    <PlatformPlacementPreview v-if="platform !== 'douyin'" :platform="platform" :material="material" :product="product" :account="account" @metadata="(id,data) => emit('metadata',id,data)" />
+    <div v-else class="feed-phone" :class="{ 'feed-phone--landscape': landscape && material?.type === 'VIDEO', 'feed-phone--gallery': material?.type !== 'VIDEO', 'feed-phone--carousel': material?.type === 'CAROUSEL', 'feed-phone--landscape-carousel': imageLandscape && material?.type === 'CAROUSEL', 'feed-phone--product-card': material?.type === 'IMAGE', 'feed-phone--title': !!title }">
       <div class="feed-screen">
         <div class="feed-status" aria-hidden="true"><span>9:41</span><span class="feed-status-icons"><FeedPreviewIcon name="signal" /><FeedPreviewIcon name="wifi" /><span class="feed-battery" /></span></div>
         <div class="feed-top" aria-hidden="true"><FeedPreviewIcon name="plus-circle" /><span>商城</span><span>关注</span><b>推荐</b><FeedPreviewIcon name="search" /></div>
@@ -51,7 +52,7 @@
       </div>
     </div>
     <p v-if="material?.type === 'CAROUSEL' && title" class="feed-title-preview">标题预览：{{ title }}</p>
-    <div v-if="hasMedia" class="feed-player-controls">
+    <div v-if="hasMedia && platform === 'douyin'" class="feed-player-controls">
       <div class="feed-player-row"><button type="button" :disabled="playPending" :aria-label="playing ? '暂停播放' : material?.type === 'VIDEO' ? '播放视频' : '播放图文配音'" @click="toggleVideo"><ReferenceIcon :name="playing ? 'pause' : 'play'" /></button><span>{{ material?.type === 'CAROUSEL' ? '图文配音 · ' : '' }}{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span><button type="button" :aria-label="muted ? '开启声音' : '静音'" :aria-pressed="muted" @click="muted = !muted"><FeedPreviewIcon :name="muted ? 'muted' : 'volume'" /></button></div>
       <input type="range" :min="0" :max="duration || 1" :value="currentTime" :disabled="!duration" step="0.1" aria-label="播放进度" @input="seek" />
     </div>
@@ -63,11 +64,13 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import FeedPreviewIcon from './FeedPreviewIcon.vue';
+import PlatformPlacementPreview from './PlatformPlacementPreview.vue';
 import type { CreationMaterial, CreationProduct } from '@/features/delivery/creationApi';
 const props = defineProps<{ material?: CreationMaterial; product?: CreationProduct; title?: string; account?: { awemeName: string; avatar?: string } }>();
 const emit = defineEmits<{ metadata: [id: string, data: { width: number; height: number; duration: number }] }>();
-const platforms = [{ id: 'douyin', name: '抖音' }, { id: 'toutiao', name: '今日头条' }, { id: 'xigua', name: '西瓜视频' }, { id: 'huoshan', name: '抖音火山版' }, { id: 'jisu', name: '抖音极速版' }];
+const platforms = [{ id: 'douyin', name: '抖音' }, { id: 'toutiao', name: '头条' }, { id: 'xigua', name: '西瓜' }, { id: 'huoshan', name: '抖音火山版' }, { id: 'pangolin', name: '穿山甲' }];
 const platform = ref('douyin'), imageIndex = ref(0), error = ref('');
+watch(platform,()=>{videoElement.value?.pause();audioElement.value?.pause();error.value='';});
 const videoElement = ref<HTMLVideoElement | null>(null), audioElement = ref<HTMLAudioElement | null>(null), playing = ref(false), playPending = ref(false);
 const muted = ref(false), currentTime = ref(0), duration = ref(0), landscape = ref(false), imageLandscape = ref(false);
 const liked = ref(false), saved = ref(false), avatarBroken = ref(false), productImageBroken = ref(false), captionExpanded = ref(false);

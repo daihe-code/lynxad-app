@@ -19,7 +19,7 @@ class EngineAssetEligibilityTest {
     static JdbcTemplate jdbc;static AssetUploadRepository repository;
     @BeforeAll static void create() throws Exception {
         var ds=new DriverManagerDataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
-        try(var c=ds.getConnection()){for(String script:new String[]{"V12__creative_asset_upload.sql","V14__asset_ai_review.sql","V15__creative_carousel.sql","V19__engine_asset_reference.sql","V18__creation_workflow.sql","V20__asset_storage_metadata.sql","V21__engine_asset_versions.sql"})ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/"+script));}
+        try(var c=ds.getConnection()){for(String script:new String[]{"V12__creative_asset_upload.sql","V14__asset_ai_review.sql","V15__creative_carousel.sql","V19__engine_asset_reference.sql","V18__creation_workflow.sql","V20__asset_storage_metadata.sql","V21__engine_asset_versions.sql","V39__asset_upload_reconciliation.sql"})ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/"+script));}
         jdbc=new JdbcTemplate(ds);repository=new AssetUploadRepository(jdbc);
     }
     @BeforeEach void reset(){jdbc.update("DELETE FROM creative_asset_platform");jdbc.update("DELETE FROM creative_asset_review");jdbc.update("DELETE FROM creative_engine_asset");jdbc.update("DELETE FROM creative_asset");}
