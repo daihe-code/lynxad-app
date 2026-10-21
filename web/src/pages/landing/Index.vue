@@ -681,10 +681,6 @@ function goSubscription() {
 
 async function openContact() {
   menuOpen.value = false;
-  if (!user.isLoggedIn) {
-    await router.push({ path: "/login", query: { redirect: "/?modal=contact" } });
-    return;
-  }
   const session = ++contactSession;
   lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   phone.value = "";

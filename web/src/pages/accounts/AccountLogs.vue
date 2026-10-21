@@ -18,13 +18,16 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { listAuditRecords, type AuditRecord, type AuditQuery } from '@/features/audit/auditApi';
+import { auditDateDefaults } from '@/features/audit/auditDateRange';
 import AccountIcon from './AccountIcon.vue';
 import { csvDownload, time } from './accountFormat';
 const route = useRoute(), router = useRouter();
 const kinds = [{ key: 'plan', type: 'PLAN', label: '投放计划', icon: 'tune' }, { key: 'login', type: 'LOGIN', label: '登录', icon: 'arrow-right' }, { key: 'asset', type: 'CREATIVE', label: '素材管理', icon: 'image' }, { key: 'auth', type: 'OAUTH', label: '授权管理', icon: 'shield' }, { key: 'acct', type: 'ACCOUNT', label: '账户设置', icon: 'user' }, { key: 'sys', type: 'SYSTEM_NOTICE', label: '系统通知', icon: 'info-line' }];
 const kind = computed(() => kinds.some(k => k.key === route.query.kind) ? String(route.query.kind) : '');
 function validDate(value: unknown) { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(new Date(value + 'T00:00:00').getTime()) ? value : ''; }
-const from = computed(() => validDate(route.query.from)), to = computed(() => validDate(route.query.to));
+const defaults = auditDateDefaults();
+const useDefaults = computed(() => route.query.from === undefined && route.query.to === undefined);
+const from = computed(() => useDefaults.value ? defaults.from : validDate(route.query.from)), to = computed(() => useDefaults.value ? defaults.to : validDate(route.query.to));
 const page = computed(() => Math.min(100000, Math.max(1, Number.parseInt(String(route.query.page || 1), 10) || 1)));
 const rows = ref<AuditRecord[]>([]), total = ref(0), loading = ref(false), error = ref(''), exporting = ref(false), keyword = ref(String(route.query.kw || ''));
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / 20)));
@@ -33,7 +36,7 @@ const pages = computed<(number | string)[]>(() => { const entries = Array.from(n
 let sequence = 0, searchTimer: ReturnType<typeof setTimeout> | undefined;
 function value(event: Event) { return (event.target as HTMLInputElement).value; }
 function itemFor(type: string) { return kinds.find(k => k.type === type) || { key: 'sys', label: type, icon: 'info-line' }; }
-function query(): AuditQuery { return { actionType: kinds.find(k => k.key === kind.value)?.type, from: from.value ? new Date(from.value + 'T00:00:00').toISOString() : undefined, to: to.value ? new Date(to.value + 'T23:59:59.999').toISOString() : undefined, q: typeof route.query.kw === 'string' ? route.query.kw.trim() : undefined }; }
+function query(): AuditQuery { return { actionType: kinds.find(k => k.key === kind.value)?.type, from: from.value ? new Date(from.value + 'T00:00:00+08:00').toISOString() : undefined, to: to.value ? new Date(to.value + 'T23:59:59.999+08:00').toISOString() : undefined, q: typeof route.query.kw === 'string' ? route.query.kw.trim() : undefined }; }
 function change(patch: Record<string, string | undefined>, replace = false) { void router[replace ? 'replace' : 'push']({ query: { ...route.query, ...patch, tab: 'logs' } }); }
 function go(p: number) { change({ page: p === 1 ? undefined : String(p) }); }
 function reset() { void router.push({ path: '/accounts', query: { tab: 'logs' } }); }

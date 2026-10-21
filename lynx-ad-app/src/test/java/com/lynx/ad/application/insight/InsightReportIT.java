@@ -84,6 +84,9 @@ class InsightReportIT extends AbstractContainerIT {
         }
         assertEquals(0, cardCost.compareTo(accountRows.get(0).path("cost").decimalValue()));
         assertFalse(first.path("cost").asText().contains("100000"));
+        com.lynx.ad.support.BackendRegressionEvidence.record("B5-02",java.util.Map.of(
+                "planRows",planRows.size(),"accountRows",accountRows.size(),"costYuan",first.path("cost").decimalValue(),
+                "gmvYuan",first.path("gmv").decimalValue(),"otherTenantRows",isolated.size(),"exportCode",export.path("code").asInt()));
     }
 
     private String publishDelivering(String token, String name) throws Exception {
@@ -115,8 +118,8 @@ class InsightReportIT extends AbstractContainerIT {
         String packageId = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token)
                 .path("packageId")
                 .asText();
-        post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);
-        post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"insight-1\"}", token);
+        assertEquals(0,json(post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token)).path("code").asInt());
+        assertEquals(0,json(post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"insight-1\"}", token)).path("code").asInt());
         auditPollJob.pollPendingAudits();
         return planId;
     }

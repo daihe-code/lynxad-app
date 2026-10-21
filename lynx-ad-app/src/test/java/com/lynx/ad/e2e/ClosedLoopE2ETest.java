@@ -2,6 +2,7 @@ package com.lynx.ad.e2e;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,11 +76,11 @@ class ClosedLoopE2ETest extends AbstractContainerIT {
         String taskId = gen.path("taskId").asText();
         JsonNode task = com.lynx.ad.support.CreativeTaskSupport.awaitSucceeded(mvc, mapper, taskId, token);
         String packageId = task.path("packageId").asText();
-        if (packageId != null && !packageId.isBlank()) {
-            post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token);
-        }
-        JsonNode pub = json(post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"e2e-1\"}", token))
-                .path("data");
+        assertTrue(packageId != null && !packageId.isBlank());
+        assertEquals(0,json(post("/api/v1/creative/packages/" + packageId + "/confirm", "{}", token)).path("code").asInt());
+        JsonNode response = json(post("/api/v1/delivery/plans/" + planId + "/publish", "{\"idempotencyKey\":\"e2e-1\"}", token));
+        assertEquals(0,response.path("code").asInt());
+        JsonNode pub = response.path("data");
         assertNotNull(pub.path("qcPlanId").asText(null));
         auditPollJob.pollPendingAudits();
         String list = get("/api/v1/delivery/plans", token);
@@ -87,6 +88,9 @@ class ClosedLoopE2ETest extends AbstractContainerIT {
         snapshotJob.snapshot();
         JsonNode insight = json(get("/api/v1/insight/reports?dim=plan", token)).path("data");
         assertTrue(insight.isArray() && insight.size() > 0);
+        com.lynx.ad.support.BackendRegressionEvidence.record("B5-03",java.util.Map.of(
+                "planId",planId,"packageId",packageId,"mockPlanId",pub.path("qcPlanId").asText(),
+                "publishCode",response.path("code").asInt(),"insightRows",insight.size(),"generationMode","LOCAL_MOCK"));
     }
 
     private String post(String url, String body, String token) throws Exception {

@@ -17,10 +17,10 @@ public final class LiveFixtureServer {
     public volatile boolean createFail;
     public volatile boolean libraryFail;
     public volatile boolean productFail;
-    public volatile String createdAdId = "qc_live_1001";
+    public volatile String createdAdId = "991001001";
 
     public LiveFixtureServer() throws java.io.IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1",0), 0);
         server.createContext("/", this::handle);
         server.start();
     }
@@ -43,6 +43,8 @@ public final class LiveFixtureServer {
         registry.add("lynx.ad.qianchuan.catalog.product-get-url", () -> b + "/catalog/product");
         registry.add("lynx.ad.qianchuan.delivery.suggest-budget-url", () -> b + "/delivery/budget");
         registry.add("lynx.ad.qianchuan.delivery.suggest-roi-url", () -> b + "/delivery/roi");
+        registry.add("lynx.ad.qianchuan.delivery.management-base-url", () -> b + "/management/");
+        registry.add("lynx.ad.qianchuan.delivery.compensate-status-url", () -> b + "/management/guarantees");
         registry.add("lynx.ad.qianchuan.delivery.ad-create-url", () -> b + "/delivery/create");
         registry.add("lynx.ad.qianchuan.delivery.ad-update-url", () -> b + "/delivery/update");
         registry.add("lynx.ad.qianchuan.delivery.ad-list-url", () -> b + "/delivery/list");
@@ -64,7 +66,7 @@ public final class LiveFixtureServer {
         int status = 200;
         if (path.contains("/oauth/token") || path.contains("/oauth/refresh")) {
             tokenHits.incrementAndGet();
-            json = "{\"code\":0,\"data\":{\"access_token\":\"live-access\",\"refresh_token\":\"live-refresh\",\"expires_in\":3600,\"advertiser_id\":\"adv_live_1\",\"advertiser_name\":\"夹具账户\"}}";
+            json = "{\"code\":0,\"data\":{\"access_token\":\"live-access\",\"refresh_token\":\"live-refresh\",\"expires_in\":3600,\"advertiser_id\":\"991001\",\"advertiser_name\":\"夹具账户\"}}";
         } else if (path.contains("/oauth/advertiser")) {
             json = "{\"code\":0,\"data\":{\"list\":[{\"account_id\":991001,\"account_name\":\"夹具账户\",\"account_role\":\"ADVERTISER\",\"account_type\":\"QIANCHUAN\"}]}}";
         } else if (path.contains("/oauth/aweme")) {
@@ -78,9 +80,9 @@ public final class LiveFixtureServer {
                 json = "{\"code\":0,\"data\":{\"ad_id\":\"" + createdAdId + "\"}}";
             }
         } else if (path.contains("/delivery/list")) {
-            json = "{\"code\":0,\"data\":{\"list\":[{\"ad_id\":\""
+            json = "{\"code\":0,\"data\":{\"ad_list\":[{\"ad_id\":\""
                     + createdAdId
-                    + "\",\"name\":\"夹具计划\",\"status\":\"DELIVERING\",\"smart_bid_type\":\"SMART_BID_CONSERVATIVE\",\"budget\":300}]}}";
+                    + "\",\"name\":\"夹具计划\",\"status\":\"DELIVERING\",\"smart_bid_type\":\"SMART_BID_CONSERVATIVE\",\"budget\":300}],\"page_info\":{\"total_page\":1}}}";
         } else if (path.contains("/delivery/status")) {
             statusHits.incrementAndGet();
             if (statusFail) {

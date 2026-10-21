@@ -71,6 +71,21 @@ class PlanTransferTest {
     }
     JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status);var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
     PlanTransferRequest cost(String key){return new PlanTransferRequest(key,"111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.18"));}
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"300,0.01","100000.01,100","999999999.99,100"})
+    void transferAcceptsPrdUpperBudgetAndRoiBoundaries(String budget,String roi) throws Exception {
+        var request=new PlanTransferRequest("prd-range","111","SMART_BID_CUSTOM",new BigDecimal(budget),new BigDecimal(roi));
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,request).status());
+        var settings=json.readTree(attempts.get("prd-range").payload()).path("delivery_setting");
+        assertEquals(0,new BigDecimal(budget).compareTo(settings.path("budget").decimalValue()));
+        assertEquals(0,new BigDecimal(roi).compareTo(settings.path("roi2_goal").decimalValue()));
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"300,0","300,100.01","300,0.001","1000000000,4.7","300.001,4.7"})
+    void invalidPrdRangesCannotPauseOrCreate(String budget,String roi) {
+        assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest("prd-range","111","SMART_BID_CUSTOM",new BigDecimal(budget),new BigDecimal(roi))));
+        assertTrue(calls.isEmpty());verifyNoInteractions(gateway);
+    }
     @Test void transferCostBudgetBelow300IsRejectedBeforePausingOrCreating() {
         for(String amount:List.of("50","99.99","100","299.99")) {
             var request=new PlanTransferRequest("budget-minimum","111","SMART_BID_CUSTOM",new BigDecimal(amount),new BigDecimal("4.18"));

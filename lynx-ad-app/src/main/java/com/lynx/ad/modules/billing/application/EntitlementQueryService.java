@@ -37,7 +37,7 @@ public class EntitlementQueryService {
         }
         TrialVo trial = billingTrialService.current(tenantId, now);
         if (trial != null && trial.active()) {
-            return planRepository.findByCode(PlanCode.PROFESSIONAL).map(BillingPlan::adAccountLimit).orElse(1);
+            return planRepository.findByCode(PlanCode.PROFESSIONAL).map(BillingPlan::adAccountLimit).orElse(3);
         }
         return 0;
     }
