@@ -15,7 +15,7 @@ class PrdDeliveryRangeTest {
         state.roi2Goal=new BigDecimal("4.7"); state.scheduleType="FROM_NOW"; state.name="无费用校验";
         return state;
     }
-    @ParameterizedTest @ValueSource(strings={"0.01","0.1","50","100"})
+    @ParameterizedTest @ValueSource(strings={"0.01","0.1","50","100","100.01","10000"})
     void acceptsFullPrdRoiRange(String amount) {
         var state=valid();state.roi2Goal=new BigDecimal(amount);
         assertDoesNotThrow(()->CreationPayloadBuilder.settings(state));
@@ -25,7 +25,7 @@ class PrdDeliveryRangeTest {
         var state=valid();state.budget=new BigDecimal(amount);
         assertDoesNotThrow(()->CreationPayloadBuilder.settings(state));
     }
-    @ParameterizedTest @ValueSource(strings={"0","100.01","0.001"})
+    @ParameterizedTest @ValueSource(strings={"0","10000.01","0.001"})
     void rejectsInvalidRoi(String amount) {
         var state=valid();state.roi2Goal=new BigDecimal(amount);
         assertThrows(BizException.class,()->CreationPayloadBuilder.settings(state));

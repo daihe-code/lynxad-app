@@ -7,8 +7,5 @@ export function creationBudgetError(value: string, mode: string): string {
 }
 
 export function creationRoiError(value: string, mode: string): string {
-  if (mode !== 'CUSTOM' && mode !== 'SMART_BID_CUSTOM') return '';
-  const text = value.trim(), amount = Number(text);
-  return !/^\d+(\.\d{1,2})?$/.test(text) || amount < .01 || amount > 100
-    ? '净成交ROI目标须为 0.01–100，最多两位小数' : '';
+  return roiInputError(value, mode);
 }

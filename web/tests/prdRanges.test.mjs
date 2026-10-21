@@ -10,10 +10,10 @@ test('PRD控成本预算接受100000.01至999999999.99，而不扩大低预算�
   }
 });
 
-test('ROI统一允许0.01–100并阻止超界和多余小数', () => {
+test('创建ROI按新走查规范允许0.01–10000并阻止超界和多余小数', () => {
   assert.equal(typeof deliveryRules.creationRoiError, 'function');
-  for (const value of ['0.01', '0.1', '50', '100']) assert.equal(deliveryRules.creationRoiError(value, 'CUSTOM'), '');
-  for (const value of ['', '0', '100.01', '0.001']) assert.notEqual(deliveryRules.creationRoiError(value, 'CUSTOM'), '');
+  for (const value of ['0.01', '0.1', '50', '100', '100.01', '10000']) assert.equal(deliveryRules.creationRoiError(value, 'CUSTOM'), '');
+  for (const value of ['', '0', '10000.01', '0.001']) assert.notEqual(deliveryRules.creationRoiError(value, 'CUSTOM'), '');
   assert.equal(deliveryRules.creationRoiError('', 'CONSERVATIVE'), '');
 });
 
