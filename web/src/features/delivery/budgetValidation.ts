@@ -1,4 +1,4 @@
-import { budgetInputError, deliveryInputRules } from './inputValidation.ts';
+import { budgetInputError, roiInputError, deliveryInputRules } from './inputValidation.ts';
 export const COST_DAILY_BUDGET_MINIMUM = deliveryInputRules.costBudgetMinimum;
 export const COST_DAILY_BUDGET_HINT = `控成本日预算不能低于 ${COST_DAILY_BUDGET_MINIMUM} 元（含 ${COST_DAILY_BUDGET_MINIMUM} 元），最多两位小数`;
 
