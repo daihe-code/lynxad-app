@@ -7,6 +7,7 @@ import { apiGet, apiPost, apiPut } from "@/api/http";
 export interface LoginResult {
   token: string;
   expiresIn: number;
+  /** Legacy flag: initialize the workspace/session; profile fields are optional. */
   needOnboarding: boolean;
   demoMode: boolean;
 }
@@ -80,20 +81,6 @@ export function logoutApi() {
   return apiPost<void>("/api/v1/tenant/auth/logout");
 }
 
-export interface OnboardingPayload {
-  nickname: string;
-  email: string;
-  companyName: string;
-  industry: string;
-  position: string;
-  monthlyBudget: string;
-  adExperience: string;
-  coreDemand: string;
-  password: string;
-  agreeTerms: boolean;
-  agreePrivacy: boolean;
-}
-
 export interface MemberVo {
   phone: string;
   role: string;
@@ -108,8 +95,8 @@ export function fetchMe() {
   return currentUser();
 }
 
-export function completeOnboarding(body: OnboardingPayload) {
-  return apiPut<CurrentUser>("/api/v1/tenant/users/me/onboarding", body);
+export function initializeAccount() {
+  return apiPost<LoginResult>("/api/v1/tenant/users/me/initialize", {});
 }
 
 export function updateProfile(body: UpdateProfilePayload) {

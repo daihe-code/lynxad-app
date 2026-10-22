@@ -78,6 +78,12 @@ public class MpUserRepository implements UserRepository {
         return Optional.ofNullable(userMapper.selectById(id.value())).map(this::toDomain);
     }
 
+    @Override
+    public Optional<User> findByIdForUpdate(UserId id) {
+        return Optional.ofNullable(userMapper.selectOne(new LambdaQueryWrapper<UserPo>()
+                .eq(UserPo::getId, id.value()).last("FOR UPDATE"))).map(this::toDomain);
+    }
+
     private User toDomain(UserPo po) {
         UserProfilePo pp = profileMapper.selectById(po.getId());
         UserProfile profile = pp == null

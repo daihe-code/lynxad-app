@@ -16,18 +16,18 @@
       </div>
     </div>
   </section>
-  <section v-if="Object.keys(capabilityChecks).length || capabilityError" class="acct-card capability-check"><h2 class="acct-card__t">授权后的能力检查</h2><p v-if="capabilityError" role="alert">{{ capabilityError }}</p><div v-for="check in capabilityChecks" :key="check.accountId"><b>{{ accounts.find(a=>a.accountId === check.accountId)?.accountName }}</b><p>{{ check.message }}</p><small>核验时间：{{ time(check.checkedAt) }}</small><button v-if="check.materialStatus === 'MISSING' || check.accountStatus !== 'AVAILABLE'" class="obtn" @click="open({modal:'add'})">补充授权 / 重新选择账户</button></div></section>
-  <section class="acct-card"><h2 class="acct-card__t">授权范围与操作边界</h2><p class="authorization-boundary">授权后，我会在平台授予的权限和你确认的托管范围内，为你管理广告投放。</p><dl class="acct-card__b scopegrid"><div v-for="row in scopes" :key="row.title" class="scope" :class="{ 'scope--danger': row.danger }"><dt class="scope__t">{{ row.title }}</dt><dd class="scope__d">{{ row.description }}</dd></div></dl><p class="authorization-boundary">你可以随时取消授权。取消后，灵投将停止该账户的投放管理；平台上的广告仍可能继续运行并产生费用，需要你自行查看和管理。</p></section>
-  <AccountModal v-if="route.query.modal === 'add'" :title="guideOpen ? '千川授权操作示例' : '添加广告投放账户'" :description="guideOpen ? '请在千川官方页面完成以下操作，页面样式以平台当前界面为准。' : '授权后，我就能为你的账户生成投放素材、持续盯盘并提供优化建议，发现投放异常时及时提醒你。'" :busy="authorizing" @close="close">
-    <form v-show="!guideOpen" :id="formId" class="account-form-grid" @submit.prevent="authorize(false)">
-      <div class="authorization-intro account-field-wide"><h3>授权平台</h3><p>巨量千川 · 商品全域投放</p><h3>授权后，我可以帮你</h3><ul><li><b>同步投放数据</b><p>查看账户、商品及投放表现，为分析和优化提供依据。</p></li><li><b>制作与管理素材</b><p>智能生成投放素材，并上传、管理广告素材。</p></li><li><b>管理投放计划</b><p>按你确认的方案或已授予的权限，创建、调整和启停计划。</p></li></ul><aside><b>安全说明</b><p>通过千川官方页面完成授权，不会索取你的账号密码，也不会进行充值或转账。</p></aside><h3>操作指引</h3><p>请在千川官方页面选择要授权的账户，并勾选“允许开发者管理敏感物料”。账户名称、ID及有效期会自动同步，无须手动填写。</p><button type="button" class="authorization-guide-link" @click="guideOpen = true">查看授权页面操作示例 →</button></div>
-      <p v-if="error" class="account-error account-field-wide" role="alert">{{ error }}</p>
-    </form>
-    <div v-if="guideOpen">
-    <ol class="authorization-guide"><li><b>1. 登录千川官方授权页面</b><p>使用有权限管理广告账户的账号，核对正在授权的灵投应用。</p></li><li><b>2. 选择所需广告账户</b><p>勾选你要在灵投管理的账户，避免遗漏或选错。</p></li><li><b>3. 允许管理敏感物料</b><div class="guide-checkbox" aria-label="勾选示意">☑ 允许开发者管理敏感物料</div><p>这是勾选位置示意，请在平台真实页面完成选择。页面样式以千川当前界面为准。</p></li><li><b>4. 返回灵投核对结果</b><p>确认账户和投放抖音号；若权限缺失请补充授权，权限无法核实时不会显示全部开通。</p></li></ol>
-    </div>
-    <template #footer><button v-if="guideOpen" class="btn-modal-primary" @click="guideOpen = false">知道了，返回授权</button><template v-else><button class="btn-modal-ghost" :disabled="authorizing" @click="close">取消</button><button v-if="user.me?.mockQianchuan && user.trialActive" class="btn-modal-ghost" :disabled="authorizing" @click="authorize(true)">演示授权</button><button class="btn-modal-primary" :form="formId" type="submit" :disabled="authorizing">{{ authorizing ? '处理中…' : '前往授权' }}</button></template></template>
-  </AccountModal>
+  <section class="acct-card authorization-boundaries" aria-labelledby="authorization-boundaries-title">
+    <h2 class="acct-card__t" id="authorization-boundaries-title">授权范围与操作边界</h2>
+    <p class="authorization-boundaries__intro">授权后，我会在平台授予的权限和你确认的托管范围内，为你管理广告投放。</p>
+    <dl class="authorization-scopes">
+      <div v-for="row in scopes" :key="row.title" class="authorization-scope">
+        <dt><span class="authorization-scope__icon"><AccountIcon :name="row.icon" /></span>{{ row.title }}</dt>
+        <dd><strong v-if="row.emphasis">{{ row.emphasis }}</strong>{{ row.description }}</dd>
+      </div>
+    </dl>
+    <p class="authorization-boundaries__note"><AccountIcon name="info-line" /><span>你可以随时取消授权。取消后，灵投将停止该账户的投放管理；平台上的广告仍可能继续运行并产生费用，需要你自行查看和管理。</span></p>
+  </section>
+  <AuthorizationAddDialog v-if="route.query.modal === 'add'" :busy="authorizing" :error="error" :can-demo="user.me?.mockQianchuan && user.trialActive" @close="close" @authorize="authorize" />
   <AccountModal v-else-if="detail" title="授权详情" expanded :busy="!!busyId" @close="close">
     <div class="authdet__hd"><span class="authrow__ic authrow__ic--orange"><AccountIcon name="douyin" /></span><div class="min-w-0"><p class="authrow__n">{{ detail.accountName }}</p><p class="authrow__m">{{ scope(detail) }}</p></div><span class="authbadge ml-auto" :class="active(detail) ? 'authbadge--valid' : 'authbadge--expired'">{{ status(detail) }}</span></div>
     <p v-if="detailLoading" class="authorization-detail-loading" role="status">正在读取授权身份信息…</p>
@@ -46,25 +46,27 @@
     <p class="modal__desc">权限由平台授权结果决定，刷新不会扩大权限。已取消的账户需要重新完成平台授权。</p>
     <template #footer><button class="btn-modal-ghost" :disabled="!!busyId" @click="close">关闭</button><button v-if="active(detail)" class="btn-modal-primary" :disabled="!!busyId" @click="refresh(detail)">{{ busyId ? '刷新中…' : '刷新授权状态' }}</button><button v-else class="btn-modal-primary" @click="open({ modal: 'add' })">重新授权</button></template>
   </AccountModal>
-  <AccountModal v-else-if="target" :title="route.query.cancel ? '取消广告账户授权' : '删除授权记录'" :description="route.query.cancel ? `确定解除「${target.accountName}」在灵投平台的绑定？解除后不能再为该账户发起新的素材生成和投放管理操作，自动盯盘与异常提醒也将停止。已提交的素材生成任务可能继续运行。千川上已运行的广告不会因此自动暂停，仍可能产生费用，请前往平台自行查看和管理。` : `确定删除「${target.accountName}」的失效授权记录？该记录将从列表移除，历史投放与日志仍保留。此操作不会删除千川账户或广告计划，重新使用需再次授权。`" small :busy="!!busyId" @close="close">
+  <AuthorizationCancelDialog v-else-if="target && route.query.cancel" :account-name="target.accountName" :busy="!!busyId" :error="error" @close="close" @confirm="confirm" />
+  <AccountModal v-else-if="target" title="删除授权记录" :description="`确定删除「${target.accountName}」的失效授权记录？该记录将从列表移除，历史投放与日志仍保留。此操作不会删除千川账户或广告计划，重新使用需再次授权。`" small :busy="!!busyId" @close="close">
     <p v-if="error" class="account-error" role="alert">{{ error }}</p>
-    <template #footer><button class="btn-modal-ghost" :disabled="!!busyId" @click="close">返回</button><button class="btn-modal-primary" :disabled="!!busyId" @click="confirm">{{ busyId ? '处理中…' : route.query.cancel ? '确认取消' : '确认删除' }}</button></template>
+    <template #footer><button class="btn-modal-ghost" :disabled="!!busyId" @click="close">返回</button><button class="btn-modal-primary" :disabled="!!busyId" @click="confirm">{{ busyId ? '处理中…' : '确认删除' }}</button></template>
   </AccountModal>
 
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref, useId, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';
-import { listAccounts, mockBind, oauthUrl, refreshAccount, unbindAccount, removeAccount, accountAuthorizationDetail, checkAuthorizationCapabilities, type AuthorizationCapabilityCheck, type AccountVo, type AccountAuthorizationDetail } from '@/features/identity/oauthApi';
+import { listAccounts, mockBind, oauthUrl, refreshAccount, unbindAccount, removeAccount, accountAuthorizationDetail, type AccountVo, type AccountAuthorizationDetail } from '@/features/identity/oauthApi';
 import AccountIcon from './AccountIcon.vue';
 import AccountModal from './AccountModal.vue';
+import AuthorizationAddDialog from './AuthorizationAddDialog.vue';
+import AuthorizationCancelDialog from './AuthorizationCancelDialog.vue';
 import AuthorizationAvatar from './AuthorizationAvatar.vue';
 import { time } from './accountFormat';
-const route = useRoute(), router = useRouter(), user = useUserStore(), formId = useId();
+const route = useRoute(), router = useRouter(), user = useUserStore();
 const accounts = ref<AccountVo[]>([]), loading = ref(true), loadError = ref(''), error = ref(''), busyId = ref(''), authorizing = ref(false);
-const guideOpen=ref(false), capabilityChecks=ref<Record<string,AuthorizationCapabilityCheck>>({}), capabilityError=ref('');
 const detailInfo = ref<AccountAuthorizationDetail | null>(null), detailLoading = ref(false), detailError = ref('');
 let detailRequest = 0;
 function active(account: AccountVo) { return account.credentialSource !== 'MOCK' && account.status === 'ACTIVE' && (!account.refreshExpiresAt || new Date(account.refreshExpiresAt).getTime() > Date.now()); }
@@ -75,7 +77,7 @@ const cancelledCount = computed(() => accounts.value.filter(a => a.credentialSou
 const expiredCount = computed(() => accounts.value.filter(a => a.credentialSource !== 'MOCK' && a.status !== 'UNBOUND' && !active(a)).length);
 const detail = computed(() => detailInfo.value && detailInfo.value.account.accountId === route.query.detail ? detailInfo.value.account : accounts.value.find(a => a.accountId === route.query.detail));
 const target = computed(() => accounts.value.find(a => a.accountId === (route.query.cancel || route.query.del)));
-const roleNames: Record<string, string> = { ADVERTISER: '广告主直接授权', CUSTOMER_ADMIN: '工作台账户授权', PLATFORM_ROLE_CUSTOMER_ADMIN: '工作台账户授权', PLATFORM_ROLE_ENTERPRISE_BP_ADMIN: 'EBP 组织授权', PLATFORM_ROLE_SHOP_ACCOUNT: '店铺账户授权' };
+const roleNames: Record<string, string> = { ADVERTISER: '广告主直接授权', CUSTOMER_ADMIN: '工作台账户授权', PLATFORM_ROLE_CUSTOMER_ADMIN: '工作台账户授权', PLATFORM_ROLE_ENTERPRISE_BP_ADMIN: '工作台账户授权', PLATFORM_ROLE_SHOP_ACCOUNT: '店铺账户授权' };
 const detailRows = computed(() => {
   const account = detail.value, info = detailInfo.value;
   if (!account) return [];
@@ -98,17 +100,18 @@ async function copy(label: string, value: string) {
   try { await navigator.clipboard.writeText(value); ElMessage.success(`${label}已复制`); }
   catch { ElMessage.warning('复制失败，请手动选中内容复制'); }
 }
-const scopes = [{ title: '数据读取', description: '查看投放计划、素材、账户数据和报表' }, { title: '计划管理', description: '按你确认的方案或已授予的托管权限创建、调整和启停计划；需确认的操作会征求你的同意' }, { title: '素材管理', description: '为已授权账户准备、上传和管理投放素材；实际能力以平台授权为准' }, { title: '资金操作', description: '不进行充值或转账。广告投放仍会产生费用，由媒体平台收取；按确认的预算与托管规则执行', danger: true }];
-watch(() => route.fullPath, () => { error.value = ''; guideOpen.value=false; });
+const scopes = [
+  { icon: 'chart', title: '投放数据分析', description: '查看已授权账户的投放、商品和素材数据，用于分析表现、发现异常并提供优化建议。' },
+  { icon: 'tune', title: '投放计划管理', description: '按你确认的方案或已授予的托管权限，创建、调整和启停计划；需要你确认的操作，会先征求你的同意。' },
+  { icon: 'video', title: '素材生成与管理', description: '为已授权账户智能生成、上传和管理投放素材。' },
+  { icon: 'wallet', title: '资金与预算边界', emphasis: '不进行充值或转账。', description: '广告投放仍会产生费用，由媒体平台收取；我会按你确认的预算和托管规则执行。' },
+];
+watch(() => route.fullPath, () => { error.value = ''; });
 function open(query: Record<string, string>) { void router.push({ path: '/accounts', query: { tab: 'oauth', ...query } }); }
 function close() { if (!busyId.value && !authorizing.value)
     void router.push({ path: '/accounts', query: { tab: 'oauth' } }); }
 async function load() { loading.value = true; loadError.value = ''; try {
     accounts.value = await listAccounts();
-    capabilityError.value='';
-    const checks=await Promise.allSettled(accounts.value.filter(active).map(a=>checkAuthorizationCapabilities(a.accountId)));
-    capabilityChecks.value={};
-    for(const check of checks)if(check.status === 'fulfilled')capabilityChecks.value[check.value.accountId]=check.value;else capabilityError.value='部分账户能力暂未核验，不能据此确认全部权限已开通。';
 }
 catch {
     loadError.value = '授权账户加载失败，请重试';
@@ -175,5 +178,24 @@ onMounted(load);
 </style>
 
 <style scoped>
-.authorization-boundary{font-size:13px;line-height:1.8;color:#83889e;padding:16px 24px}.authorization-intro h3{font-size:15px;font-weight:600;margin:14px 0 8px}.authorization-intro p,.authorization-guide p,.capability-check p{font-size:13px;line-height:1.8;color:#777e96}.authorization-intro ul{padding-left:18px;margin:18px 0}.authorization-intro li{margin:14px 0;font-size:14px}.authorization-intro aside,.guide-checkbox{background:#f5f3ff;padding:16px;border-radius:10px}.authorization-guide-link{border:0;background:transparent;color:#575cf6;padding:8px 0;font:inherit;font-size:13px;cursor:pointer}.authorization-guide{padding-left:22px}.authorization-guide li{margin:18px 0;font-size:14px}.capability-check>div{padding:16px 24px;border-top:1px solid #eeeef8}.capability-check small{display:block;font-size:12px;color:#8b90a6}.account-auth-meta .authrow__dv{white-space:nowrap;font-size:13px}.authorization-credentials{display:none}
+.authorization-boundaries .acct-card__t { font-size: 18px; line-height: 1.4; }
+.authorization-boundaries__intro { margin: 6px 0 0; font-size: 13px; line-height: 1.8; color: #83889e; }
+.authorization-scopes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; row-gap: 26px; margin: 26px 0 24px; }
+.authorization-scope { position: relative; min-width: 0; min-height: 48px; padding-left: 64px; }
+.authorization-scope dt { font-size: 14px; font-weight: 600; line-height: 1.6; color: #25283f; }
+.authorization-scope__icon { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #6258ff; background: #f4f2ff; }
+.authorization-scope__icon svg { width: 28px; height: 28px; }
+.authorization-scope dd { margin: 4px 0 0; font-size: 13px; line-height: 1.8; color: #83889e; }
+.authorization-scope dd strong { font-weight: 600; color: #25283f; }
+.authorization-boundaries__note { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding-top: 16px; border-top: 1px solid #e6e8f2; font-size: 12px; line-height: 1.8; color: #8c91a8; }
+.authorization-boundaries__note svg { flex: none; width: 16px; height: 16px; margin-top: 3px; }
+.account-auth-meta .authrow__dv{white-space:nowrap;font-size:13px}.authorization-credentials{display:none}
+@media (max-width: 767px) {
+  .authorization-scopes { grid-template-columns: 1fr; gap: 22px; margin-top: 22px; }
+}
+@media (max-width: 639px) {
+  .authorization-scope { padding-left: 56px; }
+  .authorization-scope__icon { width: 42px; height: 42px; border-radius: 11px; }
+  .authorization-scope__icon svg { width: 25px; height: 25px; }
+}
 </style>

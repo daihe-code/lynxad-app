@@ -81,7 +81,7 @@ const legal = ref<LegalProfile>();
 const legalLoading = ref(true), legalError = ref('');
 const canManage = computed(() => user.me?.memberRole === 'OWNER');
 const verificationLabels = { UNSUBMITTED: '未提交', PENDING: '待人工审核', APPROVED: '审核通过', REJECTED: '已驳回' };
-const orgRows = computed<(string | null | undefined)[][]>(() => [['企业名称', legal.value?.companyName || user.me?.companyName || user.me?.tenantName], ['统一社会信用代码', legal.value?.creditCode], ['资质核验状态', legal.value ? verificationLabels[legal.value.verificationStatus] : '加载中'], ['审核说明', legal.value?.reviewReason], ['所属行业', legal.value?.industry], ['企业规模', displayCompanyScale(legal.value?.companyScale)], ['联系人', legal.value?.nickname], ['联系电话', maskedPhone(legal.value?.contactPhone)], ['注册邮箱', legal.value?.email], ['注册时间', date(user.me?.registeredAt)]]);
+const orgRows = computed<(string | null | undefined)[][]>(() => [['企业名称', legal.value?.companyName || user.me?.companyName], ['统一社会信用代码', legal.value?.creditCode], ['资质核验状态', legal.value ? verificationLabels[legal.value.verificationStatus] : '加载中'], ['审核说明', legal.value?.reviewReason], ['所属行业', legal.value?.industry], ['企业规模', displayCompanyScale(legal.value?.companyScale)], ['联系人', legal.value?.nickname], ['联系电话', maskedPhone(legal.value?.contactPhone)], ['注册邮箱', legal.value?.email], ['注册时间', date(user.me?.registeredAt)]]);
 const invoiceRows = computed(() => [['发票抬头', invoice.title], ['发票类型', invoice.type], ['纳税人识别号', invoice.taxNo], ['开户行及账号', invoice.bank]]);
 const security = computed(() => [{ key: 'pwd', title: '登录密码', description: '定期更换密码保障账户安全', status: user.me?.hasPassword ? '已设置' : '未设置', action: user.me?.hasPassword ? '修改' : '设置' }, { key: 'phone', title: '手机验证', description: `已绑定 ${maskedPhone(user.me?.phone)}`, status: user.me?.phone ? '已验证' : '未绑定', action: '更换' }]);
 async function loadLegal() {
@@ -94,7 +94,7 @@ function applyLegal(value: LegalProfile) {
   legal.value = value;
   Object.assign(invoice, value.invoice || { title: '', type: '增值税专用发票', taxNo: '', bank: '' });
 }
-function prepare() { error.value = ''; Object.assign(profile, { companyName: legal.value?.companyName || user.me?.companyName || user.me?.tenantName || '', creditCode: legal.value?.creditCode || '', nickname: legal.value?.nickname || '', industry: legal.value?.industry || '', companyScale: legal.value?.companyScale || '', email: legal.value?.email || '' }); Object.assign(draft, invoice.title ? invoice : { ...invoice, title: legal.value?.companyName || '', taxNo: legal.value?.creditCode || '' }); Object.assign(password, { old: '', next: '', confirm: '' }); Object.assign(phone, { number: '', code: '' }); }
+function prepare() { error.value = ''; Object.assign(profile, { companyName: legal.value?.companyName || user.me?.companyName || '', creditCode: legal.value?.creditCode || '', nickname: legal.value?.nickname || '', industry: legal.value?.industry || '', companyScale: legal.value?.companyScale || '', email: legal.value?.email || '' }); Object.assign(draft, invoice.title ? invoice : { ...invoice, title: legal.value?.companyName || '', taxNo: legal.value?.creditCode || '' }); Object.assign(password, { old: '', next: '', confirm: '' }); Object.assign(phone, { number: '', code: '' }); }
 function open(kind: string) { void router.push({ query: { ...route.query, modal: kind } }); }
 function close() { if (!saving.value)
     void router.push({ query: { ...route.query, modal: undefined } }); }

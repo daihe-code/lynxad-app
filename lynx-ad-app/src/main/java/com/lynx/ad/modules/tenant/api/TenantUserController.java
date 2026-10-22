@@ -3,14 +3,17 @@ package com.lynx.ad.modules.tenant.api;
 import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.tenant.api.dto.CurrentUserResponse;
+import com.lynx.ad.modules.tenant.api.dto.LoginResponse;
 import com.lynx.ad.modules.tenant.api.dto.OnboardingRequest;
 import com.lynx.ad.modules.tenant.api.dto.UpdatePasswordRequest;
 import com.lynx.ad.modules.tenant.api.dto.UpdatePhoneRequest;
 import com.lynx.ad.modules.tenant.api.dto.UpdateProfileRequest;
 import com.lynx.ad.modules.tenant.application.AccountCommandService;
+import com.lynx.ad.modules.tenant.application.AuthCommandService;
 import com.lynx.ad.modules.tenant.application.OnboardingCommandService;
 import com.lynx.ad.modules.tenant.application.TenantQuerySupport;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,19 +26,27 @@ public class TenantUserController {
     private final TenantQuerySupport querySupport;
     private final OnboardingCommandService onboardingCommandService;
     private final AccountCommandService accountCommandService;
+    private final AuthCommandService authCommandService;
 
     public TenantUserController(
             TenantQuerySupport querySupport,
             OnboardingCommandService onboardingCommandService,
-            AccountCommandService accountCommandService) {
+            AccountCommandService accountCommandService,
+            AuthCommandService authCommandService) {
         this.querySupport = querySupport;
         this.onboardingCommandService = onboardingCommandService;
         this.accountCommandService = accountCommandService;
+        this.authCommandService = authCommandService;
     }
 
     @GetMapping("/me")
     public ApiResponse<CurrentUserResponse> me() {
         return ApiResponse.ok(querySupport.current(TenantContext.userId()));
+    }
+
+    @PostMapping("/me/initialize")
+    public ApiResponse<LoginResponse> initialize() {
+        return ApiResponse.ok(authCommandService.initializeAccount(TenantContext.userId()));
     }
 
     @PutMapping("/me")

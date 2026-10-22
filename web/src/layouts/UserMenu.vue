@@ -22,10 +22,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { UserFilled } from '@element-plus/icons-vue';
 import { useUserStore } from '@/stores/user';
 
-withDefaults(defineProps<{ appearance?: 'default' | 'home' }>(), { appearance: 'default' });
+const props = withDefaults(defineProps<{ appearance?: 'default' | 'home'; fallbackName?: string }>(), { appearance: 'default' });
 const user = useUserStore(), route = useRoute(), router = useRouter();
 const open = ref(false), trigger = ref<HTMLButtonElement>(), panel = ref<HTMLElement>();
-const name = computed(() => user.me?.nickname || user.me?.phone || '用户');
+const name = computed(() => user.me?.nickname || props.fallbackName || user.me?.phone || '用户');
 const subtitle = computed(() => {
   const role = user.me?.memberRole === 'OWNER' ? '主账号' : user.me?.memberRole === 'MEMBER' ? '子账号' : '';
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';

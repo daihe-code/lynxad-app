@@ -19,6 +19,7 @@ public class CreationState {
     public long analysisStartedAt;
     public boolean analysisRefreshRequested;
     public JsonNode analysis, groups, recommendations;
+    public JsonNode analysisConfirmation;
     public String groupingDecision;
     /** Latest verified shared bindings, separate from immutable publish-attempt audit payloads. */
     public JsonNode verifiedPlatformCreatives, verifiedPlatformChannels;
@@ -50,7 +51,9 @@ public class CreationState {
     public record GenerationCount(String type,int completed,Integer total,int failed) {
         public GenerationCount(String type,int completed,Integer total){this(type,completed,total,0);}
     }
-    public record GenerationIssue(String productId,String productName,String message) {}
+    public record GenerationIssue(String productId,String productName,String message,String type,String materialId,String title,String slotId) {
+        public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
+    }
     public List<String> generationProductIds = new ArrayList<>();
     public String pendingAdditionId;
     public List<GenerationAddition> generationAdditions = new ArrayList<>();
@@ -72,7 +75,12 @@ public class CreationState {
     public record Product(String productId, String qcProductId, String name, BigDecimal price,
                           BigDecimal userPrice, String imageUrl, String category, Long stock,
                           List<String> tags, List<String> unavailableReasons,
-                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId, DraftReference draft) {
+                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId, DraftReference draft, Long sales) {
+        public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
+                       String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
+                       com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId,DraftReference draft) {
+            this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,draft,null);
+        }
         public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
                        String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
                        com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId) {
@@ -83,7 +91,7 @@ public class CreationState {
             this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,null,null);
         }
         public Product withDraft(DraftReference usage) {
-            return new Product(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,usage);
+            return new Product(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,usage,sales);
         }
     }
     public static class Material {

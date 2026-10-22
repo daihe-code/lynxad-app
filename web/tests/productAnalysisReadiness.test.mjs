@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canContinueProductAnalysis, productAnalysisProgress, isCurrentCreationPoll } from '../src/features/delivery/productAnalysisReadiness.ts';
+import { canContinueProductAnalysis, productAnalysisProgress, isCurrentCreationPoll, productAnalysisInput } from '../src/features/delivery/productAnalysisReadiness.ts';
 
 const passed = { status: 'PASSED', canContinue: true };
 const blocked = { status: 'BLOCKED', canContinue: false };
+
+test('商品分析输入变化包括价格口径、图片、库存和可投状态，刷新时间和草稿装饰不使结果失效', () => {
+  const p = { qcProductId:'123',name:'商品',category:'类目',price:100,userPrice:null,stock:10,imageUrl:'https://assets.test/a.jpg',unavailableReasons:[],priceInfo:{minPrice:100,maxPrice:200,fetchedAt:'old'} };
+  const original=productAnalysisInput([p]);
+  for (const change of [{price:99},{stock:0},{imageUrl:'https://assets.test/new.jpg'},{unavailableReasons:['审核中']},{priceInfo:{minPrice:100,maxPrice:300}}])
+    assert.notEqual(productAnalysisInput([{...p,...change}]),original);
+  assert.equal(productAnalysisInput([{...p, draft:{planId:'draft'},priceInfo:{...p.priceInfo,fetchedAt:'new'}}]),original);
+});
 test('基础检查通过后，AI 排队、执行和失败均可进入目标设置', () => {
   for (const status of ['NONE', 'QUEUED', 'RUNNING', 'FAILED', 'SUCCEEDED']) assert.equal(canContinueProductAnalysis(passed, status), true);
 });

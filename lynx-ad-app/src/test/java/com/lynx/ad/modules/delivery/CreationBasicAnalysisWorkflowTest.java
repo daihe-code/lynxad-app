@@ -102,6 +102,34 @@ class CreationBasicAnalysisWorkflowTest {
         assertEquals("已填写目标",saved.get().name);assertEquals(new BigDecimal("600"),saved.get().budget);
         assertEquals(new BigDecimal("2.25"),saved.get().roi2Goal);assertEquals(3,saved.get().step);
     }
+    @Test void structuredAnalysisCarriesAccountIdentityCompleteFactsAndIsConfirmedWithItsInputVersion() {
+        queueAnalysis();String request=saved.get().analysisRequestId;
+        String fingerprint=com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService.fingerprint(saved.get().products);
+        when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"),any())).thenAnswer(call->{
+            Map<String,Object> body=call.getArgument(1);
+            assertEquals("account",body.get("account_id"));assertEquals(request,body.get("analysis_id"));assertEquals(fingerprint,body.get("input_version"));
+            Map<?,?> product=((List<Map<?,?>>)body.get("products")).getFirst();
+            assertEquals("123",product.get("id"));assertNotNull(product.get("image_url"));assertNotNull(product.get("inventory"));assertNotNull(product.get("availability"));
+            var report=json.createObjectNode().put("analysis_id",request).put("input_version",fingerprint);
+            report.set("handoff",json.createObjectNode().set("material",json.createArrayNode()));
+            var response=json.createObjectNode();response.set("selection_analysis",report);response.set("product_set",json.createObjectNode());return response;
+        });
+        service.process(copy(saved.get()));
+        assertEquals("SUCCEEDED",saved.get().analysisStatus);assertNull(saved.get().analysisConfirmation);
+        service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,2));
+        assertEquals(request,saved.get().analysisConfirmation.path("analysis_id").asText());
+        assertEquals(fingerprint,saved.get().analysisConfirmation.path("input_version").asText());
+        assertTrue(saved.get().analysisConfirmation.path("selection_confirmed").asBoolean());
+        assertEquals("user",saved.get().analysisConfirmation.path("user_id").asText());
+    }
+    @Test void wrongEngineAnalysisVersionIsRejectedWithoutLosingSelectedProducts() {
+        queueAnalysis();
+        var response=json.createObjectNode();response.set("selection_analysis",json.createObjectNode().put("input_version","old").put("analysis_id","other"));response.set("product_set",json.createObjectNode());
+        when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"),any())).thenReturn(response);
+        service.process(copy(saved.get()));
+        assertEquals("FAILED",saved.get().analysisStatus);assertEquals("123",saved.get().products.getFirst().qcProductId());
+        assertTrue(saved.get().analysis==null||saved.get().analysis.isNull());assertTrue(saved.get().basicAnalysis.canContinue());assertTrue(saved.get().analysisError.contains("版本"));
+    }
     void changeSelectionAndQueueNewAnalysis() {
         when(qc.selected(eq(tenant),eq("account"),eq("aweme"),eq(List.of("456")))).thenReturn(List.of(ProductBasicAnalysisTest.valid("456")));
         service.select(tenant,new CreationWorkflowService.Selection(id,saved.get().revision,"account","aweme",List.of("456")));

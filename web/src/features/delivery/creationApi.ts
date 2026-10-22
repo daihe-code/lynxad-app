@@ -1,9 +1,10 @@
 import { apiDelete, apiGet, apiPost, apiPut } from '@/api/http';
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
+import type { ProductSelectionAnalysis } from './productSelectionAnalysis';
 
 export interface CreationProduct {
   productId: string; qcProductId: string; name: string; price: number | null; userPrice: number | null;
-  imageUrl?: string; category?: string; stock?: number; tags: string[]; unavailableReasons: string[];
+  imageUrl?: string; category?: string; stock?: number; sales?: number | null; tags: string[]; unavailableReasons: string[];
   priceInfo?: PlatformProductPrice | null; channelId?: string | null;
   draft?: { planId: string; planName: string } | null;
 }
@@ -48,6 +49,11 @@ export interface ProductAnalysisDimension {
   evidence?: { platform?: string; scope?: string };
 }
 export interface ProductAnalysis {
+  selection_analysis?: ProductSelectionAnalysis;
+  analysis_input?: {
+    sources: { source_id: string; source_type: string; provider: string; retrieved_at: string; verified: boolean; url: string | null; scope?: { product_ids?: string[] } }[];
+    evidence: { evidence_id: string; source_id: string; metric_definition: string; observed_period: string | null }[];
+  };
   preparation?: {
     version: string; summary: string;
     products: { product_id: string; name: string; source: string; demand_scene: string; material_direction: string; confirmations: string[] }[];
@@ -88,19 +94,20 @@ export interface CreationState {
   generationStage?: string;
   generationResultStatus?: string;
   generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null; failed?: number }[];
-  generationIssues?: { productId: string; productName: string; message: string }[];
+  generationIssues?: { productId: string; productName: string; message: string; type?: 'VIDEO' | 'IMAGE' | 'CAROUSEL' | 'TITLE' | null; materialId?: string | null; title?: string | null; slotId?: string | null }[];
   materials: CreationMaterial[]; publishStatus: string; publishKey?: string; qcPlanId?: string; publishError?: string;
   generationAdditions?: { id: string; productId: string; type: string; description: string; status: string; createdAt: string; materialId?: string; error?: string }[];
 }
 export interface CreationAdditionBody { productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; description: string; requestId: string }
-export interface ProductQuery { page: number; pageSize: number; keyword: string; tab: string; unpromoted: boolean }
+export interface ProductQuery { page: number; pageSize: number; keyword: string; tab: string; unpromoted: boolean; cursor?: string }
+export interface ProductPage { items: CreationProduct[]; total: number; nextCursor?: string | null; hasMore?: boolean }
 const root = '/api/v1/delivery/creation';
 const quiet = { headers: { 'X-Quiet-Request': 'true' } };
 const slow = { timeout: 120000 };
 export const creationRestoreProducts = (accountId: string, awemeId: string, productIds: string[], draftId?: string) => apiGet<CreationProduct[]>(`${root}/products/restore`, {
   ...quiet, timeout: 60000, params: { accountId, awemeId, productIds: productIds.join(','), draftId },
 });
-export const creationProducts = (accountId: string, awemeId: string, query: ProductQuery, refreshPrices = false, signal?: AbortSignal, draftId?: string) => apiGet<{ items: CreationProduct[]; total: number }>(`${root}/products`, { ...quiet, signal, timeout: 60000, params: { accountId, awemeId, ...query, refreshPrices, draftId } });
+export const creationProducts = (accountId: string, awemeId: string, query: ProductQuery, refreshPrices = false, signal?: AbortSignal, draftId?: string) => apiGet<ProductPage>(`${root}/products`, { ...quiet, signal, timeout: 60000, params: { accountId, awemeId, ...query, refreshPrices, draftId } });
 export const creationProductSuggestions = (accountId: string, awemeId: string, productIds: string[], draftId?: string, refresh = false, signal?: AbortSignal) => apiGet<ProductSuggestions>(`${root}/products/suggestions`, {
   ...quiet, timeout: 60000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), draftId, refresh },
 });

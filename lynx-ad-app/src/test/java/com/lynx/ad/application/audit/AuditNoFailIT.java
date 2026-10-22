@@ -25,6 +25,9 @@ class AuditNoFailIT extends AbstractContainerIT {
     @Autowired
     private ObjectMapper mapper;
 
+    @Autowired
+    private com.lynx.ad.common.security.JwtService jwt;
+
     @Test
     void failedLoginDoesNotAddRowAndNoTenantGets1602() throws Exception {
         var session = TenantAuthSupport.onboard(mvc, mapper, "13900002014", "失败店");
@@ -41,7 +44,9 @@ class AuditNoFailIT extends AbstractContainerIT {
         assertEquals(total, after.path("data").path("total").asLong());
 
         String lone = TenantAuthSupport.smsLogin(mvc, mapper, "13900002015");
-        JsonNode isolated = TenantAuthSupport.json(mapper, TenantAuthSupport.get(mvc, "/api/v1/audit/records", lone));
+        assertEquals(0, TenantAuthSupport.json(mapper, TenantAuthSupport.get(mvc, "/api/v1/audit/records", lone)).path("code").asInt());
+        String tenantless = jwt.issue(jwt.parse(lone).userId(), java.util.Optional.empty(), null, com.lynx.ad.common.security.SysRole.USER);
+        JsonNode isolated = TenantAuthSupport.json(mapper, TenantAuthSupport.get(mvc, "/api/v1/audit/records", tenantless));
         assertEquals(1602, isolated.path("code").asInt());
     }
 }

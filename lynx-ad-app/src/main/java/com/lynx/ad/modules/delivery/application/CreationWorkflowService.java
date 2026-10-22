@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class CreationWorkflowService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(CreationWorkflowService.class);
     private final CreationStore store;
     private final AdPlanRepository plans;
     private final AdPlanCreativeBindingStore bindings;
@@ -125,6 +126,12 @@ public class CreationWorkflowService {
             process(s);
             return store.get(s.tenantId,s.planId);
         }catch(BizException unavailable){return store.get(s.tenantId,s.planId);}
+        catch(RuntimeException unavailable){
+            // The failed outcome/notice transaction has already rolled back. Optional
+            // reconciliation must not prevent reading the durable plan and previews.
+            log.warn("Generation reconciliation failed while reading plan {}; returning saved state",s.planId,unavailable);
+            return store.get(s.tenantId,s.planId);
+        }
         finally{store.release(s);}
     }
     private CreationState refreshGeneratedFiles(TenantId tenant,CreationState snapshot) {
@@ -179,7 +186,7 @@ public class CreationWorkflowService {
             // A metadata refresh must never change the saved product membership.
             if(next!=null && next.stream().map(CreationState.Product::qcProductId).toList().equals(ids(state)))return next;
         }catch(BizException unavailable){/* Saved plans remain readable after authorization expires. */}
-        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId())).toList();
+        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId(),p.draft(),p.sales())).toList();
     }
     public CreationState select(TenantId tenant,Selection requested) {
         var request=new Selection(sharedId(tenant,requested.planId,true),requested.revision,requested.accountId,requested.awemeId,requested.productIds);
@@ -200,7 +207,7 @@ public class CreationWorkflowService {
                 editable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
                 var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
                 if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
-                    s.analysisStatus="NONE";s.analysis=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
+                    s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
                 }
                 if(!previous.equals(next)) {
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.enginePlanId=null;s.engineJobId=null;s.groups=null;s.recommendations=null;
@@ -223,7 +230,7 @@ public class CreationWorkflowService {
             editable(s);
             boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
             s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
-            if(changed){s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(changed){s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
             if(!s.basicAnalysis.canContinue())return;
             if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
             s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;
@@ -258,6 +265,7 @@ public class CreationWorkflowService {
         return store.mutate(tenant.value(),id,request.revision,s->{
             if(s.qcPlanId!=null||!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
             if(request.step>=2)requireBasicAnalysis(s);
+            if(request.step==2 && s.step==1)confirmAnalysisSnapshot(s);
             if(request.step==3&&s.step!=3)CreationPayloadBuilder.settings(s);
             // Navigation changes no creative content and must preserve an already confirmed package.
             if(s.step!=request.step){s.step=request.step;s.revision++;}
@@ -620,7 +628,7 @@ public class CreationWorkflowService {
                 CreationState registered;
                 try { registered=registerEnginePlan(snapshot); }
                 catch(BizException unavailable) {
-                    store.mutate(snapshot.tenantId,id,null,s->{if("QUEUED".equals(s.generationStatus)){s.generationStatus="FAILED";s.generationMessage="引擎任务初始化失败，尚未提交素材生成，可稍后重试";}});
+                    store.mutate(snapshot.tenantId,id,null,s->{if("QUEUED".equals(s.generationStatus)){s.generationStatus="FAILED";s.generationMessage="引擎任务初始化失败，尚未提交素材生成，可稍后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});
                     return;
                 }
                 process(registered);
@@ -639,7 +647,7 @@ public class CreationWorkflowService {
                 var job=engine.post("/api/v1/capabilities/generation/jobs",body);String jobId=job.path("job_id").asText(job.path("id").asText());
                 if(jobId.isBlank())throw new BizException(8003,"引擎未返回生成任务 ID，提交结果待确认");
                 store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.engineJobId=jobId;s.groups=groups;s.generationStatus="RUNNING";s.generationMessage="AI 引擎生成中";}});
-            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();}});}
+            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();if("FAILED".equals(s.generationStatus))s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});}
             return;
         }
         var current=store.get(snapshot.tenantId,id);
@@ -786,12 +794,12 @@ public class CreationWorkflowService {
         boolean ready=saved!=null&&"READY".equals(saved.status);
         if(terminal&&(saved==null||Set.of("READY","FAILED").contains(saved.status))) {
             if(ready&&"succeeded".equals(job.path("status").asText()))store.mutate(tenant,id,null,s->{var done=additionRecord(s,rid);done.status="SUCCEEDED";done.error=null;s.generationStatus="SUCCEEDED";s.generationMessage="新增素材已生成并同步千川";s.generationStage="finished";s.progress=100;s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(done.type,1,1)));});
-            else failAddition(tenant,id,rid,saved!=null&&saved.error!=null?saved.error:"本次新增素材未完成，原有素材已保留");
+            else failAddition(tenant,id,rid,saved!=null&&saved.error!=null?saved.error:GenerationIssueMapper.message(job.path("error"),"本次新增素材未完成，原有素材已保留"));
         }
     }
     private void failAddition(String tenant,String id,String rid,String error) {
         store.mutate(tenant,id,null,s->{var r=additionRecord(s,rid);r.status="FAILED";r.error=error;s.generationStatus="FAILED";s.generationMessage=error;s.generationStage="finished";
-            var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error)));});
+            var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error,r.type,r.materialId,"新增"+switch(r.type){case "VIDEO"->"视频";case "IMAGE"->"商品卡图片";default->"图文";},"addition:"+rid)));});
     }
     private static void updateGenerationSummary(CreationState s,JsonNode job) {
         s.generationCounts.clear();s.generationIssues.clear();
@@ -802,21 +810,8 @@ public class CreationWorkflowService {
             var expected=group.path("expected");
             // Planning failures can have no counts. Do not invent totals for those products.
             if(!expected.isObject()||expected.path("videos").asInt()+expected.path("product_cards").asInt()+expected.path("image_texts").asInt()==0)known=false;
-            boolean unfinishedGroup=Set.of("failed","partial_failed","cancelled").contains(job.path("status").asText())&&!"succeeded".equals(group.path("status").asText());
-            if(unfinishedGroup||Set.of("failed","partial_failed","cancelled").contains(group.path("status").asText())) {
-                try {
-                    int index=Integer.parseInt(group.path("group_id").asText().replace("group-",""))-1;
-                    if(index>=0&&index<s.products.size()) {
-                        var p=s.products.get(index);
-                        boolean hasResult=false;for(var m:group.path("materials"))if("v1".equals(m.path("version").asText())&&"succeeded".equals(m.path("status").asText()))hasResult=true;
-                        String detail=group.path("error").asText(job.path("error").asText(""));
-                        String message=hasResult?"部分创意版未完成，可继续使用已有素材":"尚未生成可用素材，请重试或从素材库补齐";
-                        if(!detail.isBlank())message+="："+detail;
-                        s.generationIssues.add(new CreationState.GenerationIssue(p.qcProductId(),p.name(),message));
-                    }
-                }catch(NumberFormatException ignored){}
-            }
         }
+        s.generationIssues.addAll(GenerationIssueMapper.from(s,job));
         for(String type:List.of("VIDEO","IMAGE","CAROUSEL")) {
             int completed=0,total=0;
             var families=new HashSet<String>();
@@ -828,7 +823,8 @@ public class CreationWorkflowService {
                 }
             }
             boolean terminal=Set.of("failed","partial_failed").contains(job.path("status").asText());
-            s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null,known&&terminal?Math.max(0,total-completed):0));
+            int failed=known&&terminal?Math.max(0,total-completed):terminal?(int)s.generationIssues.stream().filter(i->type.equals(i.type())).count():0;
+            s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null,failed));
         }
     }
     private void processMaterial(CreationState s,CreationState.Material m) {
@@ -974,10 +970,14 @@ public class CreationWorkflowService {
             if(!currentAnalysis(registered,request,fingerprint))return;
             var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of(
                     "ai_plan_task_id",registered.enginePlanId,"store_id",registered.tenantId,
-                    "products",engineProducts(registered),"refresh",registered.analysisRefreshRequested,"analysis_mode","preparation_v1"));
+                    "products",engineProducts(registered),"refresh",registered.analysisRefreshRequested,"analysis_mode","preparation_v1",
+                    "account_id",registered.accountId,"analysis_id",request,"input_version",fingerprint));
             if(response==null||!response.isObject()||!response.has("product_set"))throw new BizException(8002,"引擎未返回有效商品分析");
+            var report=response.path("selection_analysis");
+            if(!report.isMissingNode() && (!fingerprint.equals(report.path("input_version").asText()) || !request.equals(report.path("analysis_id").asText())))
+                throw new BizException(8002,"商品分析输入版本不一致，请重新分析");
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
-                if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}
+                if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisConfirmation=null;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}
             });
         }catch(BizException e){
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
@@ -988,6 +988,16 @@ public class CreationWorkflowService {
     private static boolean currentAnalysis(CreationState s,String request,String fingerprint) {
         return request.equals(s.analysisRequestId)&&"RUNNING".equals(s.analysisStatus)
                 &&fingerprint.equals(ProductBasicAnalysisService.fingerprint(s.products));
+    }
+    private void confirmAnalysisSnapshot(CreationState s) {
+        if(s.analysis==null||!s.analysis.has("selection_analysis"))return;
+        var report=s.analysis.path("selection_analysis");
+        if(!ProductBasicAnalysisService.fingerprint(s.products).equals(report.path("input_version").asText()))return;
+        String actor=TenantContext.tenantId().filter(t->t.value().equals(s.tenantId)).map(t->TenantContext.userId().value()).orElse(s.userId);
+        s.analysisConfirmation=json.createObjectNode().put("analysis_id",report.path("analysis_id").asText())
+                .put("input_version",report.path("input_version").asText()).put("confirmed_at",Instant.now().toString())
+                .put("user_id",actor).put("selection_confirmed",true).put("combination_decision",s.groupingDecision==null?"CURRENT_SELECTION":s.groupingDecision)
+                .set("handoff",report.path("handoff").deepCopy());
     }
     /** Explicitly associate an uncertain write with a verified platform plan; this performs no create. */
     public CreationState reconcile(TenantId tenant,String requestedId,Reconcile req) {
@@ -1004,7 +1014,7 @@ public class CreationWorkflowService {
         if(f.description!=null&&f.description.length()>50||f.reasons!=null&&(f.reasons.size()>10||f.reasons.stream().anyMatch(x->x==null||x.length()>100)))throw new BizException(1503,"原因或说明过长");
         s.feedback.add(new CreationState.FeedbackEvent(material,action,f.reasons==null?List.of():List.copyOf(f.reasons),f.description,TenantContext.userId().value(),Instant.now().toString()));
     }
-    private static Map<String,Object> engineProduct(CreationState.Product p){var m=new LinkedHashMap<String,Object>();m.put("id",p.qcProductId());m.put("name",p.name());m.put("category",p.category());if(p.userPrice()!=null||p.price()!=null)m.put("price",p.userPrice()!=null?p.userPrice():p.price());if(p.priceInfo()!=null){m.put("price_min",p.priceInfo().minPrice());m.put("price_max",p.priceInfo().maxPrice());}return m;}
+    private static Map<String,Object> engineProduct(CreationState.Product p){var m=new LinkedHashMap<String,Object>();m.put("id",p.qcProductId());m.put("name",p.name());m.put("category",p.category());if(p.userPrice()!=null||p.price()!=null)m.put("price",p.userPrice()!=null?p.userPrice():p.price());if(p.priceInfo()!=null){m.put("price_min",p.priceInfo().minPrice());m.put("price_max",p.priceInfo().maxPrice());}if(p.stock()!=null)m.put("inventory",p.stock());if(p.sales()!=null)m.put("sales",p.sales());if(p.imageUrl()!=null)m.put("image_url",p.imageUrl());m.put("availability",Map.of("status",p.unavailableReasons()!=null&&!p.unavailableReasons().isEmpty()?"unavailable":"available","reasons",p.unavailableReasons()==null?List.of():p.unavailableReasons()));return m;}
     private static List<Map<String,Object>> engineProducts(CreationState s){return s.products.stream().map(CreationWorkflowService::engineProduct).toList();}
     private static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
 }

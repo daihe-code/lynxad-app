@@ -6,6 +6,10 @@ import { computed } from "vue";
 const props = defineProps<{ name: string }>();
 // Trusted reference SVG paths. No API HTML is rendered.
 const icons: Record<string, { attrs: Record<string, string>; content: string }> = {
+  "chart-bars": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<rect x=\"4\" y=\"13\" width=\"4\" height=\"8\" rx=\"2\"/><rect x=\"10\" y=\"7\" width=\"4\" height=\"14\" rx=\"2\"/><rect x=\"16\" y=\"2\" width=\"4\" height=\"19\" rx=\"2\"/>" },
+  "video-document": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z\"/><path d=\"M14 3v6h6M10 11l5 3-5 3Z\"/>" },
+  "book-open": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M12 5.5C9 3.3 5.5 3.2 2.5 4.5v15c3-1.3 6.5-1.2 9.5 1 3-2.2 6.5-2.3 9.5-1v-15c-3-1.3-6.5-1.2-9.5 1Z\"/><path d=\"M12 5.5v15\"/>" },
+  "chart": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M3 20.5h18M6 20.5V12M12 20.5V6.5M18 20.5V3.5\"/>" },
   "user": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<circle cx=\"12\" cy=\"8.4\" r=\"4.1\"/>\n    <path d=\"M4.4 20.4c0-3.6 3.4-6.2 7.6-6.2s7.6 2.6 7.6 6.2v.4H4.4v-.4Z\"/>" },
   "bell": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M18.2 8.8a6.2 6.2 0 1 0-12.4 0c0 5.3-2.1 6.9-2.1 6.9h16.6s-2.1-1.6-2.1-6.9Z\"/>\n    <path d=\"M13.7 19.2a1.9 1.9 0 0 1-3.4 0\"/>" },
   "caret": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"2","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"m6.5 9.4 5.5 5.4 5.5-5.4\"/>" },

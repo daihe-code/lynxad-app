@@ -1,4 +1,9 @@
-import type { CreationState, ProductBasicAnalysis } from './creationApi';
+import type { CreationProduct, CreationState, ProductBasicAnalysis } from './creationApi';
+
+export function productAnalysisInput(products: CreationProduct[]): string {
+  return JSON.stringify(products.map(p => [p.qcProductId, p.name, p.category || '', p.price ?? null, p.userPrice ?? null,
+    p.priceInfo?.minPrice ?? null, p.priceInfo?.maxPrice ?? null, p.stock ?? null, p.imageUrl || '', p.unavailableReasons || []]));
+}
 
 export function isCurrentCreationPoll(current: Pick<CreationState, 'planId' | 'revision'> | undefined,
   incoming: Pick<CreationState, 'planId' | 'revision'>, requestedPlanId: string): boolean {

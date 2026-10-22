@@ -30,6 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -47,6 +48,7 @@ public class AuthCommandService {
     private final LynxAdProperties properties;
     private final AuditRecorder auditRecorder;
     private final PasswordLoginGuard passwordGuard;
+    private final AccountInitializationService initialization;
     private final SingleTenantMembershipPolicy membershipPolicy = new SingleTenantMembershipPolicy();
 
     public AuthCommandService(
@@ -58,7 +60,8 @@ public class AuthCommandService {
             PasswordHasher passwordHasher,
             JwtService jwtService,
             LynxAdProperties properties,
-            AuditRecorder auditRecorder, PasswordLoginGuard passwordGuard) {
+            AuditRecorder auditRecorder, PasswordLoginGuard passwordGuard,
+            AccountInitializationService initialization) {
         this.otpStore = otpStore;
         this.smsGateway = smsGateway;
         this.userRepository = userRepository;
@@ -69,6 +72,7 @@ public class AuthCommandService {
         this.properties = properties;
         this.auditRecorder = auditRecorder;
         this.passwordGuard = passwordGuard;
+        this.initialization = initialization;
     }
 
     public SendSmsResponse sendSms(PhoneNumber phone) {
@@ -95,7 +99,7 @@ public class AuthCommandService {
         return new PeekSmsResponse(otpStore.peek(phone, code));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse smsLogin(PhoneNumber phone, String code) {
         if (!otpStore.verifyAndConsume(phone, code)) {
             throw new BizException(1101, "验证码不正确或已过期");
@@ -110,7 +114,7 @@ public class AuthCommandService {
         return issue(user);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
         passwordGuard.check(phone.value());
         User user = userRepository.findByPhone(phone).orElse(null);
@@ -124,6 +128,13 @@ public class AuthCommandService {
 
     public void logout(com.lynx.ad.common.domain.Ids.UserId userId) {
         // short-lived JWT; optional blacklist omitted in this round
+    }
+
+    /** Resume sessions issued before workspace creation moved into successful login. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public LoginResponse initializeAccount(UserId userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
+        return session(user, initialization.initialize(userId));
     }
 
     private void claimInviteIfPresent(User user, PhoneNumber phone) {
@@ -144,12 +155,16 @@ public class AuthCommandService {
     }
 
     private LoginResponse issue(User user) {
-        Optional<Tenant> tenant = tenantRepository.findByUserId(user.id());
-        MemberRole role = tenant.flatMap(t -> t.memberOf(user.id())).map(m -> m.role()).orElse(null);
-        String token = jwtService.issue(user.id(), tenant.map(Tenant::id), role, SysRole.USER);
-        boolean needOnboarding = tenant.isEmpty() || user.profile().isEmpty() || user.profile().filter(p -> p.isCompleted()).isEmpty();
-        recordLogin(user, tenant.orElse(null), token);
-        return new LoginResponse(token, properties.getJwt().getTtlSec(), needOnboarding, properties.isDemoMode());
+        Tenant tenant = initialization.initialize(user.id());
+        LoginResponse response = session(user, tenant);
+        recordLogin(user, tenant, response.token());
+        return response;
+    }
+
+    private LoginResponse session(User user, Tenant tenant) {
+        MemberRole role = tenant.memberOf(user.id()).orElseThrow(() -> new BizException(403, "非本公司成员")).role();
+        String token = jwtService.issue(user.id(), Optional.of(tenant.id()), role, SysRole.USER);
+        return new LoginResponse(token, properties.getJwt().getTtlSec(), false, properties.isDemoMode());
     }
 
     private void recordLogin(User user, Tenant tenant, String token) {

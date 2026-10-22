@@ -76,8 +76,7 @@
         </div>
         <div v-if="account" class="ad-account" @keydown.esc="accountOpen = false">
           <button class="ad-account__card w-full text-left" type="button" aria-haspopup="listbox" :disabled="saving || readOnly || settingsOnly" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
-            <span class="ad-account__name" :title="account.awemeName">{{ account.awemeName }}</span><span class="ad-account__id" :title="account.awemeId">抖音号ID：{{ account.awemeId }}</span>
-            <span class="ad-account__btns"><span v-for="(chip, i) in accountChips" :key="chip" :class="i ? 'ad-account__btn-warn' : 'ad-account__btn-solid'">{{ chip }}</span></span>
+            <AwemeAccountSummary :account="account" :chips="accountChips" />
             <span class="ad-account__chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24"><use href="#goal-ic-caret" /></svg></span>
           </button>
           <div v-if="accountOpen" class="account-menu" role="listbox" aria-label="选择抖音号"><button v-for="opt in accounts" :key="opt.key" type="button" role="option" :aria-selected="opt.key === account.key" @click="accountOpen = false; emit('account', opt.key)">{{ opt.awemeName }}<small>{{ opt.awemeId }}</small></button></div>
@@ -98,11 +97,6 @@
             <p class="panel__sub">确认预算、目标和时间，我会据此准备投放方案</p>
           </div>
         </div>
-
-        <p class="tip">
-          <svg class="tip__icon h-[17px] w-[17px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
-          <span class="tip__text">涉及投放成本和目标效果，需重点关注</span>
-        </p>
       </div>
 
       <div class="panel__body pb-10"><p v-if="selectionWarning" class="selection-warning">{{ selectionWarning }}</p>
@@ -168,8 +162,8 @@
                   <span class="field-input__unit">元/天</span>
                 </div>
 
-                <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack" id="hint-budget-minimum"><span class="hint">{{ COST_DAILY_BUDGET_HINT }}</span></p>
-                <p class="hint-stack" id="hint-budget" v-if="mode === 'SMART_BID_CONSERVATIVE' && (!budgetTouched || !(budgetError || budgetWarn))">
+                <p v-if="mode === 'SMART_BID_CUSTOM' && !(budgetTouched && budgetError)" class="hint-stack mt-[9px]" id="hint-budget-minimum"><span class="hint">{{ COST_DAILY_BUDGET_HINT }}</span></p>
+                <p class="hint-stack mt-[9px]" id="hint-budget" v-if="mode === 'SMART_BID_CONSERVATIVE' && (!budgetTouched || !(budgetError || budgetWarn))">
                   <span class="hint">
                     <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
                     <span>{{ budgetHint || '请根据实际经营情况填写日预算' }}</span>
@@ -313,12 +307,13 @@
 </template>
 
 <script setup lang="ts">
+import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
 import { nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
-interface AccountOption { key: string; awemeName: string; awemeId: string }
+interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
 const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; maxStep?: number }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
@@ -343,7 +338,8 @@ watch(() => props.saving, value => { if (value) budgetOpen.value = false; });
 
 
 
-watch(() => props.mode, () => { budgetTouched.value = false; roiTouched.value = false; budgetOpen.value = false; });
+// Switching modes changes the allowed budget range even when the amount is unchanged.
+watch(() => props.mode, () => { budgetTouched.value = true; roiTouched.value = false; budgetOpen.value = false; });
 function nextStep() {
   budgetTouched.value = true; roiTouched.value = true;
   if (props.saving || props.budgetError || props.roiError || props.dateError) return;

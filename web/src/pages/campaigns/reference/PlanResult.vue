@@ -404,7 +404,7 @@ import PlanReviewNotice from '../components/PlanReviewNotice.vue';
 import "./campaign-result.css";
 const props = defineProps<{ planId?: string }>(),
   route = useRoute();
-const { plan, shop, actions, report, metrics, hasData, loading, failed, load } =
+const { plan, account: boundAccount, shop, actions, report, metrics, hasData, loading, failed, load } =
   usePlanPresentation(() => props.planId || String(route.params.id || ""));
 const user = useUserStore(),
   busy = ref(false),
@@ -463,7 +463,7 @@ const canAct = computed(
 );
 const frameAccount = computed(() =>
   plan.value
-    ? { awemeName: shop.value, awemeId: plan.value.awemeId || "—" }
+    ? { awemeName: shop.value, awemeId: plan.value.awemeId || "—", avatar: boundAccount.value?.awemes.find(aweme => aweme.awemeId === plan.value?.awemeId)?.avatar }
     : null,
 );
 const summary = computed(() => {

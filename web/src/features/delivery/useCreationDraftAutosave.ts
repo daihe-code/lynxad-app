@@ -1,15 +1,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import type { CreationState } from './creationApi';
+import { creationScheduleDefaults } from './creationSchedule';
 import { CreationDraftCache, changedDraftFields, draftKey, rememberDraftAccount,
   type CachedCreationDraft, type DraftInputs, type DraftScope } from './creationDraftCache';
 
 const goalFields: (keyof DraftInputs)[] = ['name','budget','roi','mode','duration','start','end'];
 export { goalFields as draftGoalFields };
 export function serverDraftInputs(state: CreationState | undefined, today: string): DraftInputs {
+  const schedule = creationScheduleDefaults(today, state?.startDate, state?.endDate);
   return { productIds: state?.products.map(p => p.qcProductId) || [], name: state?.name || '',
     budget: state?.budget == null ? '' : String(state.budget), roi: state?.roi2Goal == null ? '' : String(state.roi2Goal),
     mode: state?.smartBidType || 'CUSTOM', duration: state?.scheduleType === 'DATE_RANGE' ? 'custom' : 'long',
-    start: state?.startDate || today, end: state?.endDate || today, step: Math.min(3,state?.step || 1) };
+    ...schedule, step: Math.min(3,state?.step || 1) };
 }
 
 export function useCreationDraftAutosave(options: {
@@ -49,7 +51,7 @@ export function useCreationDraftAutosave(options: {
     const result = cache!.save(options.capture());
     if (result === 'conflict') { conflict('另一个窗口更新了本机草稿，自动保存已暂停，请选择要保留的内容。'); return false; }
     if (result === 'unavailable') { status.value = '本机自动保存不可用，请使用“保存草稿”保存到服务器。'; return false; }
-    status.value = result === 'saved' ? '未提交内容已自动保存在本机（保留 7 天）' : options.server() ? '当前内容已与服务器草稿一致' : '';
+    status.value = result === 'saved' ? '未提交内容已自动保存在本机（保留 7 天）' : '';
     try { if (cache?.scope) rememberDraftAccount(localStorage,cache.scope); } catch { /* Main input cache has already been saved. */ }
     return true;
   }

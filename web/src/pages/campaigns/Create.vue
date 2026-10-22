@@ -7,7 +7,7 @@
     </aside>
     <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
-    <CreateProductsStep :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameSelection ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameSelection ? state?.analysis : undefined" :analysis-error="sameSelection ? state?.analysisError : undefined" :basic-analysis="sameSelection ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @retry="loadProducts()" @refresh-prices="loadProducts(true)" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateProductsStep v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @recommendations="refreshRecommendations" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
     <LiveMaterialsStep :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @exit="saveAndLeave" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
@@ -29,7 +29,8 @@ import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
-import { canContinueProductAnalysis, isCurrentCreationPoll } from '@/features/delivery/productAnalysisReadiness';
+import { creationScheduleDefaults } from '@/features/delivery/creationSchedule';
+import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
 import { draftGoalFields, serverDraftInputs, useCreationDraftAutosave } from '@/features/delivery/useCreationDraftAutosave';
 import { changedDraftFields } from '@/features/delivery/creationDraftCache';
@@ -47,20 +48,25 @@ const props = defineProps<{ initialPlanId?: string; initialStep?: number }>();
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
 const initialFailure = ref<ApiRequestError>(), productFailure = ref<ApiRequestError>(), operationFailure = ref<ApiRequestError>(), pollFailure = ref<ApiRequestError>();
 const initializing = ref(false), recovering = ref(false), polling = ref(false);
+const productTipDismissed = ref(false);
 const accounts = ref<AccountVo[]>([]), accountKey = ref(''), selected = ref<api.CreationProduct[]>([]), products = ref<api.CreationProduct[]>([]), total = ref(0);
 const query = ref<api.ProductQuery>({ page: 1, pageSize: 10, keyword: '', tab: 'ALL', unpromoted: true });
+const productPagination = ref<{ nextCursor?: string | null; hasMore?: boolean }>({});
+const productCursors = ref<Record<number, string>>({ 1: '0' });
 const accountOptions = computed(() => accounts.value.filter(a => a.platform === 'QIANCHUAN' && a.status === 'ACTIVE' && a.credentialSource !== 'MOCK').flatMap(a => a.awemes.map(w => ({ key: `${a.accountId}:${w.awemeId}`, accountId: a.accountId, awemeId: w.awemeId, awemeName: w.name, avatar: w.avatar, type: w.type }))));
 const account = computed(() => accountOptions.value.find(a => a.key === accountKey.value));
 const accountChips = computed(() => account.value ? [({ OFFICIAL:'官方账号', SELF:'自运营', COOP:'合作达人', COOP_AGENCY:'合作机构', ALLIANCE:'联盟', AUTHORIZED:'授权账号', OTHER:'其他账号' } as Record<string,string>)[account.value.type] || account.value.type] : []);
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
+const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
 const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
 const reconcileId = ref(''), reviewedQuote=ref('');
-const maxStep=computed(()=>Math.max(step.value,state.value?.budget != null ? 3 : state.value && canContinueProductAnalysis(state.value.basicAnalysis,state.value.analysisStatus) ? 2 : 1));
+const maxStep=computed(()=>state.value && !sameAnalysisInput.value ? 1 : Math.max(step.value,state.value?.budget != null ? 3 : state.value && canContinueProductAnalysis(state.value.basicAnalysis,state.value.analysisStatus) ? 2 : 1));
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const budget = ref(''), roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
 const today = () => new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
-const start = ref(today()), end = ref(today());
+const initialSchedule = creationScheduleDefaults(today());
+const start = ref(initialSchedule.start), end = ref(initialSchedule.end);
 function captureDraft(): DraftInputs {
   return { productIds: selected.value.map(p => p.qcProductId), name: name.value, budget: budget.value, roi: roi.value,
     mode: mode.value, duration: duration.value, start: start.value, end: end.value, step: Math.min(3,step.value) };
@@ -110,7 +116,7 @@ const budgetOptions = computed(() => recommendations.budgetOptions(state.value?.
 const estimate = computed(() => recommendations.budgetEstimateHints(state.value?.recommendations, budget.value));
 const estimateRoiHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.roi);
 const estimateOrdersHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.orders);
-const budgetHint = computed(() => busy.value ? '正在获取千川推荐预算…' : state.value?.recommendations?.budgetError || (recommendedBudget() ? `千川推荐预算 ¥${recommendedBudget()}，可调整` : '平台未返回推荐预算，可重新获取或手动填写'));
+const budgetHint = computed(() => busy.value ? '正在获取千川推荐预算…' : state.value?.recommendations?.budgetError || (recommendedBudget() ? '自动获取巨量千川推荐预算，可调整' : '平台未返回推荐预算，可重新获取或手动填写'));
 const roiHint = computed(() => busy.value ? '正在获取千川推荐ROI…' : state.value?.recommendations?.roiError || (recommendedRoi() ? `千川推荐净成交ROI ${recommendedRoi()}，可参考实际经营目标调整` : '平台未返回推荐ROI，可重新获取或根据经营目标填写'));
 function recommendedBudget() { return recommendations.recommendedBudget(state.value?.recommendations); }
 function recommendedRoi() { return recommendations.recommendedRoi(state.value?.recommendations); }
@@ -140,19 +146,41 @@ async function recoverOperation() {
   } catch (error) { operationFailure.value = requestFailure(error,{method:'GET'}); }
   finally { recovering.value = false; }
 }
-async function loadProducts(refreshPrices = false) {
+async function loadProducts() {
   if (!account.value) { products.value = []; loaded.value = true; return; }
   productRequest?.abort(); productRequest = new AbortController();
   const current = ++requestNo; loaded.value = false; loadError.value = false; productFailure.value = undefined;
-  try { const result = await api.creationProducts(account.value.accountId, account.value.awemeId, query.value, refreshPrices, productRequest.signal, state.value?.planId); if (current === requestNo) { products.value = result.items; selected.value = selected.value.map(p => { const next=result.items.find(next => next.qcProductId === p.qcProductId); return next ? { ...next, userPrice: next.userPrice ?? p.userPrice } : p; }); total.value = result.total; loaded.value = true; } }
+  try {
+    const result = await api.creationProducts(account.value.accountId, account.value.awemeId, query.value, false, productRequest.signal, state.value?.planId);
+    if (current !== requestNo) return;
+    products.value = result.items;
+    selected.value = selected.value.map(p => {
+      const next = result.items.find(next => next.qcProductId === p.qcProductId);
+      return next ? { ...next, userPrice: next.userPrice ?? p.userPrice } : p;
+    });
+    total.value = result.total;
+    productPagination.value = { nextCursor: result.nextCursor, hasMore: result.hasMore };
+    if (productCursors.value[query.value.page + 1] !== result.nextCursor) {
+      for (const n of Object.keys(productCursors.value)) if (Number(n) > query.value.page) delete productCursors.value[Number(n)];
+    }
+    if (result.hasMore && result.nextCursor) productCursors.value[query.value.page + 1] = result.nextCursor;
+    loaded.value = true;
+  }
   catch (error) { if (!disposed && current === requestNo) { const failure=requestFailure(error,{method:'GET'}); if(failure.kind !== 'CANCELLED') { productFailure.value = failure; loadError.value = true; } loaded.value = true; } }
 }
-function changeQuery(q: api.ProductQuery) { query.value = q; void loadProducts(); }
-function toggle(p: api.CreationProduct) { if (busy.value || working.value || draftRestoring.value || draftUnresolved.value) return; if (selected.value.some(x => x.productId === p.productId)) { remove(p.productId); return; } if (p.draft) { ElMessage.warning(`商品已在草稿「${p.draft.planName}」中，请继续编辑原草稿或先移除商品`); return; } if (p.unavailableReasons?.length) { ElMessage.warning(p.unavailableReasons.join('；')); return; } if (selected.value.length < 10) selected.value.push(p); else ElMessage.warning('最多选择 10 个商品'); }
+function changeQuery(q: api.ProductQuery) {
+  const previous = query.value;
+  if (q.tab !== previous.tab || q.keyword !== previous.keyword || q.pageSize !== previous.pageSize || q.unpromoted !== previous.unpromoted) {
+    productCursors.value = { 1: '0' }; productPagination.value = {};
+  }
+  query.value = q; void loadProducts();
+}
+function toggle(p: api.CreationProduct) { if (busy.value || working.value || draftRestoring.value || draftUnresolved.value) return; if (selected.value.some(x => x.productId === p.productId)) { remove(p.productId); return; } if (p.draft) { ElMessage.warning(`商品已在草稿「${p.draft.planName}」中，请继续编辑原草稿或先移除商品`); return; } if (p.unavailableReasons?.length) { ElMessage.warning(p.unavailableReasons.join('；')); return; } if (selected.value.length < 10) selected.value = [...selected.value, p]; else ElMessage.warning('最多选择 10 个商品'); }
 function remove(id: string) { if (busy.value || draftRestoring.value || draftUnresolved.value) return; selected.value = selected.value.filter(p => p.productId !== id); }
 async function chooseAccount(key: string) {
   if (working.value || busy.value || draftRestoring.value || key === accountKey.value) return;
   if (!autosave.flush()) { ElMessage.warning('当前内容尚未可靠保存，请先处理草稿提示'); return; }
+  productCursors.value = { 1: '0' }; productPagination.value = {}; query.value = { ...query.value, page: 1, cursor: undefined };
   autosave.suspend(); clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++;
   operationFailure.value = undefined; pollFailure.value = undefined; pollFailures = 0;
   if (state.value) ElMessage.info('原账户草稿已保留，切换账户将新建草稿');
@@ -167,7 +195,7 @@ async function ensureSelection() {
   state.value = saved;
   if(selectionChanged){budget.value='';roi.value='';reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
-  if (fresh) { await autosave.activate(true); void loadProducts(); }
+  if (fresh) { await autosave.activate(true); }
   else autosave.acknowledge(['productIds',...(selectionChanged ? draftGoalFields : emptyName ? ['name' as const] : [])]);
   if (!props.initialPlanId) await router.replace({ path: '/campaigns/create', query: { draftId: state.value.planId } });
 }
@@ -183,10 +211,11 @@ async function persistStep(target: number) {
   if (state.value) autosave.acknowledge(['step'],state.value.revision,{ ...captureDraft(),step: target });
 }
 async function goToStep(target: number) {
+  if (target > 1 && state.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
   await run(async () => { if(step.value === 2 && !budgetError.value && !roiError.value && !dateError.value) await persistGoal(); await persistStep(target); step.value = target; window.scrollTo(0,0); });
 }
 async function nextGoal() {
-  if (!sameSelection.value || !state.value || !canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus)) return;
+  if (!sameAnalysisInput.value || !state.value || !canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus)) return;
   await goToStep(2);
   if (step.value === 2) await refreshRecommendations();
 }
@@ -295,14 +324,15 @@ async function initialize() {
     accounts.value = await listAccounts();
     if (disposed) return;
     const id = props.initialPlanId || (typeof route.query.draftId === 'string' ? route.query.draftId : '');
-    if (id) { state.value = await api.creationGet(id); if (disposed) return; const s = state.value; accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products; step.value = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step))); name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget); roi.value = s.roi2Goal == null ? '' : String(s.roi2Goal); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long'; start.value = s.startDate || today(); end.value = s.endDate || today(); schedulePoll(); }
+    if (id) { state.value = await api.creationGet(id); if (disposed) return; const s = state.value; accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products; step.value = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step))); name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget); roi.value = s.roi2Goal == null ? '' : String(s.roi2Goal); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long'; const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end; schedulePoll(); }
     else {
       let remembered: string | undefined;
       try { if (user.me?.tenantId) remembered = recalledDraftAccount(localStorage,user.me.tenantId,user.me.userId); } catch { /* Storage can be disabled. */ }
       accountKey.value = accountOptions.value.find(a => a.key === remembered)?.key || accountOptions.value[0]?.key || '';
     }
     if (!account.value) initialFailure.value = new ApiRequestError('尚无可用的千川授权抖音号，请在账户管理中完成授权。',{kind:'AUTHORIZATION',action:'ACCOUNTS',method:'GET'});
-    await loadProducts();
+    if (state.value && (state.value.analysisStatus !== 'NONE' || state.value.analysis)) loaded.value = true;
+    else await loadProducts();
     if (!disposed) {
       await autosave.activate();
       if(step.value === 2 && state.value) {

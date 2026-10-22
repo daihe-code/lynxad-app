@@ -87,13 +87,13 @@
               你的智能广告投放专家
             </span>
 
-            <h1 class="mt-5 text-[34px] font-bold leading-[1.12] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
-              灵投，让每一位商家<br><span class="text-primary">都能获得专家级投放效果</span>
+            <h1 class="mt-5 text-[34px] font-bold leading-[1.24] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
+              灵投，让每一位商家<br><span class="text-primary">获得专家级投放效果</span>
             </h1>
 
             <p class="mt-5 text-[16px] leading-[1.75] text-ink-2">
               灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。<br class="hidden sm:block">
-              让日常投放更高效，让商家更专注生意增长。
+              让日常投放更高效，让商家更专注收益增长。
             </p>
 
             <div class="mt-9 flex justify-center">
@@ -101,18 +101,18 @@
             </div>
 
             <p class="mt-3 text-[12px] text-ink-3">平台服务免费体验，广告费仍由各媒体平台收取</p>
-            <dl class="mt-11 grid grid-cols-3 gap-x-2 text-center sm:flex sm:flex-wrap sm:justify-center sm:gap-x-14 sm:gap-y-6">
+            <dl class="hero-assurances" aria-label="平台服务特点">
               <div>
-                <dt class="tnum text-[24px] font-bold leading-none text-primary">预算</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">由你掌控</dd>
+                <dt>预算由你掌控</dt>
+                <dd>投入多少，你来决定</dd>
               </div>
               <div>
-                <dt class="text-[24px] font-bold leading-none text-primary">关键操作</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">先确认</dd>
+                <dt>关键操作先确认</dt>
+                <dd>调整有依据，过程可查看</dd>
               </div>
               <div>
-                <dt class="text-[24px] font-bold leading-none text-primary">官方</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">接口接入</dd>
+                <dt>官方接口接入</dt>
+                <dd>账户授权可随时取消</dd>
               </div>
             </dl>
           </div>
@@ -632,7 +632,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import UserMenu from "@/layouts/UserMenu.vue";
 import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
-import { loginLandingPath } from "@/features/identity/oauthApi";
 import { isCnMobile } from "@/utils/phone";
 import hero1 from "@/assets/landing/hero-1.jpg";
 import hero2 from "@/assets/landing/hero-2.jpg";
@@ -667,7 +666,7 @@ async function goTrial() {
   }
   checkingTrial.value = true;
   try {
-    const destination = await loginLandingPath();
+    const destination = await user.entryPath();
     if (!disposed) await router.push(destination);
   } finally {
     checkingTrial.value = false;
@@ -754,7 +753,7 @@ onMounted(async () => {
     ownsDescription = true;
   }
   previousDescription = description.getAttribute("content");
-  description.content = "灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。让日常投放更高效，让商家更专注生意增长。";
+  description.content = "灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。让日常投放更高效，让商家更专注收益增长。";
   document.addEventListener("keydown", handleKeydown);
   if (user.isLoggedIn && !user.me) {
     try {

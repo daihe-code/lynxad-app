@@ -1505,33 +1505,6 @@ to {
   border-color: rgb(var(--c-danger));
   color: rgb(var(--c-danger))
 }
-.account-pages .scopegrid {
-  display: grid;
-  -moz-column-gap: 32px;
-  column-gap: 32px;
-  row-gap: 18px
-}
-@media (min-width:640px) {
-.account-pages .scopegrid {
-  grid-template-columns: repeat(2,minmax(0,1fr))
-}
-}
-.account-pages .scope__t {
-  font-size: 13px;
-  line-height: 1;
-  --tw-text-opacity: 1;
-  color: rgb(var(--c-text-3)/var(--tw-text-opacity,1))
-}
-.account-pages .scope__d {
-  margin-top: 9px;
-  font-size: 14px;
-  line-height: 21px;
-  --tw-text-opacity: 1;
-  color: rgb(var(--c-text-1)/var(--tw-text-opacity,1))
-}
-.account-pages .scope--danger .scope__d {
-  color: rgb(var(--c-danger))
-}
 .account-pages .planhero {
   position: relative;
   overflow: hidden;

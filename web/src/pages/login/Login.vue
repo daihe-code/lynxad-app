@@ -159,15 +159,15 @@
             <button class="btn-brand" type="submit" :disabled="loading" :data-loading="loading">{{ loading ? "登录中…" : "登录/注册" }}</button>
 
             <div class="auth-legal" :data-attention="legalAttention ? 'true' : undefined">
-              <input class="checkbox" id="code-agree" v-model="agreed" name="agree" type="checkbox" @change="legalError = ''">
-              <label for="code-agree" class="cursor-pointer">
+              <label class="auth-legal__control" for="code-agree"><input class="checkbox" id="code-agree" v-model="agreed" name="agree" type="checkbox" @change="legalError = ''"></label>
+              <label for="code-agree" class="auth-legal__text cursor-pointer">
                 我已阅读并同意
                 <router-link class="auth-legal__link" to="/legal/terms" target="_blank" rel="noopener">《用户服务协议》</router-link>
                 和
                 <router-link class="auth-legal__link" to="/legal/privacy" target="_blank" rel="noopener">《隐私政策》</router-link>
               </label>
+              <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg><span>{{ legalError }}</span></p>
             </div>
-            <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg>{{ legalError }}</p>
           </form>
 
           <form class="auth-form" id="panel-password" role="tabpanel" aria-labelledby="tab-password"
@@ -208,15 +208,15 @@
             <button class="btn-brand" type="submit" :disabled="loading" :data-loading="loading">{{ loading ? "登录中…" : "登录" }}</button>
 
             <div class="auth-legal" :data-attention="legalAttention ? 'true' : undefined">
-              <input class="checkbox" id="pwd-agree" v-model="agreed" name="agree" type="checkbox" @change="legalError = ''">
-              <label for="pwd-agree" class="cursor-pointer">
+              <label class="auth-legal__control" for="pwd-agree"><input class="checkbox" id="pwd-agree" v-model="agreed" name="agree" type="checkbox" @change="legalError = ''"></label>
+              <label for="pwd-agree" class="auth-legal__text cursor-pointer">
                 我已阅读并同意
                 <router-link class="auth-legal__link" to="/legal/terms" target="_blank" rel="noopener">《用户服务协议》</router-link>
                 和
                 <router-link class="auth-legal__link" to="/legal/privacy" target="_blank" rel="noopener">《隐私政策》</router-link>
               </label>
+              <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg><span>{{ legalError }}</span></p>
             </div>
-            <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg>{{ legalError }}</p>
           </form>
 
         </div>
@@ -230,7 +230,6 @@
 import { nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { sendSms } from "@/features/tenant/authApi";
-import { loginLandingPath } from "@/features/identity/oauthApi";
 import { useUserStore } from "@/stores/user";
 import { isCnMobile } from "@/utils/phone";
 
@@ -341,8 +340,7 @@ async function onPasswordLogin() {
   finally { loading.value = false; }
 }
 async function afterLogin() {
-  if (user.needOnboarding) { await router.replace("/onboarding"); return; }
-  const destination = await loginLandingPath();
+  const destination = await user.entryPath();
   if (!disposed) await router.replace(destination);
 }
 </script>

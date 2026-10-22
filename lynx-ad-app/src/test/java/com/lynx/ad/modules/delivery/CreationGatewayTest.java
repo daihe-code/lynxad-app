@@ -48,6 +48,93 @@ class CreationGatewayTest {
         verifyNoInteractions(prices);assertEquals(1,requests.get());
         assertTrue(URLDecoder.decode(query,StandardCharsets.UTF_8).contains("\"tab\":\"ALL\""));
     }
+    Map<String,String> queryParams() {
+        var result=new LinkedHashMap<String,String>();
+        for(String pair:query.split("&")){var parts=pair.split("=",2);result.put(URLDecoder.decode(parts[0],StandardCharsets.UTF_8),URLDecoder.decode(parts[1],StandardCharsets.UTF_8));}
+        return result;
+    }
+    @Test void newAndBreakthroughProductsUseNativeCursorWithoutUnsupportedMerchantFilters() throws Exception {
+        serve("""
+            {"code":0,"data":{"product_list":[{"id":1001,"name":"分类商品"}],
+             "page_info":{"cursor":9007199254740993,"has_more":true}}}
+            """,200);
+        for(String tab:List.of("NEW_PRODUCT","BREAKTHROUGH_PRODUCT")) {
+            var first=gateway.products(new TenantId("t"),"a","123",1,10,"新品",tab,true,null);
+            var params=queryParams();var filters=json.readTree(params.get("filtering"));
+            assertEquals(tab,filters.path("tab").asText());assertEquals("新品",filters.path("product_name").asText());
+            assertFalse(filters.has("create_roi2_limit_product"));assertEquals("0",params.get("cursor"));
+            assertFalse(params.containsKey("page"));assertFalse(params.containsKey("page_size"));
+            assertEquals("1001",first.items().getFirst().productId());assertTrue(first.hasMore());
+            assertEquals("9007199254740993",first.nextCursor());
+        }
+        server.stop(0);
+        serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":1002}],\"page_info\":{\"cursor\":0}}}",200);
+        var last=gateway.products(new TenantId("t"),"a","123",2,10,null,"NEW_PRODUCT",false,null,false,"9007199254740993");
+        assertEquals("9007199254740993",queryParams().get("cursor"));assertFalse(last.hasMore());assertNull(last.nextCursor());
+        assertEquals("1002",last.items().getFirst().productId());
+    }
+    @Test void searchTrendRetainsNumberedPagingAndDoesNotSendUnpromotedFilter() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[],\"page_info\":{\"total_number\":0}}}",200);
+        var result=gateway.products(new TenantId("t"),"a","123",2,30,null,"SEARCH_TREND",true,null);
+        var params=queryParams();var filters=json.readTree(params.get("filtering"));
+        assertEquals("SEARCH_TREND",filters.path("tab").asText());assertFalse(filters.has("create_roi2_limit_product"));
+        assertEquals("2",params.get("page"));assertEquals("30",params.get("page_size"));assertFalse(params.containsKey("cursor"));
+        assertEquals(0,result.total());assertTrue(result.items().isEmpty());
+    }
+    @Test void categoryEmptyResponseIsSuccessfulButPlatformRejectionIsNotSilentlyEmpty() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[],\"page_info\":{\"cursor\":0,\"page\":0,\"page_size\":0}}}",200);
+        var empty=gateway.products(new TenantId("t"),"a","123",1,10,null,"NEW_PRODUCT",false,null);
+        assertTrue(empty.items().isEmpty());assertFalse(empty.hasMore());assertNull(empty.nextCursor());
+        server.stop(0);
+        serve("{\"code\":40000,\"message\":\"分类请求被平台拒绝\"}",200);
+        var failure=assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",1,10,null,"NEW_PRODUCT",false,null));
+        assertTrue(failure.getMessage().contains("分类请求被平台拒绝"));
+    }
+    @Test void invalidCategoryAndCursorCannotReachThePlatform() {
+        assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",1,10,null,"GOOD_BOOST",true,null));
+        for(String cursor:List.of("-1","bad","9223372036854775808","9007199254740993.0","0"))
+            assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",2,10,null,"NEW_PRODUCT",false,null,false,cursor));
+        assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",2,10,null,"NEW_PRODUCT",false,null));
+        verifyNoInteractions(credentials);assertEquals(0,requests.get());
+    }
+    @Test void nonAdvancingCursorCannotRepeatTheSamePageForever() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[],\"page_info\":{\"cursor\":123,\"has_more\":true}}}",200);
+        assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",2,10,null,"NEW_PRODUCT",false,null,false,"123"));
+        assertEquals(1,requests.get());
+    }
+    @Test void platformSalesPreserveZeroAndDoNotTurnMissingOrInvalidValuesIntoZero() throws Exception {
+        serve("""
+            {"code":0,"data":{"product_list":[
+              {"id":1001,"name":"零销量","sell_num":0,"stock_num":0},
+              {"id":1002,"name":"有销量","sell_num":1256},
+              {"id":1003,"name":"未提供销量"},
+              {"id":1004,"name":"空销量","sell_num":null},
+              {"id":1005,"name":"文本零销量","sell_num":"0"},
+              {"id":1006,"name":"异常负数","sell_num":-1},
+              {"id":1007,"name":"异常文本","sell_num":"unknown"},
+              {"id":1008,"name":"异常小数","sell_num":1.5},
+              {"id":1009,"name":"超出整数范围","sell_num":"9223372036854775808"}
+            ]}}
+            """,200);
+        var rows=gateway.products(new TenantId("t"),"a","123",1,10,null,"ALL",false,null).items();
+        assertEquals(0L,rows.get(0).sales());assertEquals(0L,rows.get(0).stock());assertEquals(1256L,rows.get(1).sales());
+        for(int i:new int[]{2,3,5,6,7,8})assertNull(rows.get(i).sales());
+        assertEquals(0L,rows.get(4).sales());assertEquals(1,requests.get());
+        assertEquals(0,json.valueToTree(rows.getFirst()).path("sales").asLong(-1));
+    }
+    @Test void salesSurviveDraftDecorationPriceRefreshAndStateRoundTrip() throws Exception {
+        serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":1001,\"name\":\"真实商品\",\"sell_num\":0}]}}",200);
+        var product=gateway.products(new TenantId("t"),"a","123",1,10,null,"ALL",false,null).items().getFirst()
+            .withDraft(new com.lynx.ad.modules.delivery.domain.model.CreationState.DraftReference("draft","已保存草稿"));
+        var prices=mock(com.lynx.ad.modules.catalog.application.ProductPriceService.class);gateway.productPrices(prices);
+        when(prices.prices(any(),any(),any(),any(),anyBoolean())).thenReturn(Map.of());
+        var refreshed=gateway.refreshPrices(new TenantId("t"),"a","123",List.of(product)).getFirst();
+        assertEquals(0L,refreshed.sales());assertEquals(product.draft(),refreshed.draft());
+        var restored=json.readValue(json.writeValueAsString(refreshed),com.lynx.ad.modules.delivery.domain.model.CreationState.Product.class);
+        assertEquals(refreshed,restored);
+        var legacy=json.readValue("{\"productId\":\"1001\",\"qcProductId\":\"1001\",\"name\":\"历史商品\"}",com.lynx.ad.modules.delivery.domain.model.CreationState.Product.class);
+        assertNull(legacy.sales());
+    }
     @Test void CrossTenantOrForeignAwemeNeverCallsPlatform(){
         assertThrows(BizException.class,()->gateway.credential(new TenantId("other"),"a","123"));assertThrows(BizException.class,()->gateway.credential(new TenantId("t"),"a","999"));verifyNoInteractions(credentials);
     }

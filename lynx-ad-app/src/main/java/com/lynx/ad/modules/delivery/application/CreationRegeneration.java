@@ -31,7 +31,7 @@ final class CreationRegeneration {
                 throw new BizException(8003,"重新生成回执不完整或归属不匹配，请核查引擎修订记录，原素材已保留");
         }catch(BizException e) {
             boolean uncertain=e.code()==8003;
-            update(snapshot,request,s->{s.regeneration.status=uncertain?"UNCERTAIN":"FAILED";s.generationStatus=uncertain?"REVISING":"FAILED";s.generationMessage=uncertain?"重新生成提交结果待确认，原素材已保留，不会重复提交":"引擎未接受本次重新生成，原素材已保留，请核对原因后重试";});
+            update(snapshot,request,s->{s.regeneration.status=uncertain?"UNCERTAIN":"FAILED";s.generationStatus=uncertain?"REVISING":"FAILED";s.generationMessage=uncertain?"重新生成提交结果待确认，原素材已保留，不会重复提交":"引擎未接受本次重新生成，原素材已保留，请核对原因后重试";if(!uncertain)s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,e.getMessage()));});
             if(!uncertain)throw e;
             return store.get(snapshot.tenantId,snapshot.planId);
         }
@@ -60,7 +60,7 @@ final class CreationRegeneration {
         }
         var row=candidates.getFirst();String status=row.path("status").asText();
         if(Set.of("failed","cancelled").contains(status)) {
-            update(snapshot,request,s->{s.regeneration.status="FAILED";s.generationStatus="FAILED";s.generationMessage="本次重新生成未完成，原素材已保留，可调整要求后重试";s.progress=0;});return false;
+            update(snapshot,request,s->{s.regeneration.status="FAILED";s.generationStatus="FAILED";s.generationMessage="本次重新生成未完成，原素材已保留，可调整要求后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,GenerationIssueMapper.message(row.path("error"),s.generationMessage)));s.progress=0;});return false;
         }
         if(!"succeeded".equals(status)) {
             update(snapshot,request,s->s.generationMessage="本次修订"+("paused".equals(status)?"已暂停":"仍在生成中")+"，原素材已保留");return false;

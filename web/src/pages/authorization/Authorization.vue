@@ -1451,14 +1451,12 @@ import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   oauthUrl,
-  checkAuthorizationCapabilities,
   listAccounts,
   type AccountVo,
   authorizationSession,
   hasQianchuanAuthorization,
   type AuthorizationSession,
 } from "@/features/identity/oauthApi";
-import { ElMessage } from 'element-plus';
 import QianchuanAccountSelection from './QianchuanAccountSelection.vue';
 import { useUserStore } from "@/stores/user";
 import { useWizardStore } from "@/stores/wizard";
@@ -1521,14 +1519,6 @@ async function verify() {
     accounts.value = await listAccounts();
     verified.value = accounts.value.some((a) => hasQianchuanAuthorization([a])
       && (!bindingSession.value || bindingSession.value.boundAccountIds.includes(a.accountId)));
-    if(verified.value) {
-      const bound=accounts.value.filter(a=>hasQianchuanAuthorization([a]) && (!bindingSession.value || bindingSession.value.boundAccountIds.includes(a.accountId)));
-      const checks=await Promise.allSettled(bound.map(a=>checkAuthorizationCapabilities(a.accountId)));
-      if(checks.some(r=>r.status === 'fulfilled' && (r.value.materialStatus === 'MISSING' || r.value.accountStatus !== 'AVAILABLE'))) {
-        await router.replace('/accounts?tab=oauth');return;
-      }
-      if(checks.some(r=>r.status === 'rejected' || r.value.status === 'UNKNOWN'))ElMessage.info({message:'账户已连接；完整授权能力尚待核验，可在账户管理中查看。',duration:6000});
-    }
     if (verified.value && bindingSession.value) {
       const destination = bindingSession.value.returnPath === '/accounts?tab=oauth' ? '/accounts?tab=oauth' : '/campaigns';
       await router.replace(destination);
