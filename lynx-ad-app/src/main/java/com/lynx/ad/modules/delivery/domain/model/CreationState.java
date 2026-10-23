@@ -103,6 +103,8 @@ public class CreationState {
         public String videoAssetId, coverAssetId, textAssetId, audioAssetId, carouselId;
         public List<String> imageAssetIds = new ArrayList<>();
         public String status = "PROCESSING", error, previewUrl, posterUrl;
+        public Integer width, height;
+        public Double durationSec;
         public String failureStage;
         public Integer failureCode;
         @com.fasterxml.jackson.annotation.JsonIgnore public MaterialProcessing processing;

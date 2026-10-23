@@ -18,6 +18,7 @@ export interface CreationMaterial {
   id: string; productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; title: string; text?: string; displayName?: string;
   status: string; error?: string; previewUrl?: string; posterUrl?: string; engineMaterialId?: string;
   titles: string[]; imageUrls?: string[];
+    width?: number | null; height?: number | null; durationSec?: number | null;
   generationRequestId?: string; generationDescription?: string;
   creativeProfile?: Record<string, unknown>; creativeProfileStatus?: string;
   deliverySource?: 'product_reference' | 'ai_generated';

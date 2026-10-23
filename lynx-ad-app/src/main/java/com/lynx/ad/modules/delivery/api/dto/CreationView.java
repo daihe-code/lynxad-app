@@ -48,12 +48,14 @@ public record CreationView(
             String status, String error, String previewUrl, String posterUrl,
             String engineMaterialId, List<String> titles, List<String> imageUrls,
             String generationRequestId,String generationDescription,JsonNode creativeProfile,String creativeProfileStatus,
-            String deliverySource,String deliveryMode,String deliveryFamilyId,String typographyStatus, MaterialProcessing processing,String displayName) {
+            String deliverySource,String deliveryMode,String deliveryFamilyId,String typographyStatus, MaterialProcessing processing,String displayName,
+            Integer width,Integer height,Double durationSec) {
         static MaterialView of(CreationState.Material m,String displayName) {
             return new MaterialView(m.id, m.productId, m.type, m.title, m.text, m.status, m.error,
                     m.previewUrl, m.posterUrl, m.engineMaterialId, List.copyOf(m.titles),
                     List.copyOf(m.imageUrls),m.generationRequestId,m.generationDescription,m.creativeProfile,m.creativeProfileStatus,
-                    m.deliverySource,m.deliveryMode,m.deliveryFamilyId,m.typographyStatus,m.processing==null?MaterialProcessing.legacy(m):m.processing,displayName);
+                    m.deliverySource,m.deliveryMode,m.deliveryFamilyId,m.typographyStatus,m.processing==null?MaterialProcessing.legacy(m):m.processing,displayName,
+                    m.width,m.height,m.durationSec);
         }
     }
 }

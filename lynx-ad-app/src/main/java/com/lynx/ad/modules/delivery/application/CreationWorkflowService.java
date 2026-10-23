@@ -102,6 +102,13 @@ public class CreationWorkflowService {
         var assetDetails=materialProcessing.hydrate(tenant,s);
         for(var m:s.materials) {
             m.previewUrl=previewUrl(tenant,m.videoAssetId!=null?m.videoAssetId:m.audioAssetId,assetDetails);
+            if("VIDEO".equals(m.type)) {
+                var video=m.videoAssetId==null?null:assetDetails.get(m.videoAssetId);
+                m.width=video!=null&&video.width()!=null&&video.width()>0?video.width():null;
+                m.height=video!=null&&video.height()!=null&&video.height()>0?video.height():null;
+                var duration=video==null||video.storageMetadata()==null?null:video.storageMetadata().durationMs();
+                m.durationSec=duration!=null&&duration>0?duration/1000.0:null;
+            }
             m.posterUrl=previewUrl(tenant,m.coverAssetId,assetDetails);
             m.imageUrls=new ArrayList<>();
             for(String ref:m.imageAssetIds){String url=previewUrl(tenant,ref,assetDetails);if(url!=null&&!url.isBlank())m.imageUrls.add(url);}

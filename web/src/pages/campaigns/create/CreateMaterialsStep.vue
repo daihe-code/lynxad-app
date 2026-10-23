@@ -87,6 +87,7 @@ import type { CreationState, CreationMaterial, CreationAdditionBody } from '@/fe
 import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel, generationResultLabel, processingSummary, componentLabel, processingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
+import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
 const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number }>();
 const planName = defineModel<string>('planName', { required: true });
 const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; exit: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
@@ -114,6 +115,25 @@ const previewableCount = computed(() => props.state.materials.filter(materialHas
 const typographyPendingCount = computed(() => props.state.materials.filter(m => m.typographyStatus === 'pending').length);
 const titleCount = computed(() => { const pool=props.state.titlePools?.[productId.value]; return pool ? new Set([...pool.customTitles,...pool.cardTitles]).size : new Set(materials.value.flatMap(m=>m.titles)).size; });
 const mediaMetadata = ref<Record<string,{ width: number; height: number; duration?: number }>>({});
+const metadataUnavailable = ref<Record<string,string>>({});
+const metadataSources = new Map<string,string>();
+watch(() => [props.state.planId,...visible.value.map(m=>JSON.stringify([m.id,m.type,m.previewUrl,m.width,m.height,m.durationSec]))], (_value,_old,onCleanup) => {
+  const controller=new AbortController();onCleanup(()=>controller.abort());
+  const videos=visible.value.filter(m=>m.type==='VIDEO');
+  for(const m of videos) {
+    const source=`${props.state.planId}:${m.previewUrl?.split(/[?#]/)[0] || ''}`;
+    if(metadataSources.get(m.id)!==source){delete mediaMetadata.value[m.id];delete metadataUnavailable.value[m.id];metadataSources.set(m.id,source);}
+  }
+  const queue=videos.filter(m=>m.previewUrl && !hasVideoMetadata(m,mediaMetadata.value[m.id]) && metadataUnavailable.value[m.id]!==m.previewUrl);
+  async function readNext() {
+    while(queue.length && !controller.signal.aborted) {
+      const m=queue.shift()!, data=await readVideoMetadata(m.previewUrl!,controller.signal);
+      if(controller.signal.aborted)return;
+      if(data)mediaMetadata.value[m.id]=data;else metadataUnavailable.value[m.id]=m.previewUrl!;
+    }
+  }
+  void Promise.all([readNext(),readNext()]);
+}, {immediate:true});
 const brokenThumbnails = ref<Record<string,boolean>>({});
 const thumbnail = (m: CreationMaterial) => m.posterUrl || m.imageUrls?.[0];
 function imageMetadata(id: string, event: Event) {
@@ -124,8 +144,7 @@ function metadataLabel(m: CreationMaterial) {
   const data = mediaMetadata.value[m.id];
   if (m.type === 'CAROUSEL') return `${m.imageUrls?.length || 0} 张图片 · 图文配音`;
   if (m.type === 'IMAGE') return data ? `${data.width} × ${data.height} · 商品卡图片` : '商品卡图片';
-  const orientation = data ? data.height > data.width ? '竖屏' : data.height < data.width ? '横屏' : '方屏' : '视频';
-  return data?.duration ? `${Math.round(data.duration)}s · ${orientation}` : orientation;
+  return videoMetadataLabel(m,data,metadataUnavailable.value[m.id]===m.previewUrl || !m.previewUrl);
 }
 const missing = computed(() => props.state.products.filter(p => !props.state.materials.some(m => m.productId === p.qcProductId && materialIsReady(m))));
 const ready = computed(() => !!props.state.materials.length && !missing.value.length && props.state.materials.every(materialIsReady));

@@ -89,4 +89,28 @@ class CreationSharedMaterialsTest {
         assertThrows(BizException.class,()->service.titles(tenant,"cost","title",new CreationWorkflowService.Titles(state.revision,List.of("标题"))));
         verifyNoInteractions(store,importer);
     }
+
+    @Test void everyVideoIncludesItsOwnStoredDurationAndDimensionsWithoutOpeningPreview() {
+        var second=new CreationState.Material();second.id="second-video";second.type="VIDEO";second.videoAssetId="second-file";second.coverAssetId="cover-file";state.materials.add(second);
+        when(assets.detail(tenant,"video-file")).thenReturn(videoDetail("video-file",1080,1920,18000L));
+        when(assets.detail(tenant,"second-file")).thenReturn(videoDetail("second-file",1920,1080,22500L));
+        var result=service.get(tenant,"volume");
+        assertEquals(18.0,result.materials.get(0).durationSec);assertEquals(1080,result.materials.get(0).width);assertEquals(1920,result.materials.get(0).height);
+        assertEquals(22.5,result.materials.get(3).durationSec);assertEquals(1920,result.materials.get(3).width);assertEquals(1080,result.materials.get(3).height);
+        var wire=json.valueToTree(com.lynx.ad.modules.delivery.api.dto.CreationView.of(result));
+        assertEquals(22.5,wire.path("materials").get(3).path("durationSec").asDouble());assertEquals(1920,wire.path("materials").get(3).path("width").asInt());
+        assertFalse(wire.path("materials").get(3).has("storageMetadata"));assertFalse(wire.path("materials").get(3).has("videoAssetId"));
+        verify(assets,times(1)).detail(tenant,"video-file");verify(assets,times(1)).detail(tenant,"second-file");
+    }
+    @Test void missingOrInvalidMetadataIsNotGuessedFromTheCoverOrLeftFromAnOlderFile() {
+        var m=state.materials.getFirst();m.durationSec=18.0;m.width=1080;m.height=1920;
+        when(assets.detail(tenant,"video-file")).thenReturn(videoDetail("video-file",0,0,0L));
+        var result=service.get(tenant,"volume").materials.getFirst();
+        assertNull(result.durationSec);assertNull(result.width);assertNull(result.height);
+    }
+    private AssetUploadService.Detail videoDetail(String id,int width,int height,Long durationMs) {
+        var a=CreationPayloadTest.asset(id,"VIDEO","APPROVED",null,null,null);
+        var metadata=new com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.StorageMetadata(null,null,null,"AI_GENERATED",durationMs,null,null);
+        return new AssetUploadService.Detail(a.id(),a.kind(),a.filename(),a.sizeBytes(),a.storageStatus(),a.storageMode(),a.isAigc(),a.md5(),width,height,a.textContent(),a.url(),a.errorMessage(),a.createdAt(),a.syncs(),a.aiReview(),metadata);
+    }
 }
