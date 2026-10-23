@@ -3,6 +3,7 @@ package com.lynx.ad.modules.delivery.api.dto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.modules.delivery.domain.model.CreationState;
 import com.lynx.ad.modules.delivery.domain.model.ProductBasicAnalysis;
+import com.lynx.ad.modules.delivery.domain.model.ProductAnalysisOutcome;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
 import com.lynx.ad.modules.delivery.domain.model.MaterialProcessing;
 import java.math.BigDecimal;
@@ -25,10 +26,11 @@ public record CreationView(
 
     public static CreationView of(CreationState s) {
         var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
+        boolean failedAnalysis="SUCCEEDED".equals(s.analysisStatus)&&ProductAnalysisOutcome.failed(s.analysis);
         return new CreationView(s.planId, s.accountId, s.awemeId, s.name, s.revision, s.step,
                 s.packageVersion, s.confirmedVersion, s.smartBidType, s.budget, s.roi2Goal,
                 s.scheduleType, s.startDate, s.endDate, s.hideInAweme, List.copyOf(s.products),
-                s.analysisStatus, s.analysisError, s.analysis, s.recommendations,
+                failedAnalysis?"FAILED":s.analysisStatus, failedAnalysis?ProductAnalysisOutcome.failureMessage(s.analysis):s.analysisError, s.analysis, s.recommendations,
                 s.generationStatus, s.generationMessage, s.progress,
                 List.copyOf(s.generationProductIds), s.generationStage, List.copyOf(s.generationCounts),
                 List.copyOf(s.generationIssues), s.materials.stream().map(material->MaterialView.of(material,names.get(material.id))).toList(),

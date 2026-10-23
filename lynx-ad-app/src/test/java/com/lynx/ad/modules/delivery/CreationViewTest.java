@@ -7,6 +7,15 @@ import com.lynx.ad.modules.delivery.domain.model.CreationState;
 import org.junit.jupiter.api.Test;
 
 class CreationViewTest {
+    @Test void previouslySavedModelFallbackIsShownAsFailureWithoutRewritingTheStoredDraft() throws Exception {
+        var json=new ObjectMapper();var state=new CreationState();state.analysisStatus="SUCCEEDED";
+        state.analysis=json.readTree("{\"processing\":{\"inference_error\":\"ValueError\"},\"selection_analysis\":{}}");
+        var view=CreationView.of(state);
+        assertEquals("FAILED",view.analysisStatus());assertTrue(view.analysisError().contains("校验未通过"));
+        assertEquals("SUCCEEDED",state.analysisStatus);assertNull(state.analysisError);
+        state.analysisStatus="RUNNING";
+        assertEquals("RUNNING",CreationView.of(state).analysisStatus());
+    }
     @Test void generatedManagementNamesAreDistinctStableAndDoNotChangeAdvertisingText() throws Exception {
         var state=new CreationState();state.products.add(new CreationState.Product("123","123","20寸折叠自行车",null,null,null,null,null,java.util.List.of(),java.util.List.of()));
         for(String type:java.util.List.of("VIDEO","VIDEO","IMAGE","CAROUSEL")) {

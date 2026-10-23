@@ -20,8 +20,11 @@ public class CreationController {
     public CreationController(CreationWorkflowService service,CreationQianchuanGateway qc){this.service=service;this.qc=qc;}
     @GetMapping("/products/suggestions") public ApiResponse<com.lynx.ad.modules.delivery.application.ProductRecommendationService.Result> productSuggestions(
             @RequestParam String accountId,@RequestParam String awemeId,@RequestParam java.util.List<String> productIds,
-            @RequestParam(required=false) String draftId,@RequestParam(defaultValue="false") boolean refresh) {
-        return ApiResponse.ok(productSuggestions.recommend(TenantContext.requireTenantId(),accountId,awemeId,productIds,draftId,refresh));
+            @RequestParam(required=false) String draftId,@RequestParam(defaultValue="false") boolean refresh,
+            @RequestParam(required=false) java.util.List<String> excludeProductIds) {
+        var tenant=TenantContext.requireTenantId();
+        return ApiResponse.ok(excludeProductIds==null?productSuggestions.recommend(tenant,accountId,awemeId,productIds,draftId,refresh)
+                :productSuggestions.recommend(tenant,accountId,awemeId,productIds,excludeProductIds,draftId,refresh));
     }
     @GetMapping("/products/restore") public ApiResponse<java.util.List<CreationState.Product>> restoreProducts(
             @RequestParam String accountId,@RequestParam String awemeId,@RequestParam java.util.List<String> productIds,@RequestParam(required=false) String draftId) {

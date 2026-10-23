@@ -917,6 +917,8 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   font-weight: 600;
   line-height: 1;
   color: #12a66a;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .guar__icon {
   height: 1rem;
@@ -967,15 +969,23 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   display: flex;
   align-items: center;
   gap: .75rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .est__v {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   font-size: 15px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.5;
   --tw-text-opacity: 1;
   color: rgb(var(--c-text-1)/var(--tw-text-opacity,1));
+}
+.est__message {
+  margin-top: 12px;
+  color: rgb(var(--c-text-3));
+  font-size: 12px;
+  line-height: 1.7;
 }
 .dur {
   display: flex;

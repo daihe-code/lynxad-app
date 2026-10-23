@@ -25,6 +25,7 @@
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
     </template><main class="ad-main"><div class="container-page">
+      <ProductSuggestions v-if="!readOnly && recommendationsOpen && recommendationSource" ref="suggestions" :account="account" :selected="selected" :draft-id="draftId" :busy="saving || analyzing" :source-product-id="recommendationSource" @select="chooseSuggested" @close="closeRecommendations" />
       <section v-if="!analysisOpen" class="panel" aria-labelledby="panel-goods">
         <div class="panel__pad">
           <div class="panel__head"><div class="min-w-0"><h2 class="panel__title" id="panel-goods">{{ readOnly ? '投放商品' : '选择要投放广告的商品' }}</h2><p class="panel__sub">{{ readOnly ? `当前计划已选择 ${selected.length} 款商品` : '确认商品组合，为下一步准备投放素材' }}</p></div></div>
@@ -36,7 +37,6 @@
           </p>
         </div>
         <div class="panel__body" id="goods-body">
-          <ProductSuggestions v-if="!readOnly" ref="suggestions" :account="account" :selected="selected" :draft-id="draftId" :busy="saving" :source-product-id="recommendationSource" @select="chooseSuggested" @clear-focus="recommendationSource = undefined" />
           <div v-if="!readOnly" ref="filters" class="filters">
             <div class="seg" role="group" aria-label="商品筛选"><button v-for="category in catalogPolicy.tabs" :key="category.value" class="seg__item" type="button" :aria-pressed="tab === category.value" @click="tab = category.value">{{ category.label }}</button></div>
             <label class="check" :title="activeTab.unpromoted ? undefined : '该分类不支持未投放商品筛选'"><input :checked="unpromoted && activeTab.unpromoted" class="checkbox" type="checkbox" :disabled="!activeTab.unpromoted" @change="unpromoted = ($event.target as HTMLInputElement).checked" /><span class="check__label">只看未投放商品</span></label>
@@ -48,7 +48,13 @@
           <div v-else-if="filtered.length" class="pgrid" role="listbox" aria-multiselectable="true" aria-label="可投放商品列表">
             <div v-for="p in visible" :key="p.productId" class="pcard" role="option" :tabindex="readOnly || p.draft && !isSelected(p.productId) ? -1 : 0" :aria-disabled="readOnly || !!p.draft && !isSelected(p.productId)" :class="{ 'pcard--occupied': !!p.draft }" :aria-selected="isSelected(p.productId)" :aria-checked="isSelected(p.productId)" :aria-label="p.name" @click="choose(p)" @keydown.enter.prevent="choose(p)" @keydown.space.prevent="choose(p)">
               <span class="pcard__thumb"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><circle cx="18" cy="18" r="3" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></span><span class="pcard__check" aria-hidden="true" />
-              <p class="pcard__title" :title="p.name">{{ p.name }}</p><p v-if="p.draft" class="pcard__draft" :title="`已在草稿「${p.draft.planName}」中`">已在草稿中 · <router-link :to="{ path: '/campaigns/' + p.draft.planId + '/edit', query: { step: '1' } }" aria-disabled="false" @click.stop @keydown.stop>继续编辑</router-link></p><div class="pcard__row"><span class="pcard__price"><ProductPrice :price-info="p.priceInfo" :price="p.price" :user-price="p.userPrice" /></span></div><div class="pcard__stats"><span class="pcard__stock" :title="p.stock == null ? '暂未提供库存数据' : `库存 ${p.stock}`">库存 {{ p.stock ?? '—' }}</span><span class="pcard__sales" :title="p.sales == null ? '平台暂未提供销量数据' : `销量 ${p.sales}`">销量 {{ p.sales ?? '—' }}</span></div>
+              <p class="pcard__title" :title="p.name">{{ p.name }}</p>
+              <div class="pcard__row"><span class="pcard__price"><ProductPrice :price-info="p.priceInfo" :price="p.price" :user-price="p.userPrice" /></span></div>
+              <div class="pcard__stats">
+                <span class="pcard__stock" :title="p.stock == null ? '暂未提供库存数据' : `库存 ${p.stock}`">库存 {{ p.stock ?? '—' }}</span>
+                <span class="pcard__sales" :title="p.sales == null ? '平台暂未提供销量数据' : `销量 ${p.sales}`">销量 {{ p.sales ?? '—' }}</span>
+              </div>
+              <p v-if="p.draft" class="pcard__draft" :title="`已在草稿「${p.draft.planName}」中`">已在草稿中 · <router-link :to="{ path: '/campaigns/' + p.draft.planId + '/edit', query: { step: '1' } }" aria-disabled="false" @click.stop @keydown.stop>继续编辑</router-link></p>
             </div>
           </div>
           <p v-else class="pgrid__empty">{{ emptyMessage }}</p>
@@ -58,33 +64,37 @@
         <div v-if="!readOnly" class="selbar"><span class="selbar__count">已选 <b>{{ selected.length }}</b>/10：</span><div class="selbar__list"><span v-if="!selected.length" class="selbar__hint">请选择要投放广告的商品，最多可选10款</span><span v-for="p in selected" :key="p.productId" class="sthumb"><button class="sthumb__box" type="button" :title="`查看${p.name}的推荐商品`" :aria-label="`查看${p.name}的推荐商品`" :aria-pressed="recommendationSource === p.qcProductId" :disabled="saving" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></button><button class="sthumb__remove" type="button" :disabled="saving" :aria-label="`移除${p.name}`" @click.stop="emit('remove', p.productId)"><svg class="h-[9px] w-[9px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button></span></div></div>
       </section>
       <section v-if="analysisOpen" ref="analysisPanel" class="panel analysis" aria-labelledby="panel-analysis">
-        <div class="pt-8 sm:pt-9 lg:pt-10"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
+        <div class="analysis-heading"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2><button v-if="!readOnly && ['NONE','FAILED','SUCCEEDED'].includes(analysisStatus)" class="analysis-retry" type="button" :disabled="saving || analyzing" @click="emit('analyze', true)"><PreparationIcon name="refresh"/>重新分析</button></div>
         <div class="analysis-content" aria-live="polite">
-          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving" @click="adjustProducts">调整商品</button><button v-else class="analysis-adjust" type="button" :aria-expanded="selectedExpanded" @click="selectedExpanded = !selectedExpanded">{{ selectedExpanded ? '收起商品' : '查看已选商品' }}</button></div>
+          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button><button v-else class="analysis-adjust" type="button" :aria-expanded="selectedExpanded" @click="selectedExpanded = !selectedExpanded">{{ selectedExpanded ? '收起商品' : '查看已选商品' }}</button></div>
           <ul v-if="readOnly && selectedExpanded" class="analysis-selected-names"><li v-for="p in selected" :key="p.productId">{{ p.name }}</li></ul>
-          <ProductSuggestions v-if="!readOnly && recommendationsOpen" ref="suggestions" :account="account" :selected="selected" :draft-id="draftId" :busy="saving || analyzing" :source-product-id="recommendationSource" @select="chooseSuggested" @clear-focus="recommendationSource = undefined" />
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
             <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态，可继续设置投放目标。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
             <ul v-if="basicAnalysis.issues.length"><li v-for="(issue, index) in basicAnalysis.issues" :key="`${issue.productId}:${issue.code}:${index}`" :class="{ 'basic-analysis__error': issue.severity === 'ERROR' }">{{ issue.productName ? `${issue.productName}：` : '' }}{{ issue.message }}</li></ul>
           </aside>
-          <p class="analysis-status" :class="{ 'analysis-status--error': analysisStatus === 'FAILED' && !canContinue }" role="status">{{ analysisMessage }}</p>
+          <p class="analysis-status" :class="{ 'analysis-status--error': presentation === 'failed', 'analysis-status--complete':presentation === 'ready' }" role="status">{{ analysisMessage }}</p>
           <p v-if="analysisStatus === 'FAILED' && basicAnalysis?.canContinue && analysisError" class="analysis-evidence-note">{{ analysisError }}</p>
-          <button v-if="!readOnly && ['NONE', 'FAILED', 'SUCCEEDED'].includes(analysisStatus)" class="retry" type="button" :disabled="saving || analyzing" @click="emit('analyze', true)">重新分析</button>
 
-          <ProductPreparationAnalysis :group-decision="groupDecision" @keep="emit('keep')" :products="selected" :analysis="analysis" :busy="saving" :read-only="readOnly" @group="ids => emit('group', ids)" />
+          <ProductPreparationAnalysis v-if="presentation === 'ready'" :group-decision="groupDecision" @keep="emit('keep')" :products="selected" :analysis="analysis" :busy="saving" :read-only="readOnly" @group="ids => emit('group', ids)" />
+          <div v-else class="analysis-result-empty" :aria-busy="analyzing">
+            <strong>{{ presentation === 'pending' ? '正在生成商品智能分析' : presentation === 'failed' ? '尚未生成有效的智能分析结果' : presentation === 'outdated' ? '商品分析需要更新' : '等待分析所选商品' }}</strong>
+            <p>{{ presentation === 'pending' ? '我正在逐商品分析需求场景、素材方向和待确认信息，完成后在这里展示。' : presentation === 'failed' ? '请重新分析。已选商品和基础检查结果已保留。' : presentation === 'outdated' ? '当前保存的是旧版分析，尚无本页面所需的逐商品报告。请重新分析以获取最新结果。' : '开始分析后，将展示商品组合建议和逐商品素材方向。' }}</p>
+            <small v-if="readOnly && ['failed', 'outdated'].includes(presentation)">请在编辑计划时重新分析商品。</small>
+          </div>
         </div>
       </section>
     </div></main>
-    <div v-if="!embedded" class="actionbar"><div class="container-page actionbar__inner"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '确认商品，设置投放目标' : '分析所选商品' }}<svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12h15.2M13.4 5.8 19.6 12l-6.2 6.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" /></svg></button><button class="btn-cancel" type="button" :disabled="saving || readOnly" @click="emit('cancel')">取消投放</button></div></div>
+    <div v-if="!embedded" class="actionbar"><div class="container-page actionbar__inner"><div v-if="analysisOpen && !readOnly" class="analysis-back"><button class="analysis-back__button" type="button" :disabled="saving" @click="adjustProducts"><PreparationIcon name="back"/>返回调整商品</button><span>调整商品后将更新相关分析。</span></div><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '确认商品，设置投放目标' : '分析所选商品' }}<svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12h15.2M13.4 5.8 19.6 12l-6.2 6.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" /></svg></button><button class="btn-cancel" type="button" :disabled="saving || readOnly" @click="emit('cancel')">取消投放</button></div></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
+import PreparationIcon from '@/components/PreparationIcon.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
-import { canContinueProductAnalysis, productAnalysisProgress, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
+import { canContinueProductAnalysis, productAnalysisProgress, productAnalysisInput, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
 import { ElMessageBox } from 'element-plus';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
@@ -109,9 +119,10 @@ const broken = ref<Record<string, boolean>>({});
 const recommendationSource = ref<string>();
 const recommendationsOpen = ref(false);
 const suggestions = ref<InstanceType<typeof ProductSuggestions>>();
-watch(() => [props.account?.key, props.draftId], () => { recommendationSource.value = undefined; recommendationsOpen.value = false; });
+function closeRecommendations(){recommendationsOpen.value=false;recommendationSource.value=undefined;}
+watch(() => [props.account?.key, props.draftId], closeRecommendations);
 watch(() => props.selected.map(p => p.qcProductId), ids => {
-  if (recommendationSource.value && !ids.includes(recommendationSource.value)) recommendationSource.value = undefined;
+  if (recommendationSource.value && !ids.includes(recommendationSource.value)) closeRecommendations();
 });
 const analysisOpen = ref(false), adjusting = ref(false), selectedExpanded = ref(false), accountOpen = ref(false);
 const analyzedInput = ref<string>();
@@ -132,6 +143,7 @@ const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品�
   : unpromoted.value ? '当前筛选条件下暂无商品，可取消“只看未投放商品”查看'
   : '该抖音号暂无可投放商品');
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
+const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus));
 const analysisClock = ref(Date.now());
 let analysisTimer: ReturnType<typeof setInterval> | undefined;
@@ -140,7 +152,10 @@ watch(analyzing, active => {
   if (active) analysisTimer = setInterval(() => { analysisClock.value = Date.now(); }, 1000);
 }, { immediate: true });
 onUnmounted(() => clearInterval(analysisTimer));
-const analysisMessage = computed(() => props.analysis?.processing?.inference_error ? '智能分析暂不可用，已保留基础准备信息，可继续设置目标或重新分析。' : productAnalysisProgress(props.basicAnalysis, props.analysisStatus, Math.max(0, analysisClock.value - (props.analysisStartedAt || analysisClock.value))) || (analyzing.value ? '正在准备商品建议，可先继续设置投放目标。' : props.analysisStatus === 'FAILED' ? '智能建议暂不可用，基础检查通过后仍可继续。' : props.analysisStatus === 'SUCCEEDED' ? '投放准备分析已完成，请核对建议及待确认信息。' : '等待商品分析开始'));
+const analysisMessage = computed(() => presentation.value === 'pending' ? productAnalysisProgress(props.basicAnalysis, props.analysisStatus, Math.max(0, analysisClock.value - (props.analysisStartedAt || analysisClock.value))) || '正在分析所选商品，请稍候。'
+  : presentation.value === 'failed' ? '智能分析未完成，请重新分析；商品基础检查与智能分析结果分别保留。'
+  : presentation.value === 'outdated' ? '当前保存的分析格式需要更新，请重新分析。'
+  : presentation.value === 'ready' ? '商品智能分析已完成，请核对建议及待确认信息。' : '等待商品分析开始');
 watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
   if (!adjusting.value && (status !== 'NONE' || analysis)) { analysisOpen.value = true; analyzedInput.value = productAnalysisInput(props.selected); }
 }, { immediate: true });
@@ -158,7 +173,7 @@ function choose(p: ProductVo) {
   emit('select', p);
 }
 async function showRecommendations(p: ProductVo) {
-  if (props.readOnly || props.saving) return;
+  if (props.readOnly || props.saving || !props.selected.some(selected=>selected.qcProductId===p.qcProductId)) return;
   recommendationSource.value = p.qcProductId; recommendationsOpen.value = true;
   await nextTick(); suggestions.value?.reveal();
 }

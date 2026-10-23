@@ -155,7 +155,7 @@
                         <span class="budget-tier__estimates"><span>预计ROI <strong>{{ option.roi }}</strong></span><span>订单量 <strong>{{ option.orders }}</strong></span></span>
                         <span v-if="option.badge" class="budget-tier__badge">{{ option.badge }}</span>
                       </button>
-                      <p v-if="!budgetOptions?.length" class="budget-tiers__empty">暂无推荐档位，请重新获取或手动输入日预算</p>
+                      <p v-if="!budgetOptions?.length" class="budget-tiers__empty">千川暂未提供推荐档位，可手动输入日预算</p>
                       <p class="budget-tiers__note">平台预算预估，仅供参考，以实际投放结果为准</p>
                     </div>
                   </el-popover>
@@ -170,7 +170,6 @@
                   </span>
                 </p>
 
-                <button v-if="!readOnly && !settingsOnly && mode === 'SMART_BID_CONSERVATIVE'" class="recommendation-refresh" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('recommendations')">{{ saving ? '正在获取…' : '重新获取预算与ROI预估' }}</button>
                 <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" role="alert" v-if="budgetTouched && (budgetError || budgetWarn)">
                   <svg class="field-msg__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>{{ budgetError || budgetWarn }}</span>
@@ -220,7 +219,7 @@
                     <span class="est__k">预估ROI</span>
                     <span class="est__vwrap">
                       <b class="est__v">{{ estimateRoiHint || '待平台评估' }}</b>
-                      <span class="guar">
+                      <span v-if="!estimateHint" class="guar">
                         <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
                         以平台结果为准
                       </span>
@@ -231,6 +230,7 @@
                     <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '待平台评估' }}</b></span>
                   </div>
                 </div>
+                <p v-if="estimateHint" class="est__message" role="status">{{ estimateHint }}</p>
               </div>
             </div>
           </div>
@@ -314,13 +314,13 @@ import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; maxStep?: number }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; maxStep?: number }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ navigate: [step:number]; recommendations: []; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
+const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const accountOpen = ref(false), budgetTouched = ref(false), roiTouched = ref(false);
@@ -350,7 +350,6 @@ function nextStep() {
 <style scoped src="./create-goal.css"></style>
 
 <style scoped>
-.recommendation-refresh{display:block;margin-top:8px;color:#575cf6;font-size:13px}.recommendation-refresh:disabled{opacity:.5;cursor:wait}
 </style>
 <style scoped>
 :global(.el-popover.el-popper.budget-tiers-popover){box-sizing:border-box;max-width:calc(100vw - 24px);padding:12px 14px;border:1px solid #e0e2ef;border-radius:12px;box-shadow:0 10px 30px #1a1b2e1a;font-family:inherit}

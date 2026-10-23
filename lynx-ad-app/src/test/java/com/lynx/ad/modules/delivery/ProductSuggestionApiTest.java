@@ -13,6 +13,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ProductSuggestionApiTest {
+    @Test void clickedProductAndFullSelectionAreForwardedSeparately()throws Exception {
+        var tenant=new TenantId("tenant");TenantContext.set(new TenantPrincipal(new UserId("user"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+        var suggestions=mock(ProductRecommendationService.class);var controller=new CreationController(mock(CreationWorkflowService.class),mock(CreationQianchuanGateway.class));controller.productSuggestions(suggestions);
+        var mvc=MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(get("/api/v1/delivery/creation/products/suggestions").param("accountId","account").param("awemeId","aweme")
+                .param("productIds","9007199254740995").param("excludeProductIds","9007199254740995,100,200"))
+                .andExpect(status().isOk());
+        verify(suggestions).recommend(tenant,"account","aweme",List.of("9007199254740995"),List.of("9007199254740995","100","200"),null,false);
+    }
     @AfterEach void clear(){TenantContext.clear();}
     @Test void browserRequestKeepsLargeIdsAsStringsAndUsesCurrentTenantWithoutSavingDraft()throws Exception {
         var tenant=new TenantId("tenant");TenantContext.set(new TenantPrincipal(new UserId("user"),Optional.of(tenant),Optional.empty(),SysRole.USER));

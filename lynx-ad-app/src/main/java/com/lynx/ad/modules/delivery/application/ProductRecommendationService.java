@@ -29,9 +29,17 @@ public class ProductRecommendationService {
     public ProductRecommendationService(CreationQianchuanGateway qc,DraftProductStore drafts,AdPlanRepository plans){this.qc=qc;this.drafts=drafts;this.plans=plans;}
 
     public Result recommend(TenantId tenant,String account,String aweme,List<String> ids,String draft,boolean refresh) {
+        return recommend(tenant,account,aweme,ids,ids,draft,refresh);
+    }
+    public Result recommend(TenantId tenant,String account,String aweme,List<String> ids,List<String> excludeIds,String draft,boolean refresh) {
         if(account==null||account.isBlank()||aweme==null||aweme.isBlank())throw new BizException(1302,"请选择广告账户及抖音号");
         if(ids==null||ids.isEmpty()||ids.size()>10||new HashSet<>(ids).size()!=ids.size()
                 ||ids.stream().anyMatch(id->id==null||!id.matches("[1-9][0-9]{0,18}")))throw new BizException(1302,"请选择 1–10 个不同的有效商品");
+        var excluded=new HashSet<>(ids);
+        if(excludeIds!=null){
+            if(excludeIds.size()>10||excludeIds.stream().anyMatch(id->id==null||!id.matches("[1-9][0-9]{0,18}")))throw new BizException(1302,"已选商品列表不合法");
+            excluded.addAll(excludeIds);
+        }
         if(draft!=null&&!draft.isBlank()){
             var plan=plans.findById(tenant,new PlanId(draft)).orElseThrow(()->new BizException(1403,"当前草稿不存在或不属于当前企业"));
             if(!plan.accountId().value().equals(account)||!plan.awemeId().value().equals(aweme)||plan.status()!=PlanStatus.DRAFT||plan.qcPlanId().isPresent())
@@ -52,9 +60,9 @@ public class ProductRecommendationService {
             if(!hit&&pool.warning()==null)bucket.pool=pool;
         }
         // Never cache draft occupancy: another API/user can reserve a product between requests.
-        var available=drafts.decorate(tenant.value(),account,draft,pool.products());
+        var available=drafts.decorate(tenant.value(),account,draft,pool.products()).stream().filter(product->!excluded.contains(product.qcProductId())).toList();
         var suggestions=ProductRecommendationPolicy.recommend(selected,available,6);
-        String message="根据已选商品的类目、名称关键词及参考价格匹配，不代表投放效果或收益承诺。";
+        String message="按商品类目、名称关键词及参考价格匹配，相似商品需由你确认后加入。";
         if(pool.partial())message+=" 本次仅评估已取得的 "+pool.products().size()+" 个候选商品。";
         if(pool.warning()!=null)message+=" "+pool.warning();
         return new Result(account,aweme,List.copyOf(ids),suggestions,pool.products().size(),pool.total(),pool.partial(),hit,

@@ -1,9 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canContinueProductAnalysis, productAnalysisProgress, isCurrentCreationPoll, productAnalysisInput } from '../src/features/delivery/productAnalysisReadiness.ts';
+import { canContinueProductAnalysis, productAnalysisProgress, isCurrentCreationPoll, productAnalysisInput, productAnalysisPresentation } from '../src/features/delivery/productAnalysisReadiness.ts';
 
 const passed = { status: 'PASSED', canContinue: true };
 const blocked = { status: 'BLOCKED', canContinue: false };
+
+test('模型失败的基础备用报告不能当作智能分析成功展示，旧版报告明确要求更新', () => {
+  const products = [{qcProductId:'123'}];
+  const fallback = {selection_analysis:{schema_version:'1.0',product_analyses:[{product_id:'123'}]},processing:{inference_error:'ValueError'}};
+  assert.equal(productAnalysisPresentation(fallback,'SUCCEEDED',products),'failed');
+  assert.equal(productAnalysisPresentation({processing:{inference_status:'FAILED'}},'SUCCEEDED',products),'failed');
+  assert.equal(productAnalysisPresentation({dimensions:{}},'SUCCEEDED',products),'outdated');
+  assert.equal(productAnalysisPresentation({preparation:{products:[{product_id:'123',source:'product_facts'}]}},'SUCCEEDED',products),'outdated');
+});
+
+test('分析中不展示旧报告，只有覆盖当前商品的模型报告才能展示', () => {
+  const products = [{qcProductId:'123'}];
+  const report = {selection_analysis:{schema_version:'1.0',product_analyses:[{product_id:'123'}]}};
+  assert.equal(productAnalysisPresentation(report,'RUNNING',products),'pending');
+  assert.equal(productAnalysisPresentation(report,'SUCCEEDED',products),'ready');
+  assert.equal(productAnalysisPresentation(report,'SUCCEEDED',[{qcProductId:'456'}]),'outdated');
+  assert.equal(productAnalysisPresentation({preparation:{products:[{product_id:'123',source:'ai_suggestion'}]}},'SUCCEEDED',products),'ready');
+  assert.equal(productAnalysisPresentation(undefined,'NONE',products),'empty');
+});
 
 test('商品分析输入变化包括价格口径、图片、库存和可投状态，刷新时间和草稿装饰不使结果失效', () => {
   const p = { qcProductId:'123',name:'商品',category:'类目',price:100,userPrice:null,stock:10,imageUrl:'https://assets.test/a.jpg',unavailableReasons:[],priceInfo:{minPrice:100,maxPrice:200,fetchedAt:'old'} };

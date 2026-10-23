@@ -52,7 +52,7 @@ export interface ProductAnalysis {
   selection_analysis?: ProductSelectionAnalysis;
   analysis_input?: {
     sources: { source_id: string; source_type: string; provider: string; retrieved_at: string; verified: boolean; url: string | null; scope?: { product_ids?: string[] } }[];
-    evidence: { evidence_id: string; source_id: string; metric_definition: string; observed_period: string | null }[];
+    evidence: { evidence_id: string; source_id: string; metric_definition: string; observed_period: string | null; field?: string; value?: unknown; statement?: string }[];
   };
   preparation?: {
     version: string; summary: string;
@@ -66,7 +66,7 @@ export interface ProductAnalysis {
   public_sources?: { id: string; title: string; url: string; published_at?: string | null }[];
   data_quality?: { status: 'complete' | 'partial' | 'insufficient'; available_dimensions: number; total_dimensions: number; retryable?: boolean; product_estimated_dimensions?: ProductAnalysisDimensionKey[] };
   data_freshness?: { searched_at?: string; notes?: string };
-  processing?: { web_search_triggered?: boolean; web_search_executed?: boolean; web_search_used?: boolean; web_search_error?: string | null; inference_attempted?: boolean; inference_error?: string | null };
+  processing?: { web_search_triggered?: boolean; web_search_executed?: boolean; web_search_used?: boolean; web_search_error?: string | null; inference_attempted?: boolean; inference_status?: 'SUCCEEDED' | 'FAILED'; inference_error?: string | null };
   snapshot?: { created_at?: string; cache_hit?: boolean; version?: number };
 }
 export interface ProductBasicIssue {
@@ -108,8 +108,8 @@ export const creationRestoreProducts = (accountId: string, awemeId: string, prod
   ...quiet, timeout: 60000, params: { accountId, awemeId, productIds: productIds.join(','), draftId },
 });
 export const creationProducts = (accountId: string, awemeId: string, query: ProductQuery, refreshPrices = false, signal?: AbortSignal, draftId?: string) => apiGet<ProductPage>(`${root}/products`, { ...quiet, signal, timeout: 60000, params: { accountId, awemeId, ...query, refreshPrices, draftId } });
-export const creationProductSuggestions = (accountId: string, awemeId: string, productIds: string[], draftId?: string, refresh = false, signal?: AbortSignal) => apiGet<ProductSuggestions>(`${root}/products/suggestions`, {
-  ...quiet, timeout: 60000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), draftId, refresh },
+export const creationProductSuggestions = (accountId: string, awemeId: string, productIds: string[], draftId?: string, refresh = false, signal?: AbortSignal, excludeProductIds?: string[]) => apiGet<ProductSuggestions>(`${root}/products/suggestions`, {
+  ...quiet, timeout: 60000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), excludeProductIds:excludeProductIds?.join(','), draftId, refresh },
 });
 export const creationGet = (id: string, signal?: AbortSignal) => apiGet<CreationState>(`${root}/${id}`, {...quiet,signal});
 export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }) => apiPost<CreationState>(root, body, slow);

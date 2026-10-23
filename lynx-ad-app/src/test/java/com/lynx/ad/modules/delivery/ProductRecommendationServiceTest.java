@@ -17,6 +17,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ProductRecommendationServiceTest {
+    @Test void excludesTheEntireSelectionBeforeLimitingRecommendationsToSix(){
+        var candidates=new ArrayList<Product>();for(int i=100;i<=110;i++)candidates.add(product(""+i));
+        when(qc.recommendationCandidates(tenant,"account","aweme",1,100)).thenReturn(new CreationQianchuanGateway.Page(candidates,11,1,100));
+        var result=service.recommend(tenant,"account","aweme",List.of("100"),List.of("100","101","102","103"),null,false);
+        assertEquals(6,result.items().size());
+        assertTrue(result.items().stream().noneMatch(item->List.of("100","101","102","103").contains(item.product().qcProductId())));
+        assertEquals(List.of("100"),result.sourceProductIds());
+    }
     TenantId tenant=new TenantId("tenant");CreationQianchuanGateway qc=mock(CreationQianchuanGateway.class);
     DraftProductStore drafts=mock(DraftProductStore.class);AdPlanRepository plans=mock(AdPlanRepository.class);
     ProductRecommendationService service=new ProductRecommendationService(qc,drafts,plans);

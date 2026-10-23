@@ -207,7 +207,7 @@ public class CreationWorkflowService {
                 editable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
                 var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
                 if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
-                    s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
+                    s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
                 }
                 if(!previous.equals(next)) {
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.enginePlanId=null;s.engineJobId=null;s.groups=null;s.recommendations=null;
@@ -230,7 +230,7 @@ public class CreationWorkflowService {
             editable(s);
             boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
             s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
-            if(changed){s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(changed){s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
             if(!s.basicAnalysis.canContinue())return;
             if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
             s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;
@@ -977,7 +977,10 @@ public class CreationWorkflowService {
             if(!report.isMissingNode() && (!fingerprint.equals(report.path("input_version").asText()) || !request.equals(report.path("analysis_id").asText())))
                 throw new BizException(8002,"商品分析输入版本不一致，请重新分析");
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
-                if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisConfirmation=null;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}
+                if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisConfirmation=null;
+                    s.analysisStatus=ProductAnalysisOutcome.failed(response)?"FAILED":"SUCCEEDED";
+                    s.analysisError=ProductAnalysisOutcome.failed(response)?ProductAnalysisOutcome.failureMessage(response):null;
+                    s.analysisRefreshRequested=false;}
             });
         }catch(BizException e){
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
@@ -990,7 +993,7 @@ public class CreationWorkflowService {
                 &&fingerprint.equals(ProductBasicAnalysisService.fingerprint(s.products));
     }
     private void confirmAnalysisSnapshot(CreationState s) {
-        if(s.analysis==null||!s.analysis.has("selection_analysis"))return;
+        if(!"SUCCEEDED".equals(s.analysisStatus)||s.analysis==null||ProductAnalysisOutcome.failed(s.analysis)||!s.analysis.has("selection_analysis"))return;
         var report=s.analysis.path("selection_analysis");
         if(!ProductBasicAnalysisService.fingerprint(s.products).equals(report.path("input_version").asText()))return;
         String actor=TenantContext.tenantId().filter(t->t.value().equals(s.tenantId)).map(t->TenantContext.userId().value()).orElse(s.userId);

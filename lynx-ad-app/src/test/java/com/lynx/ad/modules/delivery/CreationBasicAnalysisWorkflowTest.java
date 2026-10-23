@@ -85,6 +85,41 @@ class CreationBasicAnalysisWorkflowTest {
         assertThrows(BizException.class,()->service.step(tenant,id,new CreationWorkflowService.Step(1,2)));
         verifyNoInteractions(engine);assertEquals(1,saved.get().step);
     }
+    @Test void keepCurrentCombinationPersistsAndRepeatedConfirmationDoesNotChangeRevision() {
+        var result=service.keepProductGroup(tenant,id,new CreationWorkflowService.Version(saved.get().revision));
+        assertEquals("KEEP_CURRENT",result.groupingDecision);
+        assertEquals("KEEP_CURRENT",CreationView.of(copy(saved.get())).groupingDecision());
+        int revision=result.revision;
+        assertEquals(revision,service.keepProductGroup(tenant,id,new CreationWorkflowService.Version(revision)).revision);
+        assertThrows(BizException.class,()->service.keepProductGroup(tenant,id,new CreationWorkflowService.Version(revision-1)));
+        verifyNoInteractions(engine);
+    }
+    @Test void changedProductFactsInvalidateThePreviousCombinationConfirmation() {
+        saved.get().groupingDecision="KEEP_CURRENT";
+        var product=saved.get().products.getFirst();
+        var changed=new CreationState.Product(product.productId(),product.qcProductId(),product.name(),new BigDecimal("600"),
+                product.userPrice(),product.imageUrl(),product.category(),product.stock(),product.tags(),product.unavailableReasons());
+        when(qc.refreshPrices(eq(tenant),eq("account"),eq("aweme"),anyList())).thenReturn(List.of(changed));
+        queueAnalysis();
+        assertNull(saved.get().groupingDecision);assertEquals("QUEUED",saved.get().analysisStatus);
+        verifyNoInteractions(engine);
+    }
+    @ParameterizedTest @ValueSource(strings={"ValueError","TimeoutError","ModelRequestError"})
+    void modelFallbackIsFailedEvenWhenTheEngineRequestReturnedSuccessfully(String error) {
+        queueAnalysis();
+        when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"),any())).thenAnswer(call->{
+            Map<String,Object> body=call.getArgument(1);
+            var response=json.createObjectNode();response.set("product_set",json.createObjectNode());
+            response.set("selection_analysis",json.createObjectNode().put("analysis_id",body.get("analysis_id").toString()).put("input_version",body.get("input_version").toString()));
+            response.set("processing",json.createObjectNode().put("inference_error",error));return response;
+        });
+        service.process(copy(saved.get()));
+        assertEquals("FAILED",saved.get().analysisStatus);assertNotNull(saved.get().analysis);
+        assertTrue(saved.get().analysisError.contains("尚未生成有效结果"));
+        assertTrue(CreationView.of(saved.get()).basicAnalysis().canContinue());
+        service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,2));
+        assertTrue(saved.get().analysisConfirmation==null||saved.get().analysisConfirmation.isNull());
+    }
     @Test void retryDuringAnActiveAnalysisKeepsItsDurableRequestIdentity() {
         queueAnalysis();String request=saved.get().analysisRequestId;int revision=saved.get().revision;
         service.analyze(tenant,id,new CreationWorkflowService.Analysis(revision,true));
