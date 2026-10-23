@@ -3,18 +3,9 @@
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
-      <header v-if="!draftEditor" class="workspace-header container-page">
-        <div class="workspace-heading"><router-link class="workspace-back" to="/campaigns"><ReferenceIcon name="arrow-left" />返回投放列表</router-link><span class="workspace-mode">{{ transferring ? '转投计划' : editing ? '修改投放计划' : '查看投放计划' }}</span><span class="stpill" :class="`stpill--${statusInfo(plan.status)[1]}`">{{ planStatusLabel(plan.status, plan.qcStatus) }}</span></div>
-        <div class="workspace-title">
-          <input v-if="editing && !transferring && !draftEditor" v-model="name" maxlength="30" :disabled="saving || !canEdit" aria-label="计划名称" />
-          <h1 v-else>{{ plan.name }}</h1>
-          <button v-if="!editing && canEdit" class="btn-next-primary" type="button" @click="enterEdit"><ReferenceIcon name="edit" />修改计划</button>
-        </div>
-        <p class="workspace-meta">计划ID：{{ plan.qcPlanId || plan.planId }} · {{ transferring ? '仅第二步可修改投放方式、日预算与ROI，商品与素材保持原设置' : editing ? '修改完成后点击保存修改生效' : '当前为只读模式，可切换步骤查看计划内容与素材预览' }}</p>
-        <p v-if="transferring" class="workspace-notice">{{ transferContext?.reuse ? '确认后暂停当前计划，启用另一种投放方式的已有计划。' : '确认后暂停当前计划，并使用已发布的商品与素材创建另一种投放方式的计划。' }}两种投放方式均展示在列表中，共用商品与素材，同时只启用一种。</p>
+      <div v-if="!draftEditor" class="workspace-feedback container-page">
         <p v-if="transferring && transferMessage" class="workspace-notice" role="status">{{ transferMessage }}</p>
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
-        <p v-else-if="editing && !transferring && !draftEditor" class="workspace-notice">可修改计划名称、日预算{{ isCost ? '与净成交ROI目标' : '' }}。已发布计划的商品、投放方式、日期与素材沿用原设置。</p>
         <section v-if="editing && !transferring && plan.qcPlanId && (settingsFailure || settingsMessage || settingsPending || settingsConflict || !plan.settingsEdit?.version || latestSettings)" class="settings-recovery" aria-label="计划修改核对" aria-live="polite">
           <p v-if="settingsMessage">{{ settingsMessage }}</p>
           <RequestFailureNotice :failure="settingsFailure" :busy="saving || settingsChecking" @retry="settingsFailure?.action === 'VERIFY' ? verifySettingsResult() : readLatestSettings()" />
@@ -30,8 +21,7 @@
         </section>
         <PlanReviewNotice v-if="!editing" :plan="plan" auto-read @updated="plan = $event" />
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
-        <p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p>
-      </header>
+      </div>
 
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
@@ -41,11 +31,13 @@
         <template v-else-if="step === 3">
           <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="false" :account="account" :account-chips="accountChips" read-only embedded />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
+          <main v-if="editing && !transferring && canEdit" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ materialState?.scheduleType === 'FROM_NOW' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
         <div class="actionbar"><div class="container-page actionbar__inner">
           <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving" @click="navigate(step - 1)">上一步</button>
           <button v-if="step < 4" class="btn-next-primary" type="button" :disabled="saving" @click="navigate(step + 1)">下一步</button>
+          <button v-if="!editing && canEdit" class="btn-next-primary" type="button" @click="enterEdit">修改计划</button>
           <button v-if="transferring && !transferPending" class="btn-next-primary" type="button" :disabled="saving || !transferAllowed || bidType === plan.smartBidType || !!budgetError || !!roiError" @click="submitTransfer">{{ saving ? '转投处理中…' : '确认转投' }}</button>
           <button v-else-if="transferring && user.trialActive" class="btn-next-primary" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '核查转投结果' }}</button>
           <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
@@ -70,7 +62,7 @@ import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creation
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { useUserStore } from '@/stores/user';
 import { planStatusLabel } from '@/utils/labels';
-import { dateText, statusInfo } from './reference/planPresentation';
+import { dateText } from './reference/planPresentation';
 import CreationFrame from './reference/CreationFrame.vue';
 import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
@@ -295,12 +287,10 @@ onUnmounted(() => { loadNumber++; });
 <style scoped>
 .plan-workspace { padding-bottom: 92px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
-.workspace-header { padding-top: 24px; padding-bottom: 24px; }.workspace-heading,.workspace-title { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }.workspace-back { display: inline-flex; align-items: center; gap: 6px; color: #575cf6; font-size: 13px; }.workspace-back svg,.workspace-title button svg { width: 16px; height: 16px; }.workspace-mode { color: #7c7f99; font-size: 13px; }
-.workspace-title { margin-top: 16px; }.workspace-title h1,.workspace-title input { flex: 1; min-width: 0; font-size: 22px; font-weight: 700; color: #1a1b2e; overflow-wrap: anywhere; }.workspace-title input { padding: 10px 14px; border: 1px solid #dedff0; border-radius: 10px; background: #fff; font-size: 18px; }.workspace-title input:focus { outline: 2px solid #575cf640; border-color: #575cf6; }.workspace-title button { display: inline-flex; gap: 6px; align-items: center; }
-.workspace-meta,.workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; color: #7c7f99; overflow-wrap: anywhere; }.workspace-notice { padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-notice button { margin-left: 16px; }.workspace-error { color: #e65361; margin-top: 12px; }
+.workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
+.workspace-plan-settings{padding-top:0}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
 .plan-workspace > .actionbar .actionbar__inner { height: auto; min-height: 75px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; gap: 12px; }
-@media(max-width:639px) { .workspace-title h1 { flex-basis: 100%; font-size: 18px; }.workspace-title input { flex-basis: 100%; }.workspace-heading { gap: 10px; }.workspace-meta { font-size: 12px; } }
 </style>
 
 <style scoped>
