@@ -70,7 +70,7 @@
           <ul v-if="readOnly && selectedExpanded" class="analysis-selected-names"><li v-for="p in selected" :key="p.productId">{{ p.name }}</li></ul>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
-            <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态，可继续设置投放目标。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
+            <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
             <ul v-if="basicAnalysis.issues.length"><li v-for="(issue, index) in basicAnalysis.issues" :key="`${issue.productId}:${issue.code}:${index}`" :class="{ 'basic-analysis__error': issue.severity === 'ERROR' }">{{ issue.productName ? `${issue.productName}：` : '' }}{{ issue.message }}</li></ul>
           </aside>
           <p v-if="analysisStatus === 'FAILED' && basicAnalysis?.canContinue && analysisError" class="analysis-evidence-note">{{ analysisError }}</p>
@@ -148,7 +148,7 @@ const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品�
   : '该抖音号暂无可投放商品');
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
-const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus));
+const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus, props.analysis, props.selected));
 watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
   if (!adjusting.value && (status !== 'NONE' || analysis)) { analysisOpen.value = true; analyzedInput.value = productAnalysisInput(props.selected); }
 }, { immediate: true });

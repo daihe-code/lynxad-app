@@ -59,10 +59,12 @@ const account = computed(() => accountOptions.value.find(a => a.key === accountK
 const accountChips = computed(() => account.value ? [({ OFFICIAL:'官方账号', SELF:'自运营', COOP:'合作达人', COOP_AGENCY:'合作机构', ALLIANCE:'联盟', AUTHORIZED:'授权账号', OTHER:'其他账号' } as Record<string,string>)[account.value.type] || account.value.type] : []);
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
 const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
+const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
+  && canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus, state.value.analysis, selected.value));
 const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
 const reconcileId = ref(''), reviewedQuote=ref('');
-const maxStep=computed(()=>state.value && !sameAnalysisInput.value ? 1 : Math.max(step.value,state.value?.budget != null ? 3 : state.value && canContinueProductAnalysis(state.value.basicAnalysis,state.value.analysisStatus) ? 2 : 1));
+const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const budget = ref(''), roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
 const today = () => new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
@@ -79,7 +81,8 @@ function draftScope(): DraftScope | undefined {
 }
 function fillDraft(values: DraftInputs) {
   name.value = values.name; budget.value = values.budget; roi.value = values.roi; mode.value = values.mode;
-  duration.value = values.duration; start.value = values.start; end.value = values.end; step.value = values.step;
+  duration.value = values.duration; start.value = values.start; end.value = values.end;
+  step.value = analysisReady.value ? values.step : 1;
 }
 async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   if (!account.value) throw new Error('当前账户不可用');
@@ -92,7 +95,7 @@ async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   fillDraft(values);
   const same = !!state.value && JSON.stringify(values.productIds) === JSON.stringify(state.value.products.map(p => p.qcProductId));
   const missing = values.productIds.filter(id => !eligible.some(p => p.qcProductId === id));
-  if (!same || missing.length || !state.value || !canContinueProductAnalysis(state.value.basicAnalysis,state.value.analysisStatus)) step.value = 1;
+  if (!same || missing.length || !analysisReady.value) step.value = 1;
   else if (step.value === 3 && changedDraftFields(values,serverDraftInputs(state.value,today())).some(key => draftGoalFields.includes(key))) step.value = 2;
   return missing.length ? `已恢复可用内容；${missing.length} 个商品已被其他草稿占用、下架、不可投或信息不完整，未恢复选中（ID：${missing.join('、')}）。请重新确认选品。` : undefined;
 }
@@ -218,10 +221,11 @@ async function persistStep(target: number) {
 }
 async function goToStep(target: number) {
   if (target > 1 && state.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
+  if (target < 1 || target > 3 || target > maxStep.value) return;
   await run(async () => { if(step.value === 2 && !budgetError.value && !roiError.value && !dateError.value) await persistGoal(); await persistStep(target); step.value = target; window.scrollTo(0,0); });
 }
 async function nextGoal() {
-  if (!sameAnalysisInput.value || !state.value || !canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus)) return;
+  if (!analysisReady.value) return;
   await goToStep(2);
   if (step.value === 2) await refreshRecommendations();
 }
@@ -330,7 +334,17 @@ async function initialize() {
     accounts.value = await listAccounts();
     if (disposed) return;
     const id = props.initialPlanId || (typeof route.query.draftId === 'string' ? route.query.draftId : '');
-    if (id) { state.value = await api.creationGet(id); if (disposed) return; const s = state.value; accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products; step.value = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step))); name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget); roi.value = s.roi2Goal == null ? '' : String(s.roi2Goal); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long'; const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end; schedulePoll(); }
+    if (id) {
+      state.value = await api.creationGet(id); if (disposed) return;
+      const s = state.value;
+      accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
+      const restoredStep = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step)));
+      step.value = restoredStep < 4 && !analysisReady.value ? 1 : restoredStep;
+      name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget);
+      roi.value = s.roi2Goal == null ? '' : String(s.roi2Goal); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
+      const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
+      schedulePoll();
+    }
     else {
       let remembered: string | undefined;
       try { if (user.me?.tenantId) remembered = recalledDraftAccount(localStorage,user.me.tenantId,user.me.userId); } catch { /* Storage can be disabled. */ }
@@ -342,6 +356,7 @@ async function initialize() {
     if (!state.value || state.value.analysisStatus === 'NONE' && !state.value.analysis) await loadProducts();
     if (!disposed) {
       await autosave.activate();
+      if (step.value < 4 && !analysisReady.value) step.value = 1;
       if(step.value === 2 && state.value) {
         if(!state.value.recommendations)await refreshRecommendations();
         if(!budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()),mode.value))budget.value=String(recommendedBudget());

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canContinueProductAnalysis, productAnalysisProgress, isCurrentCreationPoll, productAnalysisInput, productAnalysisPresentation } from '../src/features/delivery/productAnalysisReadiness.ts';
+import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput, productAnalysisPresentation } from '../src/features/delivery/productAnalysisReadiness.ts';
 
 const passed = { status: 'PASSED', canContinue: true };
 const blocked = { status: 'BLOCKED', canContinue: false };
+const products = [{ qcProductId: '123' }];
+const report = { selection_analysis: { schema_version: '1.0', product_analyses: [{ product_id: '123' }] } };
 
 test('模型失败的基础备用报告不能当作智能分析成功展示，旧版报告明确要求更新', () => {
   const products = [{qcProductId:'123'}];
@@ -31,20 +33,27 @@ test('商品分析输入变化包括价格口径、图片、库存和可投状�
     assert.notEqual(productAnalysisInput([{...p,...change}]),original);
   assert.equal(productAnalysisInput([{...p, draft:{planId:'draft'},priceInfo:{...p.priceInfo,fetchedAt:'new'}}]),original);
 });
-test('基础检查通过后，AI 排队、执行和失败均可进入目标设置', () => {
-  for (const status of ['NONE', 'QUEUED', 'RUNNING', 'FAILED', 'SUCCEEDED']) assert.equal(canContinueProductAnalysis(passed, status), true);
+test('基础检查通过仍须等待 AI 完成，旧报告不能放行排队、执行或失败状态', () => {
+  for (const status of ['NONE', 'QUEUED', 'RUNNING', 'FAILED'])
+    assert.equal(canContinueProductAnalysis(passed, status, report, products), false);
+  assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', report, products), true);
 });
-test('AI 成功不能绕过不可投商品；旧接口继续要求 AI 成功', () => {
-  for (const status of ['NONE', 'RUNNING', 'FAILED', 'SUCCEEDED']) assert.equal(canContinueProductAnalysis(blocked, status), false);
-  assert.equal(canContinueProductAnalysis(undefined, 'RUNNING'), false);
-  assert.equal(canContinueProductAnalysis(undefined, 'SUCCEEDED'), true);
+test('AI 成功不能绕过不可投商品；没有基础检查的旧接口也须返回有效报告', () => {
+  for (const status of ['NONE', 'RUNNING', 'FAILED', 'SUCCEEDED'])
+    assert.equal(canContinueProductAnalysis(blocked, status, report, products), false);
+  assert.equal(canContinueProductAnalysis({status:'BLOCKED', canContinue:true}, 'SUCCEEDED', report, products), false);
+  assert.equal(canContinueProductAnalysis(undefined, 'RUNNING', report, products), false);
+  assert.equal(canContinueProductAnalysis(undefined, 'SUCCEEDED', undefined, products), false);
+  assert.equal(canContinueProductAnalysis(undefined, 'SUCCEEDED', report, products), true);
 });
-test('15 秒后明确说明后台分析和继续入口，不制造指标', () => {
-  assert.match(productAnalysisProgress(passed, 'RUNNING', 14999), /可先设置投放目标/);
-  assert.match(productAnalysisProgress(passed, 'RUNNING', 15000), /耗时较长.*后台补充/);
-  assert.match(productAnalysisProgress(passed, 'FAILED'), /暂时不可用.*可继续/);
-  assert.match(productAnalysisProgress(blocked, 'SUCCEEDED'), /未通过/);
-  assert.equal(productAnalysisProgress(passed, 'SUCCEEDED'), undefined);
+test('无结果、旧版结果、模型失败、未覆盖当前所选商品和空选品均不能继续', () => {
+  for (const analysis of [undefined, {dimensions:{}}, {...report, processing:{inference_error:'模型失败'}},
+    {...report, processing:{inference_status:'FAILED'}}])
+    assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', analysis, products), false);
+  assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', report, [{qcProductId:'456'}]), false);
+  assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', report, [...products, {qcProductId:'456'}]), false);
+  assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', {selection_analysis:{schema_version:'1.0',product_analyses:[]}}, []), false);
+  assert.equal(canContinueProductAnalysis(passed, 'SUCCEEDED', {preparation:{products:[{product_id:'123',source:'ai_suggestion'}]}}, products), true);
 });
 test('旧轮询不能覆盖刚保存的目标或切换后的草稿，同版本 AI 更新仍可回显', () => {
   const current = { planId: 'new', revision: 3 };
