@@ -51,7 +51,7 @@ export function useCreationDraftAutosave(options: {
     const result = cache!.save(options.capture());
     if (result === 'conflict') { conflict('另一个窗口更新了本机草稿，自动保存已暂停，请选择要保留的内容。'); return false; }
     if (result === 'unavailable') { status.value = '本机自动保存不可用，请使用“保存草稿”保存到服务器。'; return false; }
-    status.value = result === 'saved' ? '未提交内容已自动保存在本机（保留 7 天）' : '';
+    status.value = '';
     try { if (cache?.scope) rememberDraftAccount(localStorage,cache.scope); } catch { /* Main input cache has already been saved. */ }
     return true;
   }
@@ -116,7 +116,7 @@ export function useCreationDraftAutosave(options: {
       if (!editable()) { status.value = '服务器草稿当前不可编辑，本机内容已保留。'; return; }
       await options.restore(serverDraftInputs(options.server(),options.today()));
       cache.open(options.scope()!,serverBaseline());
-      cache.discard(); pending.value = undefined; paused.value = false; unsavedConflict = false; status.value = '已保留服务器草稿内容。';
+      cache.discard(); pending.value = undefined; paused.value = false; unsavedConflict = false; status.value = '';
     } catch { status.value = '暂时无法读取服务器商品，本机内容仍保留，请稍后重试。'; }
     finally { restoring.value = false; }
   }
