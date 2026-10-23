@@ -1,6 +1,11 @@
 export interface AnalysisFact { statement: string; evidence_ids: string[]; confirmation: 'observed' | 'merchant_confirmed' }
 export interface CreativeDirection { title: string; display_content: string; fact_evidence_ids: string[]; required_assets: string[]; pending_claims: string[]; avoid: string[] }
 export interface AnalysisReference { metric: string; value: number | null; unit: string | null; metric_definition: string; observed_period: string; evidence_ids: string[] }
+export interface MarketInference {
+  product_id: string; source: 'product_semantics'; is_estimate: true;
+  competition: string | null; demand: string | null; price_positioning: string | null;
+  evidence_ids: string[]; assumptions: string[]; validation_needed: string[];
+}
 export interface ProductSelectionAnalysis {
   schema_version: '1.0'; analysis_id: string; input_version: string; status: 'ready' | 'partial' | 'needs_input';
   summary: { title: string; message: string; next_action: string };
@@ -16,6 +21,7 @@ export interface ProductSelectionAnalysis {
   market_evidence: { dimension: string; product_ids: string[]; availability: 'available' | 'limited' | 'unavailable';
     observations: { statement: string; evidence_ids: string[] }[]; evidence_ids: string[];
     scope: Record<string, string | null>; limitation: string; missing_reason: string | null }[];
+  market_inferences?: MarketInference[];
   handoff: { material: { product_id: string; approved_facts: AnalysisFact[]; candidate_directions: CreativeDirection[]; pending_confirmation: string[]; required_assets: string[]; blocked_claims: string[] }[];
     budget: { forecast_roi: null; recommended_daily_budget: null; required_inputs: string[]; historical_references: AnalysisReference[]; platform_references: AnalysisReference[]; grouping_considerations: string[]; limitations: string[] } };
   next_step: { can_enter_goal_setting: boolean; reasons: string[]; required_confirmations: string[]; blocked_operations: string[] };

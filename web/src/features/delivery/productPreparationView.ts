@@ -18,8 +18,16 @@ export function combinationHighlights(report?: ProductSelectionAnalysis) {
 
 export function marketOverview(report?: ProductSelectionAnalysis): string {
   const usable = report?.market_evidence.filter(row=>row.availability !== 'unavailable') || [];
-  if (usable.length) return usable.flatMap(row=>row.observations.map(o=>o.statement)).join('；') || '本次取得部分市场参考，请结合数据范围和来源查看。';
+  const inferred = marketInferences(report);
+  if (usable.length) return (usable.flatMap(row=>row.observations.map(o=>o.statement)).join('；') || '本次取得部分市场参考，请结合数据范围和来源查看。')
+    + (inferred.length ? '；缺失部分已补充商品信息的 AI 推断，可查看分析依据。' : '');
+  if (inferred.length) return 'AI 推断：' + inferred.flatMap(row=>[row.competition,row.demand,row.price_positioning].filter(Boolean)).slice(0,3).join('；');
   return '暂未获取可核验的同类竞争与近7天趋势数据，当前不据此判断商品优劣。';
+}
+
+export function marketInferences(report?: ProductSelectionAnalysis) {
+  return report?.market_inferences?.filter(row=>row.source === 'product_semantics' && row.is_estimate === true
+    && [row.competition,row.demand,row.price_positioning].some(Boolean)) || [];
 }
 
 export function safeSourceLink(value?: string | null): string | undefined {

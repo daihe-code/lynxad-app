@@ -17,6 +17,14 @@ test('有市场证据展示原始观察，无数据只给合并说明，不制�
   assert.match(marketOverview({market_evidence:[{availability:'unavailable',observations:[]}]}),/暂未获取可核验/);
 });
 
+test('无查询结果时展示按商品生成的AI推断，有实测数据时保留实测结果',()=>{
+  const inference={product_id:'bike',source:'product_semantics',is_estimate:true,competition:'可从折叠收纳与通勤用途比较替代商品',demand:'可测试通勤接驳与小空间收纳场景',price_positioning:null};
+  assert.match(marketOverview({market_evidence:[],market_inferences:[inference]}),/^AI 推断：可从折叠收纳/);
+  const mixed={market_evidence:[{availability:'limited',observations:[{statement:'平台样本12款'}]}],market_inferences:[inference]};
+  assert.match(marketOverview(mixed),/^平台样本12款；缺失部分已补充/);
+  assert.match(marketOverview({market_evidence:[],market_inferences:[{...inference,is_estimate:false}]}),/暂未获取可核验/);
+});
+
 test('商品价格与可投状态显示业务文字，零价不丢失，其他事实保持证据原文',()=>{
   const input={evidence:[{evidence_id:'p:price',field:'price',statement:'原始价格记录',value:{min:0,max:99}},{evidence_id:'p:availability',field:'availability',statement:'原始状态记录',value:{status:'available',reasons:[]}}]};
   assert.equal(readableFact({statement:'原始价格记录',evidence_ids:['p:price']},input),'商品价格：0–99元，推广规格与成交价格待确认');
