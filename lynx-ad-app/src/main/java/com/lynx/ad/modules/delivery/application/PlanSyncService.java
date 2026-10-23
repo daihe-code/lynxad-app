@@ -69,8 +69,8 @@ public class PlanSyncService {
                     }
                     final String physicalId=id;
                     var delivery=new DeliverySetting(row.bidType(),row.budget(),Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),
-                            new Schedule(ScheduleType.FROM_NOW,QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")),
-                                    QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time"))),AudienceJson.empty());
+                            com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,
+                                    new Schedule(ScheduleType.FROM_NOW,QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")),QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")))),AudienceJson.empty());
                     if(existing==null) {
                         String aweme=QianchuanPlanMapping.text(row.payload(),"aweme_id");
                         if(aweme==null && row.payload().path("room_info").isArray() && !row.payload().path("room_info").isEmpty())

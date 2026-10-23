@@ -441,4 +441,36 @@ class PlanManagementBoundaryTest {
         assertEquals(new BigDecimal("300"),historical.costYuan());assertTrue(historical.historicalMetrics());assertEquals(today.minusDays(1),historical.statisticsDate());assertNull(historical.comparison());
         assertEquals(2,stale.summary().covered());verifyNoInteractions(credentials);
     }
+
+    @Test void publishedScheduleOnlyEditDispatchesDedicatedUpdateAndConfirmsEndDate() {
+        var before=facts("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_FROM_NOW\"}}");
+        var end=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(10);
+        when(port.detail(credential,"456")).thenAnswer(i->afterWrite==null?before:afterWrite);
+        doAnswer(i->{var row=before.deepCopy();row.withObject("/delivery_setting").put("video_schedule_type","SCHEDULE_START_END").put("end_time",end+" 23:59:59");afterWrite=row;return null;}).when(port).schedule(credential,"456","DATE_RANGE",end);
+        service.settings(tenant,id,new PlanSettingsRequest(null,null,null,PlanEditVersion.version(plan,0),"DATE_RANGE",end));
+        assertEquals(ScheduleType.DATE_RANGE,plan.setting().schedule().type());assertEquals(end,plan.setting().schedule().endDate());
+        assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());
+        verify(port).schedule(credential,"456","DATE_RANGE",end);
+        verify(port,never()).settings(any(),any(),any(),any(),any());
+        verify(settingsEdits,never()).uncertain(any());
+    }
+    @Test void publishedDateRangeCanReturnToLongTermWithoutChangingOriginalStartOrMode() {
+        var end=java.time.LocalDate.now().plusDays(10);var start=plan.setting().schedule().startDate();
+        plan.updateSetting(new DeliverySetting(plan.setting().bidType(),plan.setting().dailyBudget(),plan.setting().roi2Goal(),new Schedule(ScheduleType.DATE_RANGE,start,end),plan.setting().audience()));
+        var before=facts("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_START_END\",\"end_time\":\""+end+" 23:59:59\"}}");
+        when(port.detail(credential,"456")).thenAnswer(i->afterWrite==null?before:afterWrite);
+        doAnswer(i->{var row=before.deepCopy();row.withObject("/delivery_setting").put("video_schedule_type","SCHEDULE_FROM_NOW");afterWrite=row;return null;}).when(port).schedule(credential,"456","FROM_NOW",null);
+        service.settings(tenant,id,new PlanSettingsRequest(null,null,null,PlanEditVersion.version(plan,0),"FROM_NOW",null));
+        assertEquals(ScheduleType.FROM_NOW,plan.setting().schedule().type());assertNull(plan.setting().schedule().endDate());assertEquals(start,plan.setting().schedule().startDate());
+    }
+    @Test void invalidPublishedScheduleNeverDispatchesAndUnconfirmedDatesRemainPending() {
+        var end=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(10);
+        assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,null,PlanEditVersion.version(plan,0),"DATE_RANGE",end.minusDays(20))));
+        verify(settingsEdits,never()).claim(any(),any(),any());
+        var before=facts("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_FROM_NOW\"}}");when(port.detail(credential,"456")).thenReturn(before);
+        assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,null,PlanEditVersion.version(plan,0),"DATE_RANGE",end)));
+        verify(port,times(1)).schedule(credential,"456","DATE_RANGE",end);verify(settingsEdits).uncertain(any());
+        assertEquals(ScheduleType.FROM_NOW,plan.setting().schedule().type());
+    }
+
 }

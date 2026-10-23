@@ -82,4 +82,20 @@ class QianchuanOAuthContractTest {
         when(client.exchange(any(),eq(String.class))).thenThrow(new BizException(9999,"网络异常"));
         assertFalse(assertThrows(LiveOauthTokenAdapter.RemoteFailure.class,()->adapter.refreshToken("app","secret","refresh")).permanent());
     }
+
+    @Test void preservesEveryReturnedRelationshipAndNullableMallCapabilityWithoutInferringIdentity() {
+        when(client.exchange(any(),eq(String.class))).thenReturn("""
+            {"code":0,"data":{"aweme_id_list":[
+              {"aweme_id":77,"auth_type":["OFFICIAL","AWEME_COOPERATOR","OFFICIAL"],"is_allow_mall":true},
+              {"aweme_id":78,"auth_type":["VIDEO"],"is_allow_mall":false},
+              {"aweme_id":79}]}}
+            """);
+        var awemes=adapter.loadAwemes("access","1");
+        assertEquals(List.of("OFFICIAL","AWEME_COOPERATOR"),awemes.get(0).authTypes());
+        assertEquals(Boolean.TRUE,awemes.get(0).isAllowMall());
+        assertEquals("AUTHORIZED",awemes.get(0).type().name());assertFalse(awemes.get(0).primary());
+        assertEquals(Boolean.FALSE,awemes.get(1).isAllowMall());
+        assertTrue(awemes.get(2).authTypes().isEmpty());assertNull(awemes.get(2).isAllowMall());
+    }
+
 }

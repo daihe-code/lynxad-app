@@ -127,7 +127,7 @@ public class OauthCommandService {
                             d.avatar(),
                             d.type(),
                             d.primary(),
-                            d.sceneHint()))
+                            d.sceneHint(), d.authTypes(), d.isAllowMall()))
                     .toList();
             assertAccountLimit(tenantId);
             OauthAccount account = OauthAccount.authorize(

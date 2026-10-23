@@ -37,7 +37,7 @@
       <h3>已授权抖音号 <span>{{ detail.awemes.length }} 个</span></h3>
       <div v-for="aweme in detail.awemes" :key="aweme.awemeId" class="authorization-aweme">
         <AuthorizationAvatar :src="aweme.avatar" :name="aweme.name" />
-        <div class="authorization-aweme__info"><div class="authorization-aweme__head"><strong>{{ aweme.name || '平台未返回名称' }}</strong><span class="authorization-aweme__tag">{{ aweme.sceneHint || '已授权抖音号' }}</span><span v-if="aweme.isPrimary" class="authorization-aweme__tag">主号</span></div><div class="authorization-aweme__id"><span>抖音号 ID：{{ aweme.awemeId }}</span><button class="authorization-copy" :aria-label="`复制${aweme.name}的抖音号ID`" @click="copy('抖音号 ID', aweme.awemeId)">复制</button></div><small v-if="!aweme.avatar">平台未返回头像</small></div>
+        <div class="authorization-aweme__info"><div class="authorization-aweme__head"><strong>{{ aweme.name || '平台未返回名称' }}</strong><span v-for="label in awemeLabels(aweme)" :key="label" class="authorization-aweme__tag">{{ label }}</span><span v-if="aweme.isPrimary" class="authorization-aweme__tag">主号</span></div><div class="authorization-aweme__id"><span>抖音号 ID：{{ aweme.awemeId }}</span><button class="authorization-copy" :aria-label="`复制${aweme.name}的抖音号ID`" @click="copy('抖音号 ID', aweme.awemeId)">复制</button></div><small v-if="!aweme.avatar">平台未返回头像</small></div>
       </div>
       <p v-if="!detail.awemes.length" class="authorization-awemes__empty">{{ detail.catalogError || '平台暂未返回关联抖音号，可点击刷新授权状态重新同步。' }}</p>
     </section>
@@ -54,6 +54,7 @@
 
 </template>
 <script setup lang="ts">
+import { awemeLabels } from '@/features/identity/awemeLabels';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';

@@ -5,7 +5,7 @@
       <span class="aweme-account-summary__name" :title="account.awemeName">{{ account.awemeName }}</span>
       <span class="aweme-account-summary__id" :title="`抖音号ID：${account.awemeId}`">抖音号ID：{{ account.awemeId }}</span>
       <span v-if="chips.length" class="aweme-account-summary__chips">
-        <span v-for="(chip, i) in chips" :key="chip" class="aweme-account-summary__chip" :class="{ 'aweme-account-summary__chip--warn': i > 0 }">{{ chip }}</span>
+        <span v-for="chip in chips" :key="chip" class="aweme-account-summary__chip">{{ chip }}</span>
       </span>
     </span>
   </span>

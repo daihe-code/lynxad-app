@@ -84,24 +84,27 @@ public class PlanManagementService {
     /** A durable claim precedes dispatch. No database transaction is held while calling Qianchuan. */
     public PlanVo settings(TenantId tenant,PlanId id,PlanSettingsRequest request) {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
-        if(request.name()==null && request.budget()==null && request.roi2Goal()==null)throw new BizException(1402,"请填写要修改的字段");
+        if(request.name()==null && request.budget()==null && request.roi2Goal()==null && request.scheduleType()==null)throw new BizException(1402,"请填写要修改的字段");
         String name=request.name()==null?null:new PlanName(request.name()).text();
         var current=require(tenant,id);editable(current);
         validateSettings(current,request);
         if(transfers!=null)transfers.assertIdle(tenant,id);
-        var claim=settingsEdits.claim(tenant,id,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion()));
+        var claim=settingsEdits.claim(tenant,id,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion(),request.scheduleType(),request.endDate()));
         var plan=claim.plan();var pending=claim.pending();boolean sent=false;
         try {
             editable(plan);validateSettings(plan,request);
             var c=credentials.getUsableCredential(tenant,plan.accountId());
             var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
             PlanEditVersion.platformUnchanged(plan,detail);
+            if(request.scheduleType()!=null && !com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(detail.path("delivery_setting")))
+                throw new BizException(1406,"千川未返回完整投放日期，暂不提交修改");
             if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
                 throw new BizException(1401,"同一抖音号存在同名计划");
             String before=plan.name().text()+" / "+plan.setting().dailyBudget().amount()+" / "+plan.setting().roi2Goal().map(RoiGoal::value).orElse(null);
             settingsEdits.dispatched(pending);sent=true;
             if(request.roi2Goal()!=null)port.settings(c,plan.qcPlanId().orElseThrow().value(),name,request.budget(),request.roi2Goal(),QianchuanPlanMapping.text(detail.path("delivery_setting"),"deep_external_action"));
-            else port.settings(c,plan.qcPlanId().orElseThrow().value(),name,request.budget(),null);
+            else if(name!=null || request.budget()!=null) port.settings(c,plan.qcPlanId().orElseThrow().value(),name,request.budget(),null);
+            if(request.scheduleType()!=null)port.schedule(c,plan.qcPlanId().orElseThrow().value(),request.scheduleType(),request.endDate());
             var actual=port.detail(c,plan.qcPlanId().orElseThrow().value());
             completeFacts(plan,actual);
             if(!matches(request,actual))throw new BizException(1406,"千川已接收修改，但尚未确认全部修改值，请核查结果，勿重复提交");
@@ -115,6 +118,13 @@ public class PlanManagementService {
         return query.get(tenant,id);
     }
     private void validateSettings(AdPlan p,PlanSettingsRequest request) {
+        if(request.scheduleType()!=null) {
+            if(!java.util.Set.of("FROM_NOW","DATE_RANGE").contains(request.scheduleType()))throw new BizException(1402,"投放日期类型不正确");
+            var today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+            if("DATE_RANGE".equals(request.scheduleType()) && (request.endDate()==null || request.endDate().isBefore(today) || p.setting().schedule().startDate()!=null && request.endDate().isBefore(p.setting().schedule().startDate())))
+                throw new BizException(1402,"结束日期不得早于今天或原计划开始日期");
+            if("FROM_NOW".equals(request.scheduleType()) && request.endDate()!=null)throw new BizException(1402,"长期投放不设置结束日期");
+        } else if(request.endDate()!=null)throw new BizException(1402,"请选择投放日期类型");
         if(request.budget()!=null)DeliveryInputPolicy.budget(request.budget(),p.setting().bidType(),DeliveryInputPolicy.RULES.update());
         if(request.roi2Goal()!=null) {
             if(p.setting().bidType()!=SmartBidType.CUSTOM)throw new BizException(1402,"放量投放不设置净成交ROI目标");
@@ -147,7 +157,10 @@ public class PlanManagementService {
         var ds=detail.path("delivery_setting");
         return (request.name()==null||request.name().equals(DeliveryInputPolicy.text(detail.path("name").asText()))) &&
             (request.budget()==null||equal(request.budget(),QianchuanPlanMapping.number(ds,"budget"))) &&
-            (request.roi2Goal()==null||equal(request.roi2Goal(),QianchuanPlanMapping.number(ds,"roi2_goal")));
+            (request.roi2Goal()==null||equal(request.roi2Goal(),QianchuanPlanMapping.number(ds,"roi2_goal"))) &&
+            (request.scheduleType()==null || com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(ds) &&
+                request.scheduleType().equals(com.lynx.ad.modules.delivery.domain.service.PlanSchedule.type(ds).name()) &&
+                ("FROM_NOW".equals(request.scheduleType()) || request.endDate().equals(QianchuanPlanMapping.date(QianchuanPlanMapping.text(ds,"end_time")))));
     }
     private static boolean equal(BigDecimal a,BigDecimal b){return a!=null&&b!=null&&a.compareTo(b)==0;}
     private static void completeFacts(AdPlan plan,JsonNode detail) {
@@ -163,7 +176,7 @@ public class PlanManagementService {
         if(detail.hasNonNull("status")){plan.syncPlatformStatus(detail.path("status").asText());plan.apply(PlanEditVersion.platformStatus(detail));}
         var mode=setting.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(setting.path("smart_bid_type").asText()):plan.setting().bidType();
         var budget=QianchuanPlanMapping.number(setting,"budget");
-        var schedule=new Schedule(plan.setting().schedule().type(),setting.has("start_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")):plan.setting().schedule().startDate(),setting.has("end_time")?QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")):plan.setting().schedule().endDate());
+        var schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,plan.setting().schedule());
         plan.updateSetting(new DeliverySetting(mode,budget==null?plan.setting().dailyBudget():Money.ofYuan(budget),Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),schedule,plan.setting().audience()));
         plans.save(plan);
         if(store.findId(tenant,plan.accountId(),plan.qcPlanId().orElseThrow().value()).isEmpty())store.save(tenant,plan.accountId(),plan.qcPlanId().orElseThrow().value(),plan.id().value(),detail);

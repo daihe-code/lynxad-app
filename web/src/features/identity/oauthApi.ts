@@ -7,6 +7,8 @@ export interface AwemeVo {
   type: string;
   isPrimary: boolean;
   sceneHint?: string;
+  authTypes?: string[];
+  isAllowMall?: boolean | null;
 }
 
 export interface AccountVo {

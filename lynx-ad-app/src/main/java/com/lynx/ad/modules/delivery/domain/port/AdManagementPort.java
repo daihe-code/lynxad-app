@@ -11,6 +11,9 @@ public interface AdManagementPort {
     JsonNode detail(Credential credential, String adId);
     Map<String, String> guarantees(Credential credential, List<String> adIds);
     void settings(Credential credential, String adId, String name, java.math.BigDecimal budget, java.math.BigDecimal roi);
+    default void schedule(Credential credential, String adId, String scheduleType, LocalDate endDate) {
+        throw new com.lynx.ad.common.exception.BizException(1406,"当前数据源暂不支持修改投放日期");
+    }
     default void settings(Credential credential, String adId, String name, java.math.BigDecimal budget, java.math.BigDecimal roi, String deepExternalAction) {
         settings(credential,adId,name,budget,roi);
     }

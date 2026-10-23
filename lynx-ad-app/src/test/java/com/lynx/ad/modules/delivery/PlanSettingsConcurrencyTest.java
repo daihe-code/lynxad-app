@@ -34,7 +34,7 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /** Real SQL transactions/row locks, two independent service and store instances, no cloud requests. */
 class PlanSettingsConcurrencyTest {
-    final TenantId tenant=new TenantId("tenant");final PlanId id=new PlanId("plan");final ObjectMapper json=new ObjectMapper();
+    final TenantId tenant=new TenantId("tenant");final PlanId id=new PlanId("plan");final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     JdbcTemplate jdbc;AdPlanRepository plans;PlanTransferStore transfers;PlanSettingsEditStore first,second;
     void database(String mode) throws Exception {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:edit_"+UUID.randomUUID()+";MODE="+mode+";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=2000","sa","");
@@ -178,5 +178,14 @@ class PlanSettingsConcurrencyTest {
         assertEquals("ACCEPTED_CURRENT",service.verifySettings(tenant,id,new PlanManagementService.SettingsVerification(second.state(current()).version(),true)).status());
         verify(port,never()).settings(any(),any(),any(),any(),any());assertEquals(0,new BigDecimal("300").compareTo(current().setting().dailyBudget().amount()));
         assertThrows(BizException.class,()->first.claim(new TenantId("foreign"),id,request("400")));
+    }
+
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void scheduleRequestIsDurablyStoredForReadbackWithoutLosingItsDate(String mode)throws Exception {
+        database(mode);var end=java.time.LocalDate.now().plusDays(10);
+        var request=new PlanSettingsRequest(null,null,null,first.state(current()).version(),"DATE_RANGE",end);
+        var claim=first.claim(tenant,id,request);var restored=second.request(claim.pending());
+        assertEquals(request,restored);assertEquals(end,restored.endDate());
+        assertEquals("PREPARING",second.state(current()).status());
     }
 }

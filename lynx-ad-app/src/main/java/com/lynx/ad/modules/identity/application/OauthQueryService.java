@@ -70,7 +70,7 @@ public class OauthQueryService {
                                 a.avatar(),
                                 a.type().name(),
                                 a.primary(),
-                                a.sceneHint()))
+                                a.sceneHint(), a.authTypes(), a.isAllowMall()))
                         .toList(),
                 account.authorizedByUserId().orElse(null),
                 account.authorizedAt(),

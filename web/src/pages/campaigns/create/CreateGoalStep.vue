@@ -100,7 +100,7 @@
             <p class="field__label" id="lbl-mode">投放方式</p>
 
             <div class="form-grid mt-2" role="radiogroup" aria-labelledby="lbl-mode">
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CUSTOM')" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">控成本投放</span>
@@ -109,7 +109,7 @@
                 <span class="opt__sub">按你设置的 ROI 目标争取成交，目标设置过高可能影响起量</span>
               </button>
 
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange)" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CONSERVATIVE')" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">放量投放</span>
@@ -241,14 +241,14 @@
               <div class="dur__item">
                 <span class="dur__badge" aria-hidden="true">推荐</span>
                 <button class="dur__btn" type="button" role="radio" :aria-checked="duration === 'long'"
-                        :disabled="saving || readOnly || settingsOnly" @click="duration = 'long'">
+                        :disabled="saving || readOnly || (settingsOnly && !allowScheduleChange)" @click="duration = 'long'">
                   <span class="dur__btn-title">长期投放</span>
                   <span class="dur__btn-sub">随时暂停</span>
                 </button>
               </div>
               <div class="dur__item">
                 <button class="dur__btn" type="button" role="radio" :aria-checked="duration === 'custom'"
-                        :disabled="saving || readOnly || settingsOnly" @click="duration = 'custom'">
+                        :disabled="saving || readOnly || (settingsOnly && !allowScheduleChange)" @click="duration = 'custom'">
                   <span class="dur__btn-title">自定日期</span>
                 </button>
               </div>
@@ -262,7 +262,7 @@
               <input class="daterange__box" id="in-start" type="date" v-model="start" :disabled="saving || readOnly || settingsOnly">
               <span class="daterange__sep" aria-hidden="true">至</span>
               <label class="sr-only" for="in-end">投放结束日期</label>
-              <input class="daterange__box" id="in-end" type="date" v-model="end" :disabled="saving || readOnly || settingsOnly">
+              <input class="daterange__box" id="in-end" type="date" v-model="end" :disabled="saving || readOnly || (settingsOnly && !allowScheduleChange)">
             </div>
 
             <p v-if="dateError" class="schedule-unavailable" role="status">{{ dateError }}</p>
@@ -308,7 +308,7 @@ import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; maxStep?: number }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });

@@ -381,4 +381,22 @@ class QianchuanManagementContractTest {
         assertThrows(BizException.class,()->adapter().controlReport(credential,"1878663839175696","1878743575303385","SMART_BOOST",day.minusDays(180),day,"DAY"));assertEquals(6,queries.size());
     }
     private Set<String> keys(JsonNode node) { Set<String> keys=new HashSet<>();node.fieldNames().forEachRemaining(keys::add);return keys; }
+
+    @Test void scheduleUpdateUsesDedicatedBatchApiAndNeverSendsStartOrBidMode() throws Exception {
+        start("{\"code\":0,\"data\":{\"results\":[{\"ad_id\":9007199254740995,\"status\":\"SUCCESS\"}]}}",200);
+        properties.getQianchuan().getDelivery().setAdScheduleUpdateUrl("http://127.0.0.1:"+server.getAddress().getPort()+"/ad/schedule_date/update/");
+        adapter().schedule(credential,"9007199254740995","DATE_RANGE",java.time.LocalDate.of(2026,12,1));
+        var info=requests.getFirst().path("update_schedule_infos").get(0);
+        assertEquals("/ad/schedule_date/update/",requestPaths.getFirst());assertTrue(info.path("ad_id").isIntegralNumber());
+        assertEquals("SCHEDULE_START_END",info.path("schedule_type").asText());assertEquals("2026-12-01 23:59:59",info.path("end_time").asText());
+        assertFalse(info.has("start_time"));assertFalse(info.has("smart_bid_type"));
+        adapter().schedule(credential,"9007199254740995","FROM_NOW",null);
+        assertEquals("SCHEDULE_FROM_NOW",requests.get(1).path("update_schedule_infos").get(0).path("schedule_type").asText());assertFalse(requests.get(1).path("update_schedule_infos").get(0).has("end_time"));
+    }
+    @Test void scheduleUpdateMissingConfirmationDoesNotReportSuccess() throws Exception {
+        start("{\"code\":0,\"data\":{}}",200);
+        properties.getQianchuan().getDelivery().setAdScheduleUpdateUrl("http://127.0.0.1:"+server.getAddress().getPort()+"/ad/schedule_date/update/");
+        assertThrows(com.lynx.ad.common.exception.BizException.class,()->adapter().schedule(credential,"123","FROM_NOW",null));assertEquals(1,requests.size());
+    }
+
 }

@@ -40,6 +40,7 @@ class PlanReviewRepositoryTest {
             start_date DATE,end_date DATE,publish_version INT,idempotency_key VARCHAR(64),reject_reason VARCHAR(255),source VARCHAR(32),created_at TIMESTAMP NULL,delivery_platform VARCHAR(32))
           """);
         try(var c=ds.getConnection()){
+            ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V44__plan_schedule_type.sql"));
             ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V37__plan_review_progress.sql"));
             ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V38__audit_notification_outbox.sql"));
         }
@@ -116,5 +117,14 @@ class PlanReviewRepositoryTest {
             var first=pool.submit(()->{gate.await();plans.save(a);return true;});var second=pool.submit(()->{gate.await();plans.save(b);return true;});gate.countDown();
             assertTrue(first.get(5,TimeUnit.SECONDS));assertTrue(second.get(5,TimeUnit.SECONDS));assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM inbox_outbox",Integer.class));
         }finally{pool.shutdownNow();}
+    }
+
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void scheduleTypeAndEndDateSurviveReloadAndReturningToLongTermClearsTheStoredEnd(String mode)throws Exception {
+        setup(mode);var p=plan(PlanStatus.PAUSED);var end=LocalDate.of(2026,12,1);var start=p.setting().schedule().startDate();
+        p.updateSetting(new DeliverySetting(p.setting().bidType(),p.setting().dailyBudget(),p.setting().roi2Goal(),new Schedule(ScheduleType.DATE_RANGE,start,end),p.setting().audience()));plans.save(p);
+        var loaded=plans.findById(tenant,p.id()).orElseThrow();assertEquals(ScheduleType.DATE_RANGE,loaded.setting().schedule().type());assertEquals(end,loaded.setting().schedule().endDate());
+        loaded.updateSetting(new DeliverySetting(loaded.setting().bidType(),loaded.setting().dailyBudget(),loaded.setting().roi2Goal(),new Schedule(ScheduleType.FROM_NOW,start,null),loaded.setting().audience()));plans.save(loaded);
+        loaded=plans.findById(tenant,p.id()).orElseThrow();assertEquals(ScheduleType.FROM_NOW,loaded.setting().schedule().type());assertNull(loaded.setting().schedule().endDate());
     }
 }

@@ -24,6 +24,7 @@ export interface PlanVo {
   roi?: number;
   accountId?: string;
   roi2Goal?: number | null;
+  scheduleType?: 'FROM_NOW' | 'DATE_RANGE' | null;
   startDate?: string | null;
   endDate?: string | null;
   convert?: number | null;
@@ -62,6 +63,7 @@ export interface PlanListVo {
   smartBidType?: string | null;
   budget?: number | null;
   roi2Goal?: number | null;
+  scheduleType?: 'FROM_NOW' | 'DATE_RANGE' | null;
   startDate?: string | null;
   endDate?: string | null;
   convert?: number | null;
@@ -127,7 +129,7 @@ export function syncPlans(accountId?: string) {
 }
 export function syncPlanDetail(id: string) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000 }); }
 export function refreshPlanAudit(id:string){return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/audit-refresh`,undefined,{timeout:60000,headers:{'X-Quiet-Request':'true'}});}
-export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number; expectedVersion: string }) {
+export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number; scheduleType?: 'FROM_NOW' | 'DATE_RANGE'; endDate?: string; expectedVersion: string }) {
   return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000,headers:{'X-Quiet-Request':'true'} });
 }
 export function refreshPlanSettings(id: string) {

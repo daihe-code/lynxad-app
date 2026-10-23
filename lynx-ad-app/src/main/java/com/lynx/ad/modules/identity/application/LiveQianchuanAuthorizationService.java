@@ -234,7 +234,7 @@ public class LiveQianchuanAuthorizationService {
         });
     }
     private CatalogResult readAwemes(String token,String advertiser) {
-        try { return new CatalogResult(api().loadAwemes(token,advertiser).stream().map(a->new Aweme(new AwemeId(a.awemeId()),a.name(),a.avatar(),a.type(),a.primary(),a.sceneHint())).toList(),null); }
+        try { return new CatalogResult(api().loadAwemes(token,advertiser).stream().map(a->new Aweme(new AwemeId(a.awemeId()),a.name(),a.avatar(),a.type(),a.primary(),a.sceneHint(),a.authTypes(),a.isAllowMall())).toList(),null); }
         catch(BizException ex) { return new CatalogResult(List.of(),"抖音号同步失败，请检查投放对象权限并点击刷新重试"); }
     }
     private List<AuthorizedAdvertiser> catalog(Session s) { return parse(s.catalogJson(),new TypeReference<List<AuthorizedAdvertiser>>(){}); }

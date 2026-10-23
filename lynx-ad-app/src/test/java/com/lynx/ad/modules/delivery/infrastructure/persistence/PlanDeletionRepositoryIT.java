@@ -52,6 +52,8 @@ class PlanDeletionRepositoryIT {
         if(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='delivery_transfer_group'",Integer.class)==0)
             try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V22__plan_transfer.sql"));}
         var factory=new MybatisSqlSessionFactoryBean();factory.setDataSource(ds);
+        if(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='ad_plan' AND column_name='schedule_type'",Integer.class)==0)
+            try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V44__plan_schedule_type.sql"));}
         var config=new MybatisConfiguration();config.setMapUnderscoreToCamelCase(true);config.addMapper(AdPlanMapper.class);factory.setConfiguration(config);
         var session=new SqlSessionTemplate(factory.getObject());bindings=mock(AdPlanCreativeBindingStore.class);
         plans=new MpAdPlanRepository(session.getMapper(AdPlanMapper.class),bindings);

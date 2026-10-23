@@ -46,7 +46,11 @@ class AdPlanPo {
     private String smartBidType;
     private BigDecimal budget;
     private BigDecimal roi2Goal;
+    private String scheduleType;
+    public String getScheduleType() { return scheduleType; }
+    public void setScheduleType(String value) { scheduleType = value; }
     private LocalDate startDate;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private LocalDate endDate;
     private Integer publishVersion;
     private String idempotencyKey;
@@ -144,6 +148,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
         po.setSmartBidType(plan.setting().bidType().oceanValue());
         po.setBudget(plan.setting().dailyBudget().amount());
         po.setRoi2Goal(plan.setting().roi2Goal().map(RoiGoal::value).orElse(null));
+        po.setScheduleType(plan.setting().schedule() == null ? null : plan.setting().schedule().type().name());
         po.setStartDate(plan.setting().schedule() == null ? null : plan.setting().schedule().startDate());
         po.setEndDate(plan.setting().schedule() == null ? null : plan.setting().schedule().endDate());
         po.setPublishVersion(plan.publishVersion());
@@ -231,7 +236,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
                 SmartBidType.fromOcean(po.getSmartBidType()),
                 Money.ofYuan(po.getBudget() == null ? BigDecimal.ZERO : po.getBudget()),
                 Optional.ofNullable(po.getRoi2Goal()).map(RoiGoal::new),
-                new Schedule(com.lynx.ad.modules.delivery.domain.model.ScheduleType.FROM_NOW, po.getStartDate(), po.getEndDate()),
+                new Schedule(po.getScheduleType()==null ? com.lynx.ad.modules.delivery.domain.model.ScheduleType.FROM_NOW : com.lynx.ad.modules.delivery.domain.model.ScheduleType.valueOf(po.getScheduleType()), po.getStartDate(), po.getEndDate()),
                 AudienceJson.empty());
         return new AdPlan(
                 new PlanId(po.getId()),

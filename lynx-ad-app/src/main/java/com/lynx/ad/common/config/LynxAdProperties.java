@@ -789,6 +789,9 @@ public class LynxAdProperties {
         private String adCreateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/create/";
         private String adUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/ad/update/";
         private String adBudgetUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/budget/update/";
+        private String adScheduleUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/schedule_date/update/";
+        public String getAdScheduleUpdateUrl() { return adScheduleUpdateUrl; }
+        public void setAdScheduleUpdateUrl(String value) { adScheduleUpdateUrl = value; }
         private String adRoiUpdateUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/roi2_goal/update/";
         private String adListUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/list/";
         private String adStatusUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/ad/status/update/";

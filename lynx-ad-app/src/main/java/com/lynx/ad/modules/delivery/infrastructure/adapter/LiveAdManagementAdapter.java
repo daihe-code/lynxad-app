@@ -110,6 +110,17 @@ public class LiveAdManagementAdapter implements AdManagementPort {
         // PATCH-like update: never send unmodified product/creative settings.
         post(c,properties.getQianchuan().getDelivery().getAdUpdateUrl(),params);
     }
+    @Override public void schedule(Credential c,String adId,String scheduleType,LocalDate endDate) {
+        Map<String,Object> info=new LinkedHashMap<>();info.put("ad_id",numericId(adId));
+        info.put("schedule_type","FROM_NOW".equals(scheduleType)?"SCHEDULE_FROM_NOW":"SCHEDULE_START_END");
+        if(endDate!=null)info.put("end_time",endDate+" 23:59:59");
+        JsonNode data=post(c,properties.getQianchuan().getDelivery().getAdScheduleUpdateUrl(),Map.of("update_schedule_infos",List.of(info)));
+        for(JsonNode result:data.path("results")) if(adId.equals(result.path("ad_id").asText())) {
+            if("SUCCESS".equals(result.path("status").asText()))return;
+            throw new BizException(1406,"千川日期修改未确认："+result.path("error_message").asText("请核查平台结果"));
+        }
+        throw new BizException(1406,"千川未明确确认日期修改，请核查结果，勿重复提交");
+    }
     private List<JsonNode> paged(Credential c,String url,Map<String,Object> parameters,String field) {
         List<JsonNode> all=new ArrayList<>();
         for(int page=1; page<=1000; page++) {

@@ -119,7 +119,14 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
             String name=a.path("aweme_name").asText(a.path("name").asText("抖音号 "+id));
             String avatar=a.path("aweme_avatar").asText(a.path("avatar").asText(""));
             AwemeType type; try { type=AwemeType.valueOf(a.path("aweme_type").asText("AUTHORIZED")); } catch(IllegalArgumentException ex) { type=AwemeType.AUTHORIZED; }
-            out.putIfAbsent(id,new AwemeDraft(id,name,avatar.isBlank()?null:avatar,type,a.path("is_primary").asBoolean(false),catalog.sceneHint(type)));
+            List<String> authTypes=new ArrayList<>();
+            if(a.path("auth_type").isArray()) for(JsonNode auth:a.path("auth_type")) {
+                String value=auth.asText("");
+                if(value.matches("[A-Z_]{1,40}") && !authTypes.contains(value)) authTypes.add(value);
+            }
+            // Preserve all returned relationships; a single legacy aweme_type loses multi-role labels.
+            Boolean mall=a.path("is_allow_mall").isBoolean()?a.path("is_allow_mall").booleanValue():null;
+            out.putIfAbsent(id,new AwemeDraft(id,name,avatar.isBlank()?null:avatar,type,a.path("is_primary").asBoolean(false),catalog.sceneHint(type),authTypes,mall));
         }
         return List.copyOf(out.values());
     }

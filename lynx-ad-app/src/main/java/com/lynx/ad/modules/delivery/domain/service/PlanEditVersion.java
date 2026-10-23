@@ -33,6 +33,11 @@ public final class PlanEditVersion {
             throw new BizException(1404,"千川上的计划投放方式已变化，请先同步最新设置并核对；当前输入可保留");
         if(!p.qcPlanId().orElseThrow().value().equals(detail.path("ad_id").asText()) || !detail.hasNonNull("name") || !detail.hasNonNull("status") || !ds.hasNonNull("budget") || !validMode(ds) || SmartBidType.fromOcean(ds.path("smart_bid_type").asText())==SmartBidType.CUSTOM&&!ds.has("roi2_goal"))
             throw new BizException(1406,"千川未返回完整计划设置，暂不提交修改，请重新读取并核对");
+        if(PlanSchedule.complete(ds)) {
+            var before=p.setting().schedule();var actual=PlanSchedule.read(ds,before);
+            if(before.type()!=actual.type() || !Objects.equals(before.startDate(),actual.startDate()) || !Objects.equals(before.endDate(),actual.endDate()))
+                throw new BizException(1404,"千川上的投放日期已变化，请先同步最新设置并核对；当前输入可保留");
+        }
         var status=platformStatus(detail);
         String actual=hash(fields(p,DeliveryInputPolicy.text(detail.path("name").asText()),status.name(),SmartBidType.fromOcean(ds.path("smart_bid_type").asText()).name(),
             QianchuanPlanMapping.number(ds,"budget"),QianchuanPlanMapping.number(ds,"roi2_goal")));

@@ -85,6 +85,12 @@ class OauthAwemePo {
     private String avatar;
     private String awemeType;
     private Boolean isPrimary;
+    private String authTypes;
+    private Boolean isAllowMall;
+    public String getAuthTypes() { return authTypes; }
+    public void setAuthTypes(String value) { authTypes = value; }
+    public Boolean getIsAllowMall() { return isAllowMall; }
+    public void setIsAllowMall(Boolean value) { isAllowMall = value; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -159,6 +165,8 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
             ap.setAvatar(a.avatar());
             ap.setAwemeType(a.type().name());
             ap.setIsPrimary(a.primary());
+            ap.setAuthTypes(String.join(",",a.authTypes()));
+            ap.setIsAllowMall(a.isAllowMall());
             awemeMapper.insert(ap);
         }
     }
@@ -201,7 +209,9 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
                         a.getAvatar(),
                         AwemeType.valueOf(a.getAwemeType()),
                         Boolean.TRUE.equals(a.getIsPrimary()),
-                        catalog.sceneHint(AwemeType.valueOf(a.getAwemeType()))))
+                        catalog.sceneHint(AwemeType.valueOf(a.getAwemeType())),
+                        a.getAuthTypes()==null || a.getAuthTypes().isBlank() ? List.of() : List.of(a.getAuthTypes().split(",")),
+                        a.getIsAllowMall()))
                 .toList();
         return new OauthAccount(
                 new AccountId(po.getId()),

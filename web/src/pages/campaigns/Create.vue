@@ -29,6 +29,7 @@ import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
+import { awemeLabels } from '@/features/identity/awemeLabels';
 import { creationScheduleDefaults } from '@/features/delivery/creationSchedule';
 import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
@@ -54,9 +55,9 @@ const accounts = ref<AccountVo[]>([]), accountKey = ref(''), selected = ref<api.
 const query = ref<api.ProductQuery>({ page: 1, pageSize: 10, keyword: '', tab: 'ALL', unpromoted: true });
 const productPagination = ref<{ nextCursor?: string | null; hasMore?: boolean }>({});
 const productCursors = ref<Record<number, string>>({ 1: '0' });
-const accountOptions = computed(() => accounts.value.filter(a => a.platform === 'QIANCHUAN' && a.status === 'ACTIVE' && a.credentialSource !== 'MOCK').flatMap(a => a.awemes.map(w => ({ key: `${a.accountId}:${w.awemeId}`, accountId: a.accountId, awemeId: w.awemeId, awemeName: w.name, avatar: w.avatar, type: w.type }))));
+const accountOptions = computed(() => accounts.value.filter(a => a.platform === 'QIANCHUAN' && a.status === 'ACTIVE' && a.credentialSource !== 'MOCK').flatMap(a => a.awemes.map(w => ({ key: `${a.accountId}:${w.awemeId}`, accountId: a.accountId, awemeId: w.awemeId, awemeName: w.name, avatar: w.avatar, type: w.type, authTypes: w.authTypes, isAllowMall: w.isAllowMall }))));
 const account = computed(() => accountOptions.value.find(a => a.key === accountKey.value));
-const accountChips = computed(() => account.value ? [({ OFFICIAL:'官方账号', SELF:'自运营', COOP:'合作达人', COOP_AGENCY:'合作机构', ALLIANCE:'联盟', AUTHORIZED:'授权账号', OTHER:'其他账号' } as Record<string,string>)[account.value.type] || account.value.type] : []);
+const accountChips = computed(() => awemeLabels(account.value));
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
 const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
 const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
