@@ -934,6 +934,13 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .est {
   border-color: rgb(var(--c-border));
 }
+.est__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
 .est__title {
   font-size: 13px;
   font-weight: 600;
@@ -1831,8 +1838,11 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
     font-size: 20px;
     line-height: 1.4;
   }
-  .guar {
-    white-space: nowrap;
+  .est__header {
+    column-gap: 8px;
+  }
+  .est__header .guar {
+    font-size: 12px;
   }
   .est__row {
     flex-wrap: wrap;

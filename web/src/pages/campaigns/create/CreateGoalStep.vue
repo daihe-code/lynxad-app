@@ -213,16 +213,18 @@
 
 
               <div class="field est" data-field="estimate" v-else>
-                <p class="est__title">所选日预算的平台预估：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
+                <div class="est__header">
+                  <p class="est__title">所选日预算的平台预估：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
+                  <span v-if="!estimateHint" class="guar">
+                    <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
+                    以平台结果为准
+                  </span>
+                </div>
                 <div class="est__rows">
                   <div class="est__row">
                     <span class="est__k">预估ROI</span>
                     <span class="est__vwrap">
                       <b class="est__v">{{ estimateRoiHint || '待平台评估' }}</b>
-                      <span v-if="!estimateHint" class="guar">
-                        <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
-                        以平台结果为准
-                      </span>
                     </span>
                   </div>
                   <div class="est__row">
