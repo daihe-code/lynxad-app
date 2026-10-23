@@ -1,5 +1,5 @@
 <template>
-  <div class="create-goal" @keydown.esc="accountOpen = false">
+  <div class="create-goal">
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
   <symbol id="goal-lynx-mark" viewBox="0 0 1300 935">
     <g fill="none" stroke="currentColor" stroke-linecap="round">
@@ -74,15 +74,7 @@
           <p class="ad-banner__sub">一次设置，广告自动出现在抖音商城、搜索、推荐等多个流量场景</p>
           <ul class="ad-banner__chips"><li v-for="text in bannerChips" :key="text" class="ad-chip"><svg class="ad-chip__ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.9" fill="none" stroke="currentColor" stroke-width="1.7" /><path d="m8.2 12.3 2.5 2.5 5.1-5.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>{{ text }}</li></ul>
         </div>
-        <div v-if="account" class="ad-account" @keydown.esc="accountOpen = false">
-          <button class="ad-account__card w-full text-left" type="button" aria-haspopup="listbox" :disabled="saving || readOnly || settingsOnly" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
-            <AwemeAccountSummary :account="account" :chips="accountChips" />
-            <span class="ad-account__chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24"><use href="#goal-ic-caret" /></svg></span>
-          </button>
-          <div v-if="accountOpen" class="account-menu" role="listbox" aria-label="选择抖音号"><button v-for="opt in accounts" :key="opt.key" type="button" role="option" :aria-selected="opt.key === account.key" @click="accountOpen = false; emit('account', opt.key)">{{ opt.awemeName }}<small>{{ opt.awemeId }}</small></button></div>
-          <p class="ad-account__hint">下拉切换需要投放广告的抖音号</p>
-        </div>
-        <select v-if="account" class="account-mobile" :disabled="saving || readOnly || settingsOnly" :value="account.key" aria-label="选择抖音号" @change="emit('account', ($event.target as HTMLSelectElement).value)"><option v-for="opt in accounts" :key="opt.key" :value="opt.key">{{ opt.awemeName }} · {{ opt.awemeId }}</option></select>
+        <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly || settingsOnly" @change="emit('account', $event)" />
       </div>
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i === 0 }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
@@ -309,7 +301,7 @@
 </template>
 
 <script setup lang="ts">
-import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
+import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import { nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
@@ -325,7 +317,7 @@ const end = defineModel<string>('end', { required: true });
 const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
-const accountOpen = ref(false), budgetTouched = ref(false), roiTouched = ref(false);
+const budgetTouched = ref(false), roiTouched = ref(false);
 const budgetOpen = ref(false), budgetList = ref<HTMLElement>();
 function chooseBudget(value: number) {
   if (props.readOnly || (props.settingsOnly && !props.allowModeChange) || props.saving || props.mode !== 'SMART_BID_CONSERVATIVE') return;
@@ -345,7 +337,6 @@ watch(() => props.mode, () => { budgetTouched.value = true; roiTouched.value = f
 function nextStep() {
   budgetTouched.value = true; roiTouched.value = true;
   if (props.saving || props.budgetError || props.roiError || props.dateError) return;
-  accountOpen.value = false;
   emit('next');
 }
 </script>

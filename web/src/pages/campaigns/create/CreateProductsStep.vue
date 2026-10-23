@@ -1,5 +1,5 @@
 <template>
-  <div class="create-products" @keydown.esc="accountOpen = false">
+  <div class="create-products">
     <svg aria-hidden="true" class="icon-defs"><defs>
       <symbol id="create-check" viewBox="0 0 24 24"><path d="m5 12.6 4.6 4.4L19 7.4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" /></symbol>
       <symbol id="create-close" viewBox="0 0 24 24"><path d="m6.4 6.4 11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></symbol>
@@ -12,15 +12,7 @@
           <p class="ad-banner__sub">一次设置，广告自动出现在抖音商城、搜索、推荐等多个流量场景</p>
           <ul class="ad-banner__chips"><li v-for="text in bannerChips" :key="text" class="ad-chip"><svg class="ad-chip__ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.9" fill="none" stroke="currentColor" stroke-width="1.7" /><path d="m8.2 12.3 2.5 2.5 5.1-5.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>{{ text }}</li></ul>
         </div>
-        <div v-if="account" class="ad-account" @keydown.esc="accountOpen = false">
-          <button class="ad-account__card w-full text-left" type="button" aria-haspopup="listbox" :disabled="saving || readOnly" :aria-expanded="accountOpen" @click="accountOpen = !accountOpen">
-            <AwemeAccountSummary :account="account" :chips="accountChips" />
-            <span class="ad-account__chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24"><use href="#create-caret" /></svg></span>
-          </button>
-          <div v-if="accountOpen" class="account-menu" role="listbox" aria-label="选择抖音号"><button v-for="opt in accounts" :key="opt.key" type="button" role="option" :aria-selected="opt.key === account.key" @click="accountOpen = false; emit('account', opt.key)">{{ opt.awemeName }}<small>{{ opt.awemeId }}</small></button></div>
-          <p class="ad-account__hint">下拉切换需要投放广告的抖音号</p>
-        </div>
-        <select v-if="account" class="account-mobile" :disabled="saving || readOnly" :value="account.key" aria-label="选择抖音号" @change="emit('account', ($event.target as HTMLSelectElement).value)"><option v-for="opt in accounts" :key="opt.key" :value="opt.key">{{ opt.awemeName }} · {{ opt.awemeId }}</option></select>
+        <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly" @change="emit('account', $event)" />
       </div>
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
@@ -97,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
+import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import PreparationIcon from '@/components/PreparationIcon.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
@@ -130,7 +122,7 @@ watch(() => [props.account?.key, props.draftId], closeRecommendations);
 watch(() => props.selected.map(p => p.qcProductId), ids => {
   if (recommendationSource.value && !ids.includes(recommendationSource.value)) closeRecommendations();
 });
-const analysisOpen = ref(false), adjusting = ref(false), selectedExpanded = ref(false), accountOpen = ref(false);
+const analysisOpen = ref(false), adjusting = ref(false), selectedExpanded = ref(false);
 const analyzedInput = ref<string>();
 const selectionStale = computed(() => adjusting.value && analyzedInput.value !== productAnalysisInput(props.selected));
 const analysisPanel = ref<HTMLElement>();

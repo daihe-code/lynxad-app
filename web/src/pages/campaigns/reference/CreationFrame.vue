@@ -17,12 +17,7 @@
           </li>
         </ul>
       </div>
-      <div v-if="account" class="ad-account">
-        <div class="ad-account__card">
-          <AwemeAccountSummary :account="account" :chips="accountChips" />
-        </div>
-        <p class="ad-account__hint">当前投放抖音号</p>
-      </div>
+      <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="accountSwitchDisabled" @change="emit('account', $event)" />
     </div>
   </section>
   <nav class="ad-stepper" aria-label="投放计划进度">
@@ -47,16 +42,18 @@
 </template>
 <script setup lang="ts">
 import ReferenceIcon from "./ReferenceIcon.vue";
-import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
+import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 defineProps<{
   step: number;
-  account?: { awemeName: string; awemeId: string; avatar?: string | null } | null;
+  account?: { key?: string; awemeName: string; awemeId: string; avatar?: string | null } | null;
+  accounts?: { key: string; awemeName: string; awemeId: string }[];
+  accountSwitchDisabled?: boolean;
   accountChips?: string[];
   navigable?: boolean;
   navigationDisabled?: boolean;
   maxStep?: number;
 }>();
-const emit = defineEmits<{ navigate: [step: number] }>();
+const emit = defineEmits<{ navigate: [step: number]; account: [key: string] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],
   chips = ["商城+搜索等全域投放", "智能生成素材", "智能出价", "实时监控+优化"];
 </script>
