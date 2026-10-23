@@ -180,7 +180,7 @@
 
                 <div class="field-input mt-[14px]">
                   <input class="field-input__box" id="in-roi" type="text" inputmode="decimal" v-model="roi" :disabled="saving || readOnly"
-                         autocomplete="off" @blur="roiTouched = true"
+                         autocomplete="off" @input="emit('roiInput')" @blur="roiTouched = true"
                          aria-describedby="msg-roi" :aria-invalid="roiTouched && !!roiError">
                   <span class="guar ml-2">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
@@ -312,7 +312,7 @@ const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: []; saveDraft: [] }>();
+const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: []; saveDraft: []; roiInput: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const budgetTouched = ref(false), roiTouched = ref(false);

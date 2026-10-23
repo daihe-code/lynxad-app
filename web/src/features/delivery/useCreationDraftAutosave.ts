@@ -4,12 +4,12 @@ import { creationScheduleDefaults } from './creationSchedule';
 import { CreationDraftCache, changedDraftFields, draftKey, rememberDraftAccount,
   type CachedCreationDraft, type DraftInputs, type DraftScope } from './creationDraftCache';
 
-const goalFields: (keyof DraftInputs)[] = ['name','budget','roi','mode','duration','start','end'];
+const goalFields: (keyof DraftInputs)[] = ['name','budget','roi','roiSource','mode','duration','start','end'];
 export { goalFields as draftGoalFields };
 export function serverDraftInputs(state: CreationState | undefined, today: string): DraftInputs {
   const schedule = creationScheduleDefaults(today, state?.startDate, state?.endDate);
   return { productIds: state?.products.map(p => p.qcProductId) || [], name: state?.name || '',
-    budget: state?.budget == null ? '' : String(state.budget), roi: state?.roi2Goal == null ? '' : String(state.roi2Goal),
+    budget: state?.budget == null ? '' : String(state.budget), roi: state?.roi2Goal == null ? '' : String(state.roi2Goal), roiSource:state?.roi2Goal == null ? 'PLATFORM' : 'MANUAL',
     mode: state?.smartBidType || 'CUSTOM', duration: state?.scheduleType === 'DATE_RANGE' ? 'custom' : 'long',
     ...schedule, step: Math.min(3,state?.step || 1) };
 }

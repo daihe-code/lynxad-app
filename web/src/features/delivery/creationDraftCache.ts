@@ -4,6 +4,7 @@ export interface DraftScope {
 }
 export interface DraftInputs {
   productIds: string[]; name: string; budget: string; roi: string;
+  roiSource?: 'PLATFORM' | 'MANUAL';
   mode: 'CUSTOM' | 'CONSERVATIVE'; duration: 'long' | 'custom'; start: string; end: string; step: number;
 }
 export interface DraftBaseline { revision: number | null; inputs: DraftInputs }
@@ -14,7 +15,7 @@ export type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export const DRAFT_TTL_MS = 7 * 24 * 3600 * 1000;
 const PREFIX = 'lynx.creation.inputs.v1:';
 const identifier = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
-export const DRAFT_INPUT_FIELDS: (keyof DraftInputs)[] = ['productIds','name','budget','roi','mode','duration','start','end','step'];
+export const DRAFT_INPUT_FIELDS: (keyof DraftInputs)[] = ['productIds','name','budget','roi','roiSource','mode','duration','start','end','step'];
 
 function validScope(scope: DraftScope): boolean {
   return !!scope && [scope.tenantId,scope.userId,scope.accountId,scope.awemeId].every(identifier)
@@ -35,12 +36,13 @@ function validInputs(value: unknown): value is DraftInputs {
     && new Set(x.productIds).size === x.productIds.length
     && typeof x.name === 'string' && x.name.length <= 200
     && typeof x.budget === 'string' && x.budget.length <= 64 && typeof x.roi === 'string' && x.roi.length <= 64
+    && (x.roiSource === undefined || ['PLATFORM','MANUAL'].includes(x.roiSource))
     && ['CUSTOM','CONSERVATIVE'].includes(x.mode) && ['long','custom'].includes(x.duration)
     && [x.start,x.end].every(date => typeof date === 'string' && (date === '' || /^\d{4}-\d{2}-\d{2}$/.test(date)))
     && Number.isInteger(x.step) && x.step >= 1 && x.step <= 3;
 }
 function cleanInputs(x: DraftInputs): DraftInputs {
-  return { productIds: [...x.productIds], name: x.name, budget: x.budget, roi: x.roi, mode: x.mode,
+  return { productIds: [...x.productIds], name: x.name, budget: x.budget, roi: x.roi, ...(x.roiSource ? { roiSource:x.roiSource } : {}), mode: x.mode,
     duration: x.duration, start: x.start, end: x.end, step: x.step };
 }
 function numericText(text: string): string {

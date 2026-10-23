@@ -8,7 +8,7 @@
     <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
     <CreateProductsStep :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
-    <CreateGoalStep :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
+    <CreateGoalStep @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
     <LiveMaterialsStep :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :accounts="accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在提交当前投放方案，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED' && state.publishRecovery === 'REFRESH_ESTIMATE'" class="btn-brand" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
@@ -27,6 +27,7 @@ import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
+import { recommendedRoiDefault } from '@/features/delivery/creationRoiDefault';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
@@ -68,11 +69,18 @@ const reconcileId = ref(''), reviewedQuote=ref('');
 const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const budget = ref(''), roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
+const roiEdited = ref(false), automaticRoi = ref<string>();
+function editRoi() { roiEdited.value=true;automaticRoi.value=undefined; }
+function restoreRoi(value: string, source?: DraftInputs['roiSource']) {
+  roi.value=value;
+  const automatic=source==='PLATFORM' || source===undefined && !!value.trim() && state.value?.roi2Goal == null && Number(value)===recommendedRoi();
+  roiEdited.value=source==='MANUAL' || !!value.trim() && !automatic;automaticRoi.value=automatic&&value.trim()?value:undefined;
+}
 const today = () => new Date(Date.now() + 8*3600000).toISOString().slice(0,10);
 const initialSchedule = creationScheduleDefaults(today());
 const start = ref(initialSchedule.start), end = ref(initialSchedule.end);
 function captureDraft(): DraftInputs {
-  return { productIds: selected.value.map(p => p.qcProductId), name: name.value, budget: budget.value, roi: roi.value,
+  return { productIds: selected.value.map(p => p.qcProductId), name: name.value, budget: budget.value, roi: roi.value, roiSource:roiEdited.value?'MANUAL':'PLATFORM',
     mode: mode.value, duration: duration.value, start: start.value, end: end.value, step: Math.min(3,step.value) };
 }
 function draftScope(): DraftScope | undefined {
@@ -81,7 +89,7 @@ function draftScope(): DraftScope | undefined {
     awemeId: account.value.awemeId, planId: state.value?.planId || null };
 }
 function fillDraft(values: DraftInputs) {
-  name.value = values.name; budget.value = values.budget; roi.value = values.roi; mode.value = values.mode;
+  name.value = values.name; budget.value = values.budget; restoreRoi(values.roi,values.roiSource); mode.value = values.mode;
   duration.value = values.duration; start.value = values.start; end.value = values.end;
   step.value = analysisReady.value ? values.step : 1;
 }
@@ -208,7 +216,7 @@ async function ensureSelection() {
   const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
   if (fresh) autosave.suspend();
   state.value = saved;
-  if(selectionChanged){budget.value='';roi.value='';reviewedQuote.value='';}
+  if(selectionChanged){budget.value='';restoreRoi('');reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
   if (fresh) { await autosave.activate(true); }
   else autosave.acknowledge(['productIds',...(selectionChanged ? draftGoalFields : emptyName ? ['name' as const] : [])]);
@@ -252,7 +260,8 @@ function acceptRecommendations(previous: api.CreationState, updated: api.Creatio
 }
 function applyRecommendedInputs() {
   if (mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
-  if (!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()), mode.value)) roi.value = String(recommendedRoi());
+  const next=recommendedRoiDefault(roi.value,automaticRoi.value,recommendedRoi(),roiEdited.value);
+  roi.value=next.value;automaticRoi.value=next.defaultValue;
 }
 async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') {
   if (busy.value) return;
@@ -370,7 +379,7 @@ async function initialize() {
       const restoredStep = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step)));
       step.value = restoredStep < 4 && !analysisReady.value ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget);
-      roi.value = s.roi2Goal == null ? '' : String(s.roi2Goal); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
+      restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
       const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
       schedulePoll();
     }
@@ -388,8 +397,6 @@ async function initialize() {
       if (step.value < 4 && !analysisReady.value) step.value = 1;
       if(step.value === 2 && state.value) {
         await refreshRecommendations();
-        if(mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()),mode.value))budget.value=String(recommendedBudget());
-        if(!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()),mode.value))roi.value=String(recommendedRoi());
       }
     }
   } catch (error) { if (!disposed) { const failure=requestFailure(error,{method:'GET'}); if (failure.kind !== 'CANCELLED') initialFailure.value = failure; } }
