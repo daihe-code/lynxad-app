@@ -63,9 +63,9 @@
             <tr v-for="row in pagedRows" :key="row.planId" >
               <td class="plan-info-cell">
                   <span v-if="isDeleted(row)" class="plan-name" :title="row.name">{{ row.name }}</span>
-                  <router-link v-else class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
+                  <router-link v-else class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : `/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
-                <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) ? `/campaigns/${row.planId}/edit?step=1` : insightsLink(row.planId, 'products')" :materials-link="isDraft(row) ? `/campaigns/${row.planId}?step=3` : insightsLink(row.planId, 'materials')" />
+                <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
               <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
@@ -99,7 +99,7 @@
                 <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
                 <span v-else-if="isDeleted(row)" class="muted">已删除</span>
                 <template v-else>
-                  <router-link :to="insightsLink(row.planId)">查看详情</router-link>
+                  <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
                   <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
                   <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
                 </template>
