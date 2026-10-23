@@ -7,7 +7,7 @@
     </aside>
     <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
-    <CreateProductsStep v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateProductsStep v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
     <LiveMaterialsStep :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @exit="saveAndLeave" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
@@ -46,6 +46,7 @@ import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const props = defineProps<{ initialPlanId?: string; initialStep?: number }>();
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
+const catalogLoading = ref(false);
 const initialFailure = ref<ApiRequestError>(), productFailure = ref<ApiRequestError>(), operationFailure = ref<ApiRequestError>(), pollFailure = ref<ApiRequestError>();
 const initializing = ref(false), recovering = ref(false), polling = ref(false);
 const productTipDismissed = ref(false);
@@ -147,10 +148,13 @@ async function recoverOperation() {
   } catch (error) { operationFailure.value = requestFailure(error,{method:'GET'}); }
   finally { recovering.value = false; }
 }
+function ensureProductCatalog() {
+  if (!loaded.value && !catalogLoading.value) void loadProducts();
+}
 async function loadProducts() {
   if (!account.value) { products.value = []; loaded.value = true; return; }
   productRequest?.abort(); productRequest = new AbortController();
-  const current = ++requestNo; loaded.value = false; loadError.value = false; productFailure.value = undefined;
+  const current = ++requestNo; catalogLoading.value = true; loaded.value = false; loadError.value = false; productFailure.value = undefined;
   try {
     const result = await api.creationProducts(account.value.accountId, account.value.awemeId, query.value, false, productRequest.signal, state.value?.planId);
     if (current !== requestNo) return;
@@ -168,6 +172,7 @@ async function loadProducts() {
     loaded.value = true;
   }
   catch (error) { if (!disposed && current === requestNo) { const failure=requestFailure(error,{method:'GET'}); if(failure.kind !== 'CANCELLED') { productFailure.value = failure; loadError.value = true; } loaded.value = true; } }
+  finally { if (current === requestNo) catalogLoading.value = false; }
 }
 function changeQuery(q: api.ProductQuery) {
   const previous = query.value;
@@ -332,8 +337,8 @@ async function initialize() {
       accountKey.value = accountOptions.value.find(a => a.key === remembered)?.key || accountOptions.value[0]?.key || '';
     }
     if (!account.value) initialFailure.value = new ApiRequestError('尚无可用的千川授权抖音号，请在账户管理中完成授权。',{kind:'AUTHORIZATION',action:'ACCOUNTS',method:'GET'});
-    if (state.value && (state.value.analysisStatus !== 'NONE' || state.value.analysis)) loaded.value = true;
-    else await loadProducts();
+    // Restored analysis is independent of the catalog; load it when the selection list opens.
+    if (!state.value || state.value.analysisStatus === 'NONE' && !state.value.analysis) await loadProducts();
     if (!disposed) {
       await autosave.activate();
       if(step.value === 2 && state.value) {

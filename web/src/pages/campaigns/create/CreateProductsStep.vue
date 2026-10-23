@@ -118,7 +118,7 @@ async function dismissTip() {
   await nextTick();
   filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
-const emit = defineEmits<{ keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; retry: []; next: []; cancel: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
+const emit = defineEmits<{ keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 10), jump = ref(String(page.value));
@@ -159,6 +159,9 @@ const presentation = computed(() => productAnalysisPresentation(props.analysis, 
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus));
 watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
   if (!adjusting.value && (status !== 'NONE' || analysis)) { analysisOpen.value = true; analyzedInput.value = productAnalysisInput(props.selected); }
+}, { immediate: true });
+watch([analysisOpen, recommendationsOpen, () => props.account?.key], ([analysis, recommendations, key]) => {
+  if (!props.readOnly && key && !analysis && !recommendations) emit('catalog');
 }, { immediate: true });
 const queryPending = ref(false);
 let queryTimer: ReturnType<typeof setTimeout> | undefined;
