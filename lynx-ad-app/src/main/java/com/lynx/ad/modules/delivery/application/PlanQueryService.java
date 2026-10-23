@@ -33,6 +33,8 @@ public class PlanQueryService {
     private PlanStatisticsService statisticsService;
     @Autowired public void statisticsService(PlanStatisticsService value) { statisticsService=value; }
     private CreationStore creation;
+    private com.lynx.ad.modules.creative.application.AssetUploadService assets;
+    @Autowired public void previewAssets(com.lynx.ad.modules.creative.application.AssetUploadService value){assets=value;}
     private PlanReviewStore reviews;
     @Autowired public void reviewStore(PlanReviewStore value){reviews=value;}
     @Autowired public void creationStore(CreationStore store) { creation=store; }
@@ -100,7 +102,7 @@ public class PlanQueryService {
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
-                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review()));
+                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review(),row.awemeId(),row.materialCoverUrl()));
         }
         return result;
     }
@@ -161,6 +163,8 @@ public class PlanQueryService {
         var latest=snapshots.listLatestPairsByTenant(tenant);
         var selected=bindings.productIdsByPlan(local.stream().map(p->p.id().value()).toList());
         var creationSummaries=creation==null?Map.<String,CreationStore.PlanSummary>of():creation.summariesByPlan(tenant.value(),local.stream().map(p->groups.containsKey(p.id().value())?groups.get(p.id().value()).root():p.id().value()).distinct().toList());
+        var coverAssets=creationSummaries.values().stream().map(CreationStore.PlanSummary::materialCoverAssetId).filter(Objects::nonNull).distinct().toList();
+        var covers=assets==null||coverAssets.isEmpty()?Map.<String,String>of():assets.previewImages(tenant,coverAssets);
         var cached=remote==null?Map.<String,PlanRemoteStore.Remote>of():remote.list(tenant);
         var reviewStates=reviews==null?Map.<String,com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View>of():reviews.list(tenant);
         Map<String,List<Product>> catalogs=new HashMap<>();
@@ -211,6 +215,9 @@ public class PlanQueryService {
             boolean canEdit=plan.qcPlanId().isPresent() && authorized.contains(plan.accountId().value()) &&
                     (plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED);
             BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
+            String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
+            if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());
+            if(materialCover==null && creationSummary!=null && creationSummary.materialCoverAssetId()!=null)materialCover=covers.get(creationSummary.materialCoverAssetId());
             result.add(new PlanListVo(plan.id().value(),plan.name().text(),plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
                     plan.source()==PlanSource.LINGTOU,goods.isEmpty()?null:goods.getFirst().imageUrl(),r==null?null:r.guarantee(),cost,gmv,roi,
                     plan.setting().bidType().oceanValue(),budget,
@@ -221,7 +228,8 @@ public class PlanQueryService {
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,
                     canEdit && plan.status()==PlanStatus.DELIVERING,
                     plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
-                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null));
+                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
+                    plan.awemeId().value(),materialCover));
         }
         return result;
     }

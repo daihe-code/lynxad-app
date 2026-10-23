@@ -49,6 +49,19 @@ class PlanListDisplayTest {
             """))));
     }
     PlanListVo row() {return query.list(tenant,1,20).records().getFirst();}
+    @Test void listSeparatesProductCoverFromStoredMaterialCoverAndExposesExactAweme() {
+        var assets=mock(com.lynx.ad.modules.creative.application.AssetUploadService.class);query.previewAssets(assets);
+        var product=new CreationState.Product("p","123","商品",BigDecimal.ONE,null,"https://shop.test/product.jpg","类目",1L,List.of(),List.of());
+        when(creation.summariesByPlan(tenant.value(),List.of(id.value()))).thenReturn(Map.of(id.value(),new CreationStore.PlanSummary(List.of(product),null,"cover-asset")));
+        when(assets.previewImages(tenant,List.of("cover-asset"))).thenReturn(Map.of("cover-asset","https://storage.test/material.jpg"));
+        var row=row();assertEquals("aweme-a",row.awemeId());assertEquals("https://shop.test/product.jpg",row.coverUrl());
+        assertEquals("https://storage.test/material.jpg",row.materialCoverUrl());verify(assets).previewImages(tenant,List.of("cover-asset"));
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        when(statistics.report(eq(tenant),eq("account-a"),any(),eq(false))).thenReturn(new PlanStatisticsService.Snapshot(Map.of(),Instant.now()));
+        var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var filter=new PlanQueryService.Filters(null,null,null,null,null,null,null,true,new PlanStatisticsRange(today,today),false);
+        var ranged=query.list(tenant,1,20,filter).records().getFirst();
+        assertEquals("aweme-a",ranged.awemeId());assertEquals("https://storage.test/material.jpg",ranged.materialCoverUrl());
+    }
     @Test void reviewProgressIsProjectedFromDedicatedReviewTimesAndClearsAfterResolution() {
         var store=mock(PlanReviewStore.class);query.reviewStore(store);plan.apply(PlanStatus.PENDING_AUDIT);
         var view=com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.view(Instant.now().minusSeconds(1000),Instant.now(),"PENDING",Instant.now().plusSeconds(180),null,null,Instant.now());

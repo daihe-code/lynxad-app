@@ -92,8 +92,10 @@ public class CreationStore {
         summariesByPlan(tenant,planIds).forEach((id,summary)->result.put(id,summary.products()));
         return result;
     }
-    public record PlanSummary(List<CreationState.Product> products,com.fasterxml.jackson.databind.JsonNode recommendations) {}
-    /** Read product snapshots and budget forecasts together, without a query per plan. */
+    public record PlanSummary(List<CreationState.Product> products,com.fasterxml.jackson.databind.JsonNode recommendations,String materialCoverAssetId) {
+        public PlanSummary(List<CreationState.Product> products,com.fasterxml.jackson.databind.JsonNode recommendations){this(products,recommendations,null);}
+    }
+    /** Read product snapshots, budget forecasts and material covers without a query per plan. */
     public Map<String,PlanSummary> summariesByPlan(String tenant,List<String> planIds) {
         Map<String,PlanSummary> result=new HashMap<>();
         if(planIds.isEmpty())return result;
@@ -102,7 +104,8 @@ public class CreationStore {
         jdbc.query("SELECT plan_id,state_json FROM delivery_creation WHERE tenant_id=? AND plan_id IN ("+placeholders+")",
                 (org.springframework.jdbc.core.RowCallbackHandler)row->{
                     var state=decode(row.getString(2));
-                    result.put(row.getString(1),new PlanSummary(List.copyOf(state.products),state.recommendations));
+                    result.put(row.getString(1),new PlanSummary(List.copyOf(state.products),state.recommendations,
+                            com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.localAsset(state)));
                 },params.toArray());
         return result;
     }

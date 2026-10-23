@@ -38,6 +38,18 @@ public class AssetUploadRepository {
     public Asset require(String tenant, String id) {
         return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND id=?", ASSET, tenant, id).stream().findFirst().orElseThrow(() -> new BizException(1522, "素材不存在或不属于当前账户"));
     }
+    /** Image-only preview lookup for plan lists; tenant and storage state are checked in SQL. */
+    public List<Asset> storedImages(String tenant, java.util.Collection<String> requested) {
+        var ids=new ArrayList<>(new java.util.LinkedHashSet<>(requested));
+        var result=new ArrayList<Asset>();
+        for(int from=0;from<ids.size();from+=500){
+            var page=ids.subList(from,Math.min(ids.size(),from+500));
+            var params=new ArrayList<Object>();params.add(tenant);params.addAll(page);
+            result.addAll(jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND kind='IMAGE' AND storage_status='STORED' AND id IN ("
+                    +String.join(",",java.util.Collections.nCopies(page.size(),"?"))+")",ASSET,params.toArray()));
+        }
+        return result;
+    }
     public Optional<Asset> request(String tenant, String request) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND request_id=?", ASSET, tenant, request).stream().findFirst(); }
     public Optional<Asset> object(String tenant,String key) { return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND object_key=? AND storage_status='STORED'",ASSET,tenant,key).stream().findFirst(); }
     public Optional<Asset> platformObject(String tenant,String account,String kind,String objectId) {

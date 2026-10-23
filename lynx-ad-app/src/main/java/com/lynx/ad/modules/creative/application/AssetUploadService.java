@@ -226,6 +226,13 @@ public class AssetUploadService {
         return new Detail(a.id(),a.kind(),a.filename(),a.sizeBytes(),a.storageStatus(),a.storageMode(),a.isAigc(),a.md5(),a.width(),a.height(),a.textContent(),
             "STORED".equals(a.storageStatus()) && !"TEXT".equals(a.kind()) ? location(a).getUrl(tenant,a.objectKey()) : "",a.errorMessage(),a.createdAt().toString(),repository.syncs(tenant.value(),a.id()),repository.aiReview(tenant.value(),a.id()),repository.storageMetadata(tenant.value(),a.id()));
     }
+    public Map<String,String> previewImages(TenantId tenant, List<String> ids) {
+        Map<String,String> urls=new HashMap<>();
+        for(var asset:repository.storedImages(tenant.value(),ids))
+            try{urls.put(asset.id(),location(asset).getUrl(tenant,asset.objectKey()));}
+            catch(RuntimeException unavailable){/* A missing optional cover must not block the plan list. */}
+        return urls;
+    }
     /** Resolve the file actually uploaded under this platform ID, independent of later regenerations. */
     public Optional<String> platformPreviewUrl(TenantId tenant,String account,String kind,String objectId) {
         if(objectId==null || objectId.isBlank() || !Set.of("VIDEO","AUDIO").contains(kind))return Optional.empty();

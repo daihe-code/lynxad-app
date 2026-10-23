@@ -30,7 +30,19 @@ public record PlanListVo(
         String deliveryPlatform,
         String accountId, String qcStatus, boolean canEdit, boolean canControl,
         RoiEstimate roiEstimate, boolean canTransfer,LocalDate statisticsDate,boolean historicalMetrics,
-        com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View review) {
+        com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View review,
+        String awemeId, String materialCoverUrl) {
+    public PlanListVo(String planId,String name,String status,String source,String qcPlanId,boolean lingtou,
+                      String coverUrl,String guarantee,BigDecimal costYuan,BigDecimal gmvYuan,BigDecimal roi,
+                      String smartBidType,BigDecimal budget,BigDecimal roi2Goal,LocalDate startDate,LocalDate endDate,
+                      Long convert,Instant snapshotTs,List<ProductSummary> products,MetricComparison comparison,
+                      Instant createdAt,String deliveryPlatform,String accountId,String qcStatus,boolean canEdit,boolean canControl,
+                      RoiEstimate roiEstimate,boolean canTransfer,LocalDate statisticsDate,boolean historicalMetrics,
+                      com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View review) {
+        this(planId,name,status,source,qcPlanId,lingtou,coverUrl,guarantee,costYuan,gmvYuan,roi,smartBidType,budget,
+                roi2Goal,startDate,endDate,convert,snapshotTs,products,comparison,createdAt,deliveryPlatform,
+                accountId,qcStatus,canEdit,canControl,roiEstimate,canTransfer,statisticsDate,historicalMetrics,review,null,null);
+    }
     public PlanListVo(String planId,String name,String status,String source,String qcPlanId,boolean lingtou,
                       String coverUrl,String guarantee,BigDecimal costYuan,BigDecimal gmvYuan,BigDecimal roi,
                       String smartBidType,BigDecimal budget,BigDecimal roi2Goal,LocalDate startDate,LocalDate endDate,

@@ -53,7 +53,7 @@
       </div>
       <div class="table-scroll" v-loading="loading">
         <table class="plan-table" :class="{ compact, 'without-tools': !showTools }">
-          <colgroup><col style="width: 40px"><col style="width: 244px"><col style="width: 160px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
+          <colgroup><col style="width: 320px"><col style="width: 160px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
           <thead><tr>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
             <th v-for="column in metricColumns" :key="column.field"><button class="sort-heading" @click="toggleSort(column.field)">{{ column.label }}<el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></th>
@@ -65,21 +65,7 @@
                   <span v-if="isDeleted(row)" class="plan-name" :title="row.name">{{ row.name }}</span>
                   <router-link v-else class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
-                <div class="product-line">
-                  <template v-if="row.products?.length">
-                    <el-popover v-for="product in row.products" :key="product.id" placement="bottom-start" :width="330" :trigger="['hover', 'focus']" :show-after="150" :hide-after="100" popper-class="campaign-popover">
-                      <template #reference>
-                        <button type="button" class="product-trigger product-image-trigger" :aria-label="`查看商品：${product.name}`">
-                          <span class="goods-thumb"><el-image v-if="product.imageUrl" :src="product.imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Picture /></el-icon></span>
-                        </button>
-                      </template>
-                      <div class="popup-heading"><strong>投放商品</strong></div>
-                      <div class="product-preview"><span class="product-thumbnail"><el-image v-if="product.imageUrl" :src="product.imageUrl" fit="cover"><template #error><el-icon><Picture /></el-icon></template></el-image><el-icon v-else><Goods /></el-icon></span><div><strong>{{ product.name }}</strong><span>商品 ID：{{ product.id }}</span></div></div>
-                    </el-popover>
-                  </template>
-                  <span v-else class="product-trigger muted"><span class="goods-thumb"><el-icon><Picture /></el-icon></span>商品（—）</span>
-                  <span v-if="row.source === 'EXTERNAL'" class="source-tag external">外部</span>
-                </div>
+                <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) ? `/campaigns/${row.planId}/edit?step=1` : insightsLink(row.planId, 'products')" :materials-link="isDraft(row) ? `/campaigns/${row.planId}?step=3` : insightsLink(row.planId, 'materials')" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
               <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
@@ -149,7 +135,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, ArrowRight, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Goods, Operation, Picture, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, ArrowRight, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
 import PlanInsights from './PlanInsights.vue';
@@ -449,7 +436,7 @@ h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; color: #25
 .toolbar :deep(.el-input__wrapper.is-focus), .toolbar :deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px #575cf6 inset; }.toolbar :deep(.square-button), .title-actions :deep(.square-button) { width: 38px; padding: 0; }.toolbar :deep(.square-button .el-icon) { margin: 0; }
 .filter-active { color: #575cf6; border-color: #bcb7fb; background: #f7f6ff; }.filter-dot { width: 5px; height: 5px; border-radius: 50%; background: #575cf6; margin-left: 4px; }.column-setting { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 13px; }
 .selection-bar { display: flex; align-items: center; gap: 12px; font-size: 12px; background: #f4f2ff; color: #575cf6; padding: 4px 12px; border-radius: 8px; margin-bottom: 12px; }.table-scroll { overflow-x: auto; }
-.plan-table { border-collapse: collapse; width: 100%; min-width: 1424px; table-layout: fixed; text-align: left; }.plan-table.without-tools { min-width: 1288px; }
+.plan-table { border-collapse: collapse; width: 100%; min-width: 1508px; table-layout: fixed; text-align: left; }.plan-table.without-tools { min-width: 1372px; }
 th { background: #f7f8fb; padding: 13px 8px; color: #8b899d; font-size: 12px; font-weight: 500; white-space: nowrap; }th:first-child { border-radius: 8px 0 0 8px; padding-left: 12px; }th:last-child { border-radius: 0 8px 8px 0; }
 td { vertical-align: top; border-bottom: 1px solid #f0eff5; padding: 18px 8px; font-size: 12px; line-height: 20px; }td:first-child { padding-left: 12px; }tbody tr:hover, tbody tr.selected { background: #faf9ff; }.compact td { padding-top: 10px; padding-bottom: 10px; }
 .plan-table :deep(.el-checkbox) { height: 18px; vertical-align: top; }.plan-table :deep(.el-checkbox__inner) { border-color: #dbd9e9; border-radius: 4px; }.plan-table :deep(.is-checked .el-checkbox__inner) { border-color: #575cf6; }
@@ -502,7 +489,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; }.metric { padding: 16px; }.metric strong { font-size: 22px; } }
 @media (max-width: 700px) { .title-row { align-items: flex-start; flex-direction: column; gap: 16px; }.title-group { flex-wrap: wrap; gap: 12px; }h1 { font-size: 21px; }.panel { padding: 20px 16px; border-radius: 18px; }.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.metric strong { font-size: 20px; }.toolbar-left { width: 100%; }.search-input { width: 100%; order: 3; }.toolbar-right { flex-wrap: wrap; }.pager { flex-wrap: wrap; justify-content: flex-start; }.pager :deep(.el-pagination) { flex-wrap: wrap; row-gap: 10px; } }
-.plan-info-cell .plan-name { color: #7c7f99; }
+.plan-info-cell .plan-name { color: #34374f; font-size: 14px; font-weight: 600; line-height: 22px; }
 tr:hover .plan-info-cell .plan-name, tr:focus-within .plan-info-cell .plan-name { color: #575cf6; }
 .product-line { flex-wrap: wrap; }
 .product-image-trigger { border-radius: 6px; flex-shrink: 0; }

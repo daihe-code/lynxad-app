@@ -37,6 +37,8 @@ export interface PlanVo {
 }
 
 export interface PlanListVo {
+  awemeId?: string | null;
+  materialCoverUrl?: string | null;
   review?: PlanReviewProgress | null;
   statisticsDate?: string | null;
   historicalMetrics?: boolean;
