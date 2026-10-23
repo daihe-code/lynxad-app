@@ -92,6 +92,7 @@ export interface CreationState {
   recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
   regenerationRetryAt?: number;
+  materialEdit?: { status: string; message: string } | null;
   generationStage?: string;
   generationResultStatus?: string;
   generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null; failed?: number }[];

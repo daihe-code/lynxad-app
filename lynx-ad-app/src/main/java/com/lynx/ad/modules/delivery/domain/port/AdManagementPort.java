@@ -31,6 +31,9 @@ public interface AdManagementPort {
     default void deleteProduct(Credential credential,String adId,String productId) {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂不支持删除计划商品");
     }
+    default void deleteMaterials(Credential credential,String adId,List<String> materialIds) {
+        throw new com.lynx.ad.common.exception.BizException(1406,"当前数据源不支持删除计划素材");
+    }
     default List<JsonNode> monitoringProducts(Credential c,String id,LocalDate start,LocalDate end){return products(c,id,start,end);}
     default void automaticContent(Credential c,String id,String operation,JsonNode payload){throw new com.lynx.ad.common.exception.BizException(1406,"当前数据源不支持自动内容调控");}
     default String automaticControl(Credential c,String id,String scene,String name,java.math.BigDecimal budget,java.math.BigDecimal hours,List<String> materials){return control(c,id,scene,name,budget,hours,materials);}

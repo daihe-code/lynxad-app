@@ -56,6 +56,8 @@ public class CreationWorkflowService {
     @org.springframework.beans.factory.annotation.Autowired public void assetReconciliation(AssetSyncReconciliationService value){assetReconciliation=value;}
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(MaterialCreativeContextService value){creativeContexts=value;}
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(PlanTransferStore value){transfers=value;}
+    private PublishedMaterialService publishedMaterials;
+    @org.springframework.beans.factory.annotation.Autowired public void publishedMaterials(PublishedMaterialService value){publishedMaterials=value;}
     @org.springframework.beans.factory.annotation.Autowired public void carouselPlatform(CarouselPlatformService value){materialProcessing.carouselPlatform(value);}
     /** Products, titles and media have one canonical state for both physical mode plans. */
     private String sharedId(TenantId tenant,String id,boolean write) {
@@ -402,7 +404,13 @@ public class CreationWorkflowService {
     public CreationState remove(TenantId tenant,String requestedId,String material,Feedback feedback) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
-        return store.mutate(tenant.value(),id,feedback.revision,s->{editable(s);var m=find(s,material);recordFeedback(s,material,"delete",feedback);if(creativeContexts!=null)creativeContexts.removed(s,m);s.removedMaterialIds.add(m.id);s.materials.remove(m);s.mediaChanged();});
+        var result=store.mutate(tenant.value(),id,feedback.revision,s->{
+            var m=find(s,material);
+            if("CREATED".equals(s.publishStatus)&&publishedMaterials!=null) {
+                publishedMaterials.reserve(tenant,requestedId,s,m,"delete");recordFeedback(s,material,"delete",feedback);s.changed();
+            } else {editable(s);recordFeedback(s,material,"delete",feedback);if(creativeContexts!=null)creativeContexts.removed(s,m);s.removedMaterialIds.add(m.id);s.materials.remove(m);s.mediaChanged();}
+        });
+        return PublishedMaterialService.pending(result)&&publishedMaterials!=null?publishedMaterials.process(result):result;
     }
     public CreationState retryContext(TenantId tenant,String requestedId,String material){
         String id=sharedId(tenant,requestedId,false);writable(tenant,WriteAction.SAVE_PLAN);
@@ -562,10 +570,13 @@ public class CreationWorkflowService {
         if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         String instruction=com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.instruction(feedback.reasons,feedback.description);
         var reserved=store.mutate(tenant.value(),id,feedback.revision,state->{
-            editable(state);var m=find(state,material);
+            boolean published="CREATED".equals(state.publishStatus)&&publishedMaterials!=null;
+            if(published)publishedMaterials.requireEditor(tenant,requestedId,state);else editable(state);
+            var m=find(state,material);
             if(m.engineMaterialId==null||m.engineJobId==null)throw new BizException(1503,"该素材为本地上传，请重新上传替换；AI 素材可重新生成");
             if(state.enginePlanId==null||m.groupId==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(m.type,"")))throw new BizException(1503,"素材生成归属信息不完整，请先核查原任务");
             com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.reserve(state,System.currentTimeMillis());
+            if(published)publishedMaterials.reserve(tenant,requestedId,state,m,"regenerate");
             recordFeedback(state,material,"regenerate",feedback);
             var r=new CreationState.Regeneration();r.requestId=UUID.randomUUID().toString();r.sourceId=m.id;r.parentId=m.engineMaterialId;r.jobId=m.engineJobId;r.planTaskId=state.enginePlanId;r.groupId=m.groupId;r.target=additionTarget(m.type);r.instruction=instruction;
             state.regeneration=r;state.engineJobId=m.engineJobId;state.engineTerminalStatus=null;state.engineTerminalJobId=null;state.pendingRegenerationId=m.id;
@@ -609,6 +620,10 @@ public class CreationWorkflowService {
         tx.executeWithoutResult(status->{if(!plans.discardDraft(tenant,new PlanId(id)))throw new BizException(1403,"仅可丢弃未发布草稿");bindings.upsert(new PlanId(id),List.of());store.delete(tenant.value(),id);});
     }
     public void process(CreationState snapshot) {
+        if(publishedMaterials!=null&&PublishedMaterialService.pending(snapshot)
+                &&(!"GENERATING".equals(snapshot.materialEdit.status)||Set.of("SUCCEEDED","FAILED").contains(snapshot.generationStatus))) {
+            publishedMaterials.process(snapshot);return;
+        }
         if(snapshot.generationRetry!=null&&"SENDING".equals(snapshot.generationRetry.status)) {
             var receipt=engine.find("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(snapshot.engineJobId)+"/retry-failed/"+CreationEngineClient.query(snapshot.generationRetry.requestId)+"?store_id="+CreationEngineClient.query(snapshot.tenantId));
             acceptGenerationRetry(snapshot,receipt);return;
@@ -892,7 +907,7 @@ public class CreationWorkflowService {
             if (state.revision != s.revision) return;
             int i=-1;for(int n=0;n<state.materials.size();n++)if(state.materials.get(n).id.equals(m.id))i=n;
             if(i<0)return;state.materials.set(i,m);
-            if("READY".equals(m.status)&&m.replacesId!=null){state.materials.removeIf(old->old.id.equals(m.replacesId));state.removedMaterialIds.add(m.replacesId);}
+            if("READY".equals(m.status)&&m.replacesId!=null&&!"CREATED".equals(state.publishStatus)){state.materials.removeIf(old->old.id.equals(m.replacesId));state.removedMaterialIds.add(m.replacesId);}
         });
     }
     private CarouselService.Create carouselRequest(CreationState s,CreationState.Material m) {

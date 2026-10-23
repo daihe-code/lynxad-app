@@ -71,6 +71,19 @@ public class CreationState {
     public List<FeedbackEvent> feedback = new ArrayList<>();
     public record FeedbackEvent(String materialId,String action,List<String> reasons,String description,String userId,String at) {}
     public String publishStatus = "NONE", publishKey, qcPlanId, publishError,publishRecovery;
+    public MaterialEdit materialEdit;
+    /** Durable intent for one published-plan material operation, including readback after a timeout. */
+    public static class MaterialEdit {
+        public String key, action, sourceId, status, message;
+        public long nextCheckAt;
+        public List<MaterialEditMember> members = new ArrayList<>();
+    }
+    public static class MaterialEditMember {
+        public String planId, qcPlanId, phase = "READY";
+        public JsonNode before, added;
+        public List<String> removeIds = new ArrayList<>();
+    }
+    public boolean materialEditPending() {return materialEdit!=null&&!Set.of("SUCCEEDED","FAILED").contains(materialEdit.status);}
     public record DraftReference(String planId,String planName) {}
     public record Product(String productId, String qcProductId, String name, BigDecimal price,
                           BigDecimal userPrice, String imageUrl, String category, Long stock,

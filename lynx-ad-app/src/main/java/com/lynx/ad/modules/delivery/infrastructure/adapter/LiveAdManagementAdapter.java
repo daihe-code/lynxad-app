@@ -191,6 +191,10 @@ public class LiveAdManagementAdapter implements AdManagementPort {
     @Override public void deleteProduct(Credential c,String adId,String productId) {
         post(c,url("ad/product/delete/"),Map.of("ad_id",numericId(adId),"product_ids",List.of(numericId(productId))));
     }
+    @Override public void deleteMaterials(Credential c,String adId,List<String> ids) {
+        if(ids==null||ids.isEmpty())throw new BizException(1402,"请选择要删除的素材");
+        automaticPost(c,url("ad/material/delete/"),Map.of("ad_id",numericId(adId),"material_ids",ids.stream().map(LiveAdManagementAdapter::numericId).toList()));
+    }
     @Override public List<JsonNode> monitoringProducts(Credential c,String id,LocalDate start,LocalDate end){
         new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
         return paged(c,url("ad/product/get/"),Map.of("ad_id",numericId(id),"start_date",start.toString(),"end_date",end.toString(),"fields",List.of("stat_cost_for_roi2","total_pay_order_count_for_roi2","total_order_settle_amount_for_roi2_1h")),"product_list");

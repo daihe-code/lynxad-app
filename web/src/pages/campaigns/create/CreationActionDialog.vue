@@ -5,7 +5,7 @@
       <p class="cancel-hint">若保存投放计划，可至“广告投放”功能列表查看</p>
     </template>
     <template v-else>
-      <p class="operation-warning">{{ action === 'regenerate' ? '重新生成会调用模型。原素材会保留，待新素材生成、质检和同步完成后再替换。' : '素材删除后将无法恢复，建议慎重操作。请确认是否继续？' }}</p>
+      <p class="operation-warning">{{ action === 'regenerate' ? published ? '重新生成会调用模型。原素材继续投放，新素材生成、质检和同步完成后，将自动替换计划中的原素材。' : '重新生成会调用模型。原素材会保留，待新素材生成、质检和同步完成后再替换。' : published ? '确认后将从当前及关联投放计划中移除此素材，素材中心文件仍保留。请确认是否继续？' : '素材删除后将无法恢复，建议慎重操作。请确认是否继续？' }}</p>
       <div class="feedback-row">
         <label for="material-feedback-reasons">{{ action === 'regenerate' ? '重新生成原因' : '删除素材原因' }}</label>
         <el-select id="material-feedback-reasons" v-model="reasons" multiple :teleported="false" :disabled="busy" placeholder="请如实选择原因，新生成素材将质量更高，可多选" aria-label="素材操作原因" @keydown.esc.stop="() => {}">
@@ -20,7 +20,7 @@
           <span class="feedback-count">{{ description.length }}/50</span>
         </div>
       </div>
-      <p class="operation-note"><span aria-hidden="true">i</span>{{ action === 'regenerate' ? '提交后可离开页面，后台会继续处理；结果待确认时不会自动重复生成。' : '提交后系统将删除所选素材，且不可恢复' }}</p>
+      <p class="operation-note"><span aria-hidden="true">i</span>{{ action === 'regenerate' ? '提交后可离开页面，后台会继续处理；结果待确认时不会自动重复生成。' : published ? '确认后立即同步千川，每款商品至少保留一条投放素材。' : '提交后系统将删除所选素材，且不可恢复' }}</p>
       <p v-if="action === 'regenerate' && waitSeconds" class="feedback-error" role="status">重新生成操作间隔为30秒，请在 {{ waitSeconds }} 秒后再试。</p>
     </template>
     <template #footer>
@@ -40,7 +40,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import { regenerationFeedbackError, regenerationWait } from '@/features/delivery/regenerationPolicy';
-const props = defineProps<{ action: 'cancel' | 'regenerate' | 'delete'; busy: boolean; retryAt?: number }>();
+const props = defineProps<{ action: 'cancel' | 'regenerate' | 'delete'; busy: boolean; retryAt?: number; published?: boolean }>();
 const emit = defineEmits<{ close: []; save: []; discard: []; confirm: [feedback: MaterialFeedback] }>();
 const title = computed(() => props.action === 'cancel' ? '取消投放提醒' : props.action === 'regenerate' ? '重新生成素材提醒' : '删除素材提醒');
 const reasons = ref<string[]>([]), description = ref('');

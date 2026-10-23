@@ -29,7 +29,7 @@
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="false" :account="account" :account-chips="accountChips" read-only embedded />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
@@ -45,6 +45,7 @@
           <router-link v-else class="btn-cancel" to="/campaigns">返回投放列表</router-link>
         </div></div>
       </template>
+      <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
     </template>
   </div>
 </template>
@@ -57,7 +58,9 @@ import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
-import { creationGet, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
+import { creationGet, creationFeedback, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
+import type { MaterialFeedback } from '@/features/creative/creativeApi';
+import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { publishedSchedule, publishedScheduleError } from '@/features/delivery/publishedSchedule';
@@ -82,11 +85,30 @@ const props = defineProps<{ mode: 'view' | 'edit' | 'transfer' }>();
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const loading = ref(true), saving = ref(false), loadError = ref('');
+const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
+const materialPending=computed(()=>!!creation.value?.materialEdit&&!['SUCCEEDED','FAILED'].includes(creation.value.materialEdit.status));
+let materialTimer:ReturnType<typeof setTimeout>|undefined;
+function openMaterialAction(kind:'regenerate'|'delete',id:string) {
+  if(editing.value&&!transferring.value&&canEdit.value&&!saving.value&&!materialBusy.value&&!materialPending.value)materialAction.value={kind,id};
+}
+async function submitMaterialAction(feedback:MaterialFeedback) {
+  const action=materialAction.value,s=creation.value,p=plan.value;
+  if(!action||!s||!p||!editing.value||!canEdit.value||materialBusy.value||saving.value||materialPending.value)return;
+  const version=loadNumber;materialBusy.value=true;mediaFailure.value=undefined;
+  try {const updated=await creationFeedback({...s,planId:p.planId},action.id,action.kind,feedback);if(version===loadNumber){creation.value=updated;materialAction.value=undefined;}}
+  catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:action.kind==='delete'?'DELETE':'POST'});}
+  finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}}
+}
+function scheduleMaterialPoll() {
+  clearTimeout(materialTimer);if(!materialPending.value)return;
+  const version=loadNumber,id=plan.value?.planId;if(!id)return;
+  materialTimer=setTimeout(async()=>{try{const current=await creationGet(id);if(version===loadNumber){creation.value=current;mediaFailure.value=undefined;}}catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'GET'});}finally{if(version===loadNumber)scheduleMaterialPoll();}},3000);
+}
 const loadFailure = ref<ApiRequestError>(), mediaFailure = ref<ApiRequestError>(), mediaLoading = ref(false);
 const settingsFailure = ref<ApiRequestError>(), latestSettings = ref<PlanVo>();
 const settingsChecking = ref(false), settingsConflict = ref(false), settingsUnknown = ref(false), canAcceptCurrent = ref(false), settingsMessage = ref('');
 const settingsPending = computed(() => settingsUnknown.value || !!(latestSettings.value || plan.value)?.settingsEdit && (latestSettings.value || plan.value)!.settingsEdit!.status !== 'IDLE');
-const settingsBlocked = computed(() => !!plan.value?.qcPlanId && (settingsChecking.value || settingsConflict.value || settingsPending.value || !plan.value.settingsEdit?.version));
+const settingsBlocked = computed(() => materialBusy.value || materialPending.value || !!plan.value?.qcPlanId && (settingsChecking.value || settingsConflict.value || settingsPending.value || !plan.value.settingsEdit?.version));
 const settingsInputs = () => ({name:name.value,budget:budget.value,roi:roi.value,duration:duration.value,end:end.value});
 const settingsComparison = computed(() => plan.value && latestSettings.value ? planEditComparison(plan.value,latestSettings.value,settingsInputs()) : []);
 const canKeepSettings = computed(() => !!plan.value && !!latestSettings.value && canRebasePlan(plan.value,latestSettings.value));
@@ -141,6 +163,7 @@ function resetForm() {
   }
 }
 async function load() {
+  clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;
   const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
@@ -293,7 +316,8 @@ async function acceptCurrentSettings() {
 
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
-onUnmounted(() => { loadNumber++; });
+watch(materialPending, scheduleMaterialPoll);
+onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 </script>
 
 <style scoped>

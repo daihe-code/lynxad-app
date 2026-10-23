@@ -69,7 +69,7 @@ public class CreationStore {
     private static int work(CreationState s) {
         boolean missingRevisionReceipt=s.regeneration!=null&&"UNCERTAIN".equals(s.regeneration.status)
                 &&(s.regeneration.revisionId==null||s.regeneration.executionJobId==null);
-        return Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!missingRevisionReceipt&&Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
+        return s.materialEditPending()||Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!missingRevisionReceipt&&Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
                 ||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0;
     }
     public Set<String> usedMedia(String tenant) {
