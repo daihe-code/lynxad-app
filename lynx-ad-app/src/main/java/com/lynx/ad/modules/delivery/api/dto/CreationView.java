@@ -2,6 +2,9 @@ package com.lynx.ad.modules.delivery.api.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.modules.delivery.domain.model.CreationState;
+import com.lynx.ad.modules.delivery.domain.model.ProductBasicAnalysis;
+import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
+import com.lynx.ad.modules.delivery.domain.model.MaterialProcessing;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -16,19 +19,24 @@ public record CreationView(
         String generationStage, List<CreationState.GenerationCount> generationCounts,
         List<CreationState.GenerationIssue> generationIssues,
         List<MaterialView> materials, String publishStatus, String publishKey,
-        String qcPlanId, String publishError, List<AdditionView> generationAdditions) {
+        String qcPlanId, String publishError, List<AdditionView> generationAdditions,
+        ProductBasicAnalysis basicAnalysis, long analysisStartedAt, String generationResultStatus, long regenerationRetryAt,
+        java.util.Map<String,TitlePoolView> titlePools,String publishRecovery,String groupingDecision) {
 
     public static CreationView of(CreationState s) {
+        var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
         return new CreationView(s.planId, s.accountId, s.awemeId, s.name, s.revision, s.step,
                 s.packageVersion, s.confirmedVersion, s.smartBidType, s.budget, s.roi2Goal,
                 s.scheduleType, s.startDate, s.endDate, s.hideInAweme, List.copyOf(s.products),
                 s.analysisStatus, s.analysisError, s.analysis, s.recommendations,
                 s.generationStatus, s.generationMessage, s.progress,
                 List.copyOf(s.generationProductIds), s.generationStage, List.copyOf(s.generationCounts),
-                List.copyOf(s.generationIssues), s.materials.stream().map(MaterialView::of).toList(),
+                List.copyOf(s.generationIssues), s.materials.stream().map(material->MaterialView.of(material,names.get(material.id))).toList(),
                 s.publishStatus, s.publishKey, s.qcPlanId, s.publishError,
-                s.generationAdditions.stream().map(AdditionView::of).toList());
+                s.generationAdditions.stream().map(AdditionView::of).toList(),
+                ProductBasicAnalysisService.analyze(s.products), s.analysisStartedAt, MaterialProcessing.generationResult(s),s.regenerationRetryAt,s.titlePools.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(java.util.Map.Entry::getKey,e->new TitlePoolView(List.copyOf(e.getValue().customTitles),List.copyOf(e.getValue().cardTitles)))),s.publishRecovery,s.groupingDecision);
     }
+    public record TitlePoolView(List<String> customTitles,List<String> cardTitles) {}
     public record AdditionView(String id,String productId,String type,String description,String status,
                                String createdAt,String materialId,String error) {
         static AdditionView of(CreationState.GenerationAddition r){return new AdditionView(r.id,r.productId,r.type,r.description,r.status,r.createdAt,r.materialId,r.error);}
@@ -38,12 +46,12 @@ public record CreationView(
             String status, String error, String previewUrl, String posterUrl,
             String engineMaterialId, List<String> titles, List<String> imageUrls,
             String generationRequestId,String generationDescription,JsonNode creativeProfile,String creativeProfileStatus,
-            String deliverySource,String deliveryMode,String deliveryFamilyId,String typographyStatus) {
-        static MaterialView of(CreationState.Material m) {
+            String deliverySource,String deliveryMode,String deliveryFamilyId,String typographyStatus, MaterialProcessing processing,String displayName) {
+        static MaterialView of(CreationState.Material m,String displayName) {
             return new MaterialView(m.id, m.productId, m.type, m.title, m.text, m.status, m.error,
                     m.previewUrl, m.posterUrl, m.engineMaterialId, List.copyOf(m.titles),
                     List.copyOf(m.imageUrls),m.generationRequestId,m.generationDescription,m.creativeProfile,m.creativeProfileStatus,
-                    m.deliverySource,m.deliveryMode,m.deliveryFamilyId,m.typographyStatus);
+                    m.deliverySource,m.deliveryMode,m.deliveryFamilyId,m.typographyStatus,m.processing==null?MaterialProcessing.legacy(m):m.processing,displayName);
         }
     }
 }

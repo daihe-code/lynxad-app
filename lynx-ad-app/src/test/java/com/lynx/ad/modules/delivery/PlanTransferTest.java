@@ -81,7 +81,7 @@ class PlanTransferTest {
         assertEquals(0,new BigDecimal(roi).compareTo(settings.path("roi2_goal").decimalValue()));
     }
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"300,0","300,100.01","300,0.001","1000000000,4.7","300.001,4.7"})
+    @org.junit.jupiter.params.provider.CsvSource({"300,0","300,10000.01","300,0.001","1000000000,4.7","300.001,4.7"})
     void invalidPrdRangesCannotPauseOrCreate(String budget,String roi) {
         assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest("prd-range","111","SMART_BID_CUSTOM",new BigDecimal(budget),new BigDecimal(roi))));
         assertTrue(calls.isEmpty());verifyNoInteractions(gateway);

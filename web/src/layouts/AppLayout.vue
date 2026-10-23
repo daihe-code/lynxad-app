@@ -157,10 +157,10 @@ function onLogout() {
 :is(.create-shell, .asset-shell, .account-shell) { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif; }
 .reference-header .topbar { height: 60px; padding: 0; box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif; }
 .reference-header .left { flex: 1; }
-.reference-header .topbar-inner { box-sizing: border-box; position: relative; display: flex; align-items: center; width: 100%; max-width: 1128px; height: 100%; margin: auto; padding: 0 24px; }
+.reference-header .topbar-inner { box-sizing: border-box; position: relative; display: flex; align-items: center; width: 100%; max-width: none; height: 100%; margin: auto; padding: 0 24px; }
 .reference-header .brand { display: flex; align-items: center; white-space: nowrap; gap: 8px; font-size: 17px; font-weight: 600; letter-spacing: -.025em; color: #1a1b2e; }
 .reference-header .brand svg { display: block; flex-shrink: 0; width: 23.3px; height: 16.8px; color: #575cf6; }
-.reference-header :deep(.el-menu) { position: absolute; left: 50%; transform: translateX(-50%); height: auto; --el-menu-horizontal-height: 31px; --el-menu-active-color: #575cf6; --el-menu-hover-bg-color: #f7f8fe; gap: 4px; }
+.reference-header :deep(.el-menu) { position: absolute; left: 50%; transform: translateX(-50%); height: auto; background: transparent; --el-menu-bg-color: transparent; --el-menu-horizontal-height: 31px; --el-menu-active-color: #575cf6; --el-menu-hover-bg-color: #f7f8fe; gap: 4px; }
 .reference-header :deep(.el-menu-item) { height: 31px; padding: 8px 12px; font-size: 15px; font-weight: 500; line-height: 1; border-bottom: 0; border-radius: 8px; color: #2b2e45; }
 .reference-header :deep(.el-menu-item.is-active) { color: #4348db; font-weight: 500; background: transparent; }
 .reference-header .right { gap: 12px; font-size: 12px; }

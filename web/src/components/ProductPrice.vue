@@ -1,6 +1,6 @@
 <template>
   <span class="product-price">
-    <span :title="productPriceHint(priceInfo)">{{ productPriceText(priceInfo, price) }}</span>
+    <span :title="`${productPriceText(priceInfo, price)} · ${productPriceHint(priceInfo)}`">{{ productPriceText(priceInfo, price) }}</span>
     <small v-if="priceInfo?.stale" class="price-stale">上次价格</small>
     <small v-if="userPrice != null" class="calculation-price" title="已保存的测算价格，平台价格刷新时保留">测算 ¥{{ userPrice.toFixed(2) }}</small>
   </span>

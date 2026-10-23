@@ -12,4 +12,7 @@ public interface UserRepository {
     Optional<User> findByPhone(PhoneNumber phone);
 
     Optional<User> findById(UserId id);
+
+    /** Requires a transaction; holds the user row until the transaction finishes. */
+    Optional<User> findByIdForUpdate(UserId id);
 }

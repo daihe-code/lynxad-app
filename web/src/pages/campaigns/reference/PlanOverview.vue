@@ -34,6 +34,7 @@
                 </div>
                 <div class="ovstate__ops">
                   <router-link
+                    v-if="!['PENDING_AUDIT','SUBMITTING'].includes(plan.status)"
                     class="btn-res"
                     :to="`/campaigns/manage/create?copy=${plan.planId}`"
                     >重建一条计划</router-link
@@ -42,6 +43,7 @@
                   >
                 </div>
               </div>
+              <PlanReviewNotice :plan="plan" @updated="plan = $event" />
               <div
                 v-if="['pending', 'reviewing', 'passed'].includes(tone)"
                 class="ovsec"
@@ -234,6 +236,7 @@ import {
 } from "./planPresentation";
 import ReferenceIcon from "./ReferenceIcon.vue";
 import CreationFrame from "./CreationFrame.vue";
+import PlanReviewNotice from '../components/PlanReviewNotice.vue';
 import "./campaign-overview.css";
 const { plan, shop, actions, report, metrics, hasData, loading, failed, load } =
   usePlanPresentation();
@@ -316,7 +319,7 @@ const cards = computed(() => [
 ]);
 let timer: number | undefined;
 async function refresh() {
-  await load();
+  await load(true);
 }
 onMounted(() => {
   timer = window.setInterval(() => {
@@ -325,7 +328,7 @@ onMounted(() => {
       !terminal.value &&
       !loading.value
     )
-      void refresh();
+      void load();
   }, 60000);
 });
 onUnmounted(() => clearInterval(timer));

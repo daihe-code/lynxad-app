@@ -53,6 +53,9 @@ public class QianchuanRestClient {
             return exchangeOnce(spec, type);
         } catch (BizException ex) {
             if (!shouldReplay(spec, ex)) {
+                // A platform 401 is not the user's LynxAd login session.
+                if (Qianchuan401ReplayCodes.isAuthExpired(ex))
+                    throw new BizException(1211, "千川授权已失效，请在账户管理中重新授权");
                 throw ex;
             }
             replayInterceptor.getObject().refreshOnce(new AccountId(spec.replayAccountId()));

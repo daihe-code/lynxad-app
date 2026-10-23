@@ -41,6 +41,7 @@ public class AssetSyncWorker {
     public void process(AssetUploadRepository.Sync sync) {
         active.put(sync.id(),sync);
         Path temp=null;
+        boolean dispatched=false;
         try {
             if(!repository.approved(sync.tenantId(),sync.assetId())) {
                 repository.fail(sync,"WAITING_REVIEW","AI 审核尚未通过，等待审核结果",0);
@@ -62,20 +63,22 @@ public class AssetSyncWorker {
                 if(asset.md5()!=null&&!asset.md5().equalsIgnoreCase(signature))throw new BizException(1520,"引擎 OSS 内容与登记校验信息不一致");
                 repository.engineSignature(tenant.value(),asset.id(),signature);
             }
+            if(!repository.dispatched(sync,credential.advertiserId().value(),signature))return;
+            dispatched=true;
             var result=upload.upload(credential,AssetKind.valueOf(asset.kind()),temp,asset.filename(),asset.contentType(),signature,asset.isAigc());
             repository.finish(sync,credential.advertiserId().value(),result.objectId(),result.materialId(),result.requestId());
         } catch (BizException ex) {
             String status;
             if (ex.code()==1211 || ex.code()==1201 || ex.code()==1205 || Qianchuan401ReplayCodes.isAuthExpired(ex)) status="WAITING_AUTH";
-            else if (ex.code()==1523) status="UNCERTAIN";
+            else if (ex.code()==1523 || dispatched && ex.code()!=1511 && ex.code()!=429) status="UNCERTAIN";
             else if (ex.code()==1524) status="PAUSED";
             else if (ex.code()==429 && sync.attempts()<3) status="QUEUED";
             else status="FAILED";
             // Do not persist upstream raw messages which could echo sensitive request fields.
-            String error=switch(status) { case "WAITING_AUTH" -> "授权信息不可用，请等待授权模块更新或重新授权后重试"; case "UNCERTAIN" -> "千川上传结果待确认，请核对平台后重试"; case "PAUSED" -> "本地模拟模式未调用千川，切换真实模式后重试"; case "QUEUED" -> "千川限流，稍后自动重试"; default -> "千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 " + ex.code() + "）"; };
+            String error=switch(status) { case "WAITING_AUTH" -> "授权信息不可用，请等待授权模块更新或重新授权后重试"; case "UNCERTAIN" -> "千川上传结果待确认，请核查上传结果，不会重复上传"; case "PAUSED" -> "本地模拟模式未调用千川，切换真实模式后重试"; case "QUEUED" -> "千川限流，稍后自动重试"; default -> "千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 " + ex.code() + "）"; };
             repository.fail(sync,status,error,Math.min(300,15 << Math.min(sync.attempts(),4)));
-        } catch (Exception ex) { repository.fail(sync,"FAILED","文件读取或同步任务失败，请重试",0); }
-        finally { AssetUploadService.remove(temp); active.remove(sync.id()); }
+        } catch (Exception ex) { repository.fail(sync,dispatched?"UNCERTAIN":"FAILED",dispatched?"上传已发送，本地回执未确认，请核查，不会重复上传":"文件读取失败，尚未发送千川上传请求，可重试",0); }
+        finally { AssetUploadService.remove(temp); active.remove(sync.id(),sync); }
     }
     @Scheduled(fixedDelayString="${lynx.ad.asset-sync.heartbeat-ms:30000}")
     public void heartbeat() { active.values().forEach(repository::heartbeat); }

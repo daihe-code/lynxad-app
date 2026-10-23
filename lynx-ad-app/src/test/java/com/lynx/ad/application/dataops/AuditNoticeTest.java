@@ -11,16 +11,13 @@ import com.lynx.ad.modules.delivery.domain.model.PlanName;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.domain.port.AdListPort;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
-import com.lynx.ad.modules.tenant.application.InboxCommandService;
-import com.lynx.ad.modules.tenant.domain.model.BizRef;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AuditNoticeTest {
-    @Test void approvalPostsOneNoticeWithTheActualPlanNameAndId() {
+    @Test void pollRecordsApprovalOnceWithoutAnIndependentNotificationWrite() {
         var repository = mock(AdPlanRepository.class);
         var commands = mock(PlanCommandService.class);
-        var inbox = mock(InboxCommandService.class);
         var properties = new LynxAdProperties();
         properties.getMock().setQianchuan(true);
         properties.getMock().setAutoAudit("PASS");
@@ -29,11 +26,10 @@ class AuditNoticeTest {
         when(plan.tenantId()).thenReturn(new TenantId("notice-owner"));
         when(plan.name()).thenReturn(new PlanName("烘焙投放计划"));
         when(repository.findPendingAudit()).thenReturn(List.of(plan), List.of());
-        var job = new AuditPollJob(repository, commands, properties, inbox,
+        var job = new AuditPollJob(repository, commands, properties,
                 mock(AdListPort.class), mock(QianchuanCredentialFacade.class));
         job.pollPendingAudits(); job.pollPendingAudits();
         verify(commands).markAudit(plan.tenantId(), plan.id(), AuditVerdict.PASS, null);
-        verify(inbox).post(eq(plan.tenantId()), eq("计划审核通过"), contains("烘焙投放计划"), eq(new BizRef("AUDIT_PASS", "notice-plan")));
-        verifyNoMoreInteractions(inbox);
+        verifyNoMoreInteractions(commands);
     }
 }

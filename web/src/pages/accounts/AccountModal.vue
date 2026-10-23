@@ -2,7 +2,7 @@
   <div class="modal" role="dialog" aria-modal="true" :aria-labelledby="titleId" @keydown="onKey">
     <div class="modal__mask" @click="close" />
     <div ref="box" class="modal__box" :class="small ? 'modal__box--sm' : expanded ? 'modal__box--detail' : 'modal__box--md'" tabindex="-1">
-      <div class="modal__head"><h2 :id="titleId" class="modal__title">{{ title }}</h2><button class="modal__close" type="button" aria-label="关闭" :disabled="busy" @click="close"><AccountIcon name="close" /></button></div>
+      <div class="modal__head"><h2 :id="titleId" class="modal__title"><slot name="title">{{ title }}</slot></h2><button class="modal__close" type="button" aria-label="关闭" :disabled="busy" @click="close"><AccountIcon name="close" /></button></div>
       <p v-if="description" class="modal__desc">{{ description }}</p>
       <div v-if="$slots.default" class="mt-[24px]" :class="{ 'modal__body--scroll': expanded }"><slot /></div>
       <div class="modal__foot"><slot name="footer"><button class="btn-modal-ghost" :disabled="busy" @click="close">取消</button></slot></div>

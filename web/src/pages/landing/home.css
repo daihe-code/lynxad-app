@@ -1814,3 +1814,10 @@ details[open] .faq-icon:after {
 #top, #features, #industries, #pricing, #faq, #cta { scroll-margin-top: 72px; }
 /* Keep the decorative background behind the banner content and above the page. */
 #cta { isolation: isolate; }
+
+header .container-page{max-width:none;padding-left:24px;padding-right:24px}header .nav-link{background:transparent}header .nav-link:focus-visible{outline:2px solid #575cf6;outline-offset:4px}
+.hero-assurances{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:44px;text-align:center}
+.hero-assurances dt{font-size:20px;font-weight:700;line-height:1.4;color:rgb(var(--c-primary))}
+.hero-assurances dd{margin-top:6px;font-size:12px;line-height:1.7;color:rgb(var(--c-text-3))}
+@media(min-width:1024px) and (max-width:1279px){.hero-assurances dt{font-size:18px}}
+@media(max-width:639px){.hero-assurances{grid-template-columns:1fr;gap:18px;margin-top:32px}.hero-assurances dt{font-size:18px}}

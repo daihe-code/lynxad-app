@@ -100,9 +100,7 @@ class AccountLegalProfileIT extends AbstractContainerIT {
     @Test void memberReadsTenantContactsAndFullReviewHistorySurvivesResubmission() throws Exception {
         var owner=TenantAuthSupport.onboard(mvc,json,"13900008906","共享企业资料");
         var pending=call("PUT",ROOT+"/company",company("共享企业资料",CREDIT),owner.token()).path("data");
-        TenantAuthSupport.smsLogin(mvc,json,"13900008907");
-        String userId=jdbc.queryForObject("SELECT id FROM sys_user WHERE phone='13900008907'",String.class);
-        jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role) VALUES(?,?,'MEMBER')",owner.tenantId(),userId);
+        assertEquals(0,call("POST","/api/v1/tenant/members/invite","{\"phone\":\"13900008907\"}",owner.token()).path("code").asInt());
         String member=TenantAuthSupport.smsLogin(mvc,json,"13900008907");
         var shared=call("GET",ROOT+"/legal-profile",null,member).path("data");
         assertEquals("测试联系人",shared.path("nickname").asText());

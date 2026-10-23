@@ -1,5 +1,7 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lynx.ad.common.domain.Ids.*;
@@ -47,7 +49,7 @@ public class PlanTransferService {
         if(current.qcPlanId().isEmpty() || !editable(current.status()))reason="仅已发布且投放中或暂停的计划支持转投";
         else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，请在千川后台转投";
         Attempt a=g==null||g.requestKey()==null?null:store.attempt(tenant,g.requestKey()).orElse(null);
-        if(g!=null&&g.requestKey()!=null)reason="转投正在处理或结果待核查";
+        if(g!=null&&g.requestKey()!=null)reason=g.requestKey().startsWith("settings:")?"计划修改正在处理或结果待核查，请先核查修改结果":"转投正在处理或结果待核查";
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
                 (target==null?current:target).setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
                 target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:a.error());
@@ -294,9 +296,6 @@ public class PlanTransferService {
         if(r==null || r.requestKey()==null || !r.requestKey().matches("[a-zA-Z0-9_-]{8,64}") || r.expectedQcPlanId()==null || r.expectedQcPlanId().isBlank())throw new BizException(1402,"转投参数不完整");
         if(r.existingOnly())return;
         if(!Set.of("SMART_BID_CUSTOM","SMART_BID_CONSERVATIVE").contains(r.smartBidType()==null?"":r.smartBidType()))throw new BizException(1402,"转投参数不完整");
-        if("SMART_BID_CUSTOM".equals(r.smartBidType()) && r.budget()!=null && r.budget().compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1402,"控成本日预算不能低于 300 元（含 300 元）");
-        if(r.budget()==null || r.budget().scale()>2 || r.budget().signum()<=0 || r.budget().compareTo(new BigDecimal("999999999.99"))>0)throw new BizException(1402,"日预算须大于0且不超过999999999.99元，最多两位小数");
-        if(r.smartBidType().endsWith("CUSTOM") && (r.roi2Goal()==null || r.roi2Goal().scale()>2 || r.roi2Goal().compareTo(new BigDecimal("0.01"))<0 || r.roi2Goal().compareTo(new BigDecimal("100"))>0))throw new BizException(1402,"控成本投放ROI须为0.01–100，最多两位小数");
-        if(r.smartBidType().endsWith("CONSERVATIVE") && r.roi2Goal()!=null)throw new BizException(1402,"放量投放不设置固定ROI目标");
+        DeliveryInputPolicy.settings(DeliveryInputPolicy.mode(r.smartBidType()),r.budget(),r.roi2Goal(),DeliveryInputPolicy.RULES.creation());
     }
 }

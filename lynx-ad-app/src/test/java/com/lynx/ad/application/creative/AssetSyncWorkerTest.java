@@ -20,7 +20,7 @@ class AssetSyncWorkerTest {
     private final QianchuanCredentialFacade credentials=mock(QianchuanCredentialFacade.class);
     private final AssetUploadPort upload=mock(AssetUploadPort.class);
     private final AssetSyncWorker worker=new AssetSyncWorker(repository,files,credentials,upload);
-    @BeforeEach void approved() { when(repository.approved(anyString(),anyString())).thenReturn(true); }
+    @BeforeEach void approved() { when(repository.approved(anyString(),anyString())).thenReturn(true); when(repository.dispatched(any(),anyString(),anyString())).thenReturn(true); }
     @AfterEach void stop() { worker.stop(); }
     private AssetUploadRepository.Sync sync(String account) { return new AssetUploadRepository.Sync(account,"tenant-a","asset",account,null,"QUEUED",null,null,null,"UNKNOWN",0,Instant.now(),null,null); }
     @Test void expiredCredentialWaitsForAuthorizationWithoutDownloadingOrRefreshing() {
@@ -66,5 +66,20 @@ class AssetSyncWorkerTest {
         worker.process(sync("account"));
         verify(repository).fail(any(),eq("WAITING_REVIEW"),anyString(),eq(0));
         verifyNoInteractions(files,credentials,upload);
+    }
+    @Test void successfulUploadWithFailedLocalReceiptRemainsUncertain() throws Exception {
+        var now=Instant.now();var asset=new AssetUploadRepository.Asset("asset","tenant-a","user","request","IMAGE","test.jpg","image/jpeg",4,"object-key","STORED","local",null,null,AssetReceiptLookupTest.HASH,false,1,1,null,null,null,now,now);
+        when(repository.require("tenant-a","asset")).thenReturn(asset);when(files.download(any(),eq(asset))).thenReturn(Path.of("missing-test-file"));
+        when(credentials.getUsableCredential(any(),any())).thenReturn(new Credential("test-token",new AdvertiserId("11")));
+        when(upload.upload(any(),any(),any(),any(),any(),any(),anyBoolean())).thenReturn(new AssetUploadPort.Result("file-id","11","request"));
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException("local commit unavailable")).when(repository).finish(any(),any(),any(),any(),any());
+        worker.process(sync("account"));verify(repository).fail(any(),eq("UNCERTAIN"),anyString(),eq(0));verify(upload,times(1)).upload(any(),any(),any(),any(),any(),any(),anyBoolean());
+        verify(repository,never()).retry(any(),any(),any(),anyBoolean());
+    }
+    @Test void lostAttemptOwnershipStopsBeforeMultipartRequest() throws Exception {
+        var now=Instant.now();var asset=new AssetUploadRepository.Asset("asset","tenant-a","user","request","IMAGE","test.jpg","image/jpeg",4,"object-key","STORED","local",null,null,AssetReceiptLookupTest.HASH,false,1,1,null,null,null,now,now);
+        when(repository.require("tenant-a","asset")).thenReturn(asset);when(files.download(any(),eq(asset))).thenReturn(Path.of("missing-test-file"));
+        when(credentials.getUsableCredential(any(),any())).thenReturn(new Credential("test-token",new AdvertiserId("11")));when(repository.dispatched(any(),anyString(),anyString())).thenReturn(false);
+        worker.process(sync("account"));verify(upload,never()).upload(any(),any(),any(),any(),any(),any(),anyBoolean());verify(repository,never()).finish(any(),any(),any(),any(),any());
     }
 }

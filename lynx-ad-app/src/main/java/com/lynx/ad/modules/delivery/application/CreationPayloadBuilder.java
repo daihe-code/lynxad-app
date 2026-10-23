@@ -1,5 +1,7 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
 import com.lynx.ad.common.domain.Ids.TenantId;
@@ -22,16 +24,11 @@ public class CreationPayloadBuilder {
     private final CreationQianchuanGateway gateway;
     public CreationPayloadBuilder(ObjectMapper json,AssetUploadService assets,CarouselPlatformService carousels,CreationQianchuanGateway gateway){this.json=json;this.assets=assets;this.carousels=carousels;this.gateway=gateway;}
     public static void settings(CreationState s) {
-        if(s.smartBidType==null||!Set.of("CUSTOM","CONSERVATIVE").contains(s.smartBidType))throw new BizException(1402,"请选择控成本或放量投放");
-        if("CUSTOM".equals(s.smartBidType) && s.budget!=null && s.budget.compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1402,"控成本日预算不能低于 300 元（含 300 元）");
-        if(s.budget==null || s.budget.signum()<=0 || s.budget.compareTo(new BigDecimal("999999999.99"))>0 || s.budget.stripTrailingZeros().scale()>2)throw new BizException(1402,"日预算须大于 0、不超过 999999999.99 元且最多两位小数");
-        if("CUSTOM".equals(s.smartBidType)&&(s.roi2Goal==null||s.roi2Goal.compareTo(new BigDecimal("0.01"))<0||s.roi2Goal.compareTo(new BigDecimal("100"))>0||s.roi2Goal.stripTrailingZeros().scale()>2))throw new BizException(1402,"净成交 ROI 目标须在 0.01–100 之间且最多两位小数");
-        if(s.scheduleType==null||!Set.of("FROM_NOW","DATE_RANGE").contains(s.scheduleType))throw new BizException(1402,"投放日期类型不合法");
-        if("DATE_RANGE".equals(s.scheduleType))try{
-            var start=LocalDate.parse(s.startDate);var end=LocalDate.parse(s.endDate);var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
-            if(start.isBefore(today)||end.isBefore(start))throw new IllegalArgumentException();
-        }catch(Exception e){throw new BizException(1402,"开始日期不得早于今天，结束日期不得早于开始日期");}
-        if(s.name==null||s.name.isBlank()||s.name.length()>30)throw new BizException(1402,"计划名称须为 1–30 字");
+        var mode=DeliveryInputPolicy.mode(s.smartBidType);
+        DeliveryInputPolicy.budget(s.budget,mode,DeliveryInputPolicy.RULES.creation());
+        if(mode==SmartBidType.CUSTOM)DeliveryInputPolicy.roi(s.roi2Goal,DeliveryInputPolicy.RULES.creation());
+        DeliveryInputPolicy.schedule(s.scheduleType,s.startDate,s.endDate);
+        DeliveryInputPolicy.name(s.name);
     }
     public AssetUploadService.Detail approved(CreationState s,String id,String kind) {
         if(id==null||id.isBlank())throw new BizException(1503,"商品素材尚未补齐");
@@ -45,28 +42,40 @@ public class CreationPayloadBuilder {
         return a.syncs().stream().filter(x->s.accountId.equals(x.accountId())&&"UPLOADED".equals(x.status())&&!"REJECTED".equals(x.reviewStatus())&&x.objectId()!=null&&!x.objectId().isBlank()).findFirst().orElseThrow(()->new BizException(1503,"素材尚未同步所选千川账户或已被平台拒绝"));
     }
     public void materialReady(CreationState s,CreationState.Material m) {
-        approved(s,m.textAssetId,"TEXT");
+        var pool=s.titlePools.get(m.productId);
+        var copy=pool==null?m.titles:"IMAGE".equals(m.type)?pool.cardTitles:pool.customTitles;
+        if(copy.isEmpty())copy=m.titles;
+        String textId=pool==null?null:"IMAGE".equals(m.type)?pool.cardTextAssetId:pool.customTextAssetId;
+        try {DeliveryInputPolicy.titles(copy,false);}
+        catch(BizException invalid){throw new BizException(1520,invalid.getMessage());}
+        approved(s,textId==null?m.textAssetId:textId,"TEXT");
         switch(m.type) {
             case "VIDEO" -> {uploaded(s,m.videoAssetId,"VIDEO");uploaded(s,m.coverAssetId,"IMAGE");}
-            case "IMAGE" -> {if(m.imageAssetIds.isEmpty())throw new BizException(1503,"图片素材未补齐");for(String id:m.imageAssetIds)uploaded(s,id,"IMAGE");}
+            case "IMAGE" -> {if(m.imageAssetIds.isEmpty())throw new BizException(1503,"图片素材未补齐");for(String id:m.imageAssetIds){cardImage(approved(s,id,"IMAGE"));uploaded(s,id,"IMAGE");}}
             case "CAROUSEL" -> {if(m.carouselId==null)throw new BizException(1503,"图文尚未组装");carousels.ensure(new TenantId(s.tenantId),m.carouselId,s.accountId);}
             default -> throw new BizException(1503,"不支持的投放素材类型");
         }
-        if(m.titles.isEmpty()||m.titles.stream().anyMatch(x->x==null||x.isBlank()||x.length()>55||platformLength(x)<10||platformLength(x)>110))
-            throw new BizException(1503,"素材标题须满足千川的 10–110 字符要求（汉字按 2 个字符计算，最多 55 字）");
+    }
+    /** A library image can be stored successfully without being eligible for a square product card. */
+    public static void cardImage(AssetUploadService.Detail image) {
+        if(image.width()==null||image.height()==null||image.width()<=0||image.height()<=0)
+            throw new BizException(1520,"商品卡图片缺少可核验的尺寸，请在素材中心补齐文件信息");
+        if(!image.width().equals(image.height()))throw new BizException(1520,"商品卡图片须为 1:1 方图，请裁切为方图或选择其他图片");
     }
     public ObjectNode build(CreationState s) {
         settings(s);
-        if(!"SUCCEEDED".equals(s.analysisStatus))throw new BizException(1503,"请先完成本次选品分析");
+        var mode=DeliveryInputPolicy.mode(s.smartBidType);
+        var basic=com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService.analyze(s.products);
+        if(!basic.canContinue())throw new BizException(1503,"商品基础检查未通过，请处理不可投商品后再发布");
         if(s.confirmedVersion==null||s.confirmedVersion!=s.packageVersion)throw new BizException(1503,"素材包已变更，请重新确认当前版本");
         var tenant=new TenantId(s.tenantId);var c=gateway.credential(tenant,s.accountId,s.awemeId);
         var root=json.createObjectNode();root.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));
-        root.put("aweme_id",CreationQianchuanGateway.numericId(s.awemeId));root.put("name",s.name);root.put("marketing_goal","VIDEO_PROM_GOODS");
+        root.put("aweme_id",CreationQianchuanGateway.numericId(s.awemeId));root.put("name",DeliveryInputPolicy.name(s.name));root.put("marketing_goal","VIDEO_PROM_GOODS");
         var ids=root.putArray("product_ids");s.products.forEach(p->ids.add(CreationQianchuanGateway.numericId(p.qcProductId())));
-        var setting=root.putObject("delivery_setting");setting.put("smart_bid_type",com.lynx.ad.modules.delivery.domain.model.SmartBidType.valueOf(s.smartBidType).oceanValue());setting.put("budget",s.budget);
+        var setting=root.putObject("delivery_setting");setting.put("smart_bid_type",mode.oceanValue());setting.put("budget",s.budget);
         setting.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
-        if("CUSTOM".equals(s.smartBidType))setting.put("roi2_goal",s.roi2Goal);
-        else if(s.recommendations!=null)for(var estimate:s.recommendations.path("budget").path("estimate_trans_cost_list")) {
+        if(mode==SmartBidType.CUSTOM)setting.put("roi2_goal",s.roi2Goal);
+        else if(recommendationMatches(s))for(var estimate:s.recommendations.path("budget").path("estimate_trans_cost_list")) {
             if(!estimate.path("budget").isNumber()||estimate.path("budget").decimalValue().compareTo(s.budget)!=0)continue;
             copyEstimate(setting,estimate,"min_estimate_convert","min_estimate_convert");copyEstimate(setting,estimate,"estimate_convert","estimate_convert");
             copyEstimate(setting,estimate,"estimate_roi","estimate_roi_goal");copyEstimate(setting,estimate,"min_estimate_roi","min_estimate_roi_goal");break;
@@ -79,8 +88,10 @@ public class CreationPayloadBuilder {
             if(materials.isEmpty())throw new BizException(1503,"商品尚无投放素材："+product.name());
             var creative=list.addObject();creative.put("product_id",CreationQianchuanGateway.numericId(product.qcProductId()));creative.put("hide_in_aweme",s.hideInAweme);
             var titles=new LinkedHashSet<String>();String cardImageId=null,cardTitle=null;
+            var pool=s.titlePools.get(product.qcProductId());
+            if(pool!=null){titles.addAll(pool.customTitles);titles.addAll(pool.cardTitles);if(!pool.cardTitles.isEmpty())cardTitle=pool.cardTitles.getFirst();}
             for(var m:materials) {
-                materialReady(s,m);m.titles.stream().map(String::strip).forEach(titles::add);
+                materialReady(s,m);if(pool==null||("IMAGE".equals(m.type)?pool.cardTitles:pool.customTitles).isEmpty())m.titles.stream().map(DeliveryInputPolicy::text).forEach(titles::add);
                 if("VIDEO".equals(m.type)) {
                     var v=creative.has("video_material")?(ArrayNode)creative.get("video_material"):creative.putArray("video_material");
                     v.addObject().put("image_mode",m.imageMode==null?"VIDEO_VERTICAL":m.imageMode).put("video_id",uploaded(s,m.videoAssetId,"VIDEO").objectId()).put("video_cover_id",uploaded(s,m.coverAssetId,"IMAGE").objectId());
@@ -90,7 +101,7 @@ public class CreationPayloadBuilder {
                     for(String id:m.imageAssetIds) {
                         String imageId=uploaded(s,id,"IMAGE").objectId();
                         images.addObject().put("image_mode","SQUARE").putArray("image_ids").add(imageId);
-                        if(cardImageId==null){cardImageId=imageId;cardTitle=m.titles.getFirst().strip();}
+                        if(cardImageId==null){cardImageId=imageId;if(cardTitle==null)cardTitle=DeliveryInputPolicy.text(m.titles.getFirst());}
                     }
                 }else {
                     var cards=creative.has("carousel_material")?(ArrayNode)creative.get("carousel_material"):creative.putArray("carousel_material");
@@ -124,6 +135,13 @@ public class CreationPayloadBuilder {
         }
         return root;
     }
+    private static boolean recommendationMatches(CreationState s) {
+        if(s.recommendations==null)return false;
+        // Old snapshots do not prove an account/selection binding; do not send their quote fields.
+        if(!s.accountId.equals(s.recommendations.path("accountId").asText())||!s.awemeId.equals(s.recommendations.path("awemeId").asText()))return false;
+        var ids=new HashSet<String>();s.recommendations.path("productIds").forEach(id->ids.add(id.asText()));
+        return ids.equals(new HashSet<>(s.products.stream().map(CreationState.Product::qcProductId).toList()));
+    }
     /** Bind one generated visual only; no changes to product membership or delivery settings. */
     public ObjectNode optimizationMaterial(CreationState s,CreationState.Material m){
         materialReady(s,m);var node=json.createObjectNode();node.put("product_id",CreationQianchuanGateway.numericId(m.productId));
@@ -134,7 +152,7 @@ public class CreationPayloadBuilder {
         node.putArray("title_material").addObject().put("title",m.titles.getFirst()).put("title_type","IMAGE".equals(m.type)?"COMMODITY_CARD":"CUSTOM");return node;
     }
     private static int platformLength(String text) {
-        return text.codePoints().map(c->Character.UnicodeScript.of(c)==Character.UnicodeScript.HAN?2:1).sum();
+        return DeliveryInputPolicy.platformLength(text);
     }
     private static void copyEstimate(ObjectNode target,JsonNode row,String from,String to) {
         if(row.path(from).isNumber()&&row.path(from).decimalValue().signum()>=0)target.set(to,row.get(from));

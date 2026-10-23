@@ -109,7 +109,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -462,7 +462,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -820,7 +820,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg
@@ -873,9 +873,9 @@
                   </svg>
                 </span>
               </span>
-              <h2 class="result-head__title" id="result-title">授权成功！</h2>
+              <h2 class="result-head__title" id="result-title">账户已连接</h2>
               <p class="result-head__desc">
-                灵投已获得您的广告投放授权，后续将开启智能广告投放
+                账户连接已完成。授权不会立即启动广告投放，实际可用能力以平台授权为准。
               </p>
             </header>
 
@@ -1166,7 +1166,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              10秒完成授权
+              按步骤完成授权
             </li>
             <li class="pill">
               <svg

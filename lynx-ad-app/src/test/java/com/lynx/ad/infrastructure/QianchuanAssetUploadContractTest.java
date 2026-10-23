@@ -50,4 +50,11 @@ class QianchuanAssetUploadContractTest {
         assertEquals(1211,assertThrows(BizException.class,()->adapter.upload(credential,AssetKind.IMAGE,file,"file.jpg","image/jpeg","md5",false)).code());
         assertEquals(2,calls.get());
     }
+    @Test void missingBusinessCodeIsAnUnknownReceiptRatherThanAProvenRejection()throws Exception {
+        var response=new AtomicReference<>("{\"message\":\"gateway incomplete\",\"data\":{\"id\":\"maybe-committed\"}}");var calls=new AtomicInteger();
+        server=HttpServer.create(new InetSocketAddress(0),0);server.createContext("/upload",ex->{calls.incrementAndGet();ex.getRequestBody().readAllBytes();var bytes=response.get().getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();});server.start();
+        Path file=dir.resolve("file.jpg");Files.writeString(file,"bytes");var adapter=adapter();var c=new Credential("test-token",new AdvertiserId("123"));
+        for(String body:java.util.List.of("{\"message\":\"incomplete\"}","{\"code\":null}","{\"code\":-1}","{\"code\":\"0\"}")){response.set(body);assertEquals(1523,assertThrows(BizException.class,()->adapter.upload(c,AssetKind.IMAGE,file,"file.jpg","image/jpeg","md5",false)).code());}
+        assertEquals(4,calls.get());response.set("{\"code\":40000,\"message\":\"explicit rejection\"}");assertEquals(1511,assertThrows(BizException.class,()->adapter.upload(c,AssetKind.IMAGE,file,"file.jpg","image/jpeg","md5",false)).code());assertEquals(5,calls.get());
+    }
 }

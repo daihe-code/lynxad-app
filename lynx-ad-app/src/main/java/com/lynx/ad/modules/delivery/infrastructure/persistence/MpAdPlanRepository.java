@@ -110,6 +110,10 @@ public class MpAdPlanRepository implements AdPlanRepository {
 
     private final AdPlanMapper mapper;
     private final AdPlanCreativeBindingStore bindingStore;
+    private PlanReviewStore reviews;
+    @org.springframework.beans.factory.annotation.Autowired public void reviewStore(PlanReviewStore value){reviews=value;}
+    private PlanAuditNoticeStore auditNotices;
+    @org.springframework.beans.factory.annotation.Autowired public void auditNoticeStore(PlanAuditNoticeStore value){auditNotices=value;}
 
     public MpAdPlanRepository(AdPlanMapper mapper, AdPlanCreativeBindingStore bindingStore) {
         this.mapper = mapper;
@@ -117,9 +121,12 @@ public class MpAdPlanRepository implements AdPlanRepository {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public void save(AdPlan plan) {
-        AdPlanPo po = mapper.selectById(plan.id().value());
+        AdPlanPo po = mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getId,plan.id().value()).last("FOR UPDATE"));
         boolean insert = po == null;
+        String previousStatus=po==null?null:po.getStatus(),previousQc=po==null?null:po.getQcPlanId();
+        boolean newReview=insert || !"PENDING_AUDIT".equals(po.getStatus()) || !java.util.Objects.equals(po.getQcPlanId(),plan.qcPlanId().map(QcPlanId::value).orElse(null));
         if (insert) {
             po = new AdPlanPo();
             po.setId(plan.id().value());
@@ -150,8 +157,10 @@ public class MpAdPlanRepository implements AdPlanRepository {
             var update = new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getId, po.getId())
                     .eq(AdPlanPo::getTenantId, po.getTenantId());
             if (plan.status() != PlanStatus.DELETED) update.ne(AdPlanPo::getStatus, PlanStatus.DELETED.name());
-            mapper.update(po, update);
+            if(mapper.update(po, update)==0)return;
         }
+        if(auditNotices!=null)auditNotices.saved(plan,previousStatus,previousQc);
+        if(reviews!=null)reviews.saved(plan,newReview);
     }
 
     @Override

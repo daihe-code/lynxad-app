@@ -1,5 +1,7 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+
 import com.fasterxml.jackson.databind.*;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
@@ -10,6 +12,7 @@ import com.lynx.ad.modules.billing.domain.model.WriteAction;
 import com.lynx.ad.modules.creative.application.*;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.domain.model.*;
+import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.*;
@@ -24,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class CreationWorkflowService {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(CreationWorkflowService.class);
     private final CreationStore store;
     private final AdPlanRepository plans;
     private final AdPlanCreativeBindingStore bindings;
@@ -36,10 +40,21 @@ public class CreationWorkflowService {
     private final CreationPayloadBuilder payloads;
     private final BillingTrialService billing;
     private final TransactionTemplate tx;
+    private final CreationMaterialProcessing materialProcessing;
+    private final CreationRegeneration regeneration;
     private PlanTransferStore transfers;
     private MaterialCreativeContextService creativeContexts;
+    private AssetSyncReconciliationService assetReconciliation;
+    private GenerationResultNotice generationNotices;
+    @org.springframework.beans.factory.annotation.Autowired public void generationNotices(GenerationResultNotice value){generationNotices=value;}
+    private com.lynx.ad.modules.identity.application.AuthorizationCapabilityService authorizationCapabilities;
+    @org.springframework.beans.factory.annotation.Autowired public void authorizationCapabilities(com.lynx.ad.modules.identity.application.AuthorizationCapabilityService value){authorizationCapabilities=value;}
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore draftProducts;
+    @org.springframework.beans.factory.annotation.Autowired public void draftProducts(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore value){draftProducts=value;}
+    @org.springframework.beans.factory.annotation.Autowired public void assetReconciliation(AssetSyncReconciliationService value){assetReconciliation=value;}
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(MaterialCreativeContextService value){creativeContexts=value;}
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(PlanTransferStore value){transfers=value;}
+    @org.springframework.beans.factory.annotation.Autowired public void carouselPlatform(CarouselPlatformService value){materialProcessing.carouselPlatform(value);}
     /** Products, titles and media have one canonical state for both physical mode plans. */
     private String sharedId(TenantId tenant,String id,boolean write) {
         if(id==null || id.isBlank() || transfers==null)return id;
@@ -54,7 +69,7 @@ public class CreationWorkflowService {
     public CreationWorkflowService(CreationStore store,AdPlanRepository plans,AdPlanCreativeBindingStore bindings,
             CreationQianchuanGateway qc,CreationEngineClient engine,ObjectMapper json,CreationAssetImporter importer,
             AssetUploadService assets,CarouselService carousels,CreationPayloadBuilder payloads,BillingTrialService billing,PlatformTransactionManager manager) {
-        this.store=store;this.plans=plans;this.bindings=bindings;this.qc=qc;this.engine=engine;this.json=json;this.importer=importer;this.assets=assets;this.carousels=carousels;this.payloads=payloads;this.billing=billing;this.tx=new TransactionTemplate(manager);
+        this.store=store;this.plans=plans;this.bindings=bindings;this.qc=qc;this.engine=engine;this.json=json;this.importer=importer;this.assets=assets;this.carousels=carousels;this.payloads=payloads;this.billing=billing;this.tx=new TransactionTemplate(manager);this.materialProcessing=new CreationMaterialProcessing(assets,carousels);this.regeneration=new CreationRegeneration(store,engine);
     }
     public record Selection(String planId,Integer revision,String accountId,String awemeId,List<String> productIds) {}
     public record Goal(int revision,String name,String smartBidType,BigDecimal budget,BigDecimal roi2Goal,String scheduleType,String startDate,String endDate) {}
@@ -84,11 +99,12 @@ public class CreationWorkflowService {
         s=reconcileGenerationOnRead(s);
         s=refreshGeneratedFiles(tenant,s);
         s.products=new ArrayList<>(currentProductPrices(tenant,s));
+        var assetDetails=materialProcessing.hydrate(tenant,s);
         for(var m:s.materials) {
-            m.previewUrl=previewUrl(tenant,m.videoAssetId!=null?m.videoAssetId:m.audioAssetId);
-            m.posterUrl=previewUrl(tenant,m.coverAssetId);
+            m.previewUrl=previewUrl(tenant,m.videoAssetId!=null?m.videoAssetId:m.audioAssetId,assetDetails);
+            m.posterUrl=previewUrl(tenant,m.coverAssetId,assetDetails);
             m.imageUrls=new ArrayList<>();
-            for(String ref:m.imageAssetIds){String url=previewUrl(tenant,ref);if(url!=null&&!url.isBlank())m.imageUrls.add(url);}
+            for(String ref:m.imageAssetIds){String url=previewUrl(tenant,ref,assetDetails);if(url!=null&&!url.isBlank())m.imageUrls.add(url);}
             if(m.posterUrl==null&&!m.imageUrls.isEmpty())m.posterUrl=m.imageUrls.getFirst();
             // Signed engine download URLs are never returned to the browser.
             m.sourceUrls.clear();m.importedAssets.clear();
@@ -110,6 +126,12 @@ public class CreationWorkflowService {
             process(s);
             return store.get(s.tenantId,s.planId);
         }catch(BizException unavailable){return store.get(s.tenantId,s.planId);}
+        catch(RuntimeException unavailable){
+            // The failed outcome/notice transaction has already rolled back. Optional
+            // reconciliation must not prevent reading the durable plan and previews.
+            log.warn("Generation reconciliation failed while reading plan {}; returning saved state",s.planId,unavailable);
+            return store.get(s.tenantId,s.planId);
+        }
         finally{store.release(s);}
     }
     private CreationState refreshGeneratedFiles(TenantId tenant,CreationState snapshot) {
@@ -153,9 +175,9 @@ public class CreationWorkflowService {
         return importer.reference(tenant,new UserId(state.userId),state.planId+":"+material.id+":"+component,
                 material.engineJobId,material.engineMaterialId,component,kind,"CAROUSEL".equals(material.type)?null:state.accountId,"CAROUSEL".equals(material.type));
     }
-    private String previewUrl(TenantId tenant,String asset) {
+    private String previewUrl(TenantId tenant,String asset,Map<String,AssetUploadService.Detail> cache) {
         if(asset==null)return null;
-        try{return assets.detail(tenant,asset).url();}catch(BizException ignored){return null;}
+        try{var detail=cache.computeIfAbsent(asset,id->assets.detail(tenant,id));return detail==null?null:detail.url();}catch(BizException ignored){return null;}
     }
     private List<CreationState.Product> currentProductPrices(TenantId tenant,CreationState state) {
         if(qc==null || state.products.isEmpty())return state.products;
@@ -164,28 +186,36 @@ public class CreationWorkflowService {
             // A metadata refresh must never change the saved product membership.
             if(next!=null && next.stream().map(CreationState.Product::qcProductId).toList().equals(ids(state)))return next;
         }catch(BizException unavailable){/* Saved plans remain readable after authorization expires. */}
-        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId())).toList();
+        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId(),p.draft(),p.sales())).toList();
     }
     public CreationState select(TenantId tenant,Selection requested) {
         var request=new Selection(sharedId(tenant,requested.planId,true),requested.revision,requested.accountId,requested.awemeId,requested.productIds);
         writable(tenant,WriteAction.SAVE_PLAN);
         var selected=qc.selected(tenant,request.accountId,request.awemeId,request.productIds);
-        if(request.planId==null||request.planId.isBlank())return tx.execute(status->{
-            var setting=new DeliverySetting(SmartBidType.CUSTOM,Money.zero(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty());
-            String name=LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_商品全域投放_HH:mm:ss"))+"_"+UUID.randomUUID().toString().substring(0,3);
-            var plan=AdPlan.draft(tenant,new AccountId(request.accountId),new AwemeId(request.awemeId),new PlanName(name),setting,request.productIds.stream().map(QcProductId::new).toList());
-            plans.save(plan);bindProducts(plan);
-            var s=new CreationState();s.planId=plan.id().value();s.tenantId=tenant.value();s.userId=TenantContext.userId().value();
-            s.accountId=request.accountId;s.awemeId=request.awemeId;s.name=name;s.products=new ArrayList<>(selected);store.insert(s);return s;
-        });
-        return store.mutate(tenant.value(),request.planId,request.revision,s->{
-            editable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
-            var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
-            if(!previous.equals(next)) {
-                s.analysisStatus="NONE";s.analysis=null;s.enginePlanId=null;s.engineJobId=null;s.groups=null;s.recommendations=null;
-                s.generationStatus="NONE";s.progress=0;s.generationStage=null;s.generationCounts.clear();s.generationIssues.clear();s.materials.clear();s.removedMaterialIds.clear();s.mediaChanged();s.step=1;
+        return tx.execute(status->{
+            if(draftProducts!=null)draftProducts.assertAvailable(tenant.value(),request.accountId,request.productIds,request.planId);
+            if(request.planId==null||request.planId.isBlank()) {
+                var setting=new DeliverySetting(SmartBidType.CUSTOM,Money.zero(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty());
+                String name=LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_商品全域投放_HH:mm:ss"))+"_"+UUID.randomUUID().toString().substring(0,3);
+                var plan=AdPlan.draft(tenant,new AccountId(request.accountId),new AwemeId(request.awemeId),new PlanName(name),setting,request.productIds.stream().map(QcProductId::new).toList());
+                plans.save(plan);bindProducts(plan);
+                var s=new CreationState();s.planId=plan.id().value();s.tenantId=tenant.value();s.userId=TenantContext.userId().value();
+                s.accountId=request.accountId;s.awemeId=request.awemeId;s.name=name;s.products=new ArrayList<>(selected);
+                s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);store.insert(s);return s;
             }
-            s.products=new ArrayList<>(selected);var p=plan(s);p.replaceProducts(request.productIds.stream().map(QcProductId::new).toList());plans.save(p);bindProducts(p);
+            return store.mutate(tenant.value(),request.planId,request.revision,s->{
+                editable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
+                var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
+                if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
+                    s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
+                }
+                if(!previous.equals(next)) {
+                    s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.enginePlanId=null;s.engineJobId=null;s.groups=null;s.recommendations=null;
+                    s.generationStatus="NONE";s.generationRetry=null;s.progress=0;s.generationStage=null;s.generationCounts.clear();s.generationIssues.clear();s.materials.clear();s.titlePools.clear();s.removedMaterialIds.clear();s.budget=null;s.roi2Goal=null;s.mediaChanged();s.step=1;
+                }
+                s.products=new ArrayList<>(selected);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
+                var p=plan(s);p.replaceProducts(request.productIds.stream().map(QcProductId::new).toList());plans.save(p);bindProducts(p);
+            });
         });
     }
     public CreationState analyze(TenantId tenant,String requestedId,Version v) {
@@ -196,7 +226,16 @@ public class CreationWorkflowService {
         writable(tenant,WriteAction.SAVE_PLAN);
         var snapshot=store.get(tenant.value(),id);
         var currentProducts=currentProductPrices(tenant,snapshot);
-        return store.mutate(tenant.value(),id,v.revision,s->{editable(s);s.products=new ArrayList<>(currentProducts);s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;s.changed();});
+        return store.mutate(tenant.value(),id,v.revision,s->{
+            editable(s);
+            boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
+            s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
+            if(changed){s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(!s.basicAnalysis.canContinue())return;
+            if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
+            s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;
+            s.analysisRequestId=UUID.randomUUID().toString();s.analysisStartedAt=System.currentTimeMillis();s.changed();
+        });
     }
     public CreationState recommendations(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,true);
@@ -207,9 +246,9 @@ public class CreationWorkflowService {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         return store.mutate(tenant.value(),id,g.revision,s->{
-            editable(s);if(!"SUCCEEDED".equals(s.analysisStatus))throw new BizException(1403,"请先完成商品分析");
+            editable(s);requireBasicAnalysis(s);
             if(g.smartBidType==null||!Set.of("CUSTOM","CONSERVATIVE","SMART_BID_CUSTOM","SMART_BID_CONSERVATIVE").contains(g.smartBidType))throw new BizException(1402,"请选择有效的投放方式");
-            s.name=g.name==null?"":g.name.trim();s.smartBidType=SmartBidType.fromOcean(g.smartBidType).name();s.budget=g.budget;
+            s.name=DeliveryInputPolicy.text(g.name);s.smartBidType=SmartBidType.fromOcean(g.smartBidType).name();s.budget=g.budget;
             s.roi2Goal="CUSTOM".equals(s.smartBidType)?g.roi2Goal:null;s.scheduleType=g.scheduleType;s.startDate=g.startDate;s.endDate=g.endDate;
             CreationPayloadBuilder.settings(s);
             var p=plan(s);var name=new PlanName(s.name);
@@ -225,7 +264,8 @@ public class CreationWorkflowService {
         if(request.step==null||request.step<1||request.step>3)throw new BizException(1402,"草稿编辑步骤须为 1–3");
         return store.mutate(tenant.value(),id,request.revision,s->{
             if(s.qcPlanId!=null||!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
-            if(request.step>=2&&!"SUCCEEDED".equals(s.analysisStatus))throw new BizException(1403,"请先完成商品分析");
+            if(request.step>=2)requireBasicAnalysis(s);
+            if(request.step==2 && s.step==1)confirmAnalysisSnapshot(s);
             if(request.step==3&&s.step!=3)CreationPayloadBuilder.settings(s);
             // Navigation changes no creative content and must preserve an already confirmed package.
             if(s.step!=request.step){s.step=request.step;s.revision++;}
@@ -243,11 +283,12 @@ public class CreationWorkflowService {
     public CreationState generate(TenantId tenant,String requestedId,Generate g) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         return store.mutate(tenant.value(),id,g.revision,s->{
             editable(s);CreationPayloadBuilder.settings(s);
-            if(!"SUCCEEDED".equals(s.analysisStatus))throw new BizException(1403,"请先完成商品分析");
+            requireBasicAnalysis(s);
             if(g.productIds==null||g.productIds.isEmpty()||!ids(s).containsAll(g.productIds))throw new BizException(1503,"请选择当前计划中的商品生成素材");
-            s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
+            s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
             s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
         });
     }
@@ -264,9 +305,10 @@ public class CreationWorkflowService {
                 if(!Objects.equals(r.productId,request.productId)||!r.type.equals(request.type)||!r.description.equals(description))throw new BizException(1404,"同一请求ID不能用于不同的生成要求");
                 return;
             }
+            if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,s.accountId);
             if(s.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
             editable(s);CreationPayloadBuilder.settings(s);
-            if(!"SUCCEEDED".equals(s.analysisStatus)||s.enginePlanId==null)throw new BizException(1403,"请先完成商品分析");
+            requireBasicAnalysis(s);
             var product=s.products.stream().filter(p->Objects.equals(p.qcProductId(),request.productId)).findFirst().orElseThrow(()->new BizException(1503,"商品不属于当前计划"));
             if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材");
             if(s.materials.size()>=100)throw new BizException(1503,"每个计划最多使用100个素材");
@@ -278,9 +320,42 @@ public class CreationWorkflowService {
             body.put("existing_materials",s.materials.stream().filter(m->request.productId.equals(m.productId)).map(m->{var previous=new LinkedHashMap<String,Object>();previous.put("product_id",m.productId);previous.put("material_id",m.engineMaterialId==null?m.id:m.engineMaterialId);previous.put("material_type",additionTarget(m.type));previous.put("title",m.title==null?"":m.title);if(m.creativeProfile!=null)previous.put("creative_profile",m.creativeProfile);previous.put("copy_excerpt",m.text==null?"":m.text.substring(0,Math.min(500,m.text.length())));return previous;}).toList());
             for(int n=s.materials.size()-1;n>=0;n--){var m=s.materials.get(n);if(request.productId.equals(m.productId)&&m.engineJobId!=null&&m.groupId!=null){body.put("job_id",m.engineJobId);body.put("group_id",m.groupId);break;}}
             var r=new CreationState.GenerationAddition();r.id=request.requestId;r.productId=request.productId;r.type=request.type;r.description=description;r.status="QUEUED";r.createdAt=Instant.now().toString();r.engineRequest=json.valueToTree(body);
-            s.generationAdditions.add(r);s.pendingAdditionId=r.id;s.generationProductIds=new ArrayList<>(List.of(r.productId));s.generationStatus="QUEUED";s.generationMessage="等待生成新增素材";s.generationStage="queued";s.progress=0;
+            s.regeneration=null;s.generationAdditions.add(r);s.pendingAdditionId=r.id;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.generationProductIds=new ArrayList<>(List.of(r.productId));s.generationStatus="QUEUED";s.generationMessage="等待生成新增素材";s.generationStage="queued";s.progress=0;
             s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,0,1)));s.generationIssues.clear();s.resetGenerationReconciliation();s.revision++;
         });
+    }
+    public record RetryGeneration(int revision,String type) {}
+    public CreationState retryGeneration(TenantId tenant,String requestedId,RetryGeneration request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        if(!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(request.type,"")))throw new BizException(1503,"请选择重试的素材类型");
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
+        var reserved=store.mutate(tenant.value(),id,request.revision,s->{
+            editable(s);
+            if(s.engineJobId==null||s.enginePlanId==null||s.generationCounts.stream().noneMatch(c->c.type().equals(request.type)&&c.failed()>0))throw new BizException(1503,"当前类型没有已确认的失败生成项");
+            var retry=new CreationState.GenerationRetry();retry.requestId=UUID.randomUUID().toString();retry.type=request.type;retry.status="SENDING";s.generationRetry=retry;
+            s.generationStatus="UNCERTAIN";s.generationMessage="正在提交失败项重试，成功素材已保留";s.changed();
+        });
+        try {
+            var response=engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(reserved.engineJobId)+"/retry-failed",Map.of("store_id",reserved.tenantId,"ai_plan_task_id",reserved.enginePlanId,"type",request.type,"request_id",reserved.generationRetry.requestId));
+            acceptGenerationRetry(reserved,response);
+        }catch(BizException error){
+            if(error.code()!=8003)store.mutate(reserved.tenantId,id,null,s->{s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage=error.getMessage();});
+        }
+        return get(tenant,id);
+    }
+    private void acceptGenerationRetry(CreationState snapshot,JsonNode receipt) {
+        var retry=snapshot.generationRetry;
+        if(receipt==null||!snapshot.engineJobId.equals(receipt.path("job_id").asText())||!snapshot.tenantId.equals(receipt.path("store_id").asText())||!retry.type.equals(receipt.path("type").asText())||!retry.requestId.equals(receipt.path("request_id").asText()))return;
+        String status=receipt.path("status").asText();
+        store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
+            if(s.generationRetry==null||!retry.requestId.equals(s.generationRetry.requestId))return;
+            if("ACCEPTED".equals(status)){s.generationRetry.status="ACCEPTED";s.regeneration=null;s.pendingRegenerationId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.generationStatus="RUNNING";s.generationMessage="失败项重试已提交，成功素材已保留";s.resetGenerationReconciliation();}
+            else if("FAILED".equals(status)){s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage="失败项未能提交，请核对原任务与失败原因";}
+        });
+    }
+    public CreationState keepProductGroup(TenantId tenant,String requestedId,Version request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        return store.mutate(tenant.value(),id,request.revision,s->{editable(s);requireBasicAnalysis(s);if(!"KEEP_CURRENT".equals(s.groupingDecision)){s.groupingDecision="KEEP_CURRENT";s.revision++;}});
     }
     private static String additionTarget(String type){return switch(type){case "VIDEO"->"video";case "IMAGE"->"product_card";case "CAROUSEL"->"image_text";default->throw new BizException(1503,"不支持的素材类型");};}
     private static CreationState.GenerationAddition additionRecord(CreationState s,String id){return s.generationAdditions.stream().filter(r->r.id.equals(id)).findFirst().orElseThrow(()->new BizException(1503,"新增素材任务不存在"));}
@@ -291,12 +366,12 @@ public class CreationWorkflowService {
         if(!ids(initial).contains(request.productId))throw new BizException(1503,"素材对应商品不属于当前计划");
         var m=new CreationState.Material();m.id=UUID.randomUUID().toString();m.productId=request.productId;m.type=request.type;
         m.videoAssetId=request.videoAssetId;m.coverAssetId=request.coverAssetId;m.imageAssetIds=request.imageAssetIds==null?new ArrayList<>():new ArrayList<>(request.imageAssetIds);
-        m.carouselId=request.carouselId;m.titles=request.titles==null?new ArrayList<>():request.titles.stream().filter(Objects::nonNull).map(String::trim).filter(x->!x.isEmpty()).distinct().toList();
-        if(m.titles.isEmpty()||m.titles.size()>29||m.titles.stream().anyMatch(x->x.length()>55))throw new BizException(1503,"请填写 1–29 条自定义标题，每条最多 55 字");
+        m.carouselId=request.carouselId;m.titles=request.titles==null?new ArrayList<>():request.titles.stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isEmpty()).distinct().toList();
+        DeliveryInputPolicy.titles(m.titles,true);
         m.title=m.titles.getFirst();
         List<String> targetAssets=new ArrayList<>();
         if("VIDEO".equals(m.type)){requireKind(tenant,m.videoAssetId,"VIDEO");requireKind(tenant,m.coverAssetId,"IMAGE");targetAssets.addAll(List.of(m.videoAssetId,m.coverAssetId));}
-        else if("IMAGE".equals(m.type)){if(m.imageAssetIds.isEmpty())throw new BizException(1503,"请选择图片");for(String a:m.imageAssetIds){requireKind(tenant,a,"IMAGE");targetAssets.add(a);}}
+        else if("IMAGE".equals(m.type)){if(m.imageAssetIds.isEmpty())throw new BizException(1503,"请选择图片");for(String a:m.imageAssetIds){requireKind(tenant,a,"IMAGE");CreationPayloadBuilder.cardImage(assets.detail(tenant,a));targetAssets.add(a);}}
         else if("CAROUSEL".equals(m.type)){var b=carousels.detail(tenant,m.carouselId);if(!Set.of("APPROVED","NOT_REQUIRED").contains(b.aiReview().status()))throw new BizException(1503,"图文质检未通过或引擎图文尚未就绪");m.imageAssetIds=b.parts().stream().filter(p->p.role().equals("IMAGE")).map(p->p.asset().id()).toList();m.audioAssetId=b.parts().stream().filter(p->p.role().equals("AUDIO")).findFirst().orElseThrow().asset().id();targetAssets.addAll(b.parts().stream().filter(p->!p.role().equals("TEXT")).map(p->p.asset().id()).toList());}
         else throw new BizException(1503,"不支持的素材类型");
         for(String a:targetAssets)assets.ensureTarget(tenant,a,initial.accountId);
@@ -317,22 +392,118 @@ public class CreationWorkflowService {
     public CreationState titles(TenantId tenant,String requestedId,String material,Titles request) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var s=store.get(tenant.value(),id);editable(s);find(s,material);
-        var titles=request.titles==null?List.<String>of():request.titles.stream().filter(Objects::nonNull).map(String::trim).filter(x->!x.isBlank()).distinct().toList();
-        if(titles.isEmpty()||titles.size()>29||titles.stream().anyMatch(x->x.length()>55))throw new BizException(1503,"自定义标题须为 1–29 条，每条最多 55 字");
+        var titles=request.titles==null?List.<String>of():request.titles.stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isBlank()).distinct().toList();
+        DeliveryInputPolicy.titles(titles,true);
         String key=id+":"+material+":titles:"+hash(String.join("\n",titles));
         String text=importer.ingest(tenant,new UserId(s.userId),key,String.join("\n",titles),"TEXT",null,false);
         return store.mutate(tenant.value(),id,request.revision,state->{editable(state);var m=find(state,material);m.titles=new ArrayList<>(titles);m.title=titles.getFirst();m.textAssetId=text;m.status="PROCESSING";m.error=null;state.mediaChanged();});
+    }
+    public record ProductTitles(int revision,String kind,List<String> titles) {}
+    /** Ad copy belongs to a product pool; editing it never reuploads or regenerates visual files. */
+    public CreationState productTitles(TenantId tenant,String requestedId,String product,ProductTitles request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        var s=store.get(tenant.value(),id);editable(s);
+        if(s.revision!=request.revision)throw new BizException(1404,"草稿版本已变化，请刷新后修改标题");
+        if(s.products.stream().noneMatch(p->p.qcProductId().equals(product)))throw new BizException(1503,"商品不属于当前草稿");
+        if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
+        var titles=request.titles==null?List.<String>of():request.titles.stream().map(DeliveryInputPolicy::text).toList();
+        DeliveryInputPolicy.titles(titles,true);
+        if(new HashSet<>(titles).size()!=titles.size())throw new BizException(1503,"同一标题集合不能包含重复文案");
+        var pool=s.titlePools.get(product);
+        if(pool==null) {
+            pool=new CreationState.TitlePool();
+            for(var m:s.materials)if(product.equals(m.productId)) {
+                var target="IMAGE".equals(m.type)?pool.cardTitles:pool.customTitles;
+                for(String title:m.titles)if(!target.contains(title))target.add(title);
+            }
+        }
+        boolean card="CARD".equals(request.kind);
+        if((card?pool.cardTitles:pool.customTitles).equals(titles))return s;
+        var all=new HashSet<>(card?pool.customTitles:pool.cardTitles);all.addAll(titles);
+        if(all.size()>30)throw new BizException(1503,"每个商品最多使用30条不同标题");
+        String text=importer.ingest(tenant,new UserId(s.userId),id+":"+product+":"+request.kind+":titles:"+hash(String.join("\n",titles)),String.join("\n",titles),"TEXT",null,false);
+        var updated=pool;
+        return store.mutate(tenant.value(),id,request.revision,state->{
+            editable(state);
+            if(card){updated.cardTitles=new ArrayList<>(titles);updated.cardTextAssetId=text;}
+            else{updated.customTitles=new ArrayList<>(titles);updated.customTextAssetId=text;}
+            state.titlePools.put(product,updated);state.mediaChanged();
+        });
     }
     public CreationState recheck(TenantId tenant,String requestedId,String material,Version v) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         return store.mutate(tenant.value(),id,v.revision,s->{editable(s);var m=find(s,material);m.status="PROCESSING";m.error=null;s.mediaChanged();});
     }
+    /** Requeue only definite failed component uploads; never acknowledge an uncertain receipt or call generation. */
+    public record MaterialSyncVerification(String materialId,int revision,String state,String message,MaterialProcessing processing) {}
+    /** Read platform receipts only. In particular, do not call get(): it can import/generate on read. */
+    public MaterialSyncVerification verifyMaterialSync(TenantId tenant,String requestedId,String material,Version version) {
+        var initial=store.get(tenant.value(),sharedId(tenant,requestedId,false));
+        if(initial.revision!=version.revision)throw new BizException(1404,"草稿已更新，请读取当前草稿后再次核查");
+        var selected=find(initial,material);
+        var refs=new LinkedHashSet<String>(selected.importedAssets.values());
+        refs.add(selected.videoAssetId);refs.add(selected.coverAssetId);refs.add(selected.audioAssetId);refs.addAll(selected.imageAssetIds);
+        if(selected.carouselId!=null&&carousels!=null)for(var part:carousels.detail(tenant,selected.carouselId).parts())if(!"TEXT".equals(part.role()))refs.add(part.asset().id());
+        record Candidate(String asset,com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync sync) {}
+        var candidates=new ArrayList<Candidate>();
+        for(String ref:refs) {
+            if(ref==null||ref.isBlank())continue;
+            var detail=assets.detail(tenant,ref);if("TEXT".equals(detail.kind()))continue;
+            detail.syncs().stream().filter(s->initial.accountId.equals(s.accountId())&&"UNCERTAIN".equals(s.status())).findFirst().ifPresent(s->candidates.add(new Candidate(ref,s)));
+        }
+        // One bounded metadata request per action; cycle through components rather than scanning an account.
+        candidates.sort(Comparator.comparing(c->c.sync().verification()==null||c.sync().verification().checkedAt()==null?Instant.EPOCH:c.sync().verification().checkedAt()));
+        String state="NOT_REQUIRED",message="当前没有待确认的文件上传，本次没有上传或生成请求。";
+        if(!candidates.isEmpty()) {
+            var next=candidates.getFirst();
+            var result=assetReconciliation.reconcile(tenant,next.asset(),initial.accountId);
+            state=result.state();message=result.message();
+            if(candidates.size()>1)message+=" 本次核查一个文件组件，其他组件可继续核查。";
+        }
+        var progress=materialProcessing.inspect(initial,selected).progress();
+        if(candidates.isEmpty()&&progress.components().stream().anyMatch(c->"CAROUSEL".equals(c.component())&&"UNCERTAIN".equals(c.syncStatus()))) {
+            state="INCOMPLETE";message="文件组件已读取；图文组合创建缺少可核验的组合 ID，保留待确认状态，不会重复创建。";
+        }else if(candidates.isEmpty()&&Set.of("UNKNOWN","UNCERTAIN").contains(progress.syncStatus())) {
+            state="INCOMPLETE";message="现有上传记录缺少可核查的回执证据，已保留当前状态；本次不会上传、生成或创建图文。";
+        }
+        return new MaterialSyncVerification(material,initial.revision,state,message,progress);
+    }
+    public CreationState retryMaterialSync(TenantId tenant,String requestedId,String material,Version version) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        var initial=store.get(tenant.value(),id);
+        if(initial.revision!=version.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
+        editable(initial);
+        if(!store.claim(initial))throw new BizException(1403,"素材正在处理，请稍后核查状态");
+        CreationState reserved=null;
+        try {
+            var inspected=materialProcessing.inspect(initial,find(initial,material));
+            if("UNCERTAIN".equals(inspected.progress().syncStatus()))throw new BizException(1523,"千川上传结果待确认，请先核对平台上传记录，不会重复上传");
+            if(!inspected.progress().canRetrySync())throw new BizException(1503,inspected.progress().message()==null?"当前素材没有可重试的失败同步项":inspected.progress().message());
+            reserved=store.mutate(tenant.value(),id,version.revision,state->{
+                editable(state);var m=find(state,material);m.status="PROCESSING";m.error=null;m.failureStage=null;
+                if(m.generationRequestId!=null)state.generationAdditions.stream().filter(r->r.id.equals(m.generationRequestId)&&"FAILED".equals(r.status)).findFirst().ifPresent(r->{r.status="IMPORTING";r.error=null;state.pendingAdditionId=r.id;});
+                if(m.engineJobId!=null&&m.engineJobId.equals(state.engineJobId)) {
+                    state.generationStatus="IMPORTING";state.generationStage="syncing";state.generationMessage="产物已保留，正在重新同步失败组件";
+                }
+                state.mediaChanged();
+            });
+            for(String asset:inspected.retryAssets())assets.retry(tenant,asset,initial.accountId,false);
+            return reserved;
+        }catch(BizException failure) {
+            if(reserved!=null) {
+                int revision=reserved.revision;
+                store.mutate(tenant.value(),id,null,state->{if(state.revision==revision){var m=find(state,material);m.status="FAILED";m.failureStage="SYNC";m.error="同步重试未完成，请核查当前处理状态。已排队的组件不会重复提交。";}});
+            }
+            throw failure;
+        }finally{store.release(initial);}
+    }
     public CreationState repairTypography(TenantId tenant,String requestedId,String material,Version v) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         var s=store.get(tenant.value(),id);editable(s);
         if(s.revision!=v.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,s.accountId);
         var original=find(s,material);
         if(original.engineMaterialId==null||original.engineJobId==null||original.groupId==null||s.enginePlanId==null||!"READY".equals(original.status)
                 ||!Set.of("pending","core_only","complete").contains(Objects.toString(original.typographyStatus,""))
@@ -360,24 +531,27 @@ public class CreationWorkflowService {
         }
         return store.mutate(tenant.value(),id,v.revision,state->{
             editable(state);find(state,material);state.materials.add(next);state.engineJobId=original.engineJobId;
-            state.engineTerminalStatus="succeeded";state.pendingRegenerationId=original.id;state.resetGenerationReconciliation();
+            state.regeneration=null;state.engineTerminalStatus="succeeded";state.pendingRegenerationId=original.id;state.resetGenerationReconciliation();
             state.generationProductIds=new ArrayList<>(List.of(original.productId));state.generationStatus="IMPORTING";
             state.generationMessage="文字已处理，正在同步图片；原素材暂时保留";state.generationStage="syncing";state.progress=80;state.mediaChanged();
         });
     }
     public CreationState regenerate(TenantId tenant,String requestedId,String material,Feedback feedback) {
-        String id=sharedId(tenant,requestedId,true);
-        writable(tenant,WriteAction.SAVE_PLAN);var s=store.get(tenant.value(),id);editable(s);var m=find(s,material);
-        if(m.engineMaterialId==null||m.engineJobId==null)throw new BizException(1503,"该素材为本地上传，请重新上传替换；AI 素材可重新生成");
-        store.mutate(tenant.value(),id,feedback.revision,state->{recordFeedback(state,material,"regenerate",feedback);state.engineJobId=m.engineJobId;state.engineTerminalStatus=null;state.pendingRegenerationId=m.id;state.generationProductIds=new ArrayList<>(List.of(m.productId));state.generationStatus="REVISING";state.generationMessage="正在提交素材重新生成";state.progress=0;state.generationStage="queued";state.generationCounts.clear();state.generationIssues.clear();state.resetGenerationReconciliation();state.changed();});
-        try {
-            String target=switch(m.type){case "VIDEO"->"video";case "IMAGE"->"product_card";default->"image_text";};
-            var body=new LinkedHashMap<String,Object>();body.put("job_id",m.engineJobId);body.put("ai_plan_task_id",s.enginePlanId);body.put("store_id",s.tenantId);body.put("group_id",m.groupId);body.put("operation","regenerate");body.put("target",target);
-            String instruction=String.join("、",feedback.reasons==null?List.of():feedback.reasons)+" "+(feedback.description==null?"":feedback.description);
-            body.put("instruction",instruction.substring(0,Math.min(200,instruction.length())));
-            engine.post("/api/v1/capabilities/generation/materials/"+CreationEngineClient.query(m.engineMaterialId)+"/revisions",body);
-            return store.mutate(tenant.value(),id,null,state->{state.generationStatus="RUNNING";state.generationMessage="素材重新生成中，原素材暂时保留";});
-        }catch(BizException e){store.mutate(tenant.value(),id,null,state->{state.generationStatus=e.code()==8003?"REVISING":"FAILED";state.generationMessage=e.getMessage();});throw e;}
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
+        String instruction=com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.instruction(feedback.reasons,feedback.description);
+        var reserved=store.mutate(tenant.value(),id,feedback.revision,state->{
+            editable(state);var m=find(state,material);
+            if(m.engineMaterialId==null||m.engineJobId==null)throw new BizException(1503,"该素材为本地上传，请重新上传替换；AI 素材可重新生成");
+            if(state.enginePlanId==null||m.groupId==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(m.type,"")))throw new BizException(1503,"素材生成归属信息不完整，请先核查原任务");
+            com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.reserve(state,System.currentTimeMillis());
+            recordFeedback(state,material,"regenerate",feedback);
+            var r=new CreationState.Regeneration();r.requestId=UUID.randomUUID().toString();r.sourceId=m.id;r.parentId=m.engineMaterialId;r.jobId=m.engineJobId;r.planTaskId=state.enginePlanId;r.groupId=m.groupId;r.target=additionTarget(m.type);r.instruction=instruction;
+            state.regeneration=r;state.engineJobId=m.engineJobId;state.engineTerminalStatus=null;state.engineTerminalJobId=null;state.pendingRegenerationId=m.id;
+            state.generationProductIds=new ArrayList<>(List.of(m.productId));state.generationStatus="REVISING";state.generationMessage="正在提交本次素材修订，原素材已保留";state.progress=0;state.generationStage="queued";
+            state.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(m.type,0,1)));state.generationIssues.clear();state.resetGenerationReconciliation();state.changed();
+        });
+        return regeneration.submit(reserved);
     }
     public CreationState confirm(TenantId tenant,String requestedId,Version v) {
         String id=sharedId(tenant,requestedId,true);
@@ -393,12 +567,16 @@ public class CreationWorkflowService {
         var replay=store.attempt(tenant.value(),request.requestKey);
         if(replay.isPresent()) {if(!id.equals(replay.get().planId())||request.revision!=replay.get().revision())throw new BizException(1404,"发布标识已用于其他计划版本");return get(tenant,id);}
         var s=store.get(tenant.value(),id);if(s.publishKey!=null&&Set.of("QUEUED","SENDING","UNCERTAIN","CREATED").contains(s.publishStatus))return get(tenant,id);editable(s);qc.selected(tenant,s.accountId,s.awemeId,ids(s));
+        if(s.revision!=request.revision||s.packageVersion!=request.packageVersion)throw new BizException(1404,"素材版本已变化，请核对后发布");
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,s.accountId);
+        s.confirmedVersion=s.packageVersion;
         var body=payloads.build(s);String hash=hash(body.toString());
         return store.mutate(tenant.value(),id,request.revision,state->{
             if(state.publishKey!=null&&Set.of("QUEUED","SENDING","UNCERTAIN","CREATED").contains(state.publishStatus))return;
             editable(state);if(request.packageVersion!=state.packageVersion)throw new BizException(1404,"素材版本已变化");
+            state.confirmedVersion=state.packageVersion;
             store.attempt(new CreationStore.Attempt(UUID.randomUUID().toString(),state.tenantId,id,state.revision,request.requestKey,hash,body.toString(),"QUEUED",null,null));
-            state.publishKey=request.requestKey;state.publishStatus="QUEUED";state.publishError=null;state.step=4;
+            state.publishKey=request.requestKey;state.publishStatus="QUEUED";state.publishError=null;state.publishRecovery=null;state.step=4;
             var p=plan(state);p.apply(PlanStatus.SUBMITTING);plans.save(p);
         });
     }
@@ -410,12 +588,24 @@ public class CreationWorkflowService {
         tx.executeWithoutResult(status->{if(!plans.discardDraft(tenant,new PlanId(id)))throw new BizException(1403,"仅可丢弃未发布草稿");bindings.upsert(new PlanId(id),List.of());store.delete(tenant.value(),id);});
     }
     public void process(CreationState snapshot) {
+        if(snapshot.generationRetry!=null&&"SENDING".equals(snapshot.generationRetry.status)) {
+            var receipt=engine.find("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(snapshot.engineJobId)+"/retry-failed/"+CreationEngineClient.query(snapshot.generationRetry.requestId)+"?store_id="+CreationEngineClient.query(snapshot.tenantId));
+            acceptGenerationRetry(snapshot,receipt);return;
+        }
+        if("REVISING".equals(snapshot.generationStatus)) {
+            if(snapshot.regeneration==null) {
+                store.mutate(snapshot.tenantId,snapshot.planId,null,s->{if("REVISING".equals(s.generationStatus)&&s.regeneration==null){s.generationStatus="UNCERTAIN";s.generationMessage="历史重新生成缺少修订回执，请核查原任务；原素材已保留，不会重复提交";}});return;
+            }
+            if(!regeneration.refresh(snapshot))return;
+            process(store.get(snapshot.tenantId,snapshot.planId));return;
+        }
         if(snapshot.pendingAdditionId!=null) {
             var request=additionRecord(snapshot,snapshot.pendingAdditionId);
             if(Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","UNCERTAIN").contains(request.status)){processAddition(snapshot,request);return;}
         }
         var tenant=new TenantId(snapshot.tenantId);String id=snapshot.planId;
-        if(Set.of("SUBMITTING","REVISING","UNCERTAIN").contains(snapshot.generationStatus)) {
+        if(Set.of("SUBMITTING","UNCERTAIN").contains(snapshot.generationStatus)) {
+            if(snapshot.pendingRegenerationId!=null){store.mutate(snapshot.tenantId,id,null,s->{if("UNCERTAIN".equals(s.generationStatus))s.generationMessage="本次重新生成尚无可核验回执，原素材已保留，不会以旧任务代替新结果";});return;}
             if(snapshot.engineJobId!=null){store.mutate(snapshot.tenantId,id,null,s->s.generationStatus="RUNNING");return;}
             if(snapshot.enginePlanId==null)return;
             var remote=engine.get("/api/v1/plan-tasks/"+CreationEngineClient.query(snapshot.enginePlanId));
@@ -426,23 +616,24 @@ public class CreationWorkflowService {
             else store.mutate(snapshot.tenantId,id,null,s->{s.generationStatus="UNCERTAIN";s.generationMessage="引擎任务提交结果待确认，不会自动重复生成";});
             return;
         }
-        if(Set.of("QUEUED","RUNNING").contains(snapshot.analysisStatus)) {
-            store.mutate(snapshot.tenantId,id,null,s->s.analysisStatus="RUNNING");
-            try {
-                String enginePlan=snapshot.enginePlanId;
-                if(enginePlan==null) {
-                    var response=engine.post("/api/v1/plan-tasks",Map.of("platform","douyin","store_id",snapshot.tenantId,"account",Map.of("account_id",snapshot.accountId,"aweme_id",snapshot.awemeId),"operator",Map.of("user_id",snapshot.userId),"metadata",Map.of("lingtou_plan_id",id)));
-                    enginePlan=response.path("ai_plan_task_id").asText(response.path("id").asText());
-                    if(enginePlan.isBlank())throw new BizException(8002,"引擎未返回计划任务 ID");
-                    final String registered=enginePlan;store.mutate(snapshot.tenantId,id,null,s->s.enginePlanId=registered);
-                }
-                var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of("ai_plan_task_id",enginePlan,"store_id",snapshot.tenantId,"products",engineProducts(snapshot),"refresh",snapshot.analysisRefreshRequested));
-                if(!response.isObject()||!response.has("product_set"))throw new BizException(8002,"引擎未返回有效商品分析");
-                store.mutate(snapshot.tenantId,id,null,s->{if("RUNNING".equals(s.analysisStatus)){s.analysis=response;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}});
-            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("RUNNING".equals(s.analysisStatus)){s.analysisStatus="FAILED";s.analysisError=e.getMessage();}});}
+        // Analysis is advisory. Explicit generation and material imports take priority.
+        if(Set.of("QUEUED","RUNNING").contains(snapshot.analysisStatus)
+                &&Set.of("NONE","FAILED","SUCCEEDED","CANCELLED").contains(snapshot.generationStatus)
+                &&snapshot.materials.stream().noneMatch(m->"PROCESSING".equals(m.status))) {
+            processAnalysis(snapshot);
             return;
         }
         if("QUEUED".equals(snapshot.generationStatus)) {
+            if(snapshot.enginePlanId==null) {
+                CreationState registered;
+                try { registered=registerEnginePlan(snapshot); }
+                catch(BizException unavailable) {
+                    store.mutate(snapshot.tenantId,id,null,s->{if("QUEUED".equals(s.generationStatus)){s.generationStatus="FAILED";s.generationMessage="引擎任务初始化失败，尚未提交素材生成，可稍后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});
+                    return;
+                }
+                process(registered);
+                return;
+            }
             store.mutate(snapshot.tenantId,id,null,s->{s.generationStatus="SUBMITTING";s.generationMessage="正在提交引擎任务";});
             try {
                 var groupBody=new LinkedHashMap<String,Object>();groupBody.put("ai_plan_task_id",snapshot.enginePlanId);groupBody.put("store_id",snapshot.tenantId);groupBody.put("products",engineProducts(snapshot));groupBody.put("budget",snapshot.budget);if(snapshot.roi2Goal!=null)groupBody.put("roi",snapshot.roi2Goal);
@@ -456,7 +647,7 @@ public class CreationWorkflowService {
                 var job=engine.post("/api/v1/capabilities/generation/jobs",body);String jobId=job.path("job_id").asText(job.path("id").asText());
                 if(jobId.isBlank())throw new BizException(8003,"引擎未返回生成任务 ID，提交结果待确认");
                 store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.engineJobId=jobId;s.groups=groups;s.generationStatus="RUNNING";s.generationMessage="AI 引擎生成中";}});
-            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();}});}
+            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();if("FAILED".equals(s.generationStatus))s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});}
             return;
         }
         var current=store.get(snapshot.tenantId,id);
@@ -470,6 +661,10 @@ public class CreationWorkflowService {
             });
             var job=engine.get("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(polledJobId)+"?store_id="+CreationEngineClient.query(current.tenantId));
             if(!polledJobId.equals(job.path("job_id").asText()))throw new BizException(8002,"生成任务响应不匹配");
+            if(!CreationRegeneration.outputMatches(current,job)) {
+                String request=current.regeneration.requestId;
+                store.mutate(current.tenantId,id,null,s->{if(s.regeneration!=null&&request.equals(s.regeneration.requestId))s.generationMessage="正在等待本次修订的新素材记录，原素材已保留，不采用旧任务结果";});return;
+            }
             var ready=new ArrayList<CreationState.Material>();
             for(var group:job.path("groups")) {
                 String groupId=group.path("group_id").asText();int index;
@@ -490,6 +685,7 @@ public class CreationWorkflowService {
                     else {int n=0;for(var url:urls.path("image_urls"))m.sourceUrls.put("IMAGE_"+n++,url.asText());}
                     if("CAROUSEL".equals(m.type))m.sourceUrls.put("AUDIO",urls.path("voice_url").asText());
                     String parent=item.path("detail").path("parent_material_id").asText(null);m.replacesId=parent;
+                    if(current.regeneration!=null&&mid.equals(current.regeneration.resultMaterialId)&&Objects.equals(parent,current.regeneration.parentId))m.replacesId=current.regeneration.sourceId;
                     ready.add(m);
                 }
             }
@@ -500,8 +696,8 @@ public class CreationWorkflowService {
                 s.progress=Math.min(80,job.path("progress").path("percent").asInt(80));s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
                 updateGenerationSummary(s,job);
                 s.generationStage=job.path("progress").path("stage").asText("generation");
-                if(Set.of("succeeded","partial_failed","failed","cancelled").contains(status)){s.engineTerminalStatus=status;s.generationStatus="IMPORTING";s.generationStage="syncing";s.progress=80;}
-                else {s.engineTerminalStatus=null;s.generationStatus="RUNNING";s.resetGenerationReconciliation();}
+                if(Set.of("succeeded","partial_failed","failed","cancelled").contains(status)){s.engineTerminalStatus=status;s.engineTerminalJobId=polledJobId;s.generationStatus="IMPORTING";s.generationStage="syncing";s.progress=80;if(generationNotices!=null)generationNotices.generated(s);}
+                else {s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.generationStatus="RUNNING";s.resetGenerationReconciliation();}
             });
         }
         current=store.get(snapshot.tenantId,id);
@@ -523,6 +719,18 @@ public class CreationWorkflowService {
     }
     private void processAddition(CreationState snapshot,CreationState.GenerationAddition request) {
         String tenant=snapshot.tenantId,id=snapshot.planId,rid=request.id;
+        if(snapshot.enginePlanId==null) {
+            CreationState registered;
+            try {
+                var taskState=registerEnginePlan(snapshot);String task=taskState.enginePlanId;
+                registered=store.mutate(tenant,id,null,s->{
+                    var r=additionRecord(s,rid);
+                    ((com.fasterxml.jackson.databind.node.ObjectNode)r.engineRequest).put("ai_plan_task_id",task);
+                });
+            }catch(BizException unavailable){failAddition(tenant,id,rid,"引擎任务初始化失败，尚未提交新增素材生成，可稍后重试");return;}
+            processAddition(registered,additionRecord(registered,rid));
+            return;
+        }
         if(request.engineJobId==null) {
             boolean posted=false;
             try {
@@ -572,10 +780,12 @@ public class CreationWorkflowService {
                     if(s.materials.size()>=100)throw new BizException(1503,"素材数量已达上限");s.materials.add(m);s.mediaChanged();
                 }
                 r.status="IMPORTING";s.generationStatus="IMPORTING";s.generationStage="syncing";
+                s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,1,1)));
             }
             s.progress=outputs.isEmpty()?Math.min(80,job.path("progress").path("percent").asInt()):80;
             s.generationMessage=outputs.isEmpty()?job.path("progress").path("message").asText("新增素材生成中"):"新增素材已生成，正在同步千川";
         });
+        if(terminal)store.mutate(tenant,id,null,s->{if(Objects.equals(s.engineJobId,request.engineJobId)){s.engineTerminalStatus=job.path("status").asText();s.engineTerminalJobId=request.engineJobId;}});
         var current=store.get(tenant,id);String currentMaterialId=additionRecord(current,rid).materialId;
         var material=current.materials.stream().filter(m->Objects.equals(m.id,currentMaterialId)).findFirst().orElse(null);
         if(material!=null&&!Set.of("READY","FAILED").contains(material.status))processMaterial(current,material);
@@ -584,12 +794,12 @@ public class CreationWorkflowService {
         boolean ready=saved!=null&&"READY".equals(saved.status);
         if(terminal&&(saved==null||Set.of("READY","FAILED").contains(saved.status))) {
             if(ready&&"succeeded".equals(job.path("status").asText()))store.mutate(tenant,id,null,s->{var done=additionRecord(s,rid);done.status="SUCCEEDED";done.error=null;s.generationStatus="SUCCEEDED";s.generationMessage="新增素材已生成并同步千川";s.generationStage="finished";s.progress=100;s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(done.type,1,1)));});
-            else failAddition(tenant,id,rid,saved!=null&&saved.error!=null?saved.error:"本次新增素材未完成，原有素材已保留");
+            else failAddition(tenant,id,rid,saved!=null&&saved.error!=null?saved.error:GenerationIssueMapper.message(job.path("error"),"本次新增素材未完成，原有素材已保留"));
         }
     }
     private void failAddition(String tenant,String id,String rid,String error) {
         store.mutate(tenant,id,null,s->{var r=additionRecord(s,rid);r.status="FAILED";r.error=error;s.generationStatus="FAILED";s.generationMessage=error;s.generationStage="finished";
-            var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error)));});
+            var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error,r.type,r.materialId,"新增"+switch(r.type){case "VIDEO"->"视频";case "IMAGE"->"商品卡图片";default->"图文";},"addition:"+rid)));});
     }
     private static void updateGenerationSummary(CreationState s,JsonNode job) {
         s.generationCounts.clear();s.generationIssues.clear();
@@ -600,21 +810,8 @@ public class CreationWorkflowService {
             var expected=group.path("expected");
             // Planning failures can have no counts. Do not invent totals for those products.
             if(!expected.isObject()||expected.path("videos").asInt()+expected.path("product_cards").asInt()+expected.path("image_texts").asInt()==0)known=false;
-            boolean unfinishedGroup=Set.of("failed","partial_failed","cancelled").contains(job.path("status").asText())&&!"succeeded".equals(group.path("status").asText());
-            if(unfinishedGroup||Set.of("failed","partial_failed","cancelled").contains(group.path("status").asText())) {
-                try {
-                    int index=Integer.parseInt(group.path("group_id").asText().replace("group-",""))-1;
-                    if(index>=0&&index<s.products.size()) {
-                        var p=s.products.get(index);
-                        boolean hasResult=false;for(var m:group.path("materials"))if("v1".equals(m.path("version").asText())&&"succeeded".equals(m.path("status").asText()))hasResult=true;
-                        String detail=group.path("error").asText(job.path("error").asText(""));
-                        String message=hasResult?"部分创意版未完成，可继续使用已有素材":"尚未生成可用素材，请重试或从素材库补齐";
-                        if(!detail.isBlank())message+="："+detail;
-                        s.generationIssues.add(new CreationState.GenerationIssue(p.qcProductId(),p.name(),message));
-                    }
-                }catch(NumberFormatException ignored){}
-            }
         }
+        s.generationIssues.addAll(GenerationIssueMapper.from(s,job));
         for(String type:List.of("VIDEO","IMAGE","CAROUSEL")) {
             int completed=0,total=0;
             var families=new HashSet<String>();
@@ -625,7 +822,9 @@ public class CreationWorkflowService {
                     if(families.add(family))completed++;
                 }
             }
-            s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null));
+            boolean terminal=Set.of("failed","partial_failed").contains(job.path("status").asText());
+            int failed=known&&terminal?Math.max(0,total-completed):terminal?(int)s.generationIssues.stream().filter(i->type.equals(i.type())).count():0;
+            s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null,failed));
         }
     }
     private void processMaterial(CreationState s,CreationState.Material m) {
@@ -635,6 +834,7 @@ public class CreationWorkflowService {
     public CreationState.Material importOptimizationMaterial(CreationState s,CreationState.Material m){processMaterial(s,m,true);return m;}
     private void processMaterial(CreationState s,CreationState.Material m,boolean automatic) {
         var tenant=new TenantId(s.tenantId);
+        m.failureStage="REGISTRATION";m.failureCode=null;
         try {
             for(var entry:m.sourceUrls.entrySet())if(!m.importedAssets.containsKey(entry.getKey())) {
                 if(entry.getValue().isBlank())throw new BizException(1503,"生成结果缺少必要素材组件");
@@ -654,15 +854,17 @@ public class CreationWorkflowService {
             }
             var mediaId="VIDEO".equals(m.type)?m.videoAssetId:!m.imageAssetIds.isEmpty()?m.imageAssetIds.getFirst():null;
             if(mediaId!=null){var a=assets.detail(tenant,mediaId);m.imageMode="VIDEO".equals(m.type)?a.width()!=null&&a.height()!=null&&a.width()>a.height()?"VIDEO_LARGE":"VIDEO_VERTICAL":"SQUARE";}
-            try{payloads.materialReady(s,m);m.status="READY";m.error=null;}
-            catch(BizException e){m.status="PROCESSING";m.error=e.getMessage();
+            m.failureStage="VALIDATION";
+            try{payloads.materialReady(s,m);m.status="READY";m.error=null;m.failureStage=null;}
+            catch(BizException e){m.status="PROCESSING";m.error=e.getMessage();m.failureCode=e.code();
+                if(e.code()==1520)m.status="FAILED";
                 var refs=new ArrayList<>(m.imageAssetIds);if(m.videoAssetId!=null)refs.add(m.videoAssetId);if(m.coverAssetId!=null)refs.add(m.coverAssetId);if(m.audioAssetId!=null)refs.add(m.audioAssetId);if(m.textAssetId!=null)refs.add(m.textAssetId);
-                for(String ref:refs){var a=assets.detail(tenant,ref);if(a.aiReview()!=null&&Set.of("REJECTED","MANUAL_REVIEW","FAILED").contains(a.aiReview().status())){m.status="FAILED";m.error=a.aiReview().summary();}
+                for(String ref:refs){var a=assets.detail(tenant,ref);if(a.aiReview()!=null&&Set.of("REJECTED","MANUAL_REVIEW","FAILED").contains(a.aiReview().status())){m.status="FAILED";m.failureStage="REVIEW";m.error=a.aiReview().summary();}
                     var failedSync=a.syncs().stream().filter(x->s.accountId.equals(x.accountId())&&Set.of("FAILED","UNCERTAIN","PAUSED").contains(x.status())).findFirst();
-                    if(failedSync.isPresent()){m.status="FAILED";m.error=failedSync.get().errorMessage()==null?"千川同步未完成，请在素材中心查看并重试":failedSync.get().errorMessage();}}
-                if(Set.of(1523,1406).contains(e.code())){m.status="FAILED";m.error=e.getMessage();}
+                    if(failedSync.isPresent()){m.status="FAILED";m.failureStage="SYNC";m.error=failedSync.get().errorMessage()==null?"千川同步未完成，请在素材中心查看并重试":failedSync.get().errorMessage();}}
+                if(Set.of(1523,1406).contains(e.code())){m.status="FAILED";m.failureStage="SYNC";m.error=e.getMessage();}
             }
-        }catch(BizException e){m.status="FAILED";m.error=e.getMessage();}
+        }catch(BizException e){m.status="FAILED";m.error=e.getMessage();m.failureCode=e.code();}
         if("READY".equals(m.status)&&creativeContexts!=null)try{creativeContexts.record(s,m);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Material creative context registration pending: {}",m.id);}
         if(!automatic)store.mutate(s.tenantId,s.planId,null,state->{
             // A title edit or another user change may occur while an asset is being inspected.
@@ -692,7 +894,13 @@ public class CreationWorkflowService {
         String qcId;
         try {
             var body=json.readTree(a.payload());qcId=qc.create(new TenantId(a.tenant()),s.accountId,s.awemeId,body);
-        }catch(BizException e){failed(a,e.code()==1523?"UNCERTAIN":"FAILED",e.getMessage());return;}
+        }catch(BizException e){
+            if(e.code()!=1523&&e.getMessage()!=null&&e.getMessage().contains("效果预估")&&(e.getMessage().contains("更新")||e.getMessage().contains("重新获取"))) {
+                failed(a,"FAILED",e.getMessage());
+                store.mutate(a.tenant(),a.planId(),null,state->{state.publishRecovery="REFRESH_ESTIMATE";state.publishError="平台效果预估已更新，请刷新预估并确认后重新发布。预算和素材已保留。";});
+            }else failed(a,e.code()==1523?"UNCERTAIN":"FAILED",e.getMessage());
+            return;
+        }
         catch(Exception e){failed(a,"UNCERTAIN","平台创建结果待确认，请核对平台计划，避免重复创建");return;}
         // Never downgrade a durable receipt when the following local transaction fails.
         store.finishPublish(a.tenant(),a.key(),"CREATED",qcId,null);
@@ -718,7 +926,78 @@ public class CreationWorkflowService {
     private static CreationState.Material find(CreationState s,String id){return s.materials.stream().filter(m->m.id.equals(id)).findFirst().orElseThrow(()->new BizException(1503,"素材不属于该计划"));}
     private static void editable(CreationState s){
         if(!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
-        if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
+        if(Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
+    }
+    private static void requireBasicAnalysis(CreationState s) {
+        s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
+        if(!s.basicAnalysis.canContinue())throw new BizException(1403,s.basicAnalysis.issues().stream()
+                .filter(i->"ERROR".equals(i.severity())).findFirst().orElseThrow().message());
+    }
+
+    /** Register only when an engine operation is needed; goal editing never contacts the engine. */
+    private CreationState registerEnginePlan(CreationState snapshot) {
+        if(snapshot.enginePlanId!=null)return snapshot;
+        String fingerprint=ProductBasicAnalysisService.fingerprint(snapshot.products);
+        var response=engine.post("/api/v1/plan-tasks",Map.of("platform","douyin","store_id",snapshot.tenantId,
+                "account",Map.of("account_id",snapshot.accountId,"aweme_id",snapshot.awemeId),
+                "operator",Map.of("user_id",snapshot.userId),"metadata",Map.of("lingtou_plan_id",snapshot.planId)));
+        if(response==null||!response.isObject())throw new BizException(8002,"引擎未返回有效任务信息");
+        String registered=response.path("ai_plan_task_id").asText(response.path("id").asText());
+        if(registered.isBlank())throw new BizException(8002,"引擎未返回计划任务 ID");
+        var current=store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
+            if(fingerprint.equals(ProductBasicAnalysisService.fingerprint(s.products))&&Set.of("NONE","FAILED").contains(s.publishStatus)
+                    &&s.enginePlanId==null)s.enginePlanId=registered;
+        });
+        if(!fingerprint.equals(ProductBasicAnalysisService.fingerprint(current.products))||current.enginePlanId==null)
+            throw new BizException(1404,"商品或草稿状态已变化，已忽略旧引擎任务");
+        return current;
+    }
+
+    private void processAnalysis(CreationState snapshot) {
+        String fingerprint=ProductBasicAnalysisService.fingerprint(snapshot.products);
+        String originalRequest=snapshot.analysisRequestId;
+        String request=originalRequest==null?UUID.randomUUID().toString():originalRequest;
+        var running=store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
+            if(Objects.equals(originalRequest,s.analysisRequestId)&&fingerprint.equals(ProductBasicAnalysisService.fingerprint(s.products))
+                    &&Set.of("QUEUED","RUNNING").contains(s.analysisStatus)) {
+                s.analysisRequestId=request;s.analysisStatus="RUNNING";
+                if(s.analysisStartedAt==0)s.analysisStartedAt=System.currentTimeMillis();
+            }
+        });
+        if(!currentAnalysis(running,request,fingerprint))return;
+        try {
+            var registered=registerEnginePlan(running);
+            if(!currentAnalysis(registered,request,fingerprint))return;
+            var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of(
+                    "ai_plan_task_id",registered.enginePlanId,"store_id",registered.tenantId,
+                    "products",engineProducts(registered),"refresh",registered.analysisRefreshRequested,"analysis_mode","preparation_v1",
+                    "account_id",registered.accountId,"analysis_id",request,"input_version",fingerprint));
+            if(response==null||!response.isObject()||!response.has("product_set"))throw new BizException(8002,"引擎未返回有效商品分析");
+            var report=response.path("selection_analysis");
+            if(!report.isMissingNode() && (!fingerprint.equals(report.path("input_version").asText()) || !request.equals(report.path("analysis_id").asText())))
+                throw new BizException(8002,"商品分析输入版本不一致，请重新分析");
+            store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
+                if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisConfirmation=null;s.analysisStatus="SUCCEEDED";s.analysisError=null;s.analysisRefreshRequested=false;}
+            });
+        }catch(BizException e){
+            store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
+                if(currentAnalysis(s,request,fingerprint)){s.analysisStatus="FAILED";s.analysisError=e.getMessage();}
+            });
+        }
+    }
+    private static boolean currentAnalysis(CreationState s,String request,String fingerprint) {
+        return request.equals(s.analysisRequestId)&&"RUNNING".equals(s.analysisStatus)
+                &&fingerprint.equals(ProductBasicAnalysisService.fingerprint(s.products));
+    }
+    private void confirmAnalysisSnapshot(CreationState s) {
+        if(s.analysis==null||!s.analysis.has("selection_analysis"))return;
+        var report=s.analysis.path("selection_analysis");
+        if(!ProductBasicAnalysisService.fingerprint(s.products).equals(report.path("input_version").asText()))return;
+        String actor=TenantContext.tenantId().filter(t->t.value().equals(s.tenantId)).map(t->TenantContext.userId().value()).orElse(s.userId);
+        s.analysisConfirmation=json.createObjectNode().put("analysis_id",report.path("analysis_id").asText())
+                .put("input_version",report.path("input_version").asText()).put("confirmed_at",Instant.now().toString())
+                .put("user_id",actor).put("selection_confirmed",true).put("combination_decision",s.groupingDecision==null?"CURRENT_SELECTION":s.groupingDecision)
+                .set("handoff",report.path("handoff").deepCopy());
     }
     /** Explicitly associate an uncertain write with a verified platform plan; this performs no create. */
     public CreationState reconcile(TenantId tenant,String requestedId,Reconcile req) {
@@ -735,7 +1014,7 @@ public class CreationWorkflowService {
         if(f.description!=null&&f.description.length()>50||f.reasons!=null&&(f.reasons.size()>10||f.reasons.stream().anyMatch(x->x==null||x.length()>100)))throw new BizException(1503,"原因或说明过长");
         s.feedback.add(new CreationState.FeedbackEvent(material,action,f.reasons==null?List.of():List.copyOf(f.reasons),f.description,TenantContext.userId().value(),Instant.now().toString()));
     }
-    private static Map<String,Object> engineProduct(CreationState.Product p){var m=new LinkedHashMap<String,Object>();m.put("id",p.qcProductId());m.put("name",p.name());m.put("category",p.category());if(p.userPrice()!=null||p.price()!=null)m.put("price",p.userPrice()!=null?p.userPrice():p.price());if(p.priceInfo()!=null){m.put("price_min",p.priceInfo().minPrice());m.put("price_max",p.priceInfo().maxPrice());}return m;}
+    private static Map<String,Object> engineProduct(CreationState.Product p){var m=new LinkedHashMap<String,Object>();m.put("id",p.qcProductId());m.put("name",p.name());m.put("category",p.category());if(p.userPrice()!=null||p.price()!=null)m.put("price",p.userPrice()!=null?p.userPrice():p.price());if(p.priceInfo()!=null){m.put("price_min",p.priceInfo().minPrice());m.put("price_max",p.priceInfo().maxPrice());}if(p.stock()!=null)m.put("inventory",p.stock());if(p.sales()!=null)m.put("sales",p.sales());if(p.imageUrl()!=null)m.put("image_url",p.imageUrl());m.put("availability",Map.of("status",p.unavailableReasons()!=null&&!p.unavailableReasons().isEmpty()?"unavailable":"available","reasons",p.unavailableReasons()==null?List.of():p.unavailableReasons()));return m;}
     private static List<Map<String,Object>> engineProducts(CreationState s){return s.products.stream().map(CreationWorkflowService::engineProduct).toList();}
     private static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
 }

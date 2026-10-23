@@ -14,6 +14,10 @@ import org.springframework.web.multipart.MultipartFile;
 public class AssetUploadController {
     private final AssetUploadService service;
     private final AssetPreviewService previews;
+    private com.lynx.ad.modules.creative.application.AssetSyncReconciliationService reconciliation;
+    @org.springframework.beans.factory.annotation.Autowired public void reconciliation(com.lynx.ad.modules.creative.application.AssetSyncReconciliationService value){reconciliation=value;}
+    public record ReconcileRequest(String accountId) {}
+    @PostMapping("/{id}/sync/reconcile") public ApiResponse<com.lynx.ad.modules.creative.application.AssetSyncReconciliationService.Result> reconcile(@PathVariable String id,@RequestBody ReconcileRequest request){return ApiResponse.ok(reconciliation.reconcile(TenantContext.requireTenantId(),id,request.accountId()));}
     public AssetUploadController(AssetUploadService service, AssetPreviewService previews) { this.service=service; this.previews=previews; }
     @GetMapping("/{id}/preview") public ApiResponse<AssetPreviewService.Preview> preview(@PathVariable String id) { return ApiResponse.ok(previews.preview(TenantContext.requireTenantId(),id)); }
     @GetMapping("/upload-policy") public ApiResponse<com.lynx.ad.modules.creative.domain.service.AssetFilePolicy.Policy> policy() {

@@ -46,7 +46,6 @@
         <nav class="absolute left-1/2 hidden -translate-x-1/2 items-center gap-7 lg:flex" aria-label="主导航">
           <router-link class="nav-link" to="/#features" @click="menuOpen = false">产品功能</router-link>
           <router-link class="nav-link" to="/#industries" @click="menuOpen = false">解决方案</router-link>
-          <router-link class="nav-link" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
           <router-link class="nav-link" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
         </nav>
 
@@ -70,7 +69,6 @@
       <nav id="mobile-nav" v-show="menuOpen" class="container-page border-t border-line bg-white pb-4 pt-2 lg:hidden" aria-label="移动端导航">
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#features" @click="menuOpen = false">产品功能</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#industries" @click="menuOpen = false">解决方案</router-link>
-        <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#pricing" @click="menuOpen = false">定价方案</router-link>
         <router-link class="block rounded-md px-1 py-3 text-[15px] font-medium text-ink-nav hover:text-primary-ink" to="/#faq" @click="menuOpen = false">帮助中心</router-link>
         <router-link v-if="verifiedLogin" class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/accounts" @click="menuOpen = false">{{ userName }} · 账户信息</router-link>
         <router-link v-else class="block rounded-md px-1 py-3 text-[15px] font-medium text-primary-ink" to="/login" @click="menuOpen = false">登录</router-link>
@@ -86,34 +84,35 @@
           <div class="mx-auto max-w-[580px] text-center">
             <span class="badge-pill bg-white text-primary-ink shadow-[0_2px_10px_-4px_rgba(87,92,246,.35)]">
               <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-sparkles"/></svg>
-              智能广告投放专家
+              你的智能广告投放专家
             </span>
 
-            <h1 class="mt-5 text-[34px] font-bold leading-[1.12] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
-              灵投，<span class="text-primary">让广告投出效果</span>
+            <h1 class="mt-5 text-[34px] font-bold leading-[1.24] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
+              灵投，让每一位商家<br><span class="text-primary">获得专家级投放效果</span>
             </h1>
 
             <p class="mt-5 text-[16px] leading-[1.75] text-ink-2">
-              用更小的广告投放成本，带来更多的客户，让生意增长<br class="hidden sm:block">
-              AI 自动接管选品、素材、投放、盯盘与优化全流程
+              灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。<br class="hidden sm:block">
+              让日常投放更高效，让商家更专注收益增长。
             </p>
 
             <div class="mt-9 flex justify-center">
               <a class="btn btn--primary btn--lg px-10" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 7 天</a>
             </div>
 
-            <dl class="mt-11 grid grid-cols-3 gap-x-2 text-center sm:flex sm:flex-wrap sm:justify-center sm:gap-x-14 sm:gap-y-6">
+            <p class="mt-3 text-[12px] text-ink-3">平台服务免费体验，广告费仍由各媒体平台收取</p>
+            <dl class="hero-assurances" aria-label="平台服务特点">
               <div>
-                <dt class="tnum text-[24px] font-bold leading-none text-primary">7 天</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">免费试用</dd>
+                <dt>预算由你掌控</dt>
+                <dd>投入多少，你来决定</dd>
               </div>
               <div>
-                <dt class="text-[24px] font-bold leading-none text-primary">无忧</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">不满意随时退</dd>
+                <dt>关键操作先确认</dt>
+                <dd>调整有依据，过程可查看</dd>
               </div>
               <div>
-                <dt class="text-[24px] font-bold leading-none text-primary">官方</dt>
-                <dd class="mt-2 text-[14px] text-ink-3">直连抖音巨量平台</dd>
+                <dt>官方接口接入</dt>
+                <dd>账户授权可随时取消</dd>
               </div>
             </dl>
           </div>
@@ -465,77 +464,7 @@
       </div>
     </section>
 
-    <section id="pricing" class="bg-price py-20">
-      <div class="container-page">
-        <div class="text-center">
-          <span class="badge-pill bg-[rgb(var(--c-primary-soft))] text-primary-ink">定价方案</span>
-          <h2 class="sec-title mt-4">选择适合你的方案</h2>
-          <p class="sec-sub mt-3">按月订阅，随时升级或取消，没有隐藏费用</p>
-        </div>
 
-        <div class="mt-12 grid items-start gap-5 lg:grid-cols-3">
-
-          <article class="card flex h-full flex-col p-8">
-            <h3 class="text-[17px] font-semibold text-ink">基础版</h3>
-            <p class="mt-4 flex items-baseline gap-1.5">
-              <span class="tnum text-[40px] font-bold leading-none tracking-tight text-ink">¥299</span>
-              <span class="text-[13px] text-ink-3">/ 月</span>
-            </p>
-            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合刚起步、单账号试水的小微商家。</p>
-            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>1 个广告账户</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>智能选品与选品建议</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>每日素材生成 20 条</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>标准数据看板</li>
-            </ul>
-            <div class="mt-auto pt-8">
-              <a class="btn btn--soft btn--md btn--block" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">开始免费试用</a>
-            </div>
-          </article>
-
-          <article class="relative flex h-full flex-col rounded-panel border-2 border-primary bg-white p-8 shadow-[0_20px_50px_-20px_rgba(87,92,246,.45)] lg:-mt-4 lg:pb-10">
-            <span class="absolute right-6 top-6 rounded-full bg-primary px-3 py-1.5 text-[12px] font-medium leading-none text-white">推荐</span>
-            <h3 class="text-[17px] font-semibold text-ink">专业版</h3>
-            <p class="mt-4 flex items-baseline gap-1.5">
-              <span class="tnum text-[40px] font-bold leading-none tracking-tight text-primary-ink">¥799</span>
-              <span class="text-[13px] text-ink-3">/ 月</span>
-            </p>
-            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合已有稳定出单、需要放量的成长型商家。</p>
-            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>3 个广告账户</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>全流程 AI 托管</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>每日素材生成 200 条</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>智能盯盘与自动优化</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>多账户聚合看板</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>专属客户成功对接</li>
-            </ul>
-            <div class="mt-auto pt-8">
-              <a class="btn btn--primary btn--md btn--block" href="#cta" @click.prevent="goSubscription">立即开通</a>
-            </div>
-          </article>
-
-          <article class="card flex h-full flex-col p-8">
-            <h3 class="text-[17px] font-semibold text-ink">定制版</h3>
-            <p class="mt-4 flex items-baseline gap-1.5">
-              <span class="text-[40px] font-bold leading-none tracking-tight text-ink">定制</span>
-            </p>
-            <p class="mt-3 text-[14px] leading-[1.6] text-ink-3">适合多品牌、多门店或需要私有化部署的团队。</p>
-            <ul class="mt-7 space-y-3.5 text-[14px] text-ink-2">
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>10 个广告账户</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>行业专属策略模板</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>素材生成不设上限</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>私有化部署与数据隔离</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>专属策略顾问陪跑</li>
-              <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-check"/></svg>定制报表与对接支持</li>
-            </ul>
-            <div class="mt-auto pt-8">
-              <a class="btn btn--soft btn--md btn--block" href="#" @click.prevent="openContact">联系客服咨询</a>
-            </div>
-          </article>
-
-        </div>
-      </div>
-    </section>
 
     <section id="faq" class="bg-white py-20">
       <div class="container-page">
@@ -739,7 +668,8 @@ async function goTrial() {
   }
   checkingTrial.value = true;
   try {
-    if (!disposed) await router.push('/campaigns');
+    const destination = await user.entryPath();
+    if (!disposed) await router.push(destination);
   } finally {
     checkingTrial.value = false;
   }
@@ -825,7 +755,7 @@ onMounted(async () => {
     ownsDescription = true;
   }
   previousDescription = description.getAttribute("content");
-  description.content = "灵投智营用 AI 全自动接管选品、素材生成、投放盯盘与优化，用更小的广告投放成本带来更多的客户，让中小微企业也能获得专家级广告投放效果。";
+  description.content = "灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。让日常投放更高效，让商家更专注收益增长。";
   document.addEventListener("keydown", handleKeydown);
   if (user.isLoggedIn && !user.me) {
     try {

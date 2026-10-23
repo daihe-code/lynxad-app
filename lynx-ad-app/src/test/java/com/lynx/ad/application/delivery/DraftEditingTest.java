@@ -21,6 +21,18 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class DraftEditingTest {
+    @Test void legacyCreateAlsoChecksProductOccupancyBeforeAnyPlanIsSaved() {
+        var guard=mock(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore.class);service.draftProducts(guard);
+        doThrow(new BizException(1404,"商品已在其他草稿中")).when(guard).assertAvailable("tenant-1","account-1",List.of("new-product"),null);
+        assertEquals(1404,assertThrows(BizException.class,()->service.createDraft(tenant,request("account-1"))).code());
+        verifyNoInteractions(plans,bindings);
+    }
+    @Test void legacyUpdateChecksProductsExcludingOnlyTheCurrentDraft() {
+        var plan=plan();var guard=mock(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore.class);service.draftProducts(guard);
+        doThrow(new BizException(1404,"商品已在其他草稿中")).when(guard).assertAvailable("tenant-1","account-1",List.of("new-product"),plan.id().value());
+        assertEquals(1404,assertThrows(BizException.class,()->service.updateDraft(tenant,plan.id(),request("account-1"))).code());
+        verify(plans,never()).save(any());verifyNoInteractions(bindings);assertEquals("原计划",plan.name().text());
+    }
     private final TenantId tenant = new TenantId("tenant-1");
     private final AdPlanRepository plans = mock(AdPlanRepository.class);
     private final AdPlanCreativeBindingStore bindings = mock(AdPlanCreativeBindingStore.class);

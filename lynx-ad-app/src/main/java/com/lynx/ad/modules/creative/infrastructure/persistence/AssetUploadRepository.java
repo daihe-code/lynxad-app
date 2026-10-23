@@ -19,7 +19,10 @@ public class AssetUploadRepository {
             String textContent, String canonicalId, String errorMessage, Instant createdAt, Instant updatedAt) {}
     public record Sync(String id, String tenantId, String assetId, String accountId, String advertiserId,
             String status, String objectId, String materialId, String requestId, String reviewStatus,
-            int attempts, Instant nextAttemptAt, Instant leaseUntil, String errorMessage) {}
+            int attempts, Instant nextAttemptAt, Instant leaseUntil, String errorMessage,Verification verification) {
+        public Sync(String id,String tenantId,String assetId,String accountId,String advertiserId,String status,String objectId,String materialId,String requestId,String reviewStatus,int attempts,Instant nextAttemptAt,Instant leaseUntil,String errorMessage){this(id,tenantId,assetId,accountId,advertiserId,status,objectId,materialId,requestId,reviewStatus,attempts,nextAttemptAt,leaseUntil,errorMessage,null);}
+    }
+    public record Verification(String state,Instant checkedAt,String message) {}
     public record Review(String assetId,String tenantId,String status,String reviewId,String decision,String summary,
             List<String> reasons,String errorMessage,int attempts,Instant createdAt) {}
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON=new com.fasterxml.jackson.databind.ObjectMapper();
@@ -31,7 +34,7 @@ public class AssetUploadRepository {
     private static final RowMapper<Review> REVIEW=(r,n)->new Review(r.getString("asset_id"),r.getString("tenant_id"),r.getString("status"),r.getString("review_id"),r.getString("decision"),r.getString("summary"),reasons(r.getString("reasons_json")),r.getString("error_message"),r.getInt("attempts"),instant(r,"created_at"));
     private static Instant instant(ResultSet r, String key) throws SQLException { var value = r.getTimestamp(key); return value == null ? null : value.toInstant(); }
     private static final RowMapper<Asset> ASSET = (r, n) -> new Asset(r.getString("id"), r.getString("tenant_id"), r.getString("user_id"), r.getString("request_id"), r.getString("kind"), r.getString("filename"), r.getString("content_type"), r.getLong("size_bytes"), r.getString("object_key"), r.getString("storage_status"), r.getString("storage_mode"), r.getString("upload_id"), r.getString("upload_ticket_json"), r.getString("md5"), r.getBoolean("is_aigc"), (Integer)r.getObject("width"), (Integer)r.getObject("height"), r.getString("text_content"), r.getString("canonical_id"), r.getString("error_message"), instant(r,"created_at"), instant(r,"updated_at"));
-    private static final RowMapper<Sync> SYNC = (r,n) -> new Sync(r.getString("id"), r.getString("tenant_id"), r.getString("asset_id"), r.getString("account_id"), r.getString("advertiser_id"), r.getString("status"), r.getString("object_id"), r.getString("material_id"), r.getString("request_id"), r.getString("review_status"), r.getInt("attempts"), instant(r,"next_attempt_at"), instant(r,"lease_until"), r.getString("error_message"));
+    private static final RowMapper<Sync> SYNC = (r,n) -> new Sync(r.getString("id"), r.getString("tenant_id"), r.getString("asset_id"), r.getString("account_id"), r.getString("advertiser_id"), r.getString("status"), r.getString("object_id"), r.getString("material_id"), r.getString("request_id"), r.getString("review_status"), r.getInt("attempts"), instant(r,"next_attempt_at"), instant(r,"lease_until"), r.getString("error_message"),r.getString("verification_state")==null?null:new Verification(r.getString("verification_state"),instant(r,"verification_checked_at"),r.getString("verification_message")));
     public Asset require(String tenant, String id) {
         return jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND id=?", ASSET, tenant, id).stream().findFirst().orElseThrow(() -> new BizException(1522, "素材不存在或不属于当前账户"));
     }
@@ -163,7 +166,12 @@ public class AssetUploadRepository {
     }
     public boolean claim(Sync s) {
         var now = Instant.now();
-        return jdbc.update("UPDATE creative_asset_platform SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=? WHERE tenant_id=? AND id=? AND status='QUEUED' AND next_attempt_at<=? AND "+eligibleSql("creative_asset_platform"),Timestamp.from(now.plusSeconds(900)),Timestamp.from(now),s.tenantId(),s.id(),Timestamp.from(now))==1;
+        return jdbc.update("UPDATE creative_asset_platform SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=?,upload_evidence_version=1,attempted_signature=NULL,attempted_advertiser_id=NULL,upload_dispatched_at=NULL,verification_key=NULL,verification_lease_until=NULL,verification_state=NULL,verification_checked_at=NULL,verification_message=NULL WHERE tenant_id=? AND id=? AND status='QUEUED' AND attempts=? AND next_attempt_at<=? AND "+eligibleSql("creative_asset_platform"),Timestamp.from(now.plusSeconds(900)),Timestamp.from(now),s.tenantId(),s.id(),s.attempts(),Timestamp.from(now))==1;
+    }
+    /** This durable marker must commit before the multipart request can start. */
+    public boolean dispatched(Sync s,String advertiser,String signature) {
+        if(signature==null||!signature.matches("(?i)[0-9a-f]{32}"))throw new BizException(1520,"上传缺少有效文件签名");
+        return jdbc.update("UPDATE creative_asset_platform SET attempted_advertiser_id=?,attempted_signature=?,upload_dispatched_at=?,upload_evidence_version=1 WHERE tenant_id=? AND id=? AND status='RUNNING' AND attempts=? AND upload_dispatched_at IS NULL",advertiser,signature.toLowerCase(Locale.ROOT),Timestamp.from(Instant.now()),s.tenantId(),s.id(),s.attempts()+1)==1;
     }
     public void heartbeat(Sync s) { jdbc.update("UPDATE creative_asset_platform SET lease_until=? WHERE tenant_id=? AND id=? AND status='RUNNING' AND attempts=?",Timestamp.from(Instant.now().plusSeconds(900)),s.tenantId(),s.id(),s.attempts()+1); }
     public void finish(Sync s, String advertiser, String object, String material, String request) {
@@ -174,14 +182,16 @@ public class AssetUploadRepository {
         jdbc.update("UPDATE creative_asset_platform SET status=?,error_message=?,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE tenant_id=? AND id=? AND status='RUNNING' AND attempts=?",status,safe(error),Timestamp.from(now.plusSeconds(delaySec)),Timestamp.from(now),s.tenantId(),s.id(),s.attempts()+1);
     }
     public int retry(String tenant, String asset, String account, boolean acknowledgeUncertain) {
-        String sql="UPDATE creative_asset_platform SET status='QUEUED',error_message=NULL,next_attempt_at=?,updated_at=? WHERE tenant_id=? AND asset_id=? AND status IN ('FAILED','WAITING_AUTH','PAUSED'"+(acknowledgeUncertain ? ",'UNCERTAIN'" : "")+")";
+        if(acknowledgeUncertain)throw new BizException(1523,"待确认任务只能核查结果，不可通过确认按钮重新上传");
+        String sql="UPDATE creative_asset_platform SET status='QUEUED',error_message=NULL,next_attempt_at=?,updated_at=? WHERE tenant_id=? AND asset_id=? AND status IN ('FAILED','WAITING_AUTH','PAUSED')";
         var now=Timestamp.from(Instant.now());
         if (account == null || account.isBlank()) return jdbc.update(sql,now,now,tenant,asset);
         return jdbc.update(sql+" AND account_id=?",now,now,tenant,asset,account);
     }
     public void recoverExpired() {
         var now=Timestamp.from(Instant.now());
-        jdbc.update("UPDATE creative_asset_platform SET status='UNCERTAIN',error_message='任务中断，千川上传结果待确认，请核对后重试',lease_until=NULL,updated_at=? WHERE status='RUNNING' AND lease_until<?",now,now);
+        jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',error_message='发送前任务中断，正在重新排队',lease_until=NULL,next_attempt_at=?,updated_at=? WHERE status='RUNNING' AND lease_until<? AND upload_evidence_version=1 AND upload_dispatched_at IS NULL",now,now,now);
+        jdbc.update("UPDATE creative_asset_platform SET status='UNCERTAIN',error_message='任务中断，千川上传结果待确认，请核查，不会重复上传',lease_until=NULL,updated_at=? WHERE status='RUNNING' AND lease_until<?",now,now);
         jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',updated_at=? WHERE status IN ('WAITING_STORAGE','WAITING_REVIEW') AND EXISTS (SELECT 1 FROM creative_asset a WHERE a.id=creative_asset_platform.asset_id AND a.tenant_id=creative_asset_platform.tenant_id AND a.storage_status='STORED') AND "+eligibleSql("creative_asset_platform"),now);
         jdbc.update("UPDATE creative_asset_platform SET status='WAITING_REVIEW',updated_at=? WHERE status='WAITING_STORAGE' AND EXISTS (SELECT 1 FROM creative_asset a WHERE a.id=creative_asset_platform.asset_id AND a.tenant_id=creative_asset_platform.tenant_id AND a.storage_status='STORED')",now);
     }

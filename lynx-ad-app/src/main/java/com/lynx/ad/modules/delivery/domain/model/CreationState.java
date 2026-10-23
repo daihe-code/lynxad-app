@@ -14,11 +14,26 @@ public class CreationState {
     public boolean hideInAweme = true;
     public List<Product> products = new ArrayList<>();
     public String analysisStatus = "NONE", analysisError, enginePlanId, engineJobId, previousEngineJobId;
+    public ProductBasicAnalysis basicAnalysis;
+    public String analysisRequestId;
+    public long analysisStartedAt;
     public boolean analysisRefreshRequested;
     public JsonNode analysis, groups, recommendations;
+    public JsonNode analysisConfirmation;
+    public String groupingDecision;
     /** Latest verified shared bindings, separate from immutable publish-attempt audit payloads. */
     public JsonNode verifiedPlatformCreatives, verifiedPlatformChannels;
-    public String generationStatus = "NONE", generationMessage, engineTerminalStatus, pendingRegenerationId;
+    public String generationStatus = "NONE", generationMessage, engineTerminalStatus, engineTerminalJobId, pendingRegenerationId;
+    public long regenerationRetryAt;
+    /** Internal dispatch receipt. A source job ID alone never proves a revision was accepted. */
+    public Regeneration regeneration;
+    public GenerationRetry generationRetry;
+    public static class GenerationRetry { public String requestId,type,status; }
+    public static class Regeneration {
+        public String requestId,sourceId,parentId,jobId,planTaskId,groupId,target,instruction;
+        public String status="RESERVED",revisionId,executionJobId,resultMaterialId;
+        public long sentAt;
+    }
     public int generationReconciliationAttempts;
     public long generationReconciledAt;
     /** Terminal engine summaries can precede the last resumed component. Reads only; never resubmit. */
@@ -33,8 +48,12 @@ public class CreationState {
     public String generationStage;
     public List<GenerationCount> generationCounts = new ArrayList<>();
     public List<GenerationIssue> generationIssues = new ArrayList<>();
-    public record GenerationCount(String type,int completed,Integer total) {}
-    public record GenerationIssue(String productId,String productName,String message) {}
+    public record GenerationCount(String type,int completed,Integer total,int failed) {
+        public GenerationCount(String type,int completed,Integer total){this(type,completed,total,0);}
+    }
+    public record GenerationIssue(String productId,String productName,String message,String type,String materialId,String title,String slotId) {
+        public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
+    }
     public List<String> generationProductIds = new ArrayList<>();
     public String pendingAdditionId;
     public List<GenerationAddition> generationAdditions = new ArrayList<>();
@@ -43,17 +62,36 @@ public class CreationState {
         public JsonNode engineRequest;
     }
     public List<Material> materials = new ArrayList<>();
+    public Map<String,TitlePool> titlePools = new LinkedHashMap<>();
+    public static class TitlePool {
+        public List<String> customTitles=new ArrayList<>(), cardTitles=new ArrayList<>();
+        public String customTextAssetId,cardTextAssetId;
+    }
     public List<String> removedMaterialIds = new ArrayList<>();
     public List<FeedbackEvent> feedback = new ArrayList<>();
     public record FeedbackEvent(String materialId,String action,List<String> reasons,String description,String userId,String at) {}
-    public String publishStatus = "NONE", publishKey, qcPlanId, publishError;
+    public String publishStatus = "NONE", publishKey, qcPlanId, publishError,publishRecovery;
+    public record DraftReference(String planId,String planName) {}
     public record Product(String productId, String qcProductId, String name, BigDecimal price,
                           BigDecimal userPrice, String imageUrl, String category, Long stock,
                           List<String> tags, List<String> unavailableReasons,
-                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId) {
+                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId, DraftReference draft, Long sales) {
+        public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
+                       String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
+                       com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId,DraftReference draft) {
+            this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,draft,null);
+        }
+        public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
+                       String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
+                       com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId) {
+            this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,null);
+        }
         public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
                        String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons) {
             this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,null,null);
+        }
+        public Product withDraft(DraftReference usage) {
+            return new Product(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,usage,sales);
         }
     }
     public static class Material {
@@ -65,6 +103,9 @@ public class CreationState {
         public String videoAssetId, coverAssetId, textAssetId, audioAssetId, carouselId;
         public List<String> imageAssetIds = new ArrayList<>();
         public String status = "PROCESSING", error, previewUrl, posterUrl;
+        public String failureStage;
+        public Integer failureCode;
+        @com.fasterxml.jackson.annotation.JsonIgnore public MaterialProcessing processing;
         public List<String> imageUrls = new ArrayList<>();
         public String imageMode;
         public List<String> titles = new ArrayList<>();

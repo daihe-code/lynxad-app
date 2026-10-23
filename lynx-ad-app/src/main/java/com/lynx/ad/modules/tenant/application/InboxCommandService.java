@@ -21,6 +21,8 @@ public class InboxCommandService {
 
     private final InboxMessageRepository repository;
     private final AuditRecorder auditRecorder;
+    private InboxDeliveryJob deliveries;
+    @org.springframework.beans.factory.annotation.Autowired public void deliveryJob(InboxDeliveryJob value){deliveries=value;}
 
     public InboxCommandService(InboxMessageRepository repository, AuditRecorder auditRecorder) {
         this.repository = repository;
@@ -51,6 +53,7 @@ public class InboxCommandService {
     }
 
     public List<InboxMessageVo> list(TenantId tenantId) {
+        if(deliveries!=null)deliveries.recover(tenantId);
         return repository.listByTenant(tenantId).stream()
                 .map(m -> new InboxMessageVo(
                         m.id().value(),

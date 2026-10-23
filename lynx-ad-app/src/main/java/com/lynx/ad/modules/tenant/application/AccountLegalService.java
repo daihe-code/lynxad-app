@@ -48,7 +48,7 @@ public class AccountLegalService {
         return find(id).map(this::withInvoice).orElseGet(()->{
             var u=users.current(TenantContext.userId());
             boolean owner=TenantContext.require().memberRole().orElse(null)==MemberRole.OWNER;
-            return new Legal(id,u.tenantName(),"","UNSUBMITTED",null,0,null,null,owner?u.nickname():null,owner?u.industry():null,owner?u.email():null,owner?u.companyScale():null,owner?u.phone():null,null);
+            return new Legal(id,owner?u.companyName():null,"","UNSUBMITTED",null,0,null,null,owner?u.nickname():null,owner?u.industry():null,owner?u.email():null,owner?u.companyScale():null,owner?u.phone():null,null);
         });
     }
     private String owner() {

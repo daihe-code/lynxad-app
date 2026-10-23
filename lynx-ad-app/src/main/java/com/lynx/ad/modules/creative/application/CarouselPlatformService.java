@@ -17,6 +17,12 @@ public class CarouselPlatformService {
     private final ObjectMapper json;
     private final JdbcTemplate jdbc;
     public CarouselPlatformService(CarouselService bundles,CreationQianchuanGateway gateway,ObjectMapper json,JdbcTemplate jdbc){this.bundles=bundles;this.gateway=gateway;this.json=json;this.jdbc=jdbc;}
+    public record Receipt(String status,String objectId) {}
+    /** Inspect a durable result without creating or replaying a platform request. */
+    public Receipt receipt(TenantId tenant,String id,String account) {
+        return jdbc.query("SELECT status,qc_carousel_id FROM creative_carousel_platform WHERE tenant_id=? AND carousel_id=? AND account_id=?",
+                (r,n)->new Receipt(r.getString(1),r.getString(2)),tenant.value(),id,account).stream().findFirst().orElse(new Receipt("PENDING",null));
+    }
     public String ensure(TenantId tenant,String id,String account) {
         var bundle=bundles.detail(tenant,id);
         if(!java.util.Set.of("APPROVED","NOT_REQUIRED").contains(bundle.aiReview().status()))throw new BizException(1525,"上传图文质检未通过或引擎图文尚未就绪");

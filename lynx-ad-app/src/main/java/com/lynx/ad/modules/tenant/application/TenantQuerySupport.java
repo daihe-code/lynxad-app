@@ -4,6 +4,7 @@ import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.billing.api.dto.TrialVo;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
 import com.lynx.ad.modules.billing.application.SubscriptionQueryService;
@@ -53,7 +54,8 @@ public class TenantQuerySupport {
         User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
         Tenant tenant = tenantRepository.findByUserId(userId).orElse(null);
         TrialVo trial = tenant == null ? null : billingTrialService.current(tenant.id(), Instant.now());
-        boolean needOnboarding = tenant == null || user.profile().isEmpty() || user.profile().filter(p -> p.isCompleted()).isEmpty();
+        // Profile fields are optional; older sessions may still need tenant-scoped claims refreshed.
+        boolean needOnboarding = tenant == null || TenantContext.tenantId().filter(tenant.id()::equals).isEmpty();
         Optional<UserProfile> profile = user.profile();
         long remaining = 0;
         String trialLabel = null;

@@ -389,7 +389,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .ad-account {
   position: relative;
   display: none;
-  width: 227px;
+  width: 300px;
   flex-shrink: 0;
 }
 @media (min-width:1280px) {
@@ -403,7 +403,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   border-width: 1px;
   border-color: hsla(0,0%,100%,.2);
   background-color: hsla(0,0%,100%,.14);
-  padding: 19px 1.5rem 13px;
+  padding: 16px 28px 16px 16px;
 }
 .ad-account__name {
   font-size: 16px;
@@ -661,16 +661,35 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   color: rgb(var(--c-primary)/var(--tw-text-opacity,1));
 }
 .tip__text {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   line-height: 1.55;
   --tw-text-opacity: 1;
   color: rgb(var(--c-text-2)/var(--tw-text-opacity,1));
 }
 .tip__accent {
-  font-weight: 500;
+  font-weight: 600;
   --tw-text-opacity: 1;
   color: rgb(var(--c-primary-ink)/var(--tw-text-opacity,1));
 }
+.tip__close {
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgb(var(--c-text-3));
+  cursor: pointer;
+}
+.tip__close svg { width: 14px; height: 14px; }
+.tip__close:hover { color: rgb(var(--c-primary)); background: #575cf612; }
+.tip__close:focus-visible { outline: 2px solid rgb(var(--c-primary)); outline-offset: 2px; }
 .filters {
   margin-top: 15px;
   display: flex;
@@ -933,16 +952,17 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 }
 .pcard__row {
   margin-top: 7px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: .5rem;
+  min-width: 0;
 }
 .pcard__price {
-  display: flex;
-  align-items: baseline;
-  gap: .375rem;
+  display: block;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 20px;
 }
+.pcard__price :deep(.product-price) { max-width: 100%; }
+.pcard__price :deep(.product-price > span) { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pcard__stats { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 7px; text-align: left; }
 .pcard__now {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
@@ -1163,6 +1183,8 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   flex-shrink: 0;
 }
 .sthumb__box {
+  padding: 0;
+  cursor: pointer;
   display: grid;
   height: 44px;
   width: 44px;
@@ -1173,6 +1195,9 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   border-color: rgb(var(--c-ad-hair)/var(--tw-border-opacity,1));
   background-color: rgb(var(--c-ad-thumb));
 }
+.sthumb__box[aria-pressed="true"] { border-color: var(--color-primary, #575cf6); box-shadow: 0 0 0 2px rgb(87 92 246 / .2); }
+.sthumb__box:focus-visible { outline: 2px solid var(--color-primary, #575cf6); outline-offset: 3px; }
+.sthumb__box:disabled { cursor: default; }
 .sthumb__box .emoji {
   font-size: 24px;
 }
@@ -1656,9 +1681,10 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   display: flex;
   align-items: center;
   gap: .625rem;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 20px;
+  height: 40px;
   --tw-text-opacity: 1;
   color: rgb(var(--c-text-1)/var(--tw-text-opacity,1));
 }
@@ -1946,6 +1972,11 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .analysis {
   scroll-margin-top: 80px;
 }
+.analysis-stale{margin-top:16px;padding:10px 14px;border-radius:8px;background:#fff8eb;color:#8a6416;font-size:13px;line-height:1.7}
+.analysis-selection{display:flex;align-items:center;gap:20px;padding:18px 20px;margin-bottom:18px;border:1px solid var(--color-border,#ececf6);border-radius:12px;background:var(--color-surface,#fff);font-size:13px;color:var(--color-muted,#747990)}
+.analysis-selection__thumbs{display:flex;flex:1;gap:12px;flex-wrap:wrap;min-width:0}.analysis-selection__thumbs>.sthumb__box{display:grid;place-items:center;width:44px;height:44px;flex-shrink:0;border-radius:6px;background:var(--color-bg,#f7f7fc);overflow:hidden;font-size:12px}.analysis-selection__thumbs img{width:100%;height:100%;object-fit:cover}
+.analysis-adjust{padding:8px 14px;flex-shrink:0;border:1px solid var(--color-primary,#575cf6);border-radius:7px;background:transparent;color:var(--color-primary,#575cf6);font-size:13px;cursor:pointer}.analysis-adjust:disabled{opacity:.5;cursor:default}.analysis-selected-names{margin:0 0 18px;padding-left:20px;font-size:13px;line-height:1.8}
+@media(max-width:639px){.analysis-selection{gap:12px;flex-wrap:wrap;padding:14px}.analysis-selection__thumbs{order:3;flex-basis:100%}.analysis-adjust{margin-left:auto}}
 @media (max-width:1279px) {
   .ad-banner__inner {
     flex-wrap: wrap;
@@ -1986,3 +2017,15 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 }
 .analysis-evidence-note { margin: 12px 0 20px; color: #667085; font-size: 13px; line-height: 1.7; }
 .analysis-source { color: #5855eb; text-decoration: underline; margin-right: 10px; overflow-wrap: anywhere; }
+.basic-analysis { margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--color-primary-soft); border-radius: 12px; background: var(--color-bg); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.basic-analysis strong { color: var(--color-text); font-size: 14px; }
+.basic-analysis p { margin-top: 4px; color: var(--color-muted); }
+.basic-analysis ul { margin: 8px 0 0; padding-left: 18px; list-style: disc; color: var(--color-muted); }
+.basic-analysis--blocked { border-color: var(--color-danger); }
+.basic-analysis__error { color: var(--color-danger); }
+
+.pcard--occupied{cursor:default}.pcard--occupied .pcard__thumb{opacity:.65}.pcard__draft{margin:4px 0 6px;font-size:12px;line-height:1.5;color:#8a6a20}.pcard__draft a{color:#5b57ff;text-decoration:none}.pcard__draft a:hover{text-decoration:underline}
+
+@media(min-width:1280px){.pgrid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+.ad-stepper button.step{border:0;background:transparent;font:inherit}.ad-stepper button.step:not(:disabled){cursor:pointer}.ad-stepper button.step:focus-visible{outline:2px solid #575cf6;outline-offset:4px;border-radius:12px}

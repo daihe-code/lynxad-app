@@ -49,6 +49,13 @@ class PlanListDisplayTest {
             """))));
     }
     PlanListVo row() {return query.list(tenant,1,20).records().getFirst();}
+    @Test void reviewProgressIsProjectedFromDedicatedReviewTimesAndClearsAfterResolution() {
+        var store=mock(PlanReviewStore.class);query.reviewStore(store);plan.apply(PlanStatus.PENDING_AUDIT);
+        var view=com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.view(Instant.now().minusSeconds(1000),Instant.now(),"PENDING",Instant.now().plusSeconds(180),null,null,Instant.now());
+        when(store.list(tenant)).thenReturn(Map.of(id.value(),view));when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));
+        assertEquals(view,row().review());assertEquals(view,query.get(tenant,id).review());
+        plan.apply(PlanStatus.DELIVERING);assertNull(row().review());assertNull(query.get(tenant,id).review());
+    }
     @Test void selectedRangeReplacesHistoricalSnapshotAndSummaryUsesAllFilteredPlansBeforePagination() throws Exception {
         var other=transferred(PlanStatus.PAUSED);
         var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);

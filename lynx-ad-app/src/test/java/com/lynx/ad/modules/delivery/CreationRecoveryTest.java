@@ -38,7 +38,7 @@ class CreationRecoveryTest {
     }
     @Test void explicitAnalysisRefreshSurvivesDurableStateAndReachesEngine() throws Exception {
         var mapper=new ObjectMapper();var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);
-        var initial=new CreationState();initial.tenantId="tenant";initial.planId="plan";initial.enginePlanId="apt";
+        var initial=new CreationState();initial.tenantId="tenant";initial.planId="plan";initial.enginePlanId="apt";initial.accountId="account";
         initial.analysisStatus="QUEUED";initial.analysisRefreshRequested=true;
         var s=mapper.readValue(mapper.writeValueAsString(initial),CreationState.class);
         when(store.mutate(any(),any(),isNull(),any())).thenAnswer(call->{Consumer<CreationState> change=call.getArgument(3);change.accept(s);return s;});
@@ -113,6 +113,20 @@ class CreationRecoveryTest {
         assertEquals(1,image.completed());assertNull(image.total());
         assertEquals("456",s.generationIssues.getFirst().productId());assertEquals("失败商品",s.generationIssues.getFirst().productName());
         verify(engine,never()).post(any(),any());
+    }
+    @Test void confirmedTypedFailureKeepsRetryCountEvenWhenPlanningTotalsAreUnknown() throws Exception {
+        var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);var s=new CreationState();
+        s.tenantId="tenant";s.planId="plan";s.engineJobId="job";s.generationStatus="RUNNING";s.generationProductIds=List.of("123");
+        s.products.add(new CreationState.Product("123","123","商品",null,null,null,null,null,List.of(),List.of()));
+        when(store.get("tenant","plan")).thenReturn(s);
+        when(store.mutate(any(),any(),isNull(),any())).thenAnswer(call->{Consumer<CreationState> change=call.getArgument(3);change.accept(s);return s;});
+        when(engine.get(any())).thenReturn(new ObjectMapper().readTree("""
+          {"job_id":"job","status":"failed","groups":[{"group_id":"group-1","status":"failed","materials":[],
+          "generation_failures":[{"slot_id":"video-1","material_type":"video","message":"视频服务超时"}]}]}
+          """));
+        new CreationWorkflowService(store,null,null,null,engine,new ObjectMapper(),null,null,null,null,null,mock(PlatformTransactionManager.class)).process(s);
+        var count=s.generationCounts.stream().filter(c->c.type().equals("VIDEO")).findFirst().orElseThrow();
+        assertNull(count.total());assertEquals(1,count.failed());assertEquals("VIDEO",s.generationIssues.getFirst().type());
     }
     @Test void runningProgressUsesEngineExpectedCountsAndStage() throws Exception {
         var store=mock(CreationStore.class);var engine=mock(CreationEngineClient.class);var s=new CreationState();

@@ -52,7 +52,7 @@ public class PlanSyncService {
             List<String> warnings=new ArrayList<>(); int count=0;
             try {
                 var credential=credentials.getUsableCredential(tenant,account.id());
-                List<OceanPlanRow> rows=list.list(credential,null);
+                List<OceanPlanRow> rows=list.listIncludingDeleted(credential,null);
                 Map<String,AdPlan> local=new HashMap<>();
                 for(var plan:plans.findByTenant(tenant)) if(plan.accountId().equals(account.id())) plan.qcPlanId().ifPresent(q->local.put(q.value(),plan));
                 var pending=transfers==null?List.<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.Attempt>of():transfers.pending(tenant);

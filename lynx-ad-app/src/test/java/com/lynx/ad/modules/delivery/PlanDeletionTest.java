@@ -117,7 +117,7 @@ class PlanDeletionTest {
                 com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN,new AdvertiserId("999"),"账户",null,null,
                 java.time.Instant.now().plusSeconds(3600),null,"ACTIVE",List.of())));
         var list=mock(AdListPort.class);var remote=mock(PlanRemoteStore.class);var management=mock(AdManagementPort.class);
-        when(list.list(credential,null)).thenReturn(List.of(new OceanPlanRow("222","cost","DELIVERY_OK",SmartBidType.CUSTOM,
+        when(list.listIncludingDeleted(credential,null)).thenReturn(List.of(new OceanPlanRow("222","cost","DELIVERY_OK",SmartBidType.CUSTOM,
                 Money.ofYuan(300),null,null,new ObjectMapper().createObjectNode())));
         var sync=new com.lynx.ad.modules.delivery.application.PlanSyncService(plans,accounts,credentials,list,management,remote,
                 mock(org.springframework.transaction.PlatformTransactionManager.class));sync.transferStore(transfers);

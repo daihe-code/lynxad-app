@@ -18,7 +18,8 @@ const router = createRouter({
     { path: '/monitoring', component: () => import('@/layouts/AppLayout.vue'), meta: { auth: true }, children: [{ path: '', component: () => import('@/pages/monitoring/Index.vue') }] },
     { path: "/", component: () => import("@/pages/landing/Index.vue"), meta: { public: true } },
     { path: "/login", component: () => import("@/pages/login/Login.vue"), meta: { public: true } },
-    { path: "/onboarding", component: () => import("@/pages/onboarding/Onboarding.vue"), meta: { auth: true } },
+    { path: "/onboarding", redirect: "/welcome" },
+    { path: "/welcome", component: () => import("@/pages/onboarding/Welcome.vue"), meta: { auth: true } },
     { path: "/legal/terms", component: () => import("@/pages/legal/Terms.vue"), meta: { public: true } },
     { path: "/legal/privacy", component: () => import("@/pages/legal/Privacy.vue"), meta: { public: true } },
     {
@@ -118,9 +119,8 @@ router.beforeEach(async (to) => {
         return "/login";
       }
     }
-    if (user.needOnboarding && to.path !== "/onboarding") {
-      return "/onboarding";
-    }
+    if (user.welcomeAcknowledged === null) await user.loadWelcome();
+    if (!user.welcomeAcknowledged && to.path !== '/welcome') return '/welcome';
     if (to.meta.requireAweme) {
       const accounts = await listAccounts();
       if (!hasUsableAweme(accounts)) {

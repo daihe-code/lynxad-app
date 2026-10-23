@@ -16,6 +16,7 @@ import com.lynx.ad.modules.tenant.domain.port.UserRepository;
 import com.lynx.ad.modules.tenant.domain.service.OnboardingPolicy;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -47,9 +48,9 @@ public class OnboardingCommandService {
         this.querySupport = querySupport;
     }
 
-    @Transactional
-    public AuthenticatedUserUpdate complete(UserId userId, OnboardingRequest req) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public CurrentUserResponse complete(UserId userId, OnboardingRequest req) {
+        User user = userRepository.findByIdForUpdate(userId).orElseThrow(() -> new BizException(401, "未登录"));
         OnboardingCommand cmd = new OnboardingCommand(
                 req.nickname(),
                 req.email(),

@@ -14,16 +14,21 @@ public final class AssetFilePolicy {
     private AssetFilePolicy() {}
     public record FileSpec(AssetKind kind, String contentType, long maxBytes) {}
     public record Validated(String md5, long size, Integer width, Integer height, String text) {}
-    public static final long MAX_PIXELS = 40_000_000;
     public record Rule(String extension, AssetKind kind, long maxBytes, boolean qianchuanSupported) {}
-    public record Policy(List<Rule> files, long maxPixels, int maxTextChars, int maxFiles, String videoCodec, String m4aCodec) {}
-    public static Policy policy() {
-        return new Policy(List.of("mp4", "jpg", "jpeg", "png", "mp3", "m4a", "wav", "txt").stream()
-            .map(ext -> new Rule(ext, spec("file."+ext).kind(), spec("file."+ext).maxBytes(), !ext.equals("wav") && !ext.equals("txt"))).toList(),
-            MAX_PIXELS, 50000, 20, "h264", "aac");
+    public record Policy(List<Rule> files, long maxPixels, int maxTextChars, int maxFiles, String videoCodec, String m4aCodec, int carouselMaxImages) {}
+    private static final Policy POLICY=load();
+    public static final long MAX_PIXELS = POLICY.maxPixels();
+    private static Policy load() {
+        try(var in=AssetFilePolicy.class.getResourceAsStream("/asset-file-policy.json")) {
+            if(in==null)throw new IllegalStateException("Missing asset file policy");
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(in,Policy.class);
+        }catch(Exception e){throw new ExceptionInInitializerError(e);}
     }
+    public static Policy policy() {return POLICY;}
     public static void target(String filename, boolean qianchuan) {
-        if (qianchuan && filename.toLowerCase(Locale.ROOT).endsWith(".wav"))
+        var spec=spec(filename);
+        boolean supported=POLICY.files().stream().anyMatch(r->filename.toLowerCase(Locale.ROOT).endsWith("."+r.extension())&&r.qianchuanSupported());
+        if (qianchuan && spec.kind()!=AssetKind.TEXT && !supported)
             throw new BizException(1520, "千川音频仅支持 MP3/M4A；请转换 WAV，或取消同步账户后仅保存到平台");
     }
 
@@ -45,17 +50,18 @@ public final class AssetFilePolicy {
 
     public static FileSpec spec(String filename) {
         String ext = filename == null ? "" : filename.substring(filename.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        return switch (ext) {
-            case "mp4" -> new FileSpec(AssetKind.VIDEO, "video/mp4", 500L * 1024 * 1024);
-            case "jpg", "jpeg" -> new FileSpec(AssetKind.IMAGE, "image/jpeg", 1536L * 1024);
-            case "png" -> new FileSpec(AssetKind.IMAGE, "image/png", 1536L * 1024);
-            // The review engine accepts at most 10 MiB; do not accept files it cannot inspect.
-            case "mp3" -> new FileSpec(AssetKind.AUDIO, "audio/mpeg", 10L * 1024 * 1024);
-            case "m4a" -> new FileSpec(AssetKind.AUDIO, "audio/mp4", 10L * 1024 * 1024);
-            case "wav" -> new FileSpec(AssetKind.AUDIO, "audio/wav", 10L * 1024 * 1024);
-            case "txt" -> new FileSpec(AssetKind.TEXT, "text/plain; charset=utf-8", 1024L * 1024);
+        var rule=POLICY.files().stream().filter(r->r.extension().equals(ext)).findFirst().orElseThrow(()->new BizException(1520,"支持 MP4、JPG/JPEG/PNG、MP3/M4A/WAV 和 TXT 文件"));
+        String contentType=switch (ext) {
+            case "mp4" -> "video/mp4";
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "mp3" -> "audio/mpeg";
+            case "m4a" -> "audio/mp4";
+            case "wav" -> "audio/wav";
+            case "txt" -> "text/plain; charset=utf-8";
             default -> throw new BizException(1520, "支持 MP4、JPG/JPEG/PNG、MP3/M4A/WAV 和 TXT 文件");
         };
+        return new FileSpec(rule.kind(),contentType,rule.maxBytes());
     }
     public static void size(FileSpec spec, long size) {
         if (size <= 0 || size > spec.maxBytes()) throw new BizException(1520, "文件为空或超过该类型的大小限制");

@@ -71,6 +71,22 @@ class QianchuanRestClientRetryTest {
         hits.set(0);assertEquals("{\"code\":40100}",client().exchange(RequestSpec.post(url()).json("{}").build(),String.class));assertEquals(1,hits.get());
     }
 
+    @Test void platformHttp401WithoutReplayNeverExpiresLynxLogin() throws Exception {
+        AtomicInteger hits=new AtomicInteger();
+        start(ex->{hits.incrementAndGet();ex.sendResponseHeaders(401,-1);ex.close();});
+        var failure=assertThrows(BizException.class,()->client().exchange(RequestSpec.get(url()).build(),String.class));
+        assertEquals(1211,failure.code());assertEquals(1,hits.get());
+        assertTrue(failure.getMessage().contains("千川授权"));
+    }
+
+    @Test void platformBusinessAuthFailureWithoutReplayUsesAccountRecovery() throws Exception {
+        AtomicInteger hits=new AtomicInteger();
+        start(ex->{hits.incrementAndGet();byte[] bytes="{\"code\":40102}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();});
+        var failure=assertThrows(BizException.class,()->client().exchange(RequestSpec.get(url()).build().withoutReplay(),String.class));
+        assertEquals(1211,failure.code());assertEquals(1,hits.get());
+    }
+
     @Test void businessErrorLogsParameterHelpWithoutCredentialsOrRequestQuery() throws Exception {
         var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(QianchuanRestClient.class);
         var appender=new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();

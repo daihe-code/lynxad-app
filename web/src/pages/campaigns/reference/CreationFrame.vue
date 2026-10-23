@@ -19,16 +19,7 @@
       </div>
       <div v-if="account" class="ad-account">
         <div class="ad-account__card">
-          <span class="ad-account__name">{{ account.awemeName }}</span
-          ><span class="ad-account__id">抖音号ID：{{ account.awemeId }}</span
-          ><span class="ad-account__btns"
-            ><span
-              v-for="(chip, i) in accountChips || []"
-              :key="chip"
-              :class="i ? 'ad-account__btn-warn' : 'ad-account__btn-solid'"
-              >{{ chip }}</span
-            ></span
-          >
+          <AwemeAccountSummary :account="account" :chips="accountChips" />
         </div>
         <p class="ad-account__hint">当前投放抖音号</p>
       </div>
@@ -40,7 +31,7 @@
         :is="navigable ? 'button' : 'span'"
         :type="navigable ? 'button' : undefined"
         :aria-label="navigable ? label : undefined"
-        :disabled="navigable ? navigationDisabled : undefined"
+        :disabled="navigable ? navigationDisabled || i + 1 > (maxStep ?? step) || i === 3 : undefined"
         class="step"
         :class="{ 'step--done': i + 1 < step, 'step--nav': navigable }"
         :aria-current="i + 1 === step ? 'step' : undefined"
@@ -56,12 +47,14 @@
 </template>
 <script setup lang="ts">
 import ReferenceIcon from "./ReferenceIcon.vue";
+import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
 defineProps<{
   step: number;
-  account?: { awemeName: string; awemeId: string } | null;
+  account?: { awemeName: string; awemeId: string; avatar?: string | null } | null;
   accountChips?: string[];
   navigable?: boolean;
   navigationDisabled?: boolean;
+  maxStep?: number;
 }>();
 const emit = defineEmits<{ navigate: [step: number] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],
@@ -83,13 +76,8 @@ const steps = ["选择商品", "设置投放目标", "定素材并投放", "查�
   width: 16px;
   height: 16px;
 }
-.ad-account__name,
-.ad-account__id {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ad-account__btns { min-height: 22px; }
+.ad-banner .ad-account { width: 300px; }
+.ad-banner .ad-account__card { padding: 16px; }
 @media (max-width: 639px) {
   .ad-banner__inner {
     flex-direction: column;
@@ -98,7 +86,7 @@ const steps = ["选择商品", "设置投放目标", "定素材并投放", "查�
   .ad-banner__head {
     flex-wrap: wrap;
   }
-  .ad-account {
+  .ad-banner .ad-account {
     width: 100%;
     display: block;
   }

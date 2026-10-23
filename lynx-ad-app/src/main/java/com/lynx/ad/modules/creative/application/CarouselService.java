@@ -36,7 +36,7 @@ public class CarouselService {
         String name=request.name()==null ? "" : request.name().trim();
         if(name.isBlank() || name.length()>100) throw new BizException(1520,"图文名称须为 1-100 个字符");
         var images=request.imageAssetIds()==null ? List.<String>of() : request.imageAssetIds();
-        if(images.isEmpty() || images.size()>18 || new HashSet<>(images).size()!=images.size()) throw new BizException(1520,"图文需要 1-18 张不同的图片");
+        if(images.isEmpty() || images.size()>AssetFilePolicy.policy().carouselMaxImages() || new HashSet<>(images).size()!=images.size()) throw new BizException(1520,"图文需要 1-18 张不同的图片");
         var targets=request.accountIds()==null ? List.<String>of() : request.accountIds().stream().distinct().toList();
         if(targets.size()>20) throw new BizException(1520,"一次最多同步 20 个账户");
         List<CarouselRepository.Part> parts=new ArrayList<>();

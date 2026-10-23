@@ -33,6 +33,8 @@ public class PlanQueryService {
     private PlanStatisticsService statisticsService;
     @Autowired public void statisticsService(PlanStatisticsService value) { statisticsService=value; }
     private CreationStore creation;
+    private PlanReviewStore reviews;
+    @Autowired public void reviewStore(PlanReviewStore value){reviews=value;}
     @Autowired public void creationStore(CreationStore store) { creation=store; }
     private PlanTransferStore transfers;
     @Autowired public void transferStore(PlanTransferStore store) { transfers=store; }
@@ -68,7 +70,9 @@ public class PlanQueryService {
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize) { return list(tenant,pageNum,pageSize,null); }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize,Filters filter) {
         if(pageNum<1 || pageSize<1 || pageSize>200) throw new BizException(1402,"分页参数不正确");
-        List<PlanListVo> all=rows(tenant,null).stream().filter(row->matches(row,filter)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        String status=filter==null?null:filter.status();
+        com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.validate(status);
+        List<PlanListVo> all=rows(tenant,null,com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.includesDeleted(status)).stream().filter(row->matches(row,filter)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         if(filter!=null && filter.statisticsRange()!=null)all=rangeRows(tenant,all,filter.statisticsRange(),filter.refreshStatistics());
         sort(all,filter);
         long from=(long)(pageNum-1)*pageSize;
@@ -96,7 +100,7 @@ public class PlanQueryService {
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
-                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false));
+                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review()));
         }
         return result;
     }
@@ -123,6 +127,9 @@ public class PlanQueryService {
         if(previous.signum()==0)return current.signum()==0?BigDecimal.ZERO:null;
         return change(current,previous);
     }
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore settingsEdits;
+    @org.springframework.beans.factory.annotation.Autowired public void settingsEdits(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore value){settingsEdits=value;}
+
     public PlanVo get(TenantId tenant,PlanId id) {
         var plan=plans.findById(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在"));
         var visible=rows(tenant,plan);
@@ -141,17 +148,21 @@ public class PlanQueryService {
         return new PlanVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.smartBidType(),row.budget(),aweme,
                 plan.rejectReason(),row.lingtou(),row.guarantee(),row.coverUrl(),row.costYuan(),row.gmvYuan(),row.roi(),
                 plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),goods,row.comparison(),
-                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail(),row.statisticsDate(),row.historicalMetrics());
+                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail(),row.statisticsDate(),row.historicalMetrics(),settingsEdits==null?null:settingsEdits.state(plan),row.review());
     }
     private List<PlanListVo> rows(TenantId tenant,AdPlan only) {
+        return rows(tenant,only,false);
+    }
+    private List<PlanListVo> rows(TenantId tenant,AdPlan only,boolean includeDeleted) {
         var local=(only==null?plans.findByTenant(tenant):List.of(only)).stream()
-                .filter(p -> p.status()!=PlanStatus.DELETED).toList();
+                .filter(p -> includeDeleted || p.status()!=PlanStatus.DELETED).toList();
         var groups=transfers==null?Map.<String,PlanTransferStore.Group>of():transfers.groups(tenant);
         var meta=plans.listMetadataByTenant(tenant);
         var latest=snapshots.listLatestPairsByTenant(tenant);
         var selected=bindings.productIdsByPlan(local.stream().map(p->p.id().value()).toList());
         var creationSummaries=creation==null?Map.<String,CreationStore.PlanSummary>of():creation.summariesByPlan(tenant.value(),local.stream().map(p->groups.containsKey(p.id().value())?groups.get(p.id().value()).root():p.id().value()).distinct().toList());
         var cached=remote==null?Map.<String,PlanRemoteStore.Remote>of():remote.list(tenant);
+        var reviewStates=reviews==null?Map.<String,com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View>of():reviews.list(tenant);
         Map<String,List<Product>> catalogs=new HashMap<>();
         Set<String> authorized=new HashSet<>();
         Set<String> realAccounts=new HashSet<>();
@@ -210,7 +221,7 @@ public class PlanQueryService {
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,
                     canEdit && plan.status()==PlanStatus.DELIVERING,
                     plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
-                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day())));
+                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null));
         }
         return result;
     }
@@ -261,8 +272,8 @@ public class PlanQueryService {
     }
     private static BigDecimal change(BigDecimal c,BigDecimal p) { return c==null || p==null || p.signum()<=0?null:c.subtract(p).multiply(BigDecimal.valueOf(100)).divide(p,2,RoundingMode.HALF_UP); }
     private static boolean matches(PlanListVo row,Filters f) {
+        if(!com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.matches(row.status(),row.qcStatus(),f==null?null:f.status()))return false;
         if(f==null) return true;
-        if(nonblank(f.status()) && !f.status().equals(row.status())) return false;
         if(nonblank(f.platform()) && !f.platform().equals(row.deliveryPlatform())) return false;
         if(nonblank(f.bidType()) && !f.bidType().equals(row.smartBidType())) return false;
         if(nonblank(f.accountId()) && !f.accountId().equals(row.accountId())) return false;

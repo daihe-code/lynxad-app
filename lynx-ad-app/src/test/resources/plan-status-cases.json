@@ -1,0 +1,483 @@
+[
+  {
+    "name": "投放中",
+    "status": "DELIVERING",
+    "qcStatus": "DELIVERY_OK",
+    "group": "DELIVERING",
+    "label": "投放中",
+    "include": [
+      "DELIVERING",
+      "DELIVERY_OK"
+    ],
+    "exclude": [
+      "PAUSED",
+      "DISABLE",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "新建审核与修改审核分开",
+    "status": "PENDING_AUDIT",
+    "qcStatus": "AUDIT",
+    "group": "AUDIT",
+    "label": "新建审核中",
+    "include": [
+      "AUDIT",
+      "PENDING_AUDIT"
+    ],
+    "exclude": [
+      "REAUDIT",
+      "DELIVERING"
+    ]
+  },
+  {
+    "name": "修改审核不冒充新建",
+    "status": "PENDING_AUDIT",
+    "qcStatus": "REAUDIT",
+    "group": "REAUDIT",
+    "label": "修改审核中",
+    "include": [
+      "REAUDIT",
+      "PENDING_AUDIT"
+    ],
+    "exclude": [
+      "AUDIT",
+      "REJECTED"
+    ]
+  },
+  {
+    "name": "未返回审核类型时保持未知",
+    "status": "PENDING_AUDIT",
+    "qcStatus": null,
+    "group": "PENDING_AUDIT",
+    "label": "审核中（类型待确认）",
+    "include": [
+      "PENDING_AUDIT"
+    ],
+    "exclude": [
+      "AUDIT",
+      "REAUDIT",
+      "REJECTED"
+    ]
+  },
+  {
+    "name": "审核不通过",
+    "status": "REJECTED",
+    "qcStatus": "OFFLINE_AUDIT",
+    "group": "REJECTED",
+    "label": "审核不通过",
+    "include": [
+      "REJECTED",
+      "OFFLINE_AUDIT"
+    ],
+    "exclude": [
+      "AUDIT",
+      "REAUDIT",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "审核异常不能冒充拒绝",
+    "status": "REJECTED",
+    "qcStatus": "AUDIT_STATUS_ERROR",
+    "group": "UNKNOWN",
+    "label": "审核异常，需联系审核人员",
+    "include": [
+      "UNKNOWN"
+    ],
+    "exclude": [
+      "REJECTED",
+      "AUDIT",
+      "REAUDIT"
+    ]
+  },
+  {
+    "name": "手动暂停",
+    "status": "PAUSED",
+    "qcStatus": "DISABLE",
+    "group": "PAUSED",
+    "label": "手动暂停",
+    "include": [
+      "PAUSED",
+      "DISABLE"
+    ],
+    "exclude": [
+      "SYSTEM_DISABLE",
+      "OFFLINE_BALANCE",
+      "DELIVERING"
+    ]
+  },
+  {
+    "name": "计划预算不足",
+    "status": "UNKNOWN",
+    "qcStatus": "OFFLINE_BUDGET",
+    "group": "PAUSED",
+    "label": "计划预算不足",
+    "include": [
+      "PAUSED",
+      "OFFLINE_BUDGET"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "账户预算已花光",
+    "status": "UNKNOWN",
+    "qcStatus": "ADVERTISER_OFFLINE_BUDGET",
+    "group": "PAUSED",
+    "label": "账户预算已花光",
+    "include": [
+      "PAUSED",
+      "ADVERTISER_OFFLINE_BUDGET"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "账户余额不足",
+    "status": "UNKNOWN",
+    "qcStatus": "OFFLINE_BALANCE",
+    "group": "PAUSED",
+    "label": "账户余额不足",
+    "include": [
+      "PAUSED",
+      "OFFLINE_BALANCE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "系统暂停",
+    "status": "UNKNOWN",
+    "qcStatus": "SYSTEM_DISABLE",
+    "group": "PAUSED",
+    "label": "系统暂停",
+    "include": [
+      "PAUSED",
+      "SYSTEM_DISABLE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "不在投放时段",
+    "status": "UNKNOWN",
+    "qcStatus": "NO_SCHEDULE",
+    "group": "PAUSED",
+    "label": "不在投放时段",
+    "include": [
+      "PAUSED",
+      "NO_SCHEDULE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "未到投放时间",
+    "status": "UNKNOWN",
+    "qcStatus": "TIME_NO_REACH",
+    "group": "PAUSED",
+    "label": "未到投放时间",
+    "include": [
+      "PAUSED",
+      "TIME_NO_REACH"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "在投计划配额超限",
+    "status": "UNKNOWN",
+    "qcStatus": "QUOTA_DISABLE",
+    "group": "PAUSED",
+    "label": "在投计划配额超限",
+    "include": [
+      "PAUSED",
+      "QUOTA_DISABLE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "商品暂不可用",
+    "status": "UNKNOWN",
+    "qcStatus": "EXTERNAL_URL_DISABLE",
+    "group": "PAUSED",
+    "label": "商品暂不可用",
+    "include": [
+      "PAUSED",
+      "EXTERNAL_URL_DISABLE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "DELIVERING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "name": "共享钱包归余额不足子类",
+    "status": "UNKNOWN",
+    "qcStatus": "OFFLINE_SHARED_WALLET_BALANCE",
+    "group": "PAUSED",
+    "label": "共享钱包余额不足",
+    "include": [
+      "PAUSED",
+      "OFFLINE_BALANCE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "OFFLINE_BUDGET"
+    ]
+  },
+  {
+    "name": "无暂停原因不推测手动暂停",
+    "status": "PAUSED",
+    "qcStatus": null,
+    "group": "PAUSED",
+    "label": "已暂停",
+    "include": [
+      "PAUSED"
+    ],
+    "exclude": [
+      "DISABLE",
+      "SYSTEM_DISABLE",
+      "OFFLINE_BALANCE"
+    ]
+  },
+  {
+    "name": "旧别名无原因不推测手动暂停",
+    "status": "PAUSED",
+    "qcStatus": "PAUSED",
+    "group": "PAUSED",
+    "label": "已暂停",
+    "include": [
+      "PAUSED"
+    ],
+    "exclude": [
+      "DISABLE",
+      "SYSTEM_DISABLE"
+    ]
+  },
+  {
+    "name": "全域暂停保留原因",
+    "status": "UNKNOWN",
+    "qcStatus": "ROI2_DISABLE",
+    "group": "PAUSED",
+    "label": "全域投放暂停",
+    "include": [
+      "PAUSED",
+      "ROI2_DISABLE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "SYSTEM_DISABLE"
+    ]
+  },
+  {
+    "name": "计划组暂停保留原因",
+    "status": "UNKNOWN",
+    "qcStatus": "CAMPAIGN_DISABLE",
+    "group": "PAUSED",
+    "label": "计划组暂停",
+    "include": [
+      "PAUSED",
+      "CAMPAIGN_DISABLE"
+    ],
+    "exclude": [
+      "DISABLE",
+      "SYSTEM_DISABLE"
+    ]
+  },
+  {
+    "name": "已完成区别于已终止",
+    "status": "FINISHED",
+    "qcStatus": "TIME_DONE",
+    "group": "COMPLETED",
+    "label": "已完成",
+    "include": [
+      "COMPLETED",
+      "TIME_DONE",
+      "FINISHED"
+    ],
+    "exclude": [
+      "TERMINATED",
+      "FROZEN",
+      "PAUSED"
+    ]
+  },
+  {
+    "name": "终止不能显示冻结",
+    "status": "UNKNOWN",
+    "qcStatus": "FROZEN",
+    "group": "TERMINATED",
+    "label": "已终止",
+    "include": [
+      "TERMINATED",
+      "FROZEN",
+      "FINISHED"
+    ],
+    "exclude": [
+      "COMPLETED",
+      "TIME_DONE",
+      "PAUSED"
+    ]
+  },
+  {
+    "name": "缺少结束类型不猜测完成",
+    "status": "FINISHED",
+    "qcStatus": null,
+    "group": "FINISHED",
+    "label": "已结束（类型待确认）",
+    "include": [
+      "FINISHED"
+    ],
+    "exclude": [
+      "COMPLETED",
+      "TERMINATED"
+    ]
+  },
+  {
+    "name": "已删除",
+    "status": "DELETED",
+    "qcStatus": "DELETE",
+    "group": "DELETED",
+    "label": "已删除",
+    "include": [
+      "DELETED",
+      "DELETE"
+    ],
+    "exclude": [
+      "DELIVERING",
+      "PAUSED",
+      "COMPLETED"
+    ]
+  },
+  {
+    "name": "删除墓碑优先于旧投放快照",
+    "status": "DELETED",
+    "qcStatus": "DELIVERY_OK",
+    "group": "DELETED",
+    "label": "已删除",
+    "include": [
+      "DELETED",
+      "DELETE"
+    ],
+    "exclude": [
+      "DELIVERING",
+      "DELIVERY_OK",
+      "PAUSED"
+    ]
+  },
+  {
+    "name": "未知新枚举保留原值",
+    "status": "UNKNOWN",
+    "qcStatus": "NEW_PLATFORM_STATE",
+    "group": "UNKNOWN",
+    "label": "平台状态：NEW_PLATFORM_STATE",
+    "include": [
+      "UNKNOWN"
+    ],
+    "exclude": [
+      "PAUSED",
+      "DISABLE",
+      "DELIVERING"
+    ]
+  },
+  {
+    "name": "预算接近耗尽不推断已暂停",
+    "status": "UNKNOWN",
+    "qcStatus": "PRE_OFFLINE_BUDGET",
+    "group": "UNKNOWN",
+    "label": "计划预算即将用尽",
+    "include": [
+      "UNKNOWN",
+      "PRE_OFFLINE_BUDGET"
+    ],
+    "exclude": [
+      "PAUSED",
+      "OFFLINE_BUDGET",
+      "DISABLE"
+    ]
+  },
+  {
+    "name": "刚暂停时不恢复旧投放状态",
+    "status": "PAUSED",
+    "qcStatus": "DELIVERY_OK",
+    "group": "PAUSED",
+    "label": "已暂停",
+    "include": [
+      "PAUSED"
+    ],
+    "exclude": [
+      "DELIVERING",
+      "DELIVERY_OK",
+      "DISABLE"
+    ]
+  },
+  {
+    "name": "刚启用时不恢复旧暂停状态",
+    "status": "DELIVERING",
+    "qcStatus": "DISABLE",
+    "group": "DELIVERING",
+    "label": "投放中",
+    "include": [
+      "DELIVERING",
+      "DELIVERY_OK"
+    ],
+    "exclude": [
+      "PAUSED",
+      "DISABLE"
+    ]
+  },
+  {
+    "name": "草稿不归入平台审核",
+    "status": "DRAFT",
+    "qcStatus": null,
+    "group": "DRAFT",
+    "label": "草稿",
+    "include": [
+      "DRAFT"
+    ],
+    "exclude": [
+      "PENDING_AUDIT",
+      "AUDIT",
+      "REAUDIT"
+    ]
+  },
+  {
+    "name": "提交中不猜测审核类型",
+    "status": "SUBMITTING",
+    "qcStatus": null,
+    "group": "SUBMITTING",
+    "label": "提交中",
+    "include": [
+      "SUBMITTING"
+    ],
+    "exclude": [
+      "PENDING_AUDIT",
+      "AUDIT",
+      "REAUDIT"
+    ]
+  }
+]

@@ -270,6 +270,26 @@ class QianchuanManagementContractTest {
         }
         assertEquals(SmartBidType.CUSTOM,rows.getLast().bidType());
     }
+    @Test void deletedPlanSyncUsesAnExplicitReadScopeWithoutChangingOperationLookups() throws Exception {
+        var filters=new ArrayList<JsonNode>();
+        server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/",exchange->{
+            assertEquals("GET",exchange.getRequestMethod());
+            for(String part:exchange.getRequestURI().getRawQuery().split("&")) {
+                var pair=part.split("=",2);
+                if("filtering".equals(pair[0]))filters.add(json.readTree(URLDecoder.decode(pair[1],StandardCharsets.UTF_8)));
+            }
+            byte[] data="{\"code\":0,\"data\":{\"ad_list\":[],\"page_info\":{\"total_page\":1}}}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,data.length);exchange.getResponseBody().write(data);exchange.close();
+        });server.start();properties.getQianchuan().getDelivery().setAdListUrl("http://127.0.0.1:"+server.getAddress().getPort()+"/");
+        var adapter=new LiveDeliveryAdapters(client(),properties,new OceanJson(json));
+        adapter.listIncludingDeleted(credential,null);adapter.list(credential,null);
+        assertEquals(4,filters.size());
+        assertEquals("ALL_INCLUDE_DELETED",filters.get(0).path("status").asText());
+        assertEquals("ALL_INCLUDE_DELETED",filters.get(1).path("status").asText());
+        assertFalse(filters.get(2).has("status"));assertFalse(filters.get(3).has("status"));
+        assertTrue(requests.isEmpty()); // No platform mutation or account setting change.
+    }
     @Test void reportSendsRequiredEmptyFiltersAndStableOrder() throws Exception {
         var query=new java.util.concurrent.atomic.AtomicReference<Map<String,String>>();
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);

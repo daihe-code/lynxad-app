@@ -30,6 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -46,6 +47,8 @@ public class AuthCommandService {
     private final JwtService jwtService;
     private final LynxAdProperties properties;
     private final AuditRecorder auditRecorder;
+    private final PasswordLoginGuard passwordGuard;
+    private final AccountInitializationService initialization;
     private final SingleTenantMembershipPolicy membershipPolicy = new SingleTenantMembershipPolicy();
 
     public AuthCommandService(
@@ -57,7 +60,8 @@ public class AuthCommandService {
             PasswordHasher passwordHasher,
             JwtService jwtService,
             LynxAdProperties properties,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder, PasswordLoginGuard passwordGuard,
+            AccountInitializationService initialization) {
         this.otpStore = otpStore;
         this.smsGateway = smsGateway;
         this.userRepository = userRepository;
@@ -67,6 +71,8 @@ public class AuthCommandService {
         this.jwtService = jwtService;
         this.properties = properties;
         this.auditRecorder = auditRecorder;
+        this.passwordGuard = passwordGuard;
+        this.initialization = initialization;
     }
 
     public SendSmsResponse sendSms(PhoneNumber phone) {
@@ -93,7 +99,7 @@ public class AuthCommandService {
         return new PeekSmsResponse(otpStore.peek(phone, code));
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse smsLogin(PhoneNumber phone, String code) {
         if (!otpStore.verifyAndConsume(phone, code)) {
             throw new BizException(1101, "验证码不正确或已过期");
@@ -104,15 +110,17 @@ public class AuthCommandService {
             return created;
         });
         claimInviteIfPresent(user, phone);
+        passwordGuard.clear(phone.value());
         return issue(user);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
         User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
         if (!user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
             throw new BizException(1101, "账号或密码错误");
         }
+        passwordGuard.clear(phone.value());
         return issue(user);
     }
 
@@ -130,6 +138,13 @@ public class AuthCommandService {
 
     public void logout(com.lynx.ad.common.domain.Ids.UserId userId) {
         // short-lived JWT; optional blacklist omitted in this round
+    }
+
+    /** Resume sessions issued before workspace creation moved into successful login. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public LoginResponse initializeAccount(UserId userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
+        return session(user, initialization.initialize(userId));
     }
 
     private void claimInviteIfPresent(User user, PhoneNumber phone) {

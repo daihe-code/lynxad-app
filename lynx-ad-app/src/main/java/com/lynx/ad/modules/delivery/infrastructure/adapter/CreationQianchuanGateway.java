@@ -6,6 +6,7 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.http.*;
 import com.lynx.ad.modules.delivery.domain.model.CreationState.Product;
+import com.lynx.ad.modules.delivery.domain.service.ProductCatalogPolicy;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
@@ -44,7 +45,9 @@ public class CreationQianchuanGateway {
         if(properties.getMock().isQianchuan()) throw new BizException(1524,"创建投放需要真实千川授权，模拟模式不可发布");
         return credentials.getUsableCredential(tenant,new AccountId(account));
     }
-    public record Page(List<Product> items,long total,int page,int pageSize) {}
+    public record Page(List<Product> items,long total,int page,int pageSize,String nextCursor,boolean hasMore) {
+        public Page(List<Product> items,long total,int page,int pageSize){this(items,total,page,pageSize,null,false);}
+    }
     public boolean commodityCardTitle(TenantId tenant,String account,String aweme) {
         return accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不存在"))
                 .awemes().stream().filter(w->w.awemeId().value().equals(aweme)).anyMatch(w->w.type()==AwemeType.SELF||w.type()==AwemeType.OFFICIAL);
@@ -53,23 +56,50 @@ public class CreationQianchuanGateway {
         return products(tenant,account,aweme,page,size,keyword,tab,unpromoted,ids,false);
     }
     public Page products(TenantId tenant,String account,String aweme,int page,int size,String keyword,String tab,boolean unpromoted,List<String> ids,boolean refreshPrices) {
+        return products(tenant,account,aweme,page,size,keyword,tab,unpromoted,ids,refreshPrices,true,null);
+    }
+    public Page products(TenantId tenant,String account,String aweme,int page,int size,String keyword,String tab,boolean unpromoted,List<String> ids,boolean refreshPrices,String cursor) {
+        return products(tenant,account,aweme,page,size,keyword,tab,unpromoted,ids,refreshPrices,true,cursor);
+    }
+    /** Recommendation scanning uses catalog prices; do not fan out SKU-price requests for every candidate. */
+    public Page recommendationCandidates(TenantId tenant,String account,String aweme,int page,int size) {
+        return products(tenant,account,aweme,page,size,null,"ALL",false,null,false,false,null);
+    }
+    private Page products(TenantId tenant,String account,String aweme,int page,int size,String keyword,String tab,boolean unpromoted,List<String> ids,boolean refreshPrices,boolean fetchPrices,String cursor) {
         if(page<1 || size<1 || size>100) throw new BizException(1302,"商品分页参数不合法");
+        String category=tab==null||tab.isBlank()?"ALL":tab;
+        if(!ProductCatalogPolicy.TABS.contains(category)) throw new BizException(1302,"该商品分类暂未开放，请选择全部商品、店铺新品、破圈尖货或搜索趋势");
+        boolean cursorPaging=ProductCatalogPolicy.usesCursor(category);
+        String position=cursorPaging?catalogCursor(cursor==null&&page==1?"0":cursor):null;
+        if(cursorPaging && page>1 && "0".equals(position)) throw new BizException(1302,"请从商品分类首页重新查询");
         var c=credential(tenant,account,aweme);
         Map<String,Object> filtering=new LinkedHashMap<>();
-        if(tab!=null && !tab.isBlank()) {
-            if(!Set.of("ALL","GOOD_BOOST","SEARCH_TREND","BREAKTHROUGH_PRODUCT").contains(tab)) throw new BizException(1302,"不支持的商品分类");
-            filtering.put("tab",tab);
-        }
-        if(unpromoted && (tab==null || Set.of("ALL","GOOD_BOOST").contains(tab))) filtering.put("create_roi2_limit_product",true);
+        filtering.put("tab",category);
+        // Merchant product/get accepts this filter only on ALL (the talent endpoint has different rules).
+        if(unpromoted && ProductCatalogPolicy.supportsUnpromoted(category)) filtering.put("create_roi2_limit_product",true);
         if(ids!=null && !ids.isEmpty()) filtering.put("product_ids",ids.stream().map(CreationQianchuanGateway::numericId).toList());
         if(keyword!=null && !keyword.isBlank()) filtering.put("product_name",keyword.trim());
         var params=new LinkedHashMap<String,Object>();params.put("advertiser_id",c.advertiserId().value());params.put("aweme_id",aweme);
-        params.put("filtering",encode(filtering));params.put("page",page);params.put("page_size",size);
+        params.put("filtering",encode(filtering));
+        // NEW_PRODUCT and BREAKTHROUGH_PRODUCT reject both page and page_size.
+        if(cursorPaging)params.put("cursor",position);
+        else {params.put("page",page);params.put("page_size",size);}
         var data=read(c,properties.getQianchuan().getCatalog().getProductGetUrl(),params);
+        var info=data.path("page_info");
+        String next=null;boolean hasMore=false;
+        if(cursorPaging) {
+            String candidate=info.path("cursor").asText("0");
+            hasMore=info.has("has_more")?info.path("has_more").asBoolean():!"0".equals(candidate);
+            if(hasMore) {
+                try {next=catalogCursor(candidate);}
+                catch(BizException invalid) {throw new BizException(1406,"千川商品分页信息异常，请重新查询");}
+                if("0".equals(next)||next.equals(position))throw new BizException(1406,"千川商品分页信息异常，请重新查询");
+            }
+        }
         var refs=new ArrayList<com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref>();
         for(var p:data.path("product_list")) refs.add(new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(
                 p.path("id").asText(p.path("product_id").asText()),p.path("channel_id").asText(null)));
-        var quotes=prices==null?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,c,aweme,refs,refreshPrices);
+        var quotes=prices==null||!fetchPrices?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,c,aweme,refs,refreshPrices);
         var manual=manualPrices(tenant,aweme);
         var items=new ArrayList<Product>();
         for(var p:data.path("product_list")) {
@@ -80,9 +110,14 @@ public class CreationQianchuanGateway {
             BigDecimal price=quote==null?null:quote.minPrice();
             var tags=strings(p.path("tag"));var reasons=strings(p.path("gray_reason"));
             items.add(new Product(id,id,p.path("name").asText(),price,manual.get(id),p.path("img").asText(p.path("image_url").asText(null)),
-                    p.path("category_name").asText(""),p.path("stock_num").isNumber()?p.path("stock_num").longValue():null,tags,reasons,quote,p.path("channel_id").asText(null)));
+                    p.path("category_name").asText(""),p.path("stock_num").isNumber()?p.path("stock_num").longValue():null,tags,reasons,quote,p.path("channel_id").asText(null),null,sales(p.get("sell_num"))));
         }
-        return new Page(items,data.path("page_info").path("total_number").asLong(items.size()),page,size);
+        return new Page(items,info.path("total_number").asLong(items.size()),page,size,next,hasMore);
+    }
+    private static String catalogCursor(String value) {
+        if(value==null||!value.matches("0|[1-9][0-9]{0,18}")||new BigInteger(value).compareTo(BigInteger.valueOf(Long.MAX_VALUE))>0)
+            throw new BizException(1302,"商品分页游标不合法，请从分类首页重新查询");
+        return value;
     }
     public List<Product> selected(TenantId t,String a,String aw,List<String> ids) {
         if(ids==null || ids.isEmpty() || ids.size()>10 || new HashSet<>(ids).size()!=ids.size()) throw new BizException(1302,"请选择 1–10 个不同商品");
@@ -95,6 +130,13 @@ public class CreationQianchuanGateway {
         }
         return result;
     }
+    /** Read-only recovery: keep unavailable rows visible so the browser can explain exclusions. */
+    public List<Product> restorable(TenantId tenant,String account,String aweme,List<String> ids) {
+        if(ids==null||ids.isEmpty()||ids.size()>10||new HashSet<>(ids).size()!=ids.size()
+                ||ids.stream().anyMatch(id->id==null||!id.matches("[1-9][0-9]{0,18}")))
+            throw new BizException(1302,"恢复选品需要 1–10 个不同的有效商品 ID");
+        return products(tenant,account,aweme,1,100,null,"ALL",false,ids).items();
+    }
     public List<Product> refreshPrices(TenantId tenant,String account,String aweme,List<Product> products) {
         if(prices==null || products.isEmpty())return products;
         var c=credential(tenant,account,aweme);
@@ -106,8 +148,16 @@ public class CreationQianchuanGateway {
             if(quote==null && p.priceInfo()!=null)quote=p.priceInfo().staleCopy();
             BigDecimal manual=p.priceInfo()==null && Objects.equals(p.price(),p.userPrice())?null:p.userPrice();
             if(savedManual.containsKey(p.qcProductId()))manual=savedManual.get(p.qcProductId());
-            return new Product(p.productId(),p.qcProductId(),p.name(),quote==null?p.price():quote.minPrice(),manual,p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),quote,p.channelId());
+            return new Product(p.productId(),p.qcProductId(),p.name(),quote==null?p.price():quote.minPrice(),manual,p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),quote,p.channelId(),p.draft(),p.sales());
         }).toList();
+    }
+    private static Long sales(JsonNode value) {
+        if(value==null||value.isNull())return null;
+        if(value.isIntegralNumber()&&value.canConvertToLong())return value.longValue()>=0?value.longValue():null;
+        if(value.isTextual()&&value.asText().matches("[0-9]{1,19}")) {
+            try{return Long.parseLong(value.asText());}catch(NumberFormatException oversized){return null;}
+        }
+        return null;
     }
     public JsonNode recommendations(TenantId t,String a,String aw,List<String> ids) {
         var c=credential(t,a,aw);var params=new LinkedHashMap<String,Object>();
@@ -119,6 +169,9 @@ public class CreationQianchuanGateway {
         params.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
         try {result.set("roi",read(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params));}
         catch(BizException e){result.put("roiError","ROI 推荐获取失败："+recommendationError(e,c));}
+        result.put("fetchedAt",java.time.Instant.now().toString());
+        result.put("accountId",a);result.put("awemeId",aw);
+        result.set("productIds",json.valueToTree(ids));
         return result;
     }
     private static String recommendationError(BizException error,Credential credential) {

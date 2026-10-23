@@ -29,6 +29,7 @@ class CreationDraftStepTest {
         state.planId="plan";state.tenantId="tenant";state.name="草稿计划";state.step=3;
         state.revision=7;state.packageVersion=3;state.confirmedVersion=3;
         state.analysisStatus="SUCCEEDED";state.budget=new BigDecimal("300");state.roi2Goal=new BigDecimal("1.5");
+        state.products.add(new CreationState.Product("123","123","商品",new BigDecimal("50"),null,"https://assets.test/product.jpg","类目",10L,java.util.List.of(),java.util.List.of()));
         var material=new CreationState.Material();material.id="material";material.status="READY";state.materials.add(material);
         when(store.mutate(eq("tenant"),eq("plan"),any(),any())).thenAnswer(call->{
             assertEquals(state.revision,(Integer)call.getArgument(2));
@@ -64,8 +65,14 @@ class CreationDraftStepTest {
         verifyNoInteractions(store);
     }
 
-    @Test void requiresCompletedAnalysisBeforeEnteringGoalPage() {
+    @Test void allowsGoalPageWhileAiIsRunningWhenBasicChecksPass() {
         state.step=1;state.analysisStatus="RUNNING";
+        service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,2));
+        assertEquals(2,state.step);assertEquals(8,state.revision);assertEquals("RUNNING",state.analysisStatus);
+    }
+
+    @Test void invalidSelectionStillCannotEnterGoalPageAfterAiSucceeded() {
+        state.step=1;state.products.clear();
         assertThrows(BizException.class,()->service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,2)));
         assertEquals(1,state.step);assertEquals(7,state.revision);
     }

@@ -380,7 +380,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .ad-account {
   position: relative;
   display: none;
-  width: 227px;
+  width: 300px;
   flex-shrink: 0;
 }
 @media (min-width:1280px) {
@@ -394,7 +394,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   border-width: 1px;
   border-color: hsla(0,0%,100%,.2);
   background-color: hsla(0,0%,100%,.14);
-  padding: 19px 1.5rem 13px;
+  padding: 16px 28px 16px 16px;
 }
 .ad-account__name {
   font-size: 16px;
@@ -1840,3 +1840,5 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
     overflow-y: auto;
   }
 }
+
+.ad-stepper .step{border:0;background:transparent;font:inherit}.ad-stepper .step:not(:disabled){cursor:pointer}.ad-stepper .step:focus-visible{outline:2px solid #575cf6;outline-offset:4px;border-radius:12px}

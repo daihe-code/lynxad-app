@@ -7,6 +7,27 @@ import com.lynx.ad.modules.delivery.domain.model.CreationState;
 import org.junit.jupiter.api.Test;
 
 class CreationViewTest {
+    @Test void generatedManagementNamesAreDistinctStableAndDoNotChangeAdvertisingText() throws Exception {
+        var state=new CreationState();state.products.add(new CreationState.Product("123","123","20寸折叠自行车",null,null,null,null,null,java.util.List.of(),java.util.List.of()));
+        for(String type:java.util.List.of("VIDEO","VIDEO","IMAGE","CAROUSEL")) {
+            var material=new CreationState.Material();material.id="material-"+state.materials.size();material.engineMaterialId=material.id;
+            material.productId="123";material.type=type;material.title="同一个广告标题";material.titles=java.util.List.of(material.title);state.materials.add(material);
+        }
+        var view=CreationView.of(state);var names=view.materials().stream().map(CreationView.MaterialView::displayName).toList();
+        assertEquals(4,new java.util.HashSet<>(names).size());assertTrue(names.getFirst().startsWith("视频｜20寸折叠自行车｜"));
+        assertTrue(names.get(2).startsWith("商品卡｜"));assertTrue(names.get(3).startsWith("图文｜"));
+        assertTrue(view.materials().stream().allMatch(m->m.title().equals("同一个广告标题")&&m.titles().equals(java.util.List.of("同一个广告标题"))));
+        state.materials.removeFirst();state.materials.getFirst().title="修改后的广告标题";
+        var restored=new ObjectMapper().readValue(new ObjectMapper().writeValueAsString(state),CreationState.class);
+        assertEquals(names.get(1),CreationView.of(restored).materials().getFirst().displayName());
+    }
+    @Test void manualMaterialNamesRemainTheUsersOwnTextAndUnicodeNamesAreNotSplit() {
+        var state=new CreationState();state.products.add(new CreationState.Product("123","123","🚲".repeat(24),null,null,null,null,null,java.util.List.of(),java.util.List.of()));
+        var generated=new CreationState.Material();generated.id="ai";generated.type="IMAGE";generated.productId="123";generated.engineMaterialId="ai";state.materials.add(generated);
+        var manual=new CreationState.Material();manual.id="manual";manual.title="用户上传的图片名称";state.materials.add(manual);
+        var view=CreationView.of(state);assertTrue(view.materials().getFirst().displayName().contains("🚲".repeat(20)+"…"));
+        assertEquals("用户上传的图片名称",view.materials().getLast().displayName());assertNull(manual.engineMaterialId);
+    }
     @Test void deliverySourceSurvivesStorageAndIsVisibleWithoutInternalCertificates() throws Exception {
         var json=new ObjectMapper().findAndRegisterModules();var s=new CreationState();
         var m=new CreationState.Material();m.id="base";m.type="IMAGE";
