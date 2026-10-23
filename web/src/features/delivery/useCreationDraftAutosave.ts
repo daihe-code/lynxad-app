@@ -67,7 +67,7 @@ export function useCreationDraftAutosave(options: {
       const warning = await options.restore(cached.inputs);
       cache.recover(cached,force);
       pending.value = undefined; paused.value = false; unsavedConflict = false;
-      status.value = warning || '已恢复本机未提交内容，请核对后提交；尚未创建或修改平台计划。';
+      status.value = warning || '';
     } catch {
       pending.value = cached;
       status.value = '暂时无法核验恢复商品，本机内容仍保留，请联网后重试恢复。';
