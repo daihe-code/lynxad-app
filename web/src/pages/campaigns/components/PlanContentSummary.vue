@@ -16,8 +16,8 @@
       <p v-else class="content-empty">暂未提供商品信息</p>
       <router-link v-if="!disabled" class="content-popup-link" :to="productsLink">查看全部商品 <el-icon><ArrowRight /></el-icon></router-link>
     </el-popover>
-    <component :is="disabled ? 'span' : RouterLink" :to="disabled ? undefined : materialsLink" class="content-entry" :aria-label="`查看${plan.name}的素材`">
-      <span class="content-thumb material-thumb"><el-image v-if="plan.materialCoverUrl" :src="plan.materialCoverUrl" fit="cover"><template #error><el-icon><VideoPlay /></el-icon></template></el-image><el-icon v-else><VideoPlay /></el-icon></span><span>素材</span><el-icon v-if="!disabled" class="content-arrow"><ArrowRight /></el-icon>
+    <component v-if="materialCover" :is="disabled ? 'span' : RouterLink" :to="disabled ? undefined : materialsLink" class="content-entry" :aria-label="`查看${plan.name}的素材`">
+      <span class="content-thumb material-thumb"><el-image :src="materialCover" fit="cover"><template #error><el-icon><VideoPlay /></el-icon></template></el-image></span><span>素材</span><el-icon v-if="!disabled" class="content-arrow"><ArrowRight /></el-icon>
     </component>
     <span v-if="plan.source === 'EXTERNAL'" class="content-source">外部</span>
   </div>
@@ -32,6 +32,7 @@ const props=defineProps<{plan:PlanListVo;account?:AccountVo;productsLink:RouteLo
 const aweme=computed(()=>props.account?.awemes.find(item=>item.awemeId===props.plan.awemeId));
 const products=computed(()=>[...new Map((props.plan.products||[]).map(product=>[product.id,product])).values()]);
 const productCover=computed(()=>products.value.find(product=>product.imageUrl)?.imageUrl);
+const materialCover=computed(()=>props.plan.materialCoverUrl?.trim());
 </script>
 <style scoped>
 :global(.plan-content-popover){max-width:calc(100vw - 24px);box-sizing:border-box}
