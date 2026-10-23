@@ -25,6 +25,8 @@ public class PublishedMaterialService {
     private final CreationPayloadBuilder payloads;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
+    private PlanRemoteStore remote;
+    @org.springframework.beans.factory.annotation.Autowired public void remoteMetadata(PlanRemoteStore value){remote=value;}
     public PublishedMaterialService(CreationStore store,AdPlanRepository plans,PlanTransferStore transfers,
             CreationQianchuanGateway gateway,AdManagementPort ads,CreationPayloadBuilder payloads,ObjectMapper json,PlatformTransactionManager manager) {
         this.store=store;this.plans=plans;this.transfers=transfers;this.gateway=gateway;this.ads=ads;this.payloads=payloads;this.json=json;tx=new TransactionTemplate(manager);
@@ -160,7 +162,13 @@ public class PublishedMaterialService {
                 if(!same(detail(c,m.qcPlanId),expected))throw new BizException(1406,"素材删除结果待平台确认，不会重复提交");
                 update(s,state->state.materialEdit.members.get(n).phase="DONE");
             }
-            finish(s,true,"素材修改已同步千川");
+            var confirmed=new LinkedHashMap<String,JsonNode>();
+            for(var m:edit.members) {
+                var full=ads.detail(c,m.qcPlanId);
+                if(!m.qcPlanId.equals(full.path("ad_id").asText())||!same(QianchuanCreativeBindings.groups(full),without(m.added!=null&&!m.added.isNull()?m.added:m.before,source.productId,oldKeys)))throw new BizException(1406,"平台素材最终结果待核查");
+                confirmed.put(m.planId,full);
+            }
+            finish(s,true,"素材修改已同步千川",confirmed);
         }catch(RuntimeException unavailable) {
             var current=store.get(s.tenantId,s.planId);
             if(unavailable instanceof BizException error&&error.code()==1404&&current.materialEdit.members.stream().allMatch(m->"READY".equals(m.phase)))finish(current,false,"平台素材绑定已变化，本次未修改投放素材，请刷新后重试");
@@ -169,11 +177,16 @@ public class PublishedMaterialService {
         return store.get(s.tenantId,s.planId);
     }
     private void finish(CreationState s,boolean success,String message) {
+        finish(s,success,message,Map.of());
+    }
+    private void finish(CreationState s,boolean success,String message,Map<String,JsonNode> confirmed) {
         tx.executeWithoutResult(status->update(s,current->{
             if(success&&current.materialEdit.members.stream().anyMatch(m->!"DONE".equals(m.phase)))return;
+            if(!success&&current.materialEdit.members.stream().anyMatch(m->!"READY".equals(m.phase)))return;
             if(success){current.materials.removeIf(m->current.materialEdit.sourceId.equals(m.id));current.removedMaterialIds.add(current.materialEdit.sourceId);current.mediaChanged();}
             else {current.materials.removeIf(m->{if(current.materialEdit.sourceId.equals(m.replacesId)){current.removedMaterialIds.add(m.id);return true;}return false;});}
             current.materialEdit.status=success?"SUCCEEDED":"FAILED";current.materialEdit.message=message;
+            if(success&&remote!=null)confirmed.forEach((id,detail)->remote.verifiedContent(new TenantId(s.tenantId),id,detail,current.products));
             transfers.finishProductChange(new TenantId(s.tenantId),s.planId,s.materialEdit.key);
         }));
     }

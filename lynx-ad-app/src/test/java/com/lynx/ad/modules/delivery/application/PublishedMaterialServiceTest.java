@@ -26,12 +26,14 @@ class PublishedMaterialServiceTest {
     final AdPlanRepository plans=mock(AdPlanRepository.class);final PlanTransferStore transfers=mock(PlanTransferStore.class);
     final CreationQianchuanGateway gateway=mock(CreationQianchuanGateway.class);final AdManagementPort ads=mock(AdManagementPort.class);
     final CreationPayloadBuilder payloads=mock(CreationPayloadBuilder.class);
+    final PlanRemoteStore metadata=mock(PlanRemoteStore.class);
     final Map<String,JsonNode> remote=new ConcurrentHashMap<>();
     CreationStore store;PublishedMaterialService service;String lock;boolean linked;
     @BeforeEach void setup() throws Exception {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:published_material_"+UUID.randomUUID()+";MODE=PostgreSQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=5000","sa","");
         var manager=new DataSourceTransactionManager(ds);try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration/V18__creation_workflow.sql"));}
         store=new CreationStore(new JdbcTemplate(ds),json,manager);service=new PublishedMaterialService(store,plans,transfers,gateway,ads,payloads,json,manager);
+        service.remoteMetadata(metadata);
         var s=new CreationState();s.tenantId="tenant";s.planId="plan";s.accountId="account";s.awemeId="111";s.publishStatus="CREATED";s.generationStatus="SUCCEEDED";
         s.materials.add(material("old"));s.materials.add(material("keep"));store.insert(s);
         when(gateway.credential(tenant,"account","111")).thenReturn(credential);
@@ -74,4 +76,5 @@ class PublishedMaterialServiceTest {
     @Test void carouselReplacementAndReadbackKeepNativeCarousels()throws Exception{var groups=json.readTree("[{\"product_id\":123,\"carousel_material\":[{\"carousel_id\":101},{\"aweme_carousel_id\":102}]}]");var single=json.readTree("{\"product_id\":123,\"carousel_material\":[{\"carousel_id\":103}]}");var added=PublishedMaterialService.with(groups,single);assertEquals(3,PublishedMaterialService.objects(added.get(0)).size());var removed=PublishedMaterialService.without(added,"123",Set.of("CAROUSEL:101"));assertEquals(Set.of("CAROUSEL:102","CAROUSEL:103"),PublishedMaterialService.objects(removed.get(0)));assertEquals(2,PublishedMaterialService.objects(groups.get(0)).size());}
     @Test void ambiguousProductReportCannotDeleteAnotherProductsCreative(){var report=report("old","501");report.withArray("product_info").addObject().put("product_id","456");when(ads.materialReport(any(),any(),any(),any(),any())).thenReturn(List.of(report));assertThrows(BizException.class,()->begin("delete"));verify(ads,never()).deleteMaterials(any(),any(),any());assertNull(read().materialEdit);}
     @Test void anotherTenantsPublishedPlanCannotBeEdited(){assertThrows(BizException.class,()->service.requireEditor(new TenantId("other"),"plan",read()));verifyNoInteractions(ads);}
+    @Test void planListAndMaterialMetadataRefreshOnlyAfterBothPlansConfirm(){linked=true;var result=service.process(begin("delete"));assertEquals("SUCCEEDED",result.materialEdit.status);for(String id:List.of("plan","cost"))verify(metadata).verifiedContent(eq(tenant),eq(id),argThat(detail->!PublishedMaterialService.objects(detail.path("multi_product_creative_list").get(0)).contains("VIDEO:old")),any());}
 }
