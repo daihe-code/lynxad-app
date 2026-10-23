@@ -81,7 +81,6 @@
             <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态，可继续设置投放目标。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
             <ul v-if="basicAnalysis.issues.length"><li v-for="(issue, index) in basicAnalysis.issues" :key="`${issue.productId}:${issue.code}:${index}`" :class="{ 'basic-analysis__error': issue.severity === 'ERROR' }">{{ issue.productName ? `${issue.productName}：` : '' }}{{ issue.message }}</li></ul>
           </aside>
-          <p class="analysis-status" :class="{ 'analysis-status--error': presentation === 'failed', 'analysis-status--complete':presentation === 'ready' }" role="status">{{ analysisMessage }}</p>
           <p v-if="analysisStatus === 'FAILED' && basicAnalysis?.canContinue && analysisError" class="analysis-evidence-note">{{ analysisError }}</p>
 
           <ProductPreparationAnalysis v-if="presentation === 'ready'" :group-decision="groupDecision" @keep="emit('keep')" :products="selected" :analysis="analysis" :busy="saving" :read-only="readOnly" @group="ids => emit('group', ids)" />
@@ -102,7 +101,7 @@ import AwemeAccountSummary from '@/components/AwemeAccountSummary.vue';
 import PreparationIcon from '@/components/PreparationIcon.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
-import { canContinueProductAnalysis, productAnalysisProgress, productAnalysisInput, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
+import { canContinueProductAnalysis, productAnalysisInput, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
 import { ElMessageBox } from 'element-plus';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
@@ -158,17 +157,6 @@ const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品�
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus));
-const analysisClock = ref(Date.now());
-let analysisTimer: ReturnType<typeof setInterval> | undefined;
-watch(analyzing, active => {
-  clearInterval(analysisTimer); analysisClock.value = Date.now();
-  if (active) analysisTimer = setInterval(() => { analysisClock.value = Date.now(); }, 1000);
-}, { immediate: true });
-onUnmounted(() => clearInterval(analysisTimer));
-const analysisMessage = computed(() => presentation.value === 'pending' ? productAnalysisProgress(props.basicAnalysis, props.analysisStatus, Math.max(0, analysisClock.value - (props.analysisStartedAt || analysisClock.value))) || '正在分析所选商品，请稍候。'
-  : presentation.value === 'failed' ? '智能分析未完成，请重新分析；商品基础检查与智能分析结果分别保留。'
-  : presentation.value === 'outdated' ? '当前保存的分析格式需要更新，请重新分析。'
-  : presentation.value === 'ready' ? '商品智能分析已完成，请核对建议及待确认信息。' : '等待商品分析开始');
 watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
   if (!adjusting.value && (status !== 'NONE' || analysis)) { analysisOpen.value = true; analyzedInput.value = productAnalysisInput(props.selected); }
 }, { immediate: true });
