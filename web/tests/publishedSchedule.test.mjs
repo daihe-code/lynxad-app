@@ -4,7 +4,7 @@ import { publishedSchedule, publishedScheduleError } from '../src/features/deliv
 import { changedPlanInputs, rebasePlanInputs, planEditComparison } from '../src/features/delivery/planEditConflict.ts';
 
 test('已发布计划按平台日期类型回显，长期投放不使用平台的远期占位结束日',()=>{
-  assert.deepEqual(publishedSchedule({scheduleType:'FROM_NOW',endDate:'2036-10-22'},'2026-10-23'),{duration:'long',end:'2026-11-01'});
+  assert.deepEqual(publishedSchedule({scheduleType:'FROM_NOW',endDate:'2036-10-22'},'2026-10-23'),{duration:'long',end:'2026-11-05'});
   assert.deepEqual(publishedSchedule({scheduleType:'DATE_RANGE',endDate:'2026-12-01'},'2026-10-23'),{duration:'custom',end:'2026-12-01'});
 });
 test('历史开始日期可以保留，结束日期校验今天、原开始日期和真实日期',()=>{

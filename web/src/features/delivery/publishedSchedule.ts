@@ -1,9 +1,10 @@
+import { creationScheduleDefaults } from './creationSchedule.ts';
+
 interface ScheduleSource { scheduleType?: string | null; startDate?: string | null; endDate?: string | null }
 const shanghaiToday = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 export function publishedSchedule(plan: ScheduleSource, today = shanghaiToday()) {
   const duration = plan.scheduleType === 'FROM_NOW' ? 'long' : plan.scheduleType === 'DATE_RANGE' || plan.endDate ? 'custom' : 'long';
-  const defaultEnd = new Date(`${today}T00:00:00Z`);defaultEnd.setUTCDate(defaultEnd.getUTCDate()+9);
-  return {duration:duration as 'long' | 'custom',end:duration === 'custom' && plan.endDate ? plan.endDate : defaultEnd.toISOString().slice(0,10)};
+  return {duration:duration as 'long' | 'custom',end:duration === 'custom' && plan.endDate ? plan.endDate : creationScheduleDefaults(today).end};
 }
 export function publishedScheduleError(duration: string, start: string, end: string, today = shanghaiToday()) {
   if (duration !== 'custom') return '';
