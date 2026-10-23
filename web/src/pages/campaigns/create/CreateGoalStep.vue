@@ -283,38 +283,36 @@
 
   </div>
 </main>
-<div v-if="!embedded" class="actionbar">
-  <div class="container-page actionbar__inner">
-    <button class="btn-prev" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('prev')">
+<CreationFooter v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly || settingsOnly" @back="emit('cancel')" @save="emit('saveDraft')">
+  <template #previous><button class="btn-prev" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('prev')">
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步
-    </button>
+    </button></template>
     <button class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || !!dateError" @click="nextStep">
       下一步
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-right"/></svg>
     </button>
-    <button class="btn-cancel" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('cancel')">取消投放</button>
-  </div>
-</div>
+</CreationFooter>
 
   </div>
 </template>
 
 <script setup lang="ts">
 import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
+import CreationFooter from './CreationFooter.vue';
 import { nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: [] }>();
+const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: []; saveDraft: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const budgetTouched = ref(false), roiTouched = ref(false);

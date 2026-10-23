@@ -57,7 +57,7 @@
       </div>
       </template>
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || busy || running" /><p class="plan__hint">自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。</p></div></div></div></section></div></main>
-    <div v-if="!embedded && !readOnly" class="actionbar"><div class="container-page actionbar__inner"><button v-if="!batchRunning" class="btn-prev" :disabled="busy || running" @click="emit('prev')">上一步</button><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">发布投放</button><button class="btn-cancel" :disabled="busy" @click="emit('exit')">保存并退出</button></div></div>
+    <CreationFooter v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" publishing-step @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy || running" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">发布投放</button></CreationFooter>
     <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="generationOpen = false">
       <p class="generation-intro">我会为勾选的商品生成投放素材。已有素材、无需生成的商品，可取消勾选。</p>
       <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
@@ -76,6 +76,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import CreationFrame from '../reference/CreationFrame.vue';
+import CreationFooter from './CreationFooter.vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import MaterialGenerationProgress from './MaterialGenerationProgress.vue';
@@ -88,9 +89,9 @@ import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel, generationResultLabel, processingSummary, componentLabel, processingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
-const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number }>();
+const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; draftSaveDisabled?: boolean }>();
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; exit: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
+const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });
