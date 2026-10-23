@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,38 @@ class CreationRegenerationTest {
     }
     JsonNode accepted(){var r=json.createObjectNode().put("job_id","job").put("ai_plan_task_id","apt").put("group_id","group-1").put("parent_material_id","parent").put("revision_id","revision").put("execution_job_id","execution").put("status","queued");r.set("revision",row("revision","queued",null));return r;}
     JsonNode list(JsonNode... rows){var r=json.createObjectNode().put("material_id","parent");r.putArray("items").addAll(List.of(rows));return r;}
+    @ParameterizedTest @CsvSource({"PostgreSQL,VIDEO,video","PostgreSQL,IMAGE,product_card","PostgreSQL,CAROUSEL,image_text","MySQL,VIDEO,video","MySQL,IMAGE,product_card","MySQL,CAROUSEL,image_text"})
+    void everyMaterialTypeRegeneratesOnlyItsOwnEngineSource(String mode,String type,String target)throws Exception {
+        database(mode);
+        var prepared=store.mutate("tenant","plan",null,s->{
+            s.materials.getFirst().type=type;
+            var other=new CreationState.Material();other.id="untouched";other.productId="123";other.type=type;other.status="READY";s.materials.add(other);s.changed();
+        });
+        var receipt=(com.fasterxml.jackson.databind.node.ObjectNode)accepted();
+        ((com.fasterxml.jackson.databind.node.ObjectNode)receipt.path("revision")).put("target",target);
+        when(engine.post(any(),any())).thenReturn(receipt);
+        first.regenerate(tenant,"plan","source",feedback(prepared.revision));
+        verify(engine,times(1)).post(eq("/api/v1/capabilities/generation/materials/parent/revisions"),argThat(body->body instanceof Map<?,?> values&&target.equals(values.get("target"))&&"job".equals(values.get("job_id"))&&"group-1".equals(values.get("group_id"))));
+        var restored=otherStore.get("tenant","plan");
+        assertEquals("CONFIRMED",restored.regeneration.status);assertEquals(target,restored.regeneration.target);
+        assertEquals(List.of("source","untouched"),restored.materials.stream().map(m->m.id).toList());
+        assertTrue(restored.materials.stream().allMatch(m->"READY".equals(m.status)));
+    }
+    @ParameterizedTest @CsvSource({"PostgreSQL,VIDEO","PostgreSQL,IMAGE","PostgreSQL,CAROUSEL","MySQL,VIDEO","MySQL,IMAGE","MySQL,CAROUSEL"})
+    void deletingOneMaterialPersistsWithoutDeletingItsNeighborOrCallingTheModel(String mode,String type)throws Exception {
+        database(mode);
+        var prepared=store.mutate("tenant","plan",null,s->{
+            s.materials.getFirst().type=type;
+            var other=new CreationState.Material();other.id="untouched";other.productId="123";other.type=type;other.status="READY";s.materials.add(other);s.changed();
+        });
+        first.remove(tenant,"plan","source",feedback(prepared.revision));
+        var restored=otherStore.get("tenant","plan");
+        assertEquals(List.of("untouched"),restored.materials.stream().map(m->m.id).toList());
+        assertEquals("READY",restored.materials.getFirst().status);assertTrue(restored.removedMaterialIds.contains("source"));
+        assertEquals(prepared.packageVersion+1,restored.packageVersion);assertEquals(1,restored.feedback.size());
+        assertEquals(1404,assertThrows(BizException.class,()->second.remove(tenant,"plan","untouched",feedback(prepared.revision))).code());
+        assertEquals(1,otherStore.get("tenant","plan").materials.size());verifyNoInteractions(engine,importer);
+    }
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void reasonAndSourceValidationHappenBeforeAnyModelCallOrDraftChange(String mode)throws Exception {
         database(mode);
