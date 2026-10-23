@@ -233,14 +233,21 @@ async function nextGoal() {
 async function refreshRecommendations() {
   if (!state.value) return;
   await run(async () => {
-    acceptRead(await api.creationRecommendations(state.value!.planId));
-    if (!budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
+    const previous = state.value!, updated = await api.creationRecommendations(previous.planId);
+    // A recommendation refresh advances the revision without saving the user's goal inputs.
+    if (previous.planId === updated.planId && previous.accountId === updated.accountId && previous.awemeId === updated.awemeId
+      && !changedDraftFields(serverDraftInputs(previous,today()),serverDraftInputs(updated,today())).length) acceptWrite(updated);
+    else acceptRead(updated);
+    if (mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
     if (!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()), mode.value)) roi.value = String(recommendedRoi());
   });
 }
 async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') {
   if (busy.value) return;
-  mode.value = value === 'SMART_BID_CUSTOM' ? 'CUSTOM' : 'CONSERVATIVE';
+  const nextMode = value === 'SMART_BID_CUSTOM' ? 'CUSTOM' : 'CONSERVATIVE';
+  if (nextMode === mode.value) return;
+  if (mode.value === 'CONSERVATIVE' && nextMode === 'CUSTOM') budget.value = '';
+  mode.value = nextMode;
   const r = state.value?.recommendations;
   if (!r || (mode.value === 'CONSERVATIVE' ? !r.budget || r.budgetError : !r.roi || r.roiError)) await refreshRecommendations();
 }
@@ -360,7 +367,7 @@ async function initialize() {
       if (step.value < 4 && !analysisReady.value) step.value = 1;
       if(step.value === 2 && state.value) {
         if(!state.value.recommendations)await refreshRecommendations();
-        if(!budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()),mode.value))budget.value=String(recommendedBudget());
+        if(mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()),mode.value))budget.value=String(recommendedBudget());
         if(!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()),mode.value))roi.value=String(recommendedRoi());
       }
     }
