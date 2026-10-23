@@ -46,7 +46,7 @@
                   <button class="iconbtn" type="button" :disabled="busy || running" aria-label="删除素材" title="删除" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button>
                 </span>
                 </div>
-                <details v-if="m.processing?.components.length" class="material-pipeline"><summary>组件处理进度与原因</summary><ul><li v-for="component in m.processing.components" :key="component.component"><b>{{ componentLabel(component.component) }}</b><span>登记：{{ processingLabel(component.storageStatus) }}</span><span>质检：{{ processingLabel(component.reviewStatus) }}</span><span>千川同步：{{ processingLabel(component.syncStatus) }}</span><p v-if="component.message">{{ component.message }}</p></li></ul></details>
+                <details v-if="m.processing?.components.length && !materialIsReady(m)" class="material-pipeline"><summary>组件处理进度与原因</summary><ul><li v-for="component in m.processing.components" :key="component.component"><b>{{ componentLabel(component.component) }}</b><span>登记：{{ processingLabel(component.storageStatus) }}</span><span>质检：{{ processingLabel(component.reviewStatus) }}</span><span>千川同步：{{ processingLabel(component.syncStatus) }}</span><p v-if="component.message">{{ component.message }}</p></li></ul></details>
               </div>
             </div>
             <p v-if="!visible.length && !failureRows.length" class="empty">当前商品暂无{{ tabs[tab] }}素材{{ readOnly ? '。' : '，可智能生成或从素材库选择。' }}</p>
