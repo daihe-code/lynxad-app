@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetChoices, budgetEstimateHints, budgetOptions, recommendedBudget } from '../src/features/delivery/creationRecommendations.ts';
+import { budgetChoices, budgetEstimateHints, budgetOptions, recommendedBudget, recommendationsNeedRefresh } from '../src/features/delivery/creationRecommendations.ts';
 
 test('千川仅返回推荐预算时保留该档位，并明确预估缺失，不能借用控成本ROI', () => {
   const data = { budget: { budget: 50, is_update: false, estimate_trans_cost_list: [] }, roi: { ecp_roi2_goal: 4.82 } };
@@ -33,4 +33,22 @@ test('接口失败和没有推荐预算时不给出虚构的推荐档位', () =>
     roi: '暂未提供', orders: '暂未提供', message: '千川预算预估暂不可用，可手动填写日预算。',
   });
   assert.equal(budgetEstimateHints(undefined, '').message, '填写日预算后查看平台提供的预估。');
+});
+
+test('完整推荐在五分钟内复用，空预估或失败在三十秒后可重新获取', () => {
+  const now=Date.now(), state={accountId:'a',awemeId:'w',products:[{qcProductId:'123'}],recommendations:{accountId:'a',awemeId:'w',productIds:['123'],fetchedAt:new Date(now).toISOString(),budget:{budget:50,estimate_trans_cost_list:[{budget:50,estimate_roi:0.38,estimate_convert:8}]},roi:{ecp_roi2_goal:4.82}}};
+  assert.equal(recommendationsNeedRefresh(state,now+299999),false);assert.equal(recommendationsNeedRefresh(state,now+300000),true);
+  state.recommendations.budget.estimate_trans_cost_list=[];assert.equal(recommendationsNeedRefresh(state,now+29999),false);assert.equal(recommendationsNeedRefresh(state,now+30000),true);
+  state.recommendations.budgetError='请求频率受限';assert.equal(recommendationsNeedRefresh(state,now+29999),false);assert.equal(recommendationsNeedRefresh(state,now+30000),true);
+});
+
+test('旧推荐缺少时间或账户、抖音号、商品不一致时必须刷新', () => {
+  const now=Date.now(),state={accountId:'a',awemeId:'w',products:[{qcProductId:'123'}],recommendations:{accountId:'a',awemeId:'w',productIds:['123'],fetchedAt:new Date(now).toISOString(),budget:{budget:50},roi:{ecp_roi2_goal:4.82}}};
+  for(const edit of [s=>s.recommendations.accountId='other',s=>s.recommendations.awemeId='other',s=>s.recommendations.productIds=['456'],s=>delete s.recommendations.fetchedAt,s=>s.recommendations.fetchedAt=new Date(now+90000).toISOString()]){const s=structuredClone(state);edit(s);assert.equal(recommendationsNeedRefresh(s,now),true);}
+});
+
+test('失败时保留的预算标注为上次推荐，不能当作本次平台预估', () => {
+  const data={budget:{budget:50},budgetFromCache:true,budgetError:'请求频率受限'};
+  assert.deepEqual(budgetOptions(data),[{budget:50,roi:'暂未提供',orders:'暂未提供',badge:'上次推荐'}]);
+  assert.equal(budgetEstimateHints(data,'50').message,'千川本次预算推荐获取失败，已保留上次推荐金额；ROI 和订单预估暂不可用。');
 });

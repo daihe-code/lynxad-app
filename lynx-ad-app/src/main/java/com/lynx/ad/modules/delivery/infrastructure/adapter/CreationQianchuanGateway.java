@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class CreationQianchuanGateway {
+    private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(CreationQianchuanGateway.class);
     private com.lynx.ad.modules.catalog.application.ProductPriceService prices;
     private com.lynx.ad.modules.catalog.domain.port.ProductRepository productRepository;
     @org.springframework.beans.factory.annotation.Autowired
@@ -164,20 +165,41 @@ public class CreationQianchuanGateway {
         params.put("advertiser_id",c.advertiserId().value());params.put("aweme_id",aw);params.put("marketing_goal","VIDEO_PROM_GOODS");
         params.put("product_ids",encode(ids.stream().map(CreationQianchuanGateway::numericId).toList()));
         var result=json.createObjectNode();
-        try {result.set("budget",read(c,properties.getQianchuan().getDelivery().getSuggestBudgetUrl(),params));}
-        catch(BizException e){result.put("budgetError","预算推荐获取失败："+recommendationError(e,c));}
+        readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestBudgetUrl(),params,result,"budget");
         params.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
-        try {result.set("roi",read(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params));}
-        catch(BizException e){result.put("roiError","ROI 推荐获取失败："+recommendationError(e,c));}
+        readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params,result,"roi");
         result.put("fetchedAt",java.time.Instant.now().toString());
         result.put("accountId",a);result.put("awemeId",aw);
         result.set("productIds",json.valueToTree(ids));
         return result;
     }
+    private void readRecommendation(Credential c,String endpoint,Map<String,Object> params,com.fasterxml.jackson.databind.node.ObjectNode result,String kind) {
+        try {
+            String query=params.entrySet().stream().map(e->url(e.getKey())+"="+url(String.valueOf(e.getValue()))).collect(java.util.stream.Collectors.joining("&"));
+            var root=ocean.root(client.exchange(RequestSpec.get(endpoint+"?"+query).header("Access-Token",c.accessToken()).replayAccountId(c.accountId()).build(),String.class));
+            int code=root.path("code").asInt(-1);result.put(kind+"Code",code);
+            String request=root.path("request_id").asText("").replaceAll("[^A-Za-z0-9_-]","");
+            if(!request.isBlank())result.put(kind+"RequestId",request.substring(0,Math.min(64,request.length())));
+            if(code!=0)throw new BizException(code,root.path("message").asText("千川未明确返回成功结果"));
+            var data=root.path("data");result.set(kind,data);
+            boolean available="budget".equals(kind)?data.path("budget").asDouble(0)>0:data.path("ecp_roi2_goal").asDouble(0)>0;
+            result.put(kind+"Status",available?("budget".equals(kind)&&data.path("estimate_trans_cost_list").isEmpty()?"NO_ESTIMATE":"AVAILABLE"):"EMPTY");
+            result.put(kind+"FetchedAt",java.time.Instant.now().toString());
+        }catch(BizException e) {
+            int code=result.path(kind+"Code").asInt(e.code());result.put(kind+"Code",code);
+            boolean limited=Set.of(40100,40110,40130,429).contains(code);
+            result.put(kind+"Status",limited?"RATE_LIMITED":code==1211||Qianchuan401ReplayCodes.isAuthExpiredCode(code)?"AUTH_REQUIRED":"UNAVAILABLE");
+            String request=result.path(kind+"RequestId").asText("");
+            String message=limited?"千川"+(code==40110?"开发者":code==40130?"客户账户":"")+"请求频率受限，请稍后重试":recommendationError(e,c);
+            result.put(kind+"Error",("budget".equals(kind)?"预算推荐获取失败：":"ROI 推荐获取失败：")+message+"（错误码 "+code+(request.isBlank()?"":"，请求号 "+request)+"）");
+        }
+        log.info("qianchuan recommendation kind={} account={} code={} status={} request_id={} estimate_count={}",kind,c.accountId(),result.path(kind+"Code").asInt(-1),result.path(kind+"Status").asText(),result.path(kind+"RequestId").asText("unavailable"),result.path(kind).path("estimate_trans_cost_list").size());
+    }
     private static String recommendationError(BizException error,Credential credential) {
         String message=error.getMessage();
         if(message==null||message.isBlank())message="千川暂未返回结果，请重新获取";
-        return message.replace(credential.accessToken(),"[已隐藏]").replaceAll("https?://\\S+","[平台地址]");
+        message=message.replace(credential.accessToken(),"[已隐藏]").replaceAll("https?://\\S+","[平台地址]").replaceAll("[\\p{Cntrl}]"," ");
+        return message.substring(0,Math.min(message.length(),350));
     }
     private JsonNode read(Credential c,String endpoint,Map<String,Object> params) {
         String query=params.entrySet().stream().map(e->url(e.getKey())+"="+url(String.valueOf(e.getValue()))).collect(java.util.stream.Collectors.joining("&"));

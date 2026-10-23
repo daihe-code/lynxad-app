@@ -13,6 +13,7 @@ import com.lynx.ad.modules.creative.application.*;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
+import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.*;
@@ -42,6 +43,7 @@ public class CreationWorkflowService {
     private final TransactionTemplate tx;
     private final CreationMaterialProcessing materialProcessing;
     private final CreationRegeneration regeneration;
+    private final Object[] recommendationLocks=java.util.stream.IntStream.range(0,64).mapToObj(i->new Object()).toArray();
     private PlanTransferStore transfers;
     private MaterialCreativeContextService creativeContexts;
     private AssetSyncReconciliationService assetReconciliation;
@@ -245,9 +247,21 @@ public class CreationWorkflowService {
         });
     }
     public CreationState recommendations(TenantId tenant,String requestedId) {
+        return recommendations(tenant,requestedId,false);
+    }
+    public CreationState recommendations(TenantId tenant,String requestedId,boolean force) {
         String id=sharedId(tenant,requestedId,true);
-        var s=store.get(tenant.value(),id);var response=qc.recommendations(tenant,s.accountId,s.awemeId,ids(s));
-        return store.mutate(tenant.value(),id,s.revision,state->state.recommendations=response);
+        synchronized(recommendationLocks[Math.floorMod(Objects.hash(tenant.value(),id),recommendationLocks.length)]) {
+            var s=store.get(tenant.value(),id);
+            if(CreationRecommendationPolicy.reusable(s.recommendations,s,Instant.now(),force))return s;
+            var response=qc.recommendations(tenant,s.accountId,s.awemeId,ids(s));
+            return store.mutate(tenant.value(),id,null,state->{
+                if(!CreationRecommendationPolicy.sameScope(s,state))throw new BizException(1404,"商品或账户已调整，请重新获取平台推荐");
+                if(!Objects.equals(s.recommendations,state.recommendations))return;
+                state.recommendations=CreationRecommendationPolicy.withLastBudget(s.recommendations,response,state,Instant.now());
+                state.changed();
+            });
+        }
     }
     public CreationState goal(TenantId tenant,String requestedId,Goal g) {
         String id=sharedId(tenant,requestedId,true);

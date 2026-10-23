@@ -125,7 +125,9 @@ const estimate = computed(() => recommendations.budgetEstimateHints(state.value?
 const estimateRoiHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.roi);
 const estimateOrdersHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.orders);
 const estimateHint = computed(() => busy.value ? undefined : estimate.value.message);
-const budgetHint = computed(() => busy.value ? '正在获取千川推荐预算…' : state.value?.recommendations?.budgetError || (recommendedBudget() ? '自动获取巨量千川推荐预算，可调整' : '平台未返回推荐预算，可手动填写'));
+const budgetHint = computed(() => busy.value ? '正在获取千川推荐预算…'
+  : state.value?.recommendations?.budgetFromCache ? (state.value.recommendations.budgetStatus==='RATE_LIMITED' ? '千川请求频率受限，已保留上次推荐预算，可手动调整' : '千川本次推荐获取失败，已保留上次推荐预算，可手动调整')
+  : state.value?.recommendations?.budgetError || (recommendedBudget() ? '自动获取巨量千川推荐预算，可调整' : '平台未返回推荐预算，可手动填写'));
 const roiHint = computed(() => busy.value ? '正在获取千川推荐ROI…' : state.value?.recommendations?.roiError || (recommendedRoi() ? `千川推荐净成交ROI ${recommendedRoi()}，可参考实际经营目标调整` : '平台未返回推荐ROI，可根据经营目标填写'));
 function recommendedBudget() { return recommendations.recommendedBudget(state.value?.recommendations); }
 function recommendedRoi() { return recommendations.recommendedRoi(state.value?.recommendations); }
@@ -227,23 +229,30 @@ async function goToStep(target: number) {
   if (target > 1 && state.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
   if (target < 1 || target > 3 || target > maxStep.value) return;
   await run(async () => { if(step.value === 2 && !budgetError.value && !roiError.value && !dateError.value) await persistGoal(); await persistStep(target); step.value = target; window.scrollTo(0,0); });
+  if(target === 2 && step.value === 2) await refreshRecommendations();
 }
 async function nextGoal() {
   if (!analysisReady.value) return;
   await goToStep(2);
-  if (step.value === 2) await refreshRecommendations();
 }
 async function refreshRecommendations() {
   if (!state.value) return;
+  if (!recommendations.recommendationsNeedRefresh(state.value)) { applyRecommendedInputs(); return; }
   await run(async () => {
     const previous = state.value!, updated = await api.creationRecommendations(previous.planId);
-    // A recommendation refresh advances the revision without saving the user's goal inputs.
-    if (previous.planId === updated.planId && previous.accountId === updated.accountId && previous.awemeId === updated.awemeId
-      && !changedDraftFields(serverDraftInputs(previous,today()),serverDraftInputs(updated,today())).length) acceptWrite(updated);
-    else acceptRead(updated);
-    if (mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
-    if (!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()), mode.value)) roi.value = String(recommendedRoi());
+    acceptRecommendations(previous,updated);
+    applyRecommendedInputs();
   });
+}
+function acceptRecommendations(previous: api.CreationState, updated: api.CreationState) {
+  // A recommendation refresh advances the revision without saving the user's goal inputs.
+  if (previous.planId === updated.planId && previous.accountId === updated.accountId && previous.awemeId === updated.awemeId
+    && !changedDraftFields(serverDraftInputs(previous,today()),serverDraftInputs(updated,today())).length) acceptWrite(updated);
+  else acceptRead(updated);
+}
+function applyRecommendedInputs() {
+  if (mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
+  if (!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()), mode.value)) roi.value = String(recommendedRoi());
 }
 async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') {
   if (busy.value) return;
@@ -251,8 +260,7 @@ async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') 
   if (nextMode === mode.value) return;
   if (mode.value === 'CONSERVATIVE' && nextMode === 'CUSTOM') budget.value = '';
   mode.value = nextMode;
-  const r = state.value?.recommendations;
-  if (!r || (mode.value === 'CONSERVATIVE' ? !r.budget || r.budgetError : !r.roi || r.roiError)) await refreshRecommendations();
+  await refreshRecommendations();
 }
 async function persistGoal() {
   if (!state.value || budgetError.value || roiError.value || dateError.value || !name.value.trim()) throw new Error('请检查计划名称、预算、ROI 和日期');
@@ -296,7 +304,8 @@ async function reviewPublishEstimate() {
   if(!state.value || busy.value)return;
   await run(async()=>{
     const old=estimate.value.roi;
-    acceptRead(await api.creationRecommendations(state.value!.planId));
+    const previous=state.value!;
+    acceptRecommendations(previous,await api.creationRecommendations(previous.planId,true));
     try { await ElMessageBox.confirm(`日预算保持 ${budget.value} 元，不会自动增加。此前预计 ROI：${old}；当前平台预估：${estimate.value.roi}。请核对目标与预算，确认后可再次点击发布。`, '核对最新平台预估', {confirmButtonText:'已核对，返回素材',cancelButtonText:'返回目标设置'}); reviewedQuote.value=quoteReviewKey(state.value!,budget.value); step.value=3; }
     catch { step.value=2; }
   });
@@ -378,7 +387,7 @@ async function initialize() {
       await autosave.activate();
       if (step.value < 4 && !analysisReady.value) step.value = 1;
       if(step.value === 2 && state.value) {
-        if(!state.value.recommendations)await refreshRecommendations();
+        await refreshRecommendations();
         if(mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()),mode.value))budget.value=String(recommendedBudget());
         if(!roi.value && recommendedRoi() && !roiInputError(String(recommendedRoi()),mode.value))roi.value=String(recommendedRoi());
       }

@@ -18,6 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CreationGatewayTest {
     HttpServer server;final ObjectMapper json=new ObjectMapper();final LynxAdProperties p=new LynxAdProperties();
@@ -201,5 +203,23 @@ class CreationGatewayTest {
         var retried=gateway.recommendations(new TenantId("t"),"a","123",List.of("9007199254740995"));
         assertFalse(retried.has("budgetError"));assertEquals(100,retried.path("budget").path("budget").asInt());
         assertEquals(0.19,retried.path("budget").path("estimate_trans_cost_list").get(0).path("min_estimate_roi").asDouble());
+    }
+    @Test void successfulEmptyForecastAndRateLimitHaveDifferentStatusCodesAndRequestIds() throws Exception {
+        var calls=new AtomicInteger();
+        server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",e->{
+            boolean budget=e.getRequestURI().getPath().contains("budget");
+            String body=budget?(calls.incrementAndGet()==1?"{\"code\":0,\"request_id\":\"empty-quote\",\"data\":{\"budget\":50,\"estimate_trans_cost_list\":[]}}":"{\"code\":40100,\"message\":\"请求频率受限 test-token\",\"request_id\":\"limited-quote\"}")
+                :"{\"code\":0,\"data\":{\"ecp_roi2_goal\":4.82}}";
+            byte[] bytes=body.getBytes(StandardCharsets.UTF_8);e.sendResponseHeaders(200,bytes.length);e.getResponseBody().write(bytes);e.close();
+        });server.start();var base="http://127.0.0.1:"+server.getAddress().getPort();p.getQianchuan().getDelivery().setSuggestBudgetUrl(base+"/budget/");p.getQianchuan().getDelivery().setSuggestRoiUrl(base+"/roi/");
+        var empty=gateway.recommendations(new TenantId("t"),"a","123",List.of("9007199254740995"));assertEquals("NO_ESTIMATE",empty.path("budgetStatus").asText());assertEquals(0,empty.path("budgetCode").asInt(-1));assertEquals("empty-quote",empty.path("budgetRequestId").asText());assertFalse(empty.has("budgetError"));
+        var limited=gateway.recommendations(new TenantId("t"),"a","123",List.of("9007199254740995"));assertEquals("RATE_LIMITED",limited.path("budgetStatus").asText());assertEquals(40100,limited.path("budgetCode").asInt());assertEquals("limited-quote",limited.path("budgetRequestId").asText());assertEquals(4.82,limited.path("roi").path("ecp_roi2_goal").asDouble());assertFalse(limited.toString().contains("test-token"));
+    }
+    @ParameterizedTest @ValueSource(ints={40110,40130})
+    void developerAndCustomerFrequencyLimitsAreNotReportedAsEmptyForecasts(int code)throws Exception {
+        serve("{\"code\":"+code+",\"message\":\"Too many requests\",\"request_id\":\"rate-scope\"}",200);
+        var endpoint="http://127.0.0.1:"+server.getAddress().getPort()+"/";p.getQianchuan().getDelivery().setSuggestBudgetUrl(endpoint);p.getQianchuan().getDelivery().setSuggestRoiUrl(endpoint);
+        var r=gateway.recommendations(new TenantId("t"),"a","123",List.of("9007199254740995"));
+        assertEquals(code,r.path("budgetCode").asInt());assertEquals("RATE_LIMITED",r.path("budgetStatus").asText());assertEquals("RATE_LIMITED",r.path("roiStatus").asText());assertEquals("rate-scope",r.path("budgetRequestId").asText());assertTrue(r.path("budgetError").asText().contains(code==40110?"开发者":"客户账户"));
     }
 }

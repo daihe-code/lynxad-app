@@ -89,7 +89,7 @@ export interface CreationState {
   products: CreationProduct[]; analysisStatus: string; analysisError?: string;
   analysis?: ProductAnalysis;
   basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number;
-  recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[] };
+  recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
   regenerationRetryAt?: number;
   generationStage?: string;
@@ -116,7 +116,7 @@ export const creationGet = (id: string, signal?: AbortSignal) => apiGet<Creation
 export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }) => apiPost<CreationState>(root, body, slow);
 export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh });
 export const creationKeepGroup = (s:CreationState) => apiPut<CreationState>(`${root}/${s.planId}/groups/keep`, {revision:s.revision});
-export const creationRecommendations = (id: string) => apiGet<CreationState>(`${root}/${id}/recommendations`, slow);
+export const creationRecommendations = (id: string, refresh = false) => apiGet<CreationState>(`${root}/${id}/recommendations`, { ...slow, params: { refresh } });
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
 export const creationStep = (s: CreationState, step: number) => apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step });
 export const creationGenerate = (s: CreationState, productIds: string[]) => apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds });
