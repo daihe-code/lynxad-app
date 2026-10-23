@@ -114,7 +114,7 @@
           <h1 class="auth-title">登录/注册</h1>
           <p class="auth-subtitle">开启智能广告投放新体验</p>
 
-          <div class="auth-tabs" role="tablist" aria-label="登录方式">
+          <div v-show="!resetting" class="auth-tabs" role="tablist" aria-label="登录方式">
             <button class="auth-tab" type="button" role="tab" id="tab-code"
                     :aria-selected="tab === 'sms'" :tabindex="tab === 'sms' ? 0 : -1" aria-controls="panel-code" @click="switchTab('sms')" @keydown="onTabKeydown($event, 'sms')">
               验证码登录/注册
@@ -126,7 +126,7 @@
           </div>
 
           <form class="auth-form" id="panel-code" role="tabpanel" aria-labelledby="tab-code"
-                novalidate :hidden="tab !== 'sms'" @submit.prevent="onSmsLogin">
+                novalidate :hidden="resetting || tab !== 'sms'" @submit.prevent="onSmsLogin">
 
             <div class="field" :data-invalid="errors.smsPhone ? 'true' : undefined" data-field="phone">
               <label class="field__label" for="code-phone">手机号</label>
@@ -171,7 +171,7 @@
           </form>
 
           <form class="auth-form" id="panel-password" role="tabpanel" aria-labelledby="tab-password"
-                novalidate :hidden="tab !== 'password'" @submit.prevent="onPasswordLogin">
+                novalidate :hidden="resetting || tab !== 'password'" @submit.prevent="onPasswordLogin">
 
             <div class="field" :data-invalid="errors.pwdPhone ? 'true' : undefined" data-field="phone">
               <label class="field__label" for="pwd-phone">手机号</label>
@@ -203,7 +203,7 @@
               </p>
             </div>
 
-            <a class="auth-forgot" href="#" @click.prevent="useSmsInstead">忘记密码？</a>
+            <a class="auth-forgot" href="#" @click.prevent="openPasswordReset">忘记密码？</a>
 
             <button class="btn-brand" type="submit" :disabled="loading" :data-loading="loading">{{ loading ? "登录中…" : "登录" }}</button>
 
@@ -217,6 +217,40 @@
               </label>
               <p v-if="legalError" class="legal-error" role="alert"><svg width="16" height="16" aria-hidden="true"><use href="#ic-alert"/></svg><span>{{ legalError }}</span></p>
             </div>
+          </form>
+
+          <form v-if="resetting" class="auth-form" novalidate aria-label="重置密码" @submit.prevent="onResetPassword">
+            <div class="field" :data-invalid="errors.smsPhone ? 'true' : undefined">
+              <label class="field__label" for="reset-phone">手机号</label>
+              <div class="field__control">
+                <input id="reset-phone" v-model="phone" class="input tnum" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="请输入手机号" :readonly="loading" :aria-invalid="errors.smsPhone ? true : undefined" aria-describedby="reset-phone-error" @input="clearFieldError('smsPhone')" @blur="validateOnBlur('smsPhone')">
+              </div>
+              <p id="reset-phone-error" class="field__error" role="alert"><span>{{ errors.smsPhone }}</span></p>
+            </div>
+            <div class="field" :data-invalid="errors.code ? 'true' : undefined">
+              <label class="field__label" for="reset-code">验证码</label>
+              <div class="field__control">
+                <input id="reset-code" v-model="code" class="input tnum" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="请输入验证码" :readonly="loading" :aria-invalid="errors.code ? true : undefined" aria-describedby="reset-code-error" @input="clearFieldError('code')" @blur="validateOnBlur('code')">
+                <button class="btn-code" type="button" :disabled="cooldown > 0 || sending || loading" @click="onSend">{{ sending ? "发送中…" : cooldown > 0 ? `${cooldown}s 后重新获取` : "获取验证码" }}</button>
+              </div>
+              <p id="reset-code-error" class="field__error" role="alert"><span>{{ errors.code }}</span></p>
+            </div>
+            <div class="field" :data-invalid="errors.newPassword ? 'true' : undefined">
+              <label class="field__label" for="reset-password">新密码</label>
+              <div class="field__control">
+                <input id="reset-password" v-model="newPassword" class="input" name="newPassword" type="password" autocomplete="new-password" placeholder="8–20 位，包含字母和数字" :readonly="loading" :aria-invalid="errors.newPassword ? true : undefined" aria-describedby="reset-password-error" @input="clearFieldError('newPassword'); clearFieldError('confirmPassword')" @blur="validateOnBlur('newPassword')">
+              </div>
+              <p id="reset-password-error" class="field__error" role="alert"><span>{{ errors.newPassword }}</span></p>
+            </div>
+            <div class="field" :data-invalid="errors.confirmPassword ? 'true' : undefined">
+              <label class="field__label" for="reset-confirm">确认新密码</label>
+              <div class="field__control">
+                <input id="reset-confirm" v-model="confirmPassword" class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="请再次输入新密码" :readonly="loading" :aria-invalid="errors.confirmPassword ? true : undefined" aria-describedby="reset-confirm-error" @input="clearFieldError('confirmPassword')" @blur="validateOnBlur('confirmPassword')">
+              </div>
+              <p id="reset-confirm-error" class="field__error" role="alert"><span>{{ errors.confirmPassword }}</span></p>
+            </div>
+            <button class="btn-brand" type="submit" :disabled="loading" :data-loading="loading">{{ loading ? '重置中…' : '重置密码' }}</button>
+            <button class="auth-forgot" type="button" :disabled="loading" @click="switchTab('password', true)">返回密码登录</button>
           </form>
 
         </div>
@@ -235,14 +269,14 @@ import { isCnMobile } from "@/utils/phone";
 
 const route = useRoute(), router = useRouter(), user = useUserStore();
 type LoginTab = "sms" | "password";
-type FieldKey = "smsPhone" | "code" | "pwdPhone" | "password";
+type FieldKey = "smsPhone" | "code" | "pwdPhone" | "password" | "newPassword" | "confirmPassword";
 const tab = ref<LoginTab>(route.query.tab === "password" ? "password" : "sms");
 const phone = ref(""), code = ref(""), pwdPhone = ref(""), password = ref("");
 const agreed = ref(false), showPassword = ref(false);
 const loading = ref(false), sending = ref(false), cooldown = ref(0);
-const errors = reactive<Record<FieldKey, string>>({ smsPhone: "", code: "", pwdPhone: "", password: "" });
+const errors = reactive<Record<FieldKey, string>>({ smsPhone: "", code: "", pwdPhone: "", password: "", newPassword: "", confirmPassword: "" });
 const legalAttention = ref(false), legalError = ref("");
-const fieldIds: Record<FieldKey, string> = { smsPhone: "code-phone", code: "code-sms", pwdPhone: "pwd-phone", password: "pwd-password" };
+const fieldIds: Record<FieldKey, string> = { smsPhone: "code-phone", code: "code-sms", pwdPhone: "pwd-phone", password: "pwd-password", newPassword: "reset-password", confirmPassword: "reset-confirm" };
 let timer: number | undefined, attentionTimer: number | undefined;
 let previousTitle = "";
 let disposed = false;
@@ -259,10 +293,18 @@ onUnmounted(() => {
 });
 
 function valueOf(key: FieldKey) {
-  return { smsPhone: phone.value.trim(), code: code.value.trim(), pwdPhone: pwdPhone.value.trim(), password: password.value }[key];
+  return { smsPhone: phone.value.trim(), code: code.value.trim(), pwdPhone: pwdPhone.value.trim(), password: password.value, newPassword: newPassword.value, confirmPassword: confirmPassword.value }[key];
 }
 function validateField(key: FieldKey) {
   const value = valueOf(key);
+  if (key === "newPassword") {
+    errors[key] = resetPasswordError(value);
+    return !errors[key];
+  }
+  if (key === "confirmPassword") {
+    errors[key] = value && value === newPassword.value ? "" : "两次输入的密码不一致";
+    return !errors[key];
+  }
   const valid = key === "code" ? /^\d{6}$/.test(value) : key === "password" ? value.length >= 6 && value.length <= 20 : isCnMobile(value);
   errors[key] = valid ? "" : key === "code" ? "请输入 6 位数字验证码" : key === "password" ? "密码长度需为 6–20 位" : "请输入 11 位有效手机号";
   return valid;
@@ -272,6 +314,14 @@ function validateOnBlur(key: FieldKey) { if (valueOf(key)) validateField(key); }
 
 async function switchTab(next: LoginTab, focus = false) {
   if (loading.value) return;
+  if (next !== tab.value || resetting.value) {
+    const retainedPhone = resetting.value || tab.value === "sms" ? phone.value : pwdPhone.value;
+    phone.value = retainedPhone;
+    pwdPhone.value = retainedPhone;
+    clearSensitiveFields();
+  }
+  resetting.value = false;
+  resetSuccess.value = false;
   tab.value = next;
   legalError.value = "";
   if (focus) { await nextTick(); document.getElementById(next === "sms" ? "code-phone" : "pwd-phone")?.focus(); }
@@ -281,7 +331,29 @@ function onTabKeydown(event: KeyboardEvent, current: LoginTab) {
   event.preventDefault();
   switchTab(event.key === "Home" ? "sms" : event.key === "End" ? "password" : current === "sms" ? "password" : "sms", true);
 }
-function useSmsInstead() { if (pwdPhone.value) phone.value = pwdPhone.value; switchTab("sms", true); }
+function clearSensitiveFields() {
+  password.value = "";
+  code.value = "";
+  newPassword.value = "";
+  confirmPassword.value = "";
+  showPassword.value = false;
+  for (const key of Object.keys(errors) as FieldKey[]) errors[key] = "";
+  legalError.value = "";
+  legalAttention.value = false;
+}
+async function openPasswordReset() {
+  if (loading.value) return;
+  phone.value = pwdPhone.value;
+  clearSensitiveFields();
+  resetSuccess.value = false;
+  resetting.value = true;
+  await nextTick();
+  document.getElementById("reset-phone")?.focus();
+}
+function focusField(key: FieldKey) {
+  const id = resetting.value && key === "smsPhone" ? "reset-phone" : resetting.value && key === "code" ? "reset-code" : fieldIds[key];
+  document.getElementById(id)?.focus();
+}
 
 function startCooldown(seconds: number) {
   if (timer) window.clearInterval(timer);
@@ -295,7 +367,7 @@ function startCooldown(seconds: number) {
 }
 async function onSend() {
   if (sending.value || cooldown.value > 0 || loading.value) return;
-  if (!validateField("smsPhone")) { document.getElementById("code-phone")?.focus(); return; }
+  if (!validateField("smsPhone")) { focusField("smsPhone"); return; }
   sending.value = true;
   try {
     const result = await sendSms(phone.value.trim());
@@ -337,6 +409,22 @@ async function onPasswordLogin() {
     await user.loginByPassword(pwdPhone.value.trim(), password.value);
     if (!disposed) await afterLogin();
   } catch { /* Keep the form available for correction and retry. */ }
+  finally { loading.value = false; }
+}
+async function onResetPassword() {
+  if (loading.value) return;
+  const keys: FieldKey[] = ["smsPhone", "code", "newPassword", "confirmPassword"];
+  keys.forEach(validateField);
+  const invalid = keys.find(key => errors[key]);
+  if (invalid) { focusField(invalid); return; }
+  loading.value = true;
+  try {
+    await resetPassword(phone.value.trim(), code.value.trim(), newPassword.value);
+    if (disposed) return;
+    loading.value = false;
+    await switchTab("password", true);
+    resetSuccess.value = true;
+  } catch { /* The API interceptor reports reset failures and leaves the form available. */ }
   finally { loading.value = false; }
 }
 async function afterLogin() {

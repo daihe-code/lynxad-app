@@ -1,6 +1,9 @@
 package com.lynx.ad.modules.tenant.infrastructure.persistence;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.lynx.ad.common.exception.BizException;
+import java.util.Objects;
 import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.domain.PhoneNumber;
 import com.lynx.ad.modules.tenant.domain.model.User;
@@ -35,9 +38,23 @@ public class MpUserRepository implements UserRepository {
             po.setPasswordHash(user.passwordHash());
             userMapper.insert(po);
         } else {
-            po.setPhone(user.phone().value());
-            po.setPasswordHash(user.passwordHash());
-            userMapper.updateById(po);
+            var update = new LambdaUpdateWrapper<UserPo>()
+                    .eq(UserPo::getId, user.id().value())
+                    .set(UserPo::getPhone, user.phone().value());
+            boolean passwordChanged = !Objects.equals(user.passwordHash(), user.originalPasswordHash());
+            if (passwordChanged) {
+                // A stale account/profile snapshot must never overwrite a newer credential.
+                if (user.originalPasswordHash() == null) {
+                    update.isNull(UserPo::getPasswordHash);
+                } else {
+                    update.eq(UserPo::getPasswordHash, user.originalPasswordHash());
+                }
+                update.set(UserPo::getPasswordHash, user.passwordHash());
+            }
+            int changed = userMapper.update(null, update);
+            if (passwordChanged && changed != 1) {
+                throw new BizException(409, "账户凭据已更新，请重新登录后重试");
+            }
         }
         user.profile().ifPresent(p -> upsertProfile(user.id().value(), p));
     }

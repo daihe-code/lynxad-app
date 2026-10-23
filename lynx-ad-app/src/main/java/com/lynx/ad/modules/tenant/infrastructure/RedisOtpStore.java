@@ -3,12 +3,17 @@ package com.lynx.ad.modules.tenant.infrastructure;
 import com.lynx.ad.common.domain.PhoneNumber;
 import com.lynx.ad.modules.tenant.domain.port.OtpStore;
 import java.time.Duration;
+import java.util.List;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RedisOtpStore implements OtpStore {
+
+    private static final DefaultRedisScript<Long> CONSUME = new DefaultRedisScript<>(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
 
     private final StringRedisTemplate redis;
     private final PasswordEncoder encoder;
@@ -25,11 +30,12 @@ public class RedisOtpStore implements OtpStore {
 
     @Override
     public boolean verifyAndConsume(PhoneNumber phone, String code) {
-        boolean ok = match(phone, code);
-        if (ok) {
-            redis.delete(key(phone));
+        String stored = redis.opsForValue().get(key(phone));
+        if (!matches(stored, code)) {
+            return false;
         }
-        return ok;
+        // Verification may take time (BCrypt); consume only the exact value we verified.
+        return Long.valueOf(1).equals(redis.execute(CONSUME, List.of(key(phone)), stored));
     }
 
     @Override
@@ -50,6 +56,10 @@ public class RedisOtpStore implements OtpStore {
 
     private boolean match(PhoneNumber phone, String code) {
         String stored = redis.opsForValue().get(key(phone));
+        return matches(stored, code);
+    }
+
+    private boolean matches(String stored, String code) {
         if (stored == null || code == null) {
             return false;
         }

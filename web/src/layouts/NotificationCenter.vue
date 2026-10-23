@@ -5,10 +5,11 @@
     </template>
     <section ref="panel" class="ntc" role="dialog" aria-label="通知中心" tabindex="-1" @keydown.esc.stop.prevent="close">
       <div class="ntc__hd"><span class="ntc__av" aria-hidden="true"><svg viewBox="0 0 1300 935"><g fill="none" stroke="currentColor" stroke-linecap="round"><path d="M1223.8 855.9C1170 610 970 300 750 125C718 106 683 75 650 75C617 75 582 106 550 125C330 300 130 610 76.2 855.9" stroke-width="150"/><path d="M82.8 175.9 285 455M1217.2 175.9 1015 455" stroke-width="58"/></g><circle cx="440" cy="559" r="82.5" fill="currentColor"/><circle cx="860" cy="559" r="82.5" fill="currentColor"/></svg></span><span class="ntc__who"><b>小灵</b><i>{{ watchedPlans === null ? '为你及时送达投放动态' : `正在替你盯着 ${watchedPlans} 个投放计划` }}</i></span></div>
-      <div class="ntc__bar"><div class="ntc__tabs" role="tablist" aria-label="通知筛选"><button v-for="value in ['all', 'unread'] as const" :key="value" :id="`notification-${value}`" class="ntc__tab" :class="{ 'is-on': tab === value }" type="button" role="tab" :aria-selected="tab === value" aria-controls="notification-list" :tabindex="tab === value ? 0 : -1" @click="tab = value" @keydown="tabKey($event)">{{ value === 'all' ? '全部' : '未读' }}<i v-if="value === 'unread' && unread" class="ntc__tab-n">{{ unread }}</i></button></div><button class="ntc__allread" type="button" title="全部标为已读" aria-label="全部标为已读" :disabled="!unread || readingAll || pending.size > 0" @click="markAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 13.5 6 17l7.5-9M11 15.2 12.8 17l8.7-10"/></svg></button></div>
+      <div class="ntc__bar"><div class="ntc__tabs" role="tablist" aria-label="通知筛选"><button v-for="value in ['all', 'unread'] as const" :key="value" :id="`notification-${value}`" class="ntc__tab" :class="{ 'is-on': tab === value }" type="button" role="tab" :aria-selected="tab === value" aria-controls="notification-list" :tabindex="tab === value ? 0 : -1" @click="tab = value" @keydown="tabKey($event)">{{ value === 'all' ? '全部' : '未读' }}<i v-if="value === 'unread' && unread" class="ntc__tab-n">{{ unread }}</i></button></div><button class="ntc__allread" type="button" title="将所有类别的消息全部标为已读" aria-label="全部标为已读" aria-description="覆盖所有类别，不受当前筛选影响" :disabled="!unread || readingAll || pending.size > 0" @click="markAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 13.5 6 17l7.5-9M11 15.2 12.8 17l8.7-10"/></svg></button></div>
+      <div class="ntc__filters"><label for="notification-category">消息类别</label><select id="notification-category" v-model="category" aria-label="消息类别"><option value="all">全部类别</option><option value="system">系统通知</option><option value="warning">投放预警</option><option value="approval">审批提醒</option><option value="optimization">优化建议</option></select></div>
       <div v-if="failed" class="ntc__error" role="status">{{ inbox.length ? '消息更新失败，当前显示已有消息' : '消息暂时加载失败' }}<button type="button" @click="refresh(false)">重试</button></div>
       <div id="notification-list" class="ntc__list" role="tabpanel" :aria-labelledby="`notification-${tab}`" :aria-busy="loading">
-        <div v-if="!visible.length" class="ntc__empty"><el-icon><Bell /></el-icon><p>{{ loading ? '正在加载消息…' : failed ? '请稍后重试' : tab === 'unread' ? '暂无未读消息' : '暂无站内消息' }}</p></div>
+        <div v-if="!visible.length" class="ntc__empty"><el-icon><Bell /></el-icon><p>{{ loading ? '正在加载消息…' : failed ? '请稍后重试' : category !== 'all' ? (tab === 'unread' ? '该类别暂无未读消息' : '该类别暂无消息') : tab === 'unread' ? '暂无未读消息' : '暂无站内消息' }}</p></div>
         <article v-for="item in visible" :key="item.id" class="ntc__item" :class="{ 'is-unread': item.unread }"><span class="ntc__dot" :aria-label="item.unread ? '未读' : '已读'"/><div class="ntc__main"><div class="ntc__meta"><b>小灵</b><span class="ntc__kind" :class="`ntc__kind--${inboxPresentation(item).tone}`">{{ inboxPresentation(item).category }}</span><time :datetime="item.sentAt" :title="new Date(item.sentAt).toLocaleString()">{{ inboxTime(item.sentAt) }}</time></div><button class="ntc__message" type="button" :disabled="pending.has(item.id) || readingAll" :aria-label="`${item.title}，${item.unread ? '标为已读' : '已读'}`" @click="mark(item)"><p class="ntc__txt"><span v-if="item.title && !item.body?.includes(item.title)">{{ item.title }}： </span><template v-for="(part, index) in inboxBody(item.body || '')" :key="index"><b v-if="part.emphasis">{{ part.text }}</b><template v-else>{{ part.text }}</template></template></p></button><div v-if="inboxPresentation(item).action && (item.bizId || inboxPresentation(item).destination !== 'plan')" class="ntc__ops"><button class="ntc__op" :class="{ 'ntc__op--primary': inboxPresentation(item).destination !== 'creative' }" type="button" :disabled="pending.has(item.id) || readingAll" @click="visit(item)">{{ inboxPresentation(item).action }}</button></div></div></article>
       </div>
       <div class="ntc__ft"><span>{{ loading ? '正在更新消息…' : `共 ${visible.length} 条${tab === 'unread' ? '未读' : ''}消息` }}</span></div>
@@ -21,14 +22,15 @@ import { useRoute, useRouter } from 'vue-router';
 import { Bell } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { listInbox, readAllInbox, readInbox, type InboxMessage } from '@/features/tenant/inboxApi';
-import { inboxBody, inboxPresentation, inboxTime } from '@/features/tenant/inboxPresentation';
+import { filterInbox, inboxBody, inboxPresentation, inboxTime, type InboxFilterCategory } from '@/features/tenant/inboxPresentation';
 import { getPlan, listPlans } from '@/features/delivery/deliveryApi';
 const route = useRoute(), router = useRouter();
 const open = ref(false), tab = ref<'all' | 'unread'>('all'), inbox = ref<InboxMessage[]>([]);
 const loading = ref(false), failed = ref(false), readingAll = ref(false), pending = ref(new Set<string>());
 const watchedPlans = ref<number | null>(null), panel = ref<HTMLElement>(), bell = ref<{ $el: HTMLElement }>();
+const category = ref<InboxFilterCategory | 'all'>('all');
 const unread = computed(() => inbox.value.filter(item => item.unread).length);
-const visible = computed(() => inbox.value.filter(item => tab.value === 'all' || item.unread));
+const visible = computed(() => filterInbox(inbox.value, tab.value, category.value));
 let disposed = false, epoch = 0, pollTimer: number | undefined;
 async function refresh(background = true) {
   if (loading.value || disposed || readingAll.value || pending.value.size) return;
@@ -117,7 +119,10 @@ onUnmounted(() => { disposed = true; window.clearInterval(pollTimer); document.r
 .ntc__allread { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; display: grid; place-items: center; color: #7c7f99; cursor: pointer; }
 .ntc__allread svg { width: 17px; height: 17px; }
 .ntc__allread:disabled { color: #c4c5cd; cursor: default; }
-.ntc__list { max-height: min(424px, calc(100dvh - 230px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.ntc__filters { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #e6e8f2; font-size: 12px; color: #4e5069; }
+.ntc__filters select { min-width: 0; flex: 1; border: 1px solid #e6e8f2; border-radius: 7px; padding: 5px 8px; background: white; color: #4e5069; font: inherit; }
+.ntc__filters select:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
+.ntc__list { max-height: min(424px, calc(100dvh - 280px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .ntc__item { display: flex; gap: 9px; padding: 13px 16px; }
 .ntc__item:hover { background: #f7f8fe; }
 .ntc__item + .ntc__item { border-top: 1px solid #e6e8f2; }

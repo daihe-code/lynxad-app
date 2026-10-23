@@ -294,6 +294,18 @@ class MysqlSchemaSmokeIT {
         }
     }
 
+    private static String latestAvailableVersion() throws java.io.IOException {
+        var resources = new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/migration-mysql/V*__*.sql");
+        return java.util.Arrays.stream(resources)
+                .map(resource -> resource.getFilename())
+                .map(name -> name.substring(1, name.indexOf("__")))
+                .map(org.flywaydb.core.api.MigrationVersion::fromVersion)
+                .max(org.flywaydb.core.api.MigrationVersion::compareTo)
+                .orElseThrow(() -> new IllegalStateException("MySQL migrations are missing"))
+                .getVersion();
+    }
+
     private static String latestVersion(Connection connection) throws SQLException {
         return scalar(connection,
                 "SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1");

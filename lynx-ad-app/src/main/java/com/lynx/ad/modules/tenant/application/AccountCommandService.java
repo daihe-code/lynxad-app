@@ -5,6 +5,8 @@ import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.domain.PhoneNumber;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.RequestMeta;
+import com.lynx.ad.common.security.JwtService;
+import com.lynx.ad.common.security.MemberRole;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.audit.application.SuccessAuditCommand;
@@ -31,6 +33,7 @@ public class AccountCommandService {
     private final OtpStore otpStore;
     private final TenantQuerySupport querySupport;
     private final AuditRecorder auditRecorder;
+    private final JwtService jwtService;
 
     public AccountCommandService(
             UserRepository userRepository,
@@ -38,13 +41,15 @@ public class AccountCommandService {
             PasswordHasher passwordHasher,
             OtpStore otpStore,
             TenantQuerySupport querySupport,
-            AuditRecorder auditRecorder) {
+            AuditRecorder auditRecorder,
+            JwtService jwtService) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.passwordHasher = passwordHasher;
         this.otpStore = otpStore;
         this.querySupport = querySupport;
         this.auditRecorder = auditRecorder;
+        this.jwtService = jwtService;
     }
 
     @Transactional
@@ -63,12 +68,15 @@ public class AccountCommandService {
     }
 
     @Transactional
-    public CurrentUserResponse updatePassword(UserId userId, UpdatePasswordRequest req) {
+    public AuthenticatedUserUpdate updatePassword(UserId userId, UpdatePasswordRequest req) {
         User user = require(userId);
         user.changePassword(req.oldPassword(), req.newPassword(), passwordHasher);
         userRepository.save(user);
         record(user, "登录密码");
-        return querySupport.current(userId);
+        Tenant tenant = tenantRepository.findByUserId(userId).orElse(null);
+        MemberRole role = tenant == null ? null : tenant.memberOf(userId).map(m -> m.role()).orElse(null);
+        String token = jwtService.issueForUser(user, java.util.Optional.ofNullable(tenant).map(Tenant::id), role);
+        return new AuthenticatedUserUpdate(querySupport.current(userId), token);
     }
 
     @Transactional

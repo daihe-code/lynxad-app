@@ -28,7 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static com.lynx.ad.modules.admin.infrastructure.AdminAccountStore.*;
 
 /** All mutations occur in a fresh verification schema, never the user's database. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_ADMIN_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_admin_verify_[a-zA-Z0-9_]+\\?.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_ADMIN_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_admin_verify_[a-zA-Z0-9_]+\\?.*")
 class PlatformAdminStoreIT {
     static String database,server,user,password;static boolean created;static JdbcTemplate jdbc;static TransactionTemplate tx;static javax.sql.DataSource dataSource;
     static long backfilled;static String legacyMethod;static final ObjectMapper json=new ObjectMapper();
@@ -132,7 +132,8 @@ class PlatformAdminStoreIT {
         admins.password(admin,new BCryptPasswordEncoder().encode("ChangedFixture2026!"));assertFalse(admins.validSession(admin.id(),"session-two",now));assertEquals(4,queries.audit(1,20).total());
     }
     @Test void failedAndSuccessfulUserLoginsCaptureMetadataWithoutSecrets() {
-        var jwt=new JwtService(new LynxAdProperties());var repo=mock(UserRepository.class);when(repo.findByPhone(any())).thenReturn(Optional.of(new User(new UserId("u1"),new PhoneNumber("13900001001"),null,null)));
+        var repo=mock(UserRepository.class);var fixtureUser=new User(new UserId("u1"),new PhoneNumber("13900001001"),null,null);
+        when(repo.findByPhone(any())).thenReturn(Optional.of(fixtureUser));when(repo.findById(any())).thenReturn(Optional.of(fixtureUser));var jwt=new JwtService(new LynxAdProperties(),repo);
         var journal=new UserLoginJournal(jdbc,jwt,repo);RequestMeta.set("127.0.0.1","FixtureBrowser/1.0");journal.record("13900001001","PASSWORD",null);
         String token=jwt.issue(new UserId("u1"),Optional.of(new TenantId("t1")),MemberRole.OWNER,SysRole.USER);journal.record("13900001001","PASSWORD",new com.lynx.ad.modules.tenant.api.dto.LoginResponse(token,3600,false,false));
         var logs=queries.logins("u1",null,null,null,null,1,20);assertEquals(2,logs.total());assertEquals(1,queries.logins("u1",null,"FAILURE",null,null,1,20).total());assertEquals(1,queries.detail("u1").user().loginCount());assertTrue(logs.records().stream().allMatch(l->"127.0.0.1".equals(l.ip())));assertFalse(logs.toString().contains(token));

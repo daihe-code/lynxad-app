@@ -27,7 +27,8 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 class PlatformAdminTest {
     final AdminAccountStore accounts=mock(AdminAccountStore.class);
     final BCryptPasswordEncoder passwords=new BCryptPasswordEncoder();
-    final JwtService jwt=new JwtService(new LynxAdProperties());
+    final com.lynx.ad.modules.tenant.domain.port.UserRepository tenantUsers=mock(com.lynx.ad.modules.tenant.domain.port.UserRepository.class);
+    final JwtService jwt=new JwtService(new LynxAdProperties(), tenantUsers);
     final AdminAuthService auth=new AdminAuthService(accounts,passwords,jwt,new LynxAdProperties());
     final AdminAccountStore.Account account=new AdminAccountStore.Account("admin-id","platform-admin","管理员",passwords.encode("AdminFixture2026!"),"ACTIVE",0,null,null,Instant.now());
     @AfterEach void cleanup(){TenantContext.clear();}
@@ -71,6 +72,8 @@ class PlatformAdminTest {
         var registry=new Registry();new AdminAccessConfiguration(auth).addInterceptors(registry);
         var mvc=MockMvcBuilders.standaloneSetup(new PlatformAdminController(auth,users,packages)).setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).addInterceptors((HandlerInterceptor)registry.all().getFirst()).build();
         assertTrue(mvc.perform(get("/api/v1/admin/overview")).andReturn().getResponse().getContentAsString().contains("\"code\":401"));
+        when(tenantUsers.findById(new UserId("customer"))).thenReturn(Optional.of(new com.lynx.ad.modules.tenant.domain.model.User(
+                new UserId("customer"), new com.lynx.ad.common.domain.PhoneNumber("13900009801"), null, null)));
         String customer=jwt.issue(new UserId("customer"),Optional.of(new TenantId("tenant")),MemberRole.OWNER,SysRole.USER);
         for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
         assertTrue(mvc.perform(post("/api/v1/admin/users/one/package/extend").header("Authorization","Bearer "+customer).contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));verifyNoInteractions(users,packages);

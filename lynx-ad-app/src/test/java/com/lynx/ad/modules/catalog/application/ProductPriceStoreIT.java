@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
-@EnabledIfEnvironmentVariable(named="LYNXAD_PRICES_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_prices_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_PRICES_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_prices_verify_[a-zA-Z0-9_]+.*")
 class ProductPriceStoreIT {
     static JdbcTemplate jdbc; static ProductPriceStore store;
     static Scope scope=new Scope("tenant-a","account-a","123","456");

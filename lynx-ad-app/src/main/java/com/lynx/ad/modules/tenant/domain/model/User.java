@@ -13,6 +13,7 @@ public class User {
     private final UserId id;
     private PhoneNumber phone;
     private String passwordHash;
+    private final String originalPasswordHash;
     private UserProfile profile;
     private final Instant createdAt;
 
@@ -24,6 +25,7 @@ public class User {
         this.id = id;
         this.phone = phone;
         this.passwordHash = passwordHash;
+        this.originalPasswordHash = passwordHash;
         this.profile = profile;
         this.createdAt = createdAt == null ? Instant.now() : createdAt;
     }
@@ -86,6 +88,10 @@ public class User {
 
     public String passwordHash() {
         return passwordHash;
+    }
+
+    public String originalPasswordHash() {
+        return originalPasswordHash;
     }
 
     public Instant createdAt() {

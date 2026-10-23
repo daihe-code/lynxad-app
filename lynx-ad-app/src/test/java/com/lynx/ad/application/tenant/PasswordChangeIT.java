@@ -37,6 +37,7 @@ class PasswordChangeIT extends AbstractContainerIT {
                         "{\"newPassword\":\"Passw0rd!\"}",
                         token));
         assertEquals(0, first.path("code").asInt());
+        token = TenantAuthSupport.smsLogin(mvc, mapper, phone);
         JsonNode badOld = TenantAuthSupport.json(
                 mapper,
                 TenantAuthSupport.put(

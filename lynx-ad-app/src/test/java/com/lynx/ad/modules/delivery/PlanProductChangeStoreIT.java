@@ -17,7 +17,7 @@ import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@EnabledIfEnvironmentVariable(named="LYNXAD_PRODUCTS_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_products_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_PRODUCTS_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_products_verify_[a-zA-Z0-9_]+.*")
 class PlanProductChangeStoreIT {
     static JdbcTemplate jdbc;static PlanTransferStore transfers;static PlanProductChangeStore changes;static TransactionTemplate tx;static CreationStore creations;
     final TenantId tenant=new TenantId("tenant-a");

@@ -18,7 +18,7 @@ import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
 /** Uses an explicitly supplied isolated database; never the development plan database. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_TRANSFER_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_transfer_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_TRANSFER_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_transfer_verify_[a-zA-Z0-9_]+.*")
 class PlanTransferStoreIT {
     static JdbcTemplate jdbc;static PlanTransferStore store;
     final TenantId tenant=new TenantId("tenant-a");

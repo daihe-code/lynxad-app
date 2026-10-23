@@ -27,7 +27,7 @@ import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Uses only an explicitly named isolated database and a fake platform port. */
-@EnabledIfEnvironmentVariable(named="LYNXAD_DELETE_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:3306/lynxad_plan_delete_verify_[a-zA-Z0-9_]+.*")
+@EnabledIfEnvironmentVariable(named="LYNXAD_DELETE_TEST_URL",matches="jdbc:mysql://127\\.0\\.0\\.1:(?:3306|55406)/lynxad_plan_delete_verify_[a-zA-Z0-9_]+.*")
 class PlanDeletionRepositoryIT {
     static JdbcTemplate jdbc;static MpAdPlanRepository plans;static PlanTransferStore transfers;static TransactionTemplate tx;
     static AdPlanCreativeBindingStore bindings;
