@@ -1,10 +1,5 @@
 <template>
   <section class="preparation" aria-label="投放准备分析">
-    <article class="prep-summary">
-      <span class="prep-summary__icon"><PreparationIcon name="bulb" /></span>
-      <div class="prep-summary__body"><p class="prep-label">小灵的建议</p><h3>{{ report?.summary.title || '确认商品信息，准备投放素材' }}</h3><p>{{ report?.summary.message || preparation?.summary }}</p><small>{{ coverage }}</small></div>
-    </article>
-
     <article v-if="products.length > 1" class="prep-group">
       <div class="prep-group-copy"><div class="prep-heading"><span class="prep-icon"><PreparationIcon name="combination" /></span><h3>商品组合建议</h3></div><p class="prep-clamp" :title="report?.combination.conclusion">{{ report?.combination.conclusion || '请结合商品用途、经营目标和测试预算，确认当前组合。' }}</p></div>
       <div class="prep-group-points"><div v-for="point in highlights" :key="point.icon" class="prep-point"><span class="prep-icon prep-icon--round"><PreparationIcon :name="point.icon" /></span><div><b>{{ point.title }}</b><small class="prep-clamp" :title="point.description">{{ point.description }}</small></div></div></div>
