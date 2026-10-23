@@ -16,15 +16,15 @@ class CreationViewTest {
         state.analysisStatus="RUNNING";
         assertEquals("RUNNING",CreationView.of(state).analysisStatus());
     }
-    @Test void generatedManagementNamesAreDistinctStableAndDoNotChangeAdvertisingText() throws Exception {
+    @Test void generatedVideoImageAndCarouselNamesShowOnlyProductNameWithoutChangingIdsOrAdvertisingText() throws Exception {
         var state=new CreationState();state.products.add(new CreationState.Product("123","123","20寸折叠自行车",null,null,null,null,null,java.util.List.of(),java.util.List.of()));
         for(String type:java.util.List.of("VIDEO","VIDEO","IMAGE","CAROUSEL")) {
             var material=new CreationState.Material();material.id="material-"+state.materials.size();material.engineMaterialId=material.id;
             material.productId="123";material.type=type;material.title="同一个广告标题";material.titles=java.util.List.of(material.title);state.materials.add(material);
         }
         var view=CreationView.of(state);var names=view.materials().stream().map(CreationView.MaterialView::displayName).toList();
-        assertEquals(4,new java.util.HashSet<>(names).size());assertTrue(names.getFirst().startsWith("视频｜20寸折叠自行车｜"));
-        assertTrue(names.get(2).startsWith("商品卡｜"));assertTrue(names.get(3).startsWith("图文｜"));
+        assertEquals(java.util.List.of("20寸折叠自行车","20寸折叠自行车","20寸折叠自行车","20寸折叠自行车"),names);
+        assertEquals(state.materials.stream().map(m->m.id).toList(),view.materials().stream().map(CreationView.MaterialView::id).toList());
         assertTrue(view.materials().stream().allMatch(m->m.title().equals("同一个广告标题")&&m.titles().equals(java.util.List.of("同一个广告标题"))));
         state.materials.removeFirst();state.materials.getFirst().title="修改后的广告标题";
         var restored=new ObjectMapper().readValue(new ObjectMapper().writeValueAsString(state),CreationState.class);
