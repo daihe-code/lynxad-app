@@ -49,7 +49,7 @@ public class OnboardingCommandService {
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public CurrentUserResponse complete(UserId userId, OnboardingRequest req) {
+    public AuthenticatedUserUpdate complete(UserId userId, OnboardingRequest req) {
         User user = userRepository.findByIdForUpdate(userId).orElseThrow(() -> new BizException(401, "未登录"));
         OnboardingCommand cmd = new OnboardingCommand(
                 req.nickname(),

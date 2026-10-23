@@ -27,7 +27,8 @@ class AuthenticationRepairTest {
     final PasswordHasher hasher = mock(PasswordHasher.class);
     final AuthCommandService auth = new AuthCommandService(otp, mock(SmsGateway.class), users,
             mock(TenantRepository.class), mock(InvitationStore.class), hasher,
-            mock(JwtService.class), new LynxAdProperties(), mock(AuditRecorder.class));
+            mock(JwtService.class), new LynxAdProperties(), mock(AuditRecorder.class),
+            mock(PasswordLoginGuard.class), mock(AccountInitializationService.class));
 
     @Test void unknownPhoneHasExplicitRegistrationMessage() {
         var ex = assertThrows(BizException.class, () -> auth.passwordLogin(new PhoneNumber("13900009801"), "Password123"));
@@ -64,7 +65,7 @@ class AuthenticationRepairTest {
         when(account.updatePassword(eq(id), any())).thenReturn(new AuthenticatedUserUpdate(null, "replacement-token"));
         TenantContext.set(new TenantPrincipal(id, Optional.empty(), Optional.empty(), SysRole.USER, Optional.empty()));
         try {
-            var mvc = MockMvcBuilders.standaloneSetup(new TenantUserController(mock(TenantQuerySupport.class), onboarding, account)).build();
+            var mvc = MockMvcBuilders.standaloneSetup(new TenantUserController(mock(TenantQuerySupport.class), onboarding, account, auth)).build();
             for (String url : new String[]{"/api/v1/tenant/users/me", "/api/v1/tenant/users/me/onboarding", "/api/v1/tenant/users/me/password"}) {
                 mvc.perform(put(url).contentType(MediaType.APPLICATION_JSON).content("{}"))
                         .andExpect(status().isOk()).andExpect(header().string("X-Auth-Token", "replacement-token"))
@@ -118,8 +119,11 @@ class AuthenticationRepairTest {
         when(users.findById(id)).thenReturn(Optional.of(new User(id, phone, "new-hash", null)));
         when(hasher.matches("OldPassword123", "old-hash")).thenReturn(true);
         JwtService jwt = new JwtService(new LynxAdProperties(), users);
+        var initialization = mock(AccountInitializationService.class);
+        when(initialization.initialize(id)).thenReturn(Tenant.createForFirstOnboarding(id, "Race fixture"));
         var commands = new AuthCommandService(otp, mock(SmsGateway.class), users, mock(TenantRepository.class),
-                mock(InvitationStore.class), hasher, jwt, new LynxAdProperties(), mock(AuditRecorder.class));
+                mock(InvitationStore.class), hasher, jwt, new LynxAdProperties(), mock(AuditRecorder.class),
+                mock(PasswordLoginGuard.class), initialization);
         String token = commands.passwordLogin(phone, "OldPassword123").token();
         assertThrows(BizException.class, () -> new JwtService(new LynxAdProperties(), users).parse(token));
     }
@@ -139,6 +143,7 @@ class AuthenticationRepairTest {
         User reset = new User(id, phone, "reset-hash", null);
         var persisted = new java.util.concurrent.atomic.AtomicReference<>(authenticated);
         when(users.findById(id)).thenAnswer(ignored -> Optional.of(persisted.get()));
+        when(users.findByIdForUpdate(id)).thenAnswer(ignored -> Optional.of(persisted.get()));
         // Deterministically commit an independent reset after this operation saves, before it signs.
         doAnswer(ignored -> { persisted.set(reset); return null; }).when(users).save(any());
         when(hasher.matches("OldPassword123", "old-hash")).thenReturn(true);
@@ -150,7 +155,7 @@ class AuthenticationRepairTest {
         var onboarding = new OnboardingCommandService(users, tenants, hasher,
                 mock(com.lynx.ad.modules.billing.application.BillingTrialService.class), jwt, new LynxAdProperties(), query);
         var account = new AccountCommandService(users, tenants, hasher, otp, query, mock(AuditRecorder.class), jwt);
-        var controller = new TenantUserController(query, onboarding, account);
+        var controller = new TenantUserController(query, onboarding, account, auth);
         var mvc = MockMvcBuilders.standaloneSetup(controller).build();
         TenantContext.set(new TenantPrincipal(id, Optional.empty(), Optional.empty(), SysRole.USER, Optional.empty()));
         try {

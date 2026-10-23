@@ -28,9 +28,18 @@ http.interceptors.response.use(res => {
 }, error => Promise.reject(requestFailure(error)));
 
 async function perform<T>(method: string, url: string, data?: unknown, config?: ApiRequestConfig): Promise<T> {
-  const identity = sessionIdentity();
-  const request = async (retryBudgetMs?: number) => (await http.request<ApiEnvelope<T>>({...config,method,url,data,
-    timeout:retryBudgetMs === undefined ? config?.timeout : Math.min(config?.timeout || http.defaults.timeout || 20000,retryBudgetMs)})).data.data;
+  let identity = sessionIdentity();
+  const request = async (retryBudgetMs?: number) => {
+    const response = await http.request<ApiEnvelope<T>>({...config,method,url,data,
+      timeout:retryBudgetMs === undefined ? config?.timeout : Math.min(config?.timeout || http.defaults.timeout || 20000,retryBudgetMs)});
+    const replacement = response.headers['x-auth-token'];
+    if (identity && identity === sessionIdentity() && !publicAuth(url) && typeof replacement === 'string' && replacement.trim()) {
+      localStorage.setItem('lynx.token', replacement);
+      identity = replacement;
+      window.dispatchEvent(new Event('lynx:session-replaced'));
+    }
+    return response.data.data;
+  };
   try {
     const result = method === 'GET' ? await withReadRetry(request,{method,url,enabled:config?.readRetry,
       signal:config?.signal as AbortSignal | undefined,identity:sessionIdentity}) : await request();

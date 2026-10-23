@@ -116,8 +116,10 @@ public class AuthCommandService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
+        passwordGuard.check(phone.value());
         User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
         if (!user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
+            passwordGuard.failed(phone.value());
             throw new BizException(1101, "账号或密码错误");
         }
         passwordGuard.clear(phone.value());
@@ -165,12 +167,16 @@ public class AuthCommandService {
     }
 
     private LoginResponse issue(User user) {
-        Optional<Tenant> tenant = tenantRepository.findByUserId(user.id());
-        MemberRole role = tenant.flatMap(t -> t.memberOf(user.id())).map(m -> m.role()).orElse(null);
-        String token = jwtService.issueForUser(user, tenant.map(Tenant::id), role);
-        boolean needOnboarding = tenant.isEmpty() || user.profile().isEmpty() || user.profile().filter(p -> p.isCompleted()).isEmpty();
-        recordLogin(user, tenant.orElse(null), token);
-        return new LoginResponse(token, properties.getJwt().getTtlSec(), needOnboarding, properties.isDemoMode());
+        Tenant tenant = initialization.initialize(user.id());
+        LoginResponse response = session(user, tenant);
+        recordLogin(user, tenant, response.token());
+        return response;
+    }
+
+    private LoginResponse session(User user, Tenant tenant) {
+        MemberRole role = tenant.memberOf(user.id()).orElseThrow(() -> new BizException(403, "非本公司成员")).role();
+        String token = jwtService.issueForUser(user, Optional.of(tenant.id()), role);
+        return new LoginResponse(token, properties.getJwt().getTtlSec(), false, properties.isDemoMode());
     }
 
     private void recordLogin(User user, Tenant tenant, String token) {

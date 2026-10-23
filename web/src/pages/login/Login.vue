@@ -113,6 +113,7 @@
 
           <h1 class="auth-title">登录/注册</h1>
           <p class="auth-subtitle">开启智能广告投放新体验</p>
+          <p v-if="resetSuccess" class="auth-subtitle" role="status">密码已重置，请使用新密码登录。</p>
 
           <div v-show="!resetting" class="auth-tabs" role="tablist" aria-label="登录方式">
             <button class="auth-tab" type="button" role="tab" id="tab-code"
@@ -263,7 +264,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { sendSms } from "@/features/tenant/authApi";
+import { resetPassword, sendSms } from "@/features/tenant/authApi";
+import { resetPasswordError } from "./loginRecovery";
 import { useUserStore } from "@/stores/user";
 import { isCnMobile } from "@/utils/phone";
 
@@ -273,6 +275,7 @@ type FieldKey = "smsPhone" | "code" | "pwdPhone" | "password" | "newPassword" | 
 const tab = ref<LoginTab>(route.query.tab === "password" ? "password" : "sms");
 const phone = ref(""), code = ref(""), pwdPhone = ref(""), password = ref("");
 const agreed = ref(false), showPassword = ref(false);
+const resetting = ref(false), resetSuccess = ref(false), newPassword = ref(""), confirmPassword = ref("");
 const loading = ref(false), sending = ref(false), cooldown = ref(0);
 const errors = reactive<Record<FieldKey, string>>({ smsPhone: "", code: "", pwdPhone: "", password: "", newPassword: "", confirmPassword: "" });
 const legalAttention = ref(false), legalError = ref("");

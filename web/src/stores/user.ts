@@ -1,10 +1,13 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import { initializeAccount, fetchMe, passwordLogin, smsLogin, welcomeStatus, acknowledgeWelcome, type CurrentUser } from "@/features/tenant/authApi";
 import { loginLandingPath } from "@/features/identity/oauthApi";
 
 export const useUserStore = defineStore("user", () => {
   const token = ref(localStorage.getItem("lynx.token") || "");
+  const syncSession = () => { token.value = localStorage.getItem("lynx.token") || ""; };
+  window.addEventListener("lynx:session-replaced", syncSession);
+  onScopeDispose(() => window.removeEventListener("lynx:session-replaced", syncSession));
   const me = ref<CurrentUser | null>(null);
   const welcomeAcknowledged = ref<boolean | null>(null);
 
