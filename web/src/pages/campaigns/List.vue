@@ -21,7 +21,7 @@
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
-      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2><div><router-link class="analytics-link" to="/monitoring">全店盯盘</router-link> · <router-link class="analytics-link" to="/analytics">数据分析 <el-icon><ArrowRight /></el-icon></router-link></div></div>
+      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
           <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
@@ -134,7 +134,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, ArrowRight, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
@@ -421,7 +421,7 @@ h1 { margin: 0; padding-right: 14px; border-right: 3px solid #575cf6; font-size:
 .panel { background: #fff; border: 1px solid #eeedf6; border-radius: 24px; padding: 24px 32px 28px; box-shadow: 0 2px 8px #24204003; }.overview { margin-bottom: 24px; padding-bottom: 24px; }.section-heading { justify-content: space-between; margin-bottom: 18px; }.overview .section-heading { margin-bottom: 16px; }
 h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; color: #252537; }.section-heading > span { color: #aaa8ba; font-size: 12px; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }.metric { border-radius: 14px; padding: 16px 22px; }.metric > span { display: block; color: #7e7b94; font-size: 13px; }.metric strong { display: block; font-size: 25px; font-weight: 750; color: #222234; margin: 8px 0; font-variant-numeric: tabular-nums; }.metric small { color: #9996ad; font-size: 11px; }
-.metric-cost { background: #ebecfe; }.metric-orders { background: #f5f0f8; }.metric-gmv { background: #eaf0fd; }.metric-roi { background: #f4eef6; }.analytics-link { color: #8b87a3; font-size: 12px; display: flex; gap: 4px; align-items: center; }
+.metric-cost { background: #ebecfe; }.metric-orders { background: #f5f0f8; }.metric-gmv { background: #eaf0fd; }.metric-roi { background: #f4eef6; }
 .metric > span { line-height: 18px; }.metric strong { line-height: 30px; margin: 5px 0; }.metric small { display: block; line-height: 16px; }.actions-cell button.pause-action { color: #dc777a; }.actions-cell button.enable-action { color: #45aa79; }
 .toolbar { justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }.toolbar-left, .toolbar-right { gap: 10px; }
 .toolbar :deep(.el-button), .title-actions :deep(.el-button) { height: 38px; margin-left: 0; font-size: 12px; padding: 0 14px; }.toolbar :deep(.el-button .el-icon) { margin-right: 5px; font-size: 14px; }.toolbar :deep(.el-button--primary) { padding: 0 18px; font-size: 13px; box-shadow: 0 3px 8px #575cf618; }
@@ -461,7 +461,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .tool-shortcuts{display:grid;grid-template-columns:minmax(0,1fr) 22px 18px;align-items:center;gap:3px;min-height:26px}.tools-cell .tool-name{width:auto;white-space:nowrap}.tools-cell .tool-report{width:22px;height:24px;justify-content:center;color:#575cf6;border-radius:4px}.tools-cell .tool-report:hover{background:#eeedff}.tool-report .el-icon{font-size:16px}.tools-cell .tool-add{width:18px;justify-content:center;font-size:16px;color:#575cf6}.tools-cell button:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
 .tools-cell .tool-monitor{color:#4348db;font-size:13px;line-height:22px}.tools-cell .tool-monitor:hover{color:#575cf6}.tools-cell .tool-monitor:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
 .confirmation-icon.delete-icon { color: #e5484d; background: #fff0f0; }
-.muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.analytics-link { color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
+.muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
 .toolbar.expanded { margin-bottom: 16px; }
 .extra-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; border-top: 1px solid #eeeff4; padding-top: 14px; margin-bottom: 18px; }
 .inline-filter-group { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #7c7f99; }
