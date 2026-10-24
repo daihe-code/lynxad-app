@@ -153,6 +153,43 @@ class PlanListDisplayTest {
         verify(statistics).report(tenant,plan.accountId().value(),previousRange,false);
     }
     private PlanStatisticsService.Snapshot report(PlanStatisticsService.Metrics metrics) {return new PlanStatisticsService.Snapshot(Map.of("123",metrics),Instant.now());}
+    @Test void netTemplateSortsGenuineNetValuesAndAggregatesFilteredRowsBeforePagination() {
+        transferred(PlanStatus.PAUSED);
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var range=new PlanStatisticsRange(today,today);
+        var data=new PlanStatisticsService.Snapshot(Map.of(
+                "123",new PlanStatisticsService.Metrics(new BigDecimal("10"),new BigDecimal("100"),new BigDecimal("10"),2L,new BigDecimal("90"),new BigDecimal("9"),new BigDecimal("10")),
+                "456",new PlanStatisticsService.Metrics(new BigDecimal("90"),new BigDecimal("900"),new BigDecimal("10"),10L,new BigDecimal("720"),new BigDecimal("8"),new BigDecimal("20"))),Instant.now());
+        when(statistics.report(eq(tenant),eq("account-a"),any(),eq(false),eq(PlanMetricTemplate.NET))).thenReturn(data);
+        var filter=new PlanQueryService.Filters(null,null,null,null,null,null,"netRoi",true,range,false,PlanMetricTemplate.NET);
+        var page=query.list(tenant,1,1,filter);assertEquals(2,page.total());assertEquals(PlanMetricTemplate.NET,page.metricTemplate());
+        assertEquals(id.value(),page.records().getFirst().planId());assertEquals(new BigDecimal("9"),page.records().getFirst().netRoi());
+        assertEquals(new BigDecimal("810"),page.summary().netGmv());assertEquals(new BigDecimal("8.1000"),page.summary().netRoi());
+        assertEquals(new BigDecimal("19.0000"),page.summary().refundRate());assertEquals(new BigDecimal("10.0000"),page.summary().roi());
+        assertEquals(new BigDecimal("9"),page.records().getFirst().comparison().current().netRoi());
+        var reverse=query.list(tenant,1,1,new PlanQueryService.Filters(null,null,null,null,null,null,"refundRate",true,range,false,PlanMetricTemplate.NET));
+        assertEquals("456",reverse.records().getFirst().qcPlanId());
+        var filtered=query.list(tenant,1,20,new PlanQueryService.Filters("123",null,null,null,null,null,null,true,range,false,PlanMetricTemplate.NET));
+        assertEquals(1,filtered.total());assertEquals(new BigDecimal("90"),filtered.summary().netGmv());assertEquals(new BigDecimal("10.0000"),filtered.summary().refundRate());
+        verify(statistics,never()).report(any(),any(),any(),anyBoolean());
+    }
+    @Test void missingNetMetricsAndNoExplicitRangeNeverReusePaymentOrHistoricalMetrics() {
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        when(statistics.report(eq(tenant),eq("account-a"),any(),eq(false),eq(PlanMetricTemplate.NET)))
+                .thenReturn(report(new PlanStatisticsService.Metrics(new BigDecimal("10"),new BigDecimal("100"),new BigDecimal("10"),2L)));
+        var page=query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,null,false,PlanMetricTemplate.NET));
+        assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")),page.statisticsRange().startDate());
+        assertNull(page.records().getFirst().netRoi());assertNull(page.records().getFirst().netGmvYuan());assertNull(page.records().getFirst().refundRate());
+        assertNull(page.summary().netRoi());assertNull(page.summary().netGmv());assertNull(page.summary().refundRate());
+    }
+    @Test void netSummaryDoesNotDependOnPaymentOrderCountBeingAvailable() {
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        when(statistics.report(eq(tenant),eq("account-a"),any(),eq(false),eq(PlanMetricTemplate.NET)))
+                .thenReturn(report(new PlanStatisticsService.Metrics(new BigDecimal("10"),new BigDecimal("100"),new BigDecimal("10"),null,new BigDecimal("80"),new BigDecimal("8"),new BigDecimal("20"))));
+        var page=query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,null,false,PlanMetricTemplate.NET));
+        assertEquals(new BigDecimal("10"),page.summary().cost());assertEquals(new BigDecimal("80"),page.summary().netGmv());
+        assertEquals(new BigDecimal("8.0000"),page.summary().netRoi());assertEquals(new BigDecimal("20.0000"),page.summary().refundRate());assertNull(page.summary().orders());
+    }
     private PlanListVo rangeRow(PlanStatisticsRange range,boolean refresh) {return query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,range,refresh)).records().getFirst();}
     @Test void noDataInSelectedRangeDoesNotUsePausedPlansLatestHistoricalData() throws Exception {
         plan.apply(PlanStatus.PAUSED);var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));cache(null,metrics("3.56"),today,null,null,null);

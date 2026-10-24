@@ -60,6 +60,9 @@ export interface PlanListVo {
   costYuan?: number | null;
   gmvYuan?: number | null;
   roi?: number | null;
+  netGmvYuan?: number | null;
+  netRoi?: number | null;
+  refundRate?: number | null;
   smartBidType?: string | null;
   budget?: number | null;
   roi2Goal?: number | null;
@@ -77,8 +80,8 @@ export interface PlanListVo {
     roiChange?: number | null;
     roiChangePct?: number | null;
     gmvChangePct?: number | null;
-    current?: { cost?: number | null; gmv?: number | null; roi?: number | null; orders?: number | null } | null;
-    previous?: { cost?: number | null; gmv?: number | null; roi?: number | null; orders?: number | null } | null;
+    current?: PlanMetricValues | null;
+    previous?: PlanMetricValues | null;
     previousStartDate?: string | null;
     previousEndDate?: string | null;
     unavailableReason?: string | null;
@@ -87,13 +90,17 @@ export interface PlanListVo {
   } | null;
 }
 
+export type PlanMetricTemplate = 'PAYMENT' | 'NET';
+export interface PlanMetricValues { cost?: number | null; gmv?: number | null; roi?: number | null; orders?: number | null; netGmv?: number | null; netRoi?: number | null; refundRate?: number | null }
+
 export interface PageResult<T> {
+  metricTemplate?: PlanMetricTemplate;
   statisticsRange?: { startDate: string; endDate: string } | null;
   records: T[];
   total: number;
   pageNum: number;
   pageSize: number;
-  summary?: { cost: number | null; gmv: number | null; orders: number | null; roi: number | null; covered: number; plans: number; snapshotTs: string | null };
+  summary?: PlanMetricValues & { covered: number; plans: number; snapshotTs: string | null };
 }
 
 export interface PlanDraftRequest {
@@ -119,7 +126,7 @@ export function discardDraft(id: string) {
   return apiDelete(`/api/v1/delivery/plans/${encodeURIComponent(id)}/draft`);
 }
 
-export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean; startDate?: string; endDate?: string; refreshStatistics?: boolean }
+export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean; startDate?: string; endDate?: string; refreshStatistics?: boolean; metricTemplate?: PlanMetricTemplate }
 export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}) {
   return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters }, timeout: 120000 });
 }

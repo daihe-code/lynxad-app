@@ -31,7 +31,18 @@ public record PlanListVo(
         String accountId, String qcStatus, boolean canEdit, boolean canControl,
         RoiEstimate roiEstimate, boolean canTransfer,LocalDate statisticsDate,boolean historicalMetrics,
         com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View review,
-        String awemeId, String materialCoverUrl) {
+        String awemeId, String materialCoverUrl,BigDecimal netGmvYuan,BigDecimal netRoi,BigDecimal refundRate) {
+    public PlanListVo(String planId,String name,String status,String source,String qcPlanId,boolean lingtou,
+                      String coverUrl,String guarantee,BigDecimal costYuan,BigDecimal gmvYuan,BigDecimal roi,
+                      String smartBidType,BigDecimal budget,BigDecimal roi2Goal,LocalDate startDate,LocalDate endDate,
+                      Long convert,Instant snapshotTs,List<ProductSummary> products,MetricComparison comparison,
+                      Instant createdAt,String deliveryPlatform,String accountId,String qcStatus,boolean canEdit,boolean canControl,
+                      RoiEstimate roiEstimate,boolean canTransfer,LocalDate statisticsDate,boolean historicalMetrics,
+                      com.lynx.ad.modules.delivery.domain.service.PlanReviewProgress.View review,String awemeId,String materialCoverUrl) {
+        this(planId,name,status,source,qcPlanId,lingtou,coverUrl,guarantee,costYuan,gmvYuan,roi,smartBidType,budget,roi2Goal,
+                startDate,endDate,convert,snapshotTs,products,comparison,createdAt,deliveryPlatform,accountId,qcStatus,canEdit,canControl,
+                roiEstimate,canTransfer,statisticsDate,historicalMetrics,review,awemeId,materialCoverUrl,null,null,null);
+    }
     public PlanListVo(String planId,String name,String status,String source,String qcPlanId,boolean lingtou,
                       String coverUrl,String guarantee,BigDecimal costYuan,BigDecimal gmvYuan,BigDecimal roi,
                       String smartBidType,BigDecimal budget,BigDecimal roi2Goal,LocalDate startDate,LocalDate endDate,
@@ -64,7 +75,9 @@ public record PlanListVo(
         public ProductSummary(String id,String name,String imageUrl) { this(id,name,imageUrl,null); }
     }
     public record RoiEstimate(BigDecimal value,BigDecimal min,BigDecimal max) {}
-    public record MetricValues(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders) {}
+    public record MetricValues(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders,BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {
+        public MetricValues(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders) {this(cost,gmv,roi,orders,null,null,null);}
+    }
     public record MetricComparison(BigDecimal costChangePct, BigDecimal convertChangePct,
                                    BigDecimal roiChange, Instant previousSnapshotTs,
                                    BigDecimal roiChangePct, String basis, BigDecimal gmvChangePct,

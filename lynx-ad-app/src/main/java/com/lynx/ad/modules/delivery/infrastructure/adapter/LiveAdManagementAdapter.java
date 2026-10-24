@@ -146,6 +146,33 @@ public class LiveAdManagementAdapter implements AdManagementPort {
                 "filters",List.of(), "order_by",List.of(Map.of("type",1,"field","ad_id")),
                 "start_time",start+" 00:00:00", "end_time",end+" 23:59:59"),"rows");
     }
+    @Override public MetricReport netReport(Credential c,LocalDate start,LocalDate end) {
+        new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
+        String reportUrl=properties.getQianchuan().getReport().getCustomUrl();
+        String configUrl=reportUrl.replace("/uni_promotion/data/get/","/uni_promotion/config/get/").replace("/custom/get/","/custom/config/get/");
+        if(configUrl.equals(reportUrl))throw new BizException(1406,"尚未配置对应报表的指标配置接口");
+        var configuration=get(c,configUrl,Map.of("data_topics",List.of("SITE_PROMOTION_PRODUCT_AD")));
+        JsonNode topic=null;
+        for(JsonNode item:configuration.path("custom_config_datas"))if("SITE_PROMOTION_PRODUCT_AD".equals(item.path("data_topic").asText()))topic=item;
+        if(topic==null)throw new BizException(1406,"千川未开放商品计划报表");
+        Map<String,String> fields=new LinkedHashMap<>();
+        for(JsonNode metric:topic.path("metrics")) {
+            String field=metric.path("field").asText(),name=metric.path("name").asText().replace(" ","");
+            if(field.isBlank())continue;
+            boolean excluded=false;
+            for(JsonNode dim:metric.path("exclusion_dims"))if("ad_id".equals(dim.asText()))excluded=true;
+            if(excluded)continue;
+            if(name.equals("净成交ROI"))fields.put("netRoi",field);
+            else if(name.matches("净成交金额([（(]元[）)])?"))fields.put("netGmv",field);
+            else if(name.equals("1小时内退款率") || name.equals("1小时退款率"))fields.put("refundRate",field);
+        }
+        var metrics=new LinkedHashSet<>(List.of("stat_cost","total_pay_order_count_for_roi2","total_pay_order_gmv_include_coupon_for_roi2","total_prepay_and_pay_order_roi2"));
+        metrics.addAll(fields.values());
+        var rows=paged(c,reportUrl,Map.of("data_topic","SITE_PROMOTION_PRODUCT_AD","dimensions",List.of("ad_id"),
+                "metrics",metrics,"filters",List.of(),"order_by",List.of(Map.of("type",1,"field","ad_id")),
+                "start_time",start+" 00:00:00","end_time",end+" 23:59:59"),"rows");
+        return new MetricReport(rows,Map.copyOf(fields));
+    }
     @Override public List<JsonNode> materials(Credential c,String adId) {
         LocalDate today=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
         return materialReport(c,adId,today,today,"VIDEO");

@@ -21,6 +21,7 @@ class QianchuanInsightsContractTest {
     final Credential credential=new Credential("fixture-token",new AdvertiserId("9007199254740993"));
     final LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));final List<Map<String,String>> queries=new ArrayList<>();final List<String> paths=new ArrayList<>();
     boolean filterable=true,hour=true;String guaranteeId="9007199254740995";
+    boolean netAmounts=true;
     Map<String,String> query(String text) { Map<String,String> result=new LinkedHashMap<>();for(String item:text.split("&")){var pair=item.split("=",2);result.put(pair[0],URLDecoder.decode(pair[1],StandardCharsets.UTF_8));}return result; }
     @BeforeEach void start() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -32,7 +33,10 @@ class QianchuanInsightsContractTest {
                 var topic=data.putArray("custom_config_datas").addObject();topic.put("data_topic","SITE_PROMOTION_PRODUCT_AD");
                 var dims=topic.putArray("dimensions");var ad=dims.addObject().put("field","ad_id").put("filterable",filterable);ad.putObject("filter_config").put("operator",6).put("type",1);
                 dims.addObject().put("field","stat_time_day");if(hour)dims.addObject().put("field","stat_time_hour");
-                topic.putArray("metrics").addObject().put("name","净成交ROI").put("field","actual_net_roi");
+                var metrics=topic.putArray("metrics");metrics.addObject().put("name","净成交ROI").put("field","actual_net_roi");
+                if(netAmounts)metrics.addObject().put("name","净成交金额（元）").put("field","actual_net_amount");
+                metrics.addObject().put("name","1小时内退款率").put("field","actual_refund_rate");
+                metrics.addObject().put("name","其他指标").put("field","unrelated_field");
             } else if(path.endsWith("data/get/")) {
                 var dims=json.readTree(query.get("dimensions"));var row=data.putArray("rows").addObject();row.putObject("dimensions").putObject("ad_id").put("Value","9007199254740995");row.putObject("metrics").put("stat_cost",1);
                 boolean trend=dims.size()==2;int page=Integer.parseInt(query.get("page"));
@@ -66,4 +70,17 @@ class QianchuanInsightsContractTest {
     @Test void platformLogsUseExactNumericObjectAndDateBounds() { adapter().operationLogs(credential,"9007199254740995",today,today,2,20);var q=queries.getFirst();assertEquals("AD",q.get("object_type"));assertEquals("9007199254740995",q.get("object_id"));assertEquals("2",q.get("page"));assertEquals("20",q.get("page_size")); }
     @Test void excessiveIntervalAndLogPageSizeAreRejectedBeforeRequest() { assertThrows(BizException.class,()->adapter().operationLogs(credential,"9007199254740995",today.minusDays(180),today,1,20));assertThrows(BizException.class,()->adapter().operationLogs(credential,"9007199254740995",today,today,1,21));assertTrue(paths.isEmpty()); }
     @Test void guaranteeMustMatchSelectedId() { guaranteeId="123";assertThrows(BizException.class,()->adapter().guaranteeDetail(credential,"9007199254740995")); }
+    @Test void netListReportDiscoversPlatformFieldsAndQueriesAllPlansInOneReport() throws Exception {
+        var result=adapter().netReport(credential,today.minusDays(6),today);
+        assertEquals(Map.of("netRoi","actual_net_roi","netGmv","actual_net_amount","refundRate","actual_refund_rate"),result.metricFields());
+        var request=queries.getLast();var metrics=json.readTree(request.get("metrics"));
+        assertTrue(metrics.toString().contains("actual_net_roi"));assertTrue(metrics.toString().contains("actual_net_amount"));assertTrue(metrics.toString().contains("actual_refund_rate"));
+        assertFalse(metrics.toString().contains("unrelated_field"));assertEquals("[\"ad_id\"]",request.get("dimensions"));assertEquals("[]",request.get("filters"));
+        assertEquals(today.minusDays(6)+" 00:00:00",request.get("start_time"));assertEquals(2,paths.size());
+    }
+    @Test void netListDoesNotAskForUnavailableMetricsOrSubstitutePaymentFields() throws Exception {
+        netAmounts=false;var result=adapter().netReport(credential,today,today);
+        assertFalse(result.metricFields().containsKey("netGmv"));assertFalse(queries.getLast().get("metrics").contains("actual_net_amount"));
+        assertTrue(queries.getLast().get("metrics").contains("total_pay_order_gmv_include_coupon_for_roi2"));
+    }
 }

@@ -14,14 +14,16 @@
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
       <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
       <div class="metrics">
-        <article class="metric metric-cost"><span>整体消耗(元)</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-orders"><span>整体成交订单数</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-gmv"><span>整体成交金额(元)</span><strong>{{ summary?.gmv != null ? money(summary.gmv) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-roi"><span>整体支付ROI</span><strong>{{ roiText(summary?.roi) }}</strong><small>汇总成交金额 / 汇总消耗</small></article>
+        <article v-for="(column, index) in metricColumns" :key="column.field" class="metric" :class="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]"><span>{{ column.label }}</span><strong>{{ metricText(summary?.[column.key], column.kind) }}</strong><small>{{ column.hint }}</small></article>
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
-      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2></div>
+      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2>
+        <el-dropdown trigger="click" placement="bottom-end" popper-class="campaign-template-menu" @command="selectMetricTemplate">
+          <el-button class="template-trigger" :loading="metricTemplate !== displayedMetricTemplate && loading" aria-label="切换指标模板"><el-icon><Operation /></el-icon>{{ metricTemplates[displayedMetricTemplate].label }}<el-icon><ArrowDown /></el-icon></el-button>
+          <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="(template, key) in metricTemplates" :key="key" :command="key" :class="{ 'is-active': metricTemplate === key }" :aria-current="metricTemplate === key ? 'true' : undefined"><el-icon class="template-check"><Check v-if="metricTemplate === key" /></el-icon><span>{{ template.label }}</span><small class="template-badge">系统模板</small></el-dropdown-item></el-dropdown-menu></template>
+        </el-dropdown>
+      </div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
           <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
@@ -42,7 +44,7 @@
             <p class="settings-hint">显示偏好会保存在当前浏览器中。</p>
           </el-popover>
           <el-tooltip :content="compact ? '切换为舒适行距' : '切换为紧凑行距'" popper-class="campaign-tooltip"><el-button class="square-button" :class="{ 'filter-active': compact }" aria-label="切换行距" @click="compact = !compact"><el-icon><Sort /></el-icon></el-button></el-tooltip>
-          <el-tooltip content="导出筛选结果" popper-class="campaign-tooltip"><el-button class="square-button" :disabled="!filtered.length" aria-label="导出计划" @click="exportRows"><el-icon><Download /></el-icon></el-button></el-tooltip>
+          <el-tooltip content="导出筛选结果" popper-class="campaign-tooltip"><el-button class="square-button" :disabled="!filtered.length || loading || metricTemplate !== displayedMetricTemplate" aria-label="导出计划" @click="exportRows"><el-icon><Download /></el-icon></el-button></el-tooltip>
         </div>
       </div>
       <div v-if="filtersExpanded" id="campaign-extra-filters" class="extra-filters">
@@ -79,10 +81,7 @@
                 </div>
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td class="number-cell"><strong>{{ yuan(row.costYuan) }}</strong><small v-if="row.historicalMetrics && row.statisticsDate" class="statistics-date" :title="`本行消耗、订单、成交金额与ROI均为 ${row.statisticsDate} 的报表，今日暂无有效报表`">{{ row.statisticsDate }} 数据</small><div v-if="(row.costYuan != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'cost')" label="消耗" /></div></td>
-              <td class="number-cell"><strong>{{ row.convert == null ? '—' : row.convert.toLocaleString('zh-CN') }}<small v-if="row.convert != null">单</small></strong><div v-if="(row.convert != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'orders')" label="成交订单" /></div></td>
-              <td class="number-cell gmv-cell"><strong>{{ yuan(row.gmvYuan) }}</strong><div v-if="(row.gmvYuan != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'gmv')" label="成交金额" /></div></td>
-              <td class="number-cell"><div class="roi-line"><strong :class="roiClass(row)">{{ roiText(row.roi) }}</strong></div><div v-if="(row.roi != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="deltaProps(row, 'roi')" label="支付 ROI" /></div></td>
+              <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
               <td v-if="showTools" class="tools-cell">
                 <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
                   <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
@@ -134,13 +133,14 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, Calendar, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, Check, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult } from '@/features/delivery/deliveryApi';
+import { actPlan, deletePlan, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate } from '@/features/delivery/deliveryApi';
+import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey, type MetricField } from '@/features/delivery/campaignMetricTemplates';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
@@ -178,22 +178,23 @@ const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin
 const records = ref<PlanListVo[]>([]);
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
-type SortField = 'costYuan' | 'gmvYuan' | 'convert' | 'roi';
-const metricColumns: { field: SortField; label: string }[] = [{ field: 'costYuan', label: '广告消耗' }, { field: 'convert', label: '成交订单' }, { field: 'gmvYuan', label: '成交金额' }, { field: 'roi', label: '支付 ROI' }];
+type SortField = MetricField;
+const metricTemplate = ref<PlanMetricTemplate>('PAYMENT'), displayedMetricTemplate = ref<PlanMetricTemplate>('PAYMENT');
+const metricColumns = computed(() => metricTemplates[displayedMetricTemplate.value].columns);
+const templateStorageKey = computed(() => templatePreferenceKey(user.me?.tenantId, user.me?.userId));
+try { if (templateStorageKey.value && localStorage.getItem(templateStorageKey.value) === 'NET') metricTemplate.value = displayedMetricTemplate.value = 'NET'; } catch { /* Use defaults if storage is unavailable. */ }
+function selectMetricTemplate(value: PlanMetricTemplate) {
+  if (!(value in metricTemplates)) return;
+  if (metricTemplate.value === value) { if (!loading.value && displayedMetricTemplate.value !== value) void load(); return; }
+  if (sortField.value && sortField.value !== 'name' && !metricTemplates[value].columns.some(column => column.field === sortField.value)) sortField.value = '';
+  metricTemplate.value = value;
+}
 const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
 const summary = ref<PageResult<PlanListVo>['summary']>();
 const actingId = ref(''), transferringId = ref('');
 const statisticsRange = ref<StatisticsRange>(recentRange(1));
 const rangeDraft = ref<StatisticsRange>([...statisticsRange.value]);
 const displayedRange = ref<StatisticsRange>([...statisticsRange.value]);
-function deltaProps(row: PlanListVo, metric: 'cost' | 'orders' | 'gmv' | 'roi') {
-  const field = { cost: 'costChangePct', orders: 'convertChangePct', gmv: 'gmvChangePct', roi: 'roiChangePct' } as const;
-  const comparison = row.comparison;
-  return { value: comparison?.[field[metric]], current: comparison?.current?.[metric], previous: comparison?.previous?.[metric],
-    percent: true, unit: metric === 'orders' ? '单' : metric === 'roi' ? '' : '元', basis: comparison?.basis,
-    previousTs: comparison?.previousSnapshotTs, previousStartDate: comparison?.previousStartDate,
-    previousEndDate: comparison?.previousEndDate, unavailableReason: comparison?.unavailableReason };
-}
 const calendarStart = ref<string | null>(null);
 const pickerDate = (day: string) => new Date(`${day}T00:00:00`);
 const rangeShortcuts = [
@@ -249,7 +250,6 @@ const platformOptions = [{ value: 'ALL', label: '商品全域投放' }, { value:
 const bidOptions = [{ value: 'SMART_BID_CUSTOM', label: '控成本投放' }, { value: 'SMART_BID_CONSERVATIVE', label: '放量投放' }];
 try { const settings = JSON.parse(localStorage.getItem('lynx.campaign.display') || '{}'); compact.value = settings.compact === true; showTools.value = settings.showTools !== false; if ([10, 20, 50].includes(settings.pageSize)) pageSize.value = settings.pageSize; } catch { /* Use defaults for invalid preferences. */ }
 watch([compact, showTools, pageSize], () => { try { localStorage.setItem('lynx.campaign.display', JSON.stringify({ compact: compact.value, showTools: showTools.value, pageSize: pageSize.value })); } catch { /* Display remains usable when storage is unavailable. */ } });
-const money = (value: number) => value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const budgetText = (value?: number | null) => value == null ? '—' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 const goalText = (value?: number | null) => value == null ? '—' : Number(value).toString();
 const fullDate = (date: string) => date.slice(0, 10);
@@ -260,7 +260,6 @@ function estimateText(estimate: PlanListVo['roiEstimate']) {
   if (estimate?.max != null) return `不高于 ${goalText(estimate.max)}`;
   return '暂无预估';
 }
-function roiClass(row: PlanListVo) { return row.roi != null && row.roi > 0 ? 'roi-good' : ''; }
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !isDeleted(row) && user.trialActive && row.canEdit === true;
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
@@ -274,7 +273,7 @@ const pagedRows = computed(() => records.value);
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
 let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
-watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
+watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
 onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; });
 function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
@@ -287,12 +286,16 @@ function remainingDays(date: string) {
 function openOperation(title: string, row: PlanListVo) { operationKind.value = title; operationPlan.value = row; operationOpen.value = true; }
 async function load(refreshStatistics = false) {
   const version = ++requestVersion;
+  const requestedTemplate = metricTemplate.value;
   loading.value = true; summaryLoading.value = true; loadFailed.value = false;
   const plansTask = (async () => {
     try {
       const result = await listPlans(pageNum.value, pageSize.value, { ...queryFilters(), refreshStatistics });
       if (version !== requestVersion) return;
+      if ((result.metricTemplate || 'PAYMENT') !== requestedTemplate) throw new Error('指标模板与报表不匹配');
       records.value = result.records; total.value = result.total; summary.value = result.summary;
+      displayedMetricTemplate.value = requestedTemplate;
+      try { if (templateStorageKey.value) localStorage.setItem(templateStorageKey.value, requestedTemplate); } catch { /* Storage is optional. */ }
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
     } catch { if (version === requestVersion) loadFailed.value = true; }
     finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
@@ -305,7 +308,7 @@ async function load(refreshStatistics = false) {
   })();
   await Promise.all([plansTask, alertsTask]);
 }
-function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value, startDate: statisticsRange.value[0], endDate: statisticsRange.value[1] }; }
+function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value, startDate: statisticsRange.value[0], endDate: statisticsRange.value[1], metricTemplate: metricTemplate.value }; }
 async function syncRemote(notify = true) {
   if (syncing.value) return;
   syncing.value = true;
@@ -374,18 +377,26 @@ async function onTransfer(row: PlanListVo) {
   } finally { transferringId.value = ''; }
 }
 async function exportRows() {
-  const exportFilters = { ...queryFilters(), startDate: displayedRange.value[0], endDate: displayedRange.value[1] };
+  if (loading.value || metricTemplate.value !== displayedMetricTemplate.value) return;
+  const template = displayedMetricTemplate.value;
+  const exportFilters = { ...queryFilters(), startDate: displayedRange.value[0], endDate: displayedRange.value[1], metricTemplate: template };
   let rows: PlanListVo[];
   {
     try {
-      const first = await listPlans(1, 100, exportFilters); rows = [...first.records];
-      for (let page = 2; page <= Math.ceil(first.total / 100); page++) rows.push(...(await listPlans(page, 100, exportFilters)).records);
+      const first = await listPlans(1, 100, exportFilters);
+      if ((first.metricTemplate || 'PAYMENT') !== template) throw new Error('导出指标模板不匹配');
+      rows = [...first.records];
+      for (let page = 2; page <= Math.ceil(first.total / 100); page++) {
+        const next = await listPlans(page, 100, exportFilters);
+        if ((next.metricTemplate || 'PAYMENT') !== template) throw new Error('导出指标模板不匹配');
+        rows.push(...next.records);
+      }
     } catch { return; }
   }
   // Neutralize spreadsheet formulas in names and IDs before producing CSV.
   const cell = (value: unknown) => { let s = value == null ? '' : String(value); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return `"${s.replaceAll('"', '""')}"`; };
-  const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '投放开始日期', '投放结束日期', '广告消耗', '成交订单', '成交金额', '支付ROI', '统计开始日期', '统计结束日期', '数据同步时间'];
-  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, planStatusLabel(r.status,r.qcStatus), BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, r.costYuan, r.convert, r.gmvYuan, r.roi, exportFilters.startDate, exportFilters.endDate, r.snapshotTs])].map(row => row.map(cell).join(',')).join('\r\n');
+  const header = ['计划名称', '计划ID', '状态', '投放方式', '日预算', '净成交ROI目标', '投放开始日期', '投放结束日期', ...metricTemplates[template].columns.map(column => column.kind === 'rate' ? `${column.label}(%)` : column.label), '统计开始日期', '统计结束日期', '数据同步时间'];
+  const csv = [header, ...rows.map(r => [r.name, r.qcPlanId || r.planId, planStatusLabel(r.status,r.qcStatus), BID_TYPE[r.smartBidType || ''], r.budget, r.roi2Goal, r.startDate, r.endDate, ...metricRowValues(r, template), exportFilters.startDate, exportFilters.endDate, r.snapshotTs])].map(row => row.map(cell).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
   const link = document.createElement('a'); link.href = url; link.download = `投放计划-${new Date().toLocaleDateString('sv-SE')}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   ElMessage.success(`已导出 ${rows.length} 条计划`);
@@ -398,6 +409,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.template-trigger { gap: 6px; color: #575cf6; }
+:global(.campaign-template-menu .el-dropdown-menu__item) { gap: 8px; padding: 10px 14px; }
+:global(.campaign-template-menu .is-active) { color: #575cf6; background: #f0eeff; }
+.template-check { width: 16px; margin-right: 0; }
+.template-badge { margin-left: 20px; padding: 2px 5px; color: #7775ad; background: #f0eeff; border-radius: 4px; font-size: 11px; }
 .statistics-picker { display: flex; flex-direction: column; gap: 4px; }
 .statistics-picker :deep(.el-date-editor) { width: 300px; height: 38px; border-radius: 10px; }
 @media (max-width: 700px) {

@@ -59,13 +59,20 @@ public class PlanQueryService {
         this.plans=plans;this.snapshots=snapshots;this.products=products;this.bindings=bindings;this.remote=remote;this.accounts=accounts;this.credentials=credentials;
     }
     public record Filters(String keyword,String status,String platform,String bidType,Integer createdWithin,
-                          String accountId,String sortField,boolean descending,PlanStatisticsRange statisticsRange,boolean refreshStatistics) {
+                          String accountId,String sortField,boolean descending,PlanStatisticsRange statisticsRange,boolean refreshStatistics,PlanMetricTemplate metricTemplate) {
+        public Filters(String keyword,String status,String platform,String bidType,Integer createdWithin,String accountId,String sortField,boolean descending,PlanStatisticsRange range,boolean refresh) {
+            this(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending,range,refresh,PlanMetricTemplate.PAYMENT);
+        }
         public Filters(String keyword,String status,String platform,String bidType,Integer createdWithin,String accountId,String sortField,boolean descending) {
             this(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending,null,false);
         }
     }
-    public record Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs) {}
-    public record PageResult<T>(List<T> records,long total,int pageNum,int pageSize,Summary summary,PlanStatisticsRange statisticsRange) {
+    public record Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs,
+                          BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {
+        public Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs) {this(cost,gmv,orders,roi,covered,plans,snapshotTs,null,null,null);}
+    }
+    public record PageResult<T>(List<T> records,long total,int pageNum,int pageSize,Summary summary,PlanStatisticsRange statisticsRange,PlanMetricTemplate metricTemplate) {
+        public PageResult(List<T> records,long total,int pageNum,int pageSize,Summary summary,PlanStatisticsRange range) {this(records,total,pageNum,pageSize,summary,range,PlanMetricTemplate.PAYMENT);}
         public PageResult(List<T> records,long total,int pageNum,int pageSize) { this(records,total,pageNum,pageSize,null); }
         public PageResult(List<T> records,long total,int pageNum,int pageSize,Summary summary) { this(records,total,pageNum,pageSize,summary,null); }
     }
@@ -74,22 +81,27 @@ public class PlanQueryService {
         if(pageNum<1 || pageSize<1 || pageSize>200) throw new BizException(1402,"分页参数不正确");
         String status=filter==null?null:filter.status();
         com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.validate(status);
+        var template=filter==null || filter.metricTemplate()==null?PlanMetricTemplate.PAYMENT:filter.metricTemplate();
+        var range=filter==null?null:filter.statisticsRange();
+        if(template==PlanMetricTemplate.NET && range==null) {
+            LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));range=new PlanStatisticsRange(today,today);
+        }
         List<PlanListVo> all=rows(tenant,null,com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.includesDeleted(status)).stream().filter(row->matches(row,filter)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        if(filter!=null && filter.statisticsRange()!=null)all=rangeRows(tenant,all,filter.statisticsRange(),filter.refreshStatistics());
+        if(range!=null)all=rangeRows(tenant,all,range,filter!=null && filter.refreshStatistics(),template);
         sort(all,filter);
         long from=(long)(pageNum-1)*pageSize;
         return new PageResult<>(from>=all.size()?List.of():List.copyOf(all.subList((int)from,(int)Math.min(all.size(),from+pageSize))),
-                all.size(),pageNum,pageSize,summary(all),filter==null?null:filter.statisticsRange());
+                all.size(),pageNum,pageSize,summary(all,template),range,template);
     }
-    private List<PlanListVo> rangeRows(TenantId tenant,List<PlanListVo> rows,PlanStatisticsRange range,boolean refresh) {
+    private List<PlanListVo> rangeRows(TenantId tenant,List<PlanListVo> rows,PlanStatisticsRange range,boolean refresh,PlanMetricTemplate template) {
         Map<String,PlanStatisticsService.Snapshot> reports=new HashMap<>();
         Map<String,PlanStatisticsService.Snapshot> previousReports=new HashMap<>();
         Set<String> comparisonFailed=new HashSet<>();
         long days=java.time.temporal.ChronoUnit.DAYS.between(range.startDate(),range.endDate())+1;
         var previousRange=new PlanStatisticsRange(range.startDate().minusDays(days),range.endDate().minusDays(days));
         for(var row:rows) if(row.qcPlanId()!=null && !reports.containsKey(row.accountId())) {
-            reports.put(row.accountId(),statisticsService.report(tenant,row.accountId(),range,refresh));
-            try { previousReports.put(row.accountId(),statisticsService.report(tenant,row.accountId(),previousRange,refresh)); }
+            reports.put(row.accountId(),template==PlanMetricTemplate.PAYMENT?statisticsService.report(tenant,row.accountId(),range,refresh):statisticsService.report(tenant,row.accountId(),range,refresh,template));
+            try { previousReports.put(row.accountId(),template==PlanMetricTemplate.PAYMENT?statisticsService.report(tenant,row.accountId(),previousRange,refresh):statisticsService.report(tenant,row.accountId(),previousRange,refresh,template)); }
             catch(BizException unavailable) { comparisonFailed.add(row.accountId()); }
         }
         List<PlanListVo> result=new ArrayList<>();
@@ -102,7 +114,8 @@ public class PlanQueryService {
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
-                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review(),row.awemeId(),row.materialCoverUrl()));
+                    row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review(),row.awemeId(),row.materialCoverUrl(),
+                    m==null?null:m.netGmv(),m==null?null:m.netRoi(),m==null?null:m.refundRate()));
         }
         return result;
     }
@@ -121,7 +134,7 @@ public class PlanQueryService {
                 metricValues(current),metricValues(previous),previousRange.startDate(),previousRange.endDate(),reason);
     }
     private static PlanListVo.MetricValues metricValues(PlanStatisticsService.Metrics m) {
-        return m==null?null:new PlanListVo.MetricValues(m.cost(),m.gmv(),m.roi(),m.orders());
+        return m==null?null:new PlanListVo.MetricValues(m.cost(),m.gmv(),m.roi(),m.orders(),m.netGmv(),m.netRoi(),m.refundRate());
     }
     private static BigDecimal decimal(Long value) { return value==null?null:BigDecimal.valueOf(value); }
     private static BigDecimal rangeChange(BigDecimal current,BigDecimal previous) {
@@ -305,18 +318,35 @@ public class PlanQueryService {
             java.util.function.Function<PlanListVo,BigDecimal> field=switch(f.sortField()) {
                 case "costYuan" -> PlanListVo::costYuan; case "gmvYuan" -> PlanListVo::gmvYuan;
                 case "roi" -> PlanListVo::roi; case "convert" -> row->row.convert()==null?null:BigDecimal.valueOf(row.convert());
+                case "netGmvYuan" -> PlanListVo::netGmvYuan;case "netRoi" -> PlanListVo::netRoi;case "refundRate" -> PlanListVo::refundRate;
                 default -> throw new BizException(1402,"排序字段不正确");
             };
             comparator=Comparator.comparing(field,Comparator.nullsLast(f.descending()?Comparator.<BigDecimal>reverseOrder():Comparator.<BigDecimal>naturalOrder()));
         }
         rows.sort(comparator.thenComparing(PlanListVo::planId));
     }
-    private static Summary summary(List<PlanListVo> rows) {
+    private static Summary summary(List<PlanListVo> rows,PlanMetricTemplate template) {
+        if(template==PlanMetricTemplate.NET)return netSummary(rows);
         var covered=rows.stream().filter(r->r.costYuan()!=null && r.gmvYuan()!=null && r.convert()!=null).toList();
         if(covered.isEmpty()) return new Summary(null,null,null,null,0,rows.size(),null);
         BigDecimal cost=covered.stream().map(PlanListVo::costYuan).reduce(BigDecimal.ZERO,BigDecimal::add);
         BigDecimal gmv=covered.stream().map(PlanListVo::gmvYuan).reduce(BigDecimal.ZERO,BigDecimal::add);
         return new Summary(cost,gmv,covered.stream().mapToLong(PlanListVo::convert).sum(),cost.signum()>0?gmv.divide(cost,4,RoundingMode.HALF_UP):null,
                 covered.size(),rows.size(),covered.stream().map(PlanListVo::snapshotTs).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
+    }
+    private static Summary netSummary(List<PlanListVo> rows) {
+        var covered=rows.stream().filter(r->r.costYuan()!=null).toList();
+        if(covered.isEmpty())return new Summary(null,null,null,null,0,rows.size(),null);
+        BigDecimal cost=covered.stream().map(PlanListVo::costYuan).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal gmv=covered.stream().allMatch(r->r.gmvYuan()!=null)?covered.stream().map(PlanListVo::gmvYuan).reduce(BigDecimal.ZERO,BigDecimal::add):null;
+        BigDecimal netGmv=covered.stream().allMatch(r->r.netGmvYuan()!=null)?covered.stream().map(PlanListVo::netGmvYuan).reduce(BigDecimal.ZERO,BigDecimal::add):null;
+        var paid=covered.stream().filter(r->r.gmvYuan()!=null && r.gmvYuan().signum()>0).toList();
+        // Weight monetary refund rates by transaction amount, never by plan count or spend.
+        BigDecimal refundRate=gmv!=null && gmv.signum()>0 && paid.stream().allMatch(r->r.refundRate()!=null)
+                ?paid.stream().map(r->r.refundRate().multiply(r.gmvYuan())).reduce(BigDecimal.ZERO,BigDecimal::add).divide(gmv,4,RoundingMode.HALF_UP):null;
+        Long orders=covered.stream().allMatch(r->r.convert()!=null)?covered.stream().mapToLong(PlanListVo::convert).sum():null;
+        return new Summary(cost,gmv,orders,gmv!=null && cost.signum()>0?gmv.divide(cost,4,RoundingMode.HALF_UP):null,
+                covered.size(),rows.size(),covered.stream().map(PlanListVo::snapshotTs).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null),
+                netGmv,netGmv!=null && cost.signum()>0?netGmv.divide(cost,4,RoundingMode.HALF_UP):null,refundRate);
     }
 }

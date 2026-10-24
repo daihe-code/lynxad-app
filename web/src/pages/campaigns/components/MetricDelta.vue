@@ -1,6 +1,6 @@
 <template>
   <el-tooltip :content="description" popper-class="campaign-tooltip" placement="top">
-    <span class="metric-delta" :class="[direction, { added }]" :aria-label="description">
+    <span class="metric-delta" :class="[tone, { added }]" :aria-label="description">
       <template v-if="known || added"><span class="delta-basis">{{ prefix }}</span><span class="delta-trend"><svg v-if="direction !== 'flat'" viewBox="0 0 16 16" aria-hidden="true"><path v-if="direction === 'up'" d="M8 13V3M4 7l4-4 4 4" /><path v-else d="M8 3v10M4 9l4 4 4-4" /></svg><span class="delta-value">{{ direction === 'flat' ? '持平' : added ? `新增 ${absolute}${unit || ''}` : `${formatted}${percent ? '%' : ''}` }}</span></span></template><template v-else>暂无对比</template>
     </span>
   </el-tooltip>
@@ -8,10 +8,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-const props = defineProps<{ value?: number | null; current?: number | null; previous?: number | null; unit?: string; percent?: boolean; previousTs?: string; label: string; basis?: string; previousStartDate?: string | null; previousEndDate?: string | null; unavailableReason?: string | null }>();
+const props = defineProps<{ value?: number | null; current?: number | null; previous?: number | null; unit?: string; percent?: boolean; lowerIsBetter?: boolean; previousTs?: string; label: string; basis?: string; previousStartDate?: string | null; previousEndDate?: string | null; unavailableReason?: string | null }>();
 const known = computed(() => props.value != null && Number.isFinite(Number(props.value)));
 const added = computed(() => !known.value && props.previous != null && Number(props.previous) === 0 && props.current != null && Number.isFinite(Number(props.current)) && Number(props.current) > 0);
 const direction = computed(() => added.value ? 'up' : !known.value || Number(props.value) === 0 ? 'flat' : Number(props.value) > 0 ? 'up' : 'down');
+const tone = computed(() => props.lowerIsBetter && direction.value !== 'flat' ? direction.value === 'up' ? 'down' : 'up' : direction.value);
 const prefix = computed(() => props.basis === 'YESTERDAY_FULL_DAY' ? '较昨日' : props.basis === 'PREVIOUS_DAY' ? '较前日' : props.basis === 'PREVIOUS_PERIOD' ? '较前期' : '较上次');
 const formatted = computed(() => { const n = Math.abs(Number(props.value)); return props.percent ? n.toFixed(1) : n.toFixed(2).replace(/\.?0+$/, ''); });
 const absolute = computed(() => props.unit === '单' ? Number(props.current).toLocaleString('zh-CN') : Number(props.current).toFixed(2));

@@ -89,10 +89,11 @@ public class DeliveryPlanController {
             @RequestParam(required=false) Integer createdWithin, @RequestParam(required=false) String accountId,
             @RequestParam(required=false) String sortField, @RequestParam(defaultValue="true") boolean descending,
             @RequestParam(required=false) String startDate,@RequestParam(required=false) String endDate,
-            @RequestParam(defaultValue="false") boolean refreshStatistics) {
+            @RequestParam(defaultValue="false") boolean refreshStatistics,
+            @RequestParam(defaultValue="PAYMENT") com.lynx.ad.modules.delivery.domain.model.PlanMetricTemplate metricTemplate) {
         return ApiResponse.ok(queryService.list(TenantContext.requireTenantId(), pageNum, pageSize,
                 new PlanQueryService.Filters(keyword,status,platform,bidType,createdWithin,accountId,sortField,descending,
-                        com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate),refreshStatistics)));
+                        com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate),refreshStatistics,metricTemplate)));
     }
 
     @GetMapping("/api/v1/delivery/plans/{id}")

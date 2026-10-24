@@ -19,6 +19,11 @@ public interface AdManagementPort {
     }
     List<JsonNode> report(Credential credential, LocalDate date);
     List<JsonNode> report(Credential credential, LocalDate startDate, LocalDate endDate);
+    record MetricReport(List<JsonNode> rows, Map<String,String> metricFields) {}
+    default MetricReport netReport(Credential credential,LocalDate start,LocalDate end) {
+        // Older data sources must not present payment figures as net figures.
+        return new MetricReport(report(credential,start,end),Map.of());
+    }
     List<JsonNode> materials(Credential credential, String adId);
     default List<JsonNode> materialReport(Credential credential,String adId,LocalDate start,LocalDate end,String type) {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供素材报表");
