@@ -32,6 +32,7 @@
             <template #default="{ data }"><span class="status-option-label" @click="selectStatusLabel(data, $event)">{{ data.label }}</span></template>
           </el-cascader>
           <el-select v-model="accountId" class="status-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown"><el-option label="全部广告账户" value="" /><el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId" /></el-select>
+          <el-select v-model="bidType" class="status-select" placeholder="全部投放方式" aria-label="投放方式" popper-class="campaign-dropdown"><el-option label="全部投放方式" value="" /><el-option v-for="option in bidOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
         </div>
         <div class="toolbar-right">
           <el-button :aria-expanded="filtersExpanded" aria-controls="campaign-extra-filters" @click="filtersExpanded = !filtersExpanded"><el-icon><Filter /></el-icon>更多筛选</el-button>
@@ -49,7 +50,6 @@
       </div>
       <div v-if="filtersExpanded" id="campaign-extra-filters" class="extra-filters">
         <div class="inline-filter-group" role="group" aria-label="投放平台"><span>投放平台</span><button v-for="option in platformOptions" :key="option.value" type="button" :class="{ active: deliveryPlatform === option.value }" :aria-pressed="deliveryPlatform === option.value" @click="deliveryPlatform = deliveryPlatform === option.value ? '' : option.value">{{ option.label }}</button></div>
-        <div class="inline-filter-group" role="group" aria-label="投放模式"><span>投放模式</span><button v-for="option in bidOptions" :key="option.value" type="button" :class="{ active: bidType === option.value }" :aria-pressed="bidType === option.value" @click="bidType = bidType === option.value ? '' : option.value">{{ option.label }}</button></div>
         <div class="inline-filter-group" role="group" aria-label="创建时间"><span>创建时间</span><button v-for="days in [7, 30]" :key="days" type="button" :class="{ active: createdWithin === days }" :aria-pressed="createdWithin === days" @click="createdWithin = createdWithin === days ? null : days">近 {{ days }} 天</button></div>
       </div>
       <div class="table-scroll" v-loading="loading">
@@ -266,7 +266,7 @@ const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<P
 const confirmOpen = ref(false), confirmPlan = ref<PlanListVo | null>(null);
 const deleteOpen = ref(false), deleteTarget = ref<PlanListVo | null>(null), deletingId = ref('');
 const platformOptions = [{ value: 'ALL', label: '商品全域投放' }, { value: 'STANDARD', label: '标准投放' }];
-const bidOptions = [{ value: 'SMART_BID_CUSTOM', label: '控成本投放' }, { value: 'SMART_BID_CONSERVATIVE', label: '放量投放' }];
+const bidOptions = [{ value: 'SMART_BID_CONSERVATIVE', label: '放量投放' }, { value: 'SMART_BID_CUSTOM', label: '控成本投放' }];
 try { const settings = JSON.parse(localStorage.getItem('lynx.campaign.display') || '{}'); compact.value = settings.compact === true; showTools.value = settings.showTools !== false; if ([10, 20, 50].includes(settings.pageSize)) pageSize.value = settings.pageSize; } catch { /* Use defaults for invalid preferences. */ }
 watch([compact, showTools, pageSize], () => { try { localStorage.setItem('lynx.campaign.display', JSON.stringify({ compact: compact.value, showTools: showTools.value, pageSize: pageSize.value })); } catch { /* Display remains usable when storage is unavailable. */ } });
 const budgetText = (value?: number | null) => value == null ? '—' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
