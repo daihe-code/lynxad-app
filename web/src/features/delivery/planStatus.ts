@@ -4,7 +4,9 @@ export interface PlanStatusOption { value: string; label: string; children?: Pla
 export interface PlanStatusDisplay { group: string; detail?: string; label: string }
 const localLabels: Record<string,string> = rules.localLabels;
 const platform: Record<string,PlanStatusDisplay> = rules.platform;
-export const planStatusOptions: PlanStatusOption[] = rules.options;
+export const planStatusOptions: PlanStatusOption[] = rules.options.filter(
+  option => !['SUBMITTING', 'PENDING_AUDIT', 'FINISHED', 'UNKNOWN'].includes(option.value)
+);
 
 const localDisplay = (status: string): PlanStatusDisplay => ({group:localLabels[status] ? status : 'UNKNOWN',label:localLabels[status] || '状态待核查'});
 export function planStatusDisplay(status?: string | null, qcStatus?: string | null): PlanStatusDisplay {
