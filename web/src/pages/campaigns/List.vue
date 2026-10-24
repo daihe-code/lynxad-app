@@ -14,7 +14,10 @@
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
       <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
       <div class="metrics">
-        <article v-for="(column, index) in metricColumns" :key="column.field" class="metric" :class="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]"><span>{{ column.label }}</span><strong>{{ metricText(summary?.[column.key], column.kind) }}</strong><small>{{ column.hint }}</small></article>
+        <article v-for="(column, index) in metricColumns" :key="column.field" class="metric" :class="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]">
+          <el-tooltip :content="column.description" :trigger="['hover', 'focus']" :show-after="200" :enterable="false" effect="light" placement="top-start" popper-class="campaign-metric-tooltip"><span class="metric-label" tabindex="0">{{ column.label }}</span></el-tooltip>
+          <strong>{{ metricText(summary?.[column.key], column.kind) }}</strong><small>{{ column.hint }}</small>
+        </article>
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
@@ -57,7 +60,7 @@
           <colgroup><col style="width: 320px"><col style="width: 160px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
           <thead><tr>
             <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
-            <th v-for="column in metricColumns" :key="column.field"><button class="sort-heading" @click="toggleSort(column.field)">{{ column.label }}<el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></th>
+            <th v-for="column in metricColumns" :key="column.field"><el-tooltip :content="column.description" :trigger="['hover', 'focus']" :show-after="200" :enterable="false" effect="light" placement="top-start" popper-class="campaign-metric-tooltip"><button class="sort-heading" @click="toggleSort(column.field)"><span class="metric-label">{{ column.label }}</span><el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></el-tooltip></th>
             <th v-if="showTools">调控工具</th><th>操作</th>
           </tr></thead>
           <tbody>
@@ -409,6 +412,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.metric-label { text-decoration: underline dashed #aaa8ba; text-underline-offset: 4px; cursor: help; }
+.metric > .metric-label { display: inline-block; }
+.metric-label:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 2px; }
+:global(.campaign-metric-tooltip) { max-width: 320px; color: #45445c; font-size: 12px; line-height: 1.7; }
 .template-trigger { gap: 6px; color: #575cf6; }
 :global(.campaign-template-menu .el-dropdown-menu__item) { gap: 8px; padding: 10px 14px; }
 :global(.campaign-template-menu .is-active) { color: #575cf6; background: #f0eeff; }
