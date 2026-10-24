@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell" :class="{ 'campaign-shell': route.path === '/campaigns' || isReference, 'create-shell': isCreate, 'asset-shell': isAsset, 'account-shell': isAccount, 'reference-content': isReference, 'reference-header': usesReferenceHeader }">
-    <header class="topbar">
+    <header class="topbar" :class="{ 'campaign-list-topbar': route.path === '/campaigns' }">
       <div class="topbar-inner">
       <div class="left">
         <router-link :to="usesReferenceHeader ? '/' : '/campaigns'" class="brand">
@@ -25,6 +25,7 @@
       </div>
       <div class="right">
         <button v-if="usesReferenceHeader" class="nav-toggle" type="button" :aria-label="navOpen ? '收起导航' : '展开导航'" aria-controls="app-navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></button>
+        <div id="campaign-header-actions" class="header-page-actions"></div>
         <NotificationCenter />
         <UserMenu v-if="usesReferenceHeader" />
         <template v-else><span class="who">{{ user.me?.nickname || user.me?.phone || "用户" }}</span><el-button text @click="onLogout">退出</el-button></template>
@@ -133,6 +134,9 @@ function onLogout() {
   align-items: center;
   gap: 12px;
 }
+.header-page-actions { display: flex; align-items: center; }
+.header-page-actions:empty { display: none; }
+.campaign-list-topbar :deep(.user-menu-name) { max-width: 96px; }
 .who {
   color: #4b5563;
 }
@@ -174,6 +178,13 @@ function onLogout() {
 .reference-header .topbar { z-index: 40; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); }
 :is(.asset-shell, .account-shell) .main > * { flex: 1; }
 .nav-toggle { display: none; }
+@media (max-width: 1199px) {
+  .reference-header .campaign-list-topbar .nav-toggle { display: grid; place-items: center; padding: 0; border: 0; background: transparent; width: 36px; height: 36px; color: #7c7f99; cursor: pointer; }
+  .campaign-list-topbar .nav-toggle svg { width: 20px; height: 20px; }
+  .reference-header .campaign-list-topbar :deep(.el-menu) { display: none; position: absolute; left: 0; top: 60px; transform: none; width: 100%; height: auto; padding: 12px 24px; box-sizing: border-box; background: #fff; border-bottom: 1px solid #e6e8f2; z-index: 1; }
+  .reference-header .campaign-list-topbar :deep(.el-menu.mobile-menu-open) { display: flex; flex-direction: column; align-items: stretch; }
+  .reference-header .campaign-list-topbar :deep(.el-menu-item) { justify-content: flex-start; width: 100%; }
+}
 @media (max-width: 1023px) {
   .reference-header .topbar { height: 60px; min-height: 60px; padding: 0; }
   .reference-header .topbar-inner { padding: 0 24px; flex-wrap: nowrap; }
@@ -185,4 +196,9 @@ function onLogout() {
   .reference-header :deep(.el-menu-item) { justify-content: flex-start; width: 100%; }
 }
 @media (max-width: 639px) { .reference-header .right { gap: 4px; } }
+@media (max-width: 639px) {
+  .reference-header .campaign-list-topbar .topbar-inner { padding: 0 12px; }
+  .reference-header .campaign-list-topbar :deep(.user-menu-name) { display: none; }
+  .reference-header .campaign-list-topbar :deep(.user-menu-trigger) { padding-right: 4px; }
+}
 </style>

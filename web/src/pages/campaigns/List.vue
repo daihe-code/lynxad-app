@@ -1,5 +1,13 @@
 <template>
   <div class="campaign-page">
+    <Teleport to="#campaign-header-actions" defer>
+      <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end">
+        <el-option label="全部广告账户" value="" />
+        <el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId">
+          <div class="campaign-account-option"><span class="campaign-account-avatar" aria-hidden="true">{{ account.accountName.slice(0, 1) }}</span><span class="campaign-account-details"><strong>{{ account.accountName }}</strong><small>千川ID：{{ account.advertiserId }}</small></span></div>
+        </el-option>
+      </el-select>
+    </Teleport>
     <div class="title-row">
       <div class="title-group"><h1>广告投放管理</h1><span class="platform-chip">抖音 · 巨量千川</span></div>
       <div class="title-actions">
@@ -31,7 +39,6 @@
           <el-cascader ref="statusPicker" v-model="status" class="status-select" :options="planStatusOptions" :props="{ emitPath: false, checkStrictly: true, expandTrigger: 'click' }" :show-all-levels="false" clearable placeholder="全部状态" aria-label="计划状态" popper-class="campaign-status-menu" @change="closeStatusFilter">
             <template #default="{ data }"><span class="status-option-label" @click="selectStatusLabel(data, $event)">{{ data.label }}</span></template>
           </el-cascader>
-          <el-select v-model="accountId" class="status-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown"><el-option label="全部广告账户" value="" /><el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId" /></el-select>
           <el-select v-model="bidType" class="status-select" placeholder="全部投放方式" aria-label="投放方式" popper-class="campaign-dropdown"><el-option label="全部投放方式" value="" /><el-option v-for="option in bidOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
         </div>
         <div class="toolbar-right">
@@ -429,6 +436,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.campaign-account-select { width: 176px; }
+.campaign-account-select :deep(.el-select__wrapper) { min-height: 36px; padding: 6px 10px; border-radius: 8px; background: #f7f7ff; box-shadow: none; font-size: 13px; }
+.campaign-account-select :deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px #575cf6 inset; }
+.campaign-account-option { display: flex; align-items: center; gap: 10px; }
+.campaign-account-avatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: #eeedff; color: #575cf6; font-size: 15px; font-weight: 600; }
+.campaign-account-details { display: grid; gap: 4px; min-width: 0; }
+.campaign-account-details strong { font-size: 13px; font-weight: 500; }
+.campaign-account-details small { color: #7c7f99; font-size: 12px; }
+.campaign-account-details strong, .campaign-account-details small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:global(.campaign-account-dropdown) { min-width: 280px; max-width: calc(100vw - 32px); }
+:global(.campaign-account-dropdown .el-select-dropdown__item) { height: auto; min-height: 40px; padding: 10px 12px; line-height: 20px; }
+@media (max-width: 639px) { .campaign-account-select { width: 128px; } }
+@media (max-width: 479px) { .campaign-account-select { width: 112px; } }
 .metric-label { text-decoration: underline dashed #aaa8ba; text-underline-offset: 4px; cursor: help; }
 .metric-label:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 2px; }
 :global(.campaign-metric-tooltip) { max-width: 320px; color: #45445c; font-size: 12px; line-height: 1.7; }
