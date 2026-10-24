@@ -14,10 +14,10 @@
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
       <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
       <div class="metrics">
-        <article class="metric metric-cost"><span>广告消耗（元）</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-orders"><span>成交订单数（单）</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-gmv"><span>成交金额（元）</span><strong>{{ summary?.gmv != null ? money(summary.gmv) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
-        <article class="metric metric-roi"><span>支付 ROI</span><strong>{{ roiText(summary?.roi) }}</strong><small>汇总成交金额 / 汇总消耗</small></article>
+        <article class="metric metric-cost"><span>整体消耗(元)</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-orders"><span>整体成交订单数</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-gmv"><span>整体成交金额(元)</span><strong>{{ summary?.gmv != null ? money(summary.gmv) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
+        <article class="metric metric-roi"><span>整体支付ROI</span><strong>{{ roiText(summary?.roi) }}</strong><small>汇总成交金额 / 汇总消耗</small></article>
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
