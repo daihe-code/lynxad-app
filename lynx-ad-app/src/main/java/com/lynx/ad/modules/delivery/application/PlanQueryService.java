@@ -77,6 +77,14 @@ public class PlanQueryService {
         public PageResult(List<T> records,long total,int pageNum,int pageSize,Summary summary) { this(records,total,pageNum,pageSize,summary,null); }
     }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize) { return list(tenant,pageNum,pageSize,null); }
+    public Map<String,Set<String>> statisticsScope(TenantId tenant,Filters filter) {
+        String status=filter==null?null:filter.status();
+        com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.validate(status);
+        Map<String,Set<String>> scope=new LinkedHashMap<>();
+        for(var row:rows(tenant,null,com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.includesDeleted(status)))
+            if(row.qcPlanId()!=null && matches(row,filter))scope.computeIfAbsent(row.accountId(),key->new HashSet<>()).add(row.qcPlanId());
+        return scope;
+    }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize,Filters filter) {
         if(pageNum<1 || pageSize<1 || pageSize>200) throw new BizException(1402,"分页参数不正确");
         String status=filter==null?null:filter.status();

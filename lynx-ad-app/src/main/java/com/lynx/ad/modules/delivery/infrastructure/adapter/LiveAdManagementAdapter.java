@@ -149,29 +149,53 @@ public class LiveAdManagementAdapter implements AdManagementPort {
     @Override public MetricReport netReport(Credential c,LocalDate start,LocalDate end) {
         new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
         String reportUrl=properties.getQianchuan().getReport().getCustomUrl();
+        var fields=planReportFields(planReportTopic(c,reportUrl),true,List.of("ad_id"));
+        var rows=paged(c,reportUrl,Map.of("data_topic","SITE_PROMOTION_PRODUCT_AD","dimensions",List.of("ad_id"),
+                "metrics",new LinkedHashSet<>(fields.values()),"filters",List.of(),"order_by",List.of(Map.of("type",1,"field","ad_id")),
+                "start_time",start+" 00:00:00","end_time",end+" 23:59:59"),"rows");
+        fields.keySet().removeAll(List.of("cost","orders","gmv","roi"));
+        return new MetricReport(rows,Map.copyOf(fields));
+    }
+    private JsonNode planReportTopic(Credential c,String reportUrl) {
         String configUrl=reportUrl.replace("/uni_promotion/data/get/","/uni_promotion/config/get/").replace("/custom/get/","/custom/config/get/");
         if(configUrl.equals(reportUrl))throw new BizException(1406,"尚未配置对应报表的指标配置接口");
         var configuration=get(c,configUrl,Map.of("data_topics",List.of("SITE_PROMOTION_PRODUCT_AD")));
         JsonNode topic=null;
         for(JsonNode item:configuration.path("custom_config_datas"))if("SITE_PROMOTION_PRODUCT_AD".equals(item.path("data_topic").asText()))topic=item;
         if(topic==null)throw new BizException(1406,"千川未开放商品计划报表");
+        return topic;
+    }
+    private Map<String,String> planReportFields(JsonNode topic,boolean net,List<String> dimensions) {
         Map<String,String> fields=new LinkedHashMap<>();
+        fields.put("cost","stat_cost");fields.put("orders","total_pay_order_count_for_roi2");
+        fields.put("gmv","total_pay_order_gmv_include_coupon_for_roi2");fields.put("roi","total_prepay_and_pay_order_roi2");
         for(JsonNode metric:topic.path("metrics")) {
             String field=metric.path("field").asText(),name=metric.path("name").asText().replace(" ","");
             if(field.isBlank())continue;
             boolean excluded=false;
-            for(JsonNode dim:metric.path("exclusion_dims"))if("ad_id".equals(dim.asText()))excluded=true;
-            if(excluded)continue;
+            for(JsonNode dim:metric.path("exclusion_dims"))if(dimensions.contains(dim.asText()))excluded=true;
+            if(excluded){fields.values().removeIf(field::equals);continue;}
+            if(!net)continue;
             if(name.equals("净成交ROI"))fields.put("netRoi",field);
             else if(name.matches("净成交金额([（(]元[）)])?"))fields.put("netGmv",field);
             else if(name.equals("1小时内退款率") || name.equals("1小时退款率"))fields.put("refundRate",field);
         }
-        var metrics=new LinkedHashSet<>(List.of("stat_cost","total_pay_order_count_for_roi2","total_pay_order_gmv_include_coupon_for_roi2","total_prepay_and_pay_order_roi2"));
-        metrics.addAll(fields.values());
-        var rows=paged(c,reportUrl,Map.of("data_topic","SITE_PROMOTION_PRODUCT_AD","dimensions",List.of("ad_id"),
-                "metrics",metrics,"filters",List.of(),"order_by",List.of(Map.of("type",1,"field","ad_id")),
+        return fields;
+    }
+    @Override public TrendReport planTrendReport(Credential c,LocalDate start,LocalDate end,boolean net,boolean daily) {
+        new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
+        String reportUrl=properties.getQianchuan().getReport().getCustomUrl();var topic=planReportTopic(c,reportUrl);
+        Set<String> available=new HashSet<>();topic.path("dimensions").forEach(d->available.add(d.path("field").asText()));
+        if(!available.contains("ad_id"))throw new BizException(1406,"千川报表未开放计划维度");
+        String time=!daily && start.equals(end) && available.contains("stat_time_hour")?"stat_time_hour":available.contains("stat_time_day")?"stat_time_day":null;
+        if(time==null)return new TrendReport(List.of(),Map.of(),null,"平台未提供小时或日维度的趋势数据");
+        var dimensions=List.of("ad_id",time);var fields=planReportFields(topic,net,dimensions);
+        if(fields.isEmpty())return new TrendReport(List.of(),Map.of(),time,"平台未提供可用的趋势指标");
+        var rows=paged(c,reportUrl,Map.of("data_topic","SITE_PROMOTION_PRODUCT_AD","dimensions",dimensions,
+                "metrics",new LinkedHashSet<>(fields.values()),"filters",List.of(),
+                "order_by",List.of(Map.of("type",1,"field",time),Map.of("type",1,"field","ad_id")),
                 "start_time",start+" 00:00:00","end_time",end+" 23:59:59"),"rows");
-        return new MetricReport(rows,Map.copyOf(fields));
+        return new TrendReport(rows,Map.copyOf(fields),time,!daily && start.equals(end) && "stat_time_day".equals(time)?"平台仅提供日维度数据":null);
     }
     @Override public List<JsonNode> materials(Credential c,String adId) {
         LocalDate today=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));

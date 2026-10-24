@@ -130,6 +130,17 @@ export interface PlanFilters { keyword?: string; status?: string; platform?: str
 export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}) {
   return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters }, timeout: 120000 });
 }
+export interface CampaignStatisticsTrend {
+  points: { time: string; metrics: PlanMetricValues }[];
+  timeDimension: 'stat_time_hour' | 'stat_time_day';
+  statisticsRange: { startDate: string; endDate: string };
+  metricTemplate: PlanMetricTemplate;
+  fetchedAt: string;
+  warning?: string | null;
+}
+export function getCampaignTrend(filters: PlanFilters) {
+  return apiGet<CampaignStatisticsTrend>('/api/v1/delivery/plans/statistics/trend', { params: filters, timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
+}
 
 export function syncPlans(accountId?: string) {
   return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000 });

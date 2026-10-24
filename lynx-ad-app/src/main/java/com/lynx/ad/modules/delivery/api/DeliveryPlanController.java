@@ -45,6 +45,8 @@ public class DeliveryPlanController {
     private final PlanQueryService queryService;
     private final com.lynx.ad.modules.delivery.application.PlanSyncService syncService;
     private final com.lynx.ad.modules.delivery.application.PlanManagementService managementService;
+    private com.lynx.ad.modules.delivery.application.CampaignTrendService campaignTrends;
+    @org.springframework.beans.factory.annotation.Autowired public void campaignTrends(com.lynx.ad.modules.delivery.application.CampaignTrendService value){campaignTrends=value;}
     private com.lynx.ad.modules.dataops.application.AuditPollJob reviews;
     @org.springframework.beans.factory.annotation.Autowired public void reviewJob(com.lynx.ad.modules.dataops.application.AuditPollJob value){reviews=value;}
 
@@ -99,6 +101,17 @@ public class DeliveryPlanController {
     @GetMapping("/api/v1/delivery/plans/{id}")
     public ApiResponse<PlanVo> detail(@PathVariable String id) {
         return ApiResponse.ok(queryService.get(TenantContext.requireTenantId(), new PlanId(id)));
+    }
+    @GetMapping("/api/v1/delivery/plans/statistics/trend")
+    public ApiResponse<com.lynx.ad.modules.delivery.application.CampaignTrendService.Statistics> statisticsTrend(
+            @RequestParam(required=false) String keyword,@RequestParam(required=false) String status,
+            @RequestParam(required=false) String platform,@RequestParam(required=false) String bidType,
+            @RequestParam(required=false) Integer createdWithin,@RequestParam(required=false) String accountId,
+            @RequestParam(required=false) String startDate,@RequestParam(required=false) String endDate,
+            @RequestParam(defaultValue="PAYMENT") com.lynx.ad.modules.delivery.domain.model.PlanMetricTemplate metricTemplate,
+            @RequestParam(defaultValue="false") boolean refreshStatistics) {
+        return ApiResponse.ok(campaignTrends.data(TenantContext.requireTenantId(),new PlanQueryService.Filters(keyword,status,platform,bidType,createdWithin,accountId,null,true,
+                com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange.optional(startDate,endDate),refreshStatistics,metricTemplate)));
     }
     @PostMapping("/api/v1/delivery/plans/sync")
     public ApiResponse<com.lynx.ad.modules.delivery.application.PlanSyncService.SyncResult> sync(@RequestParam(required=false) String accountId) {

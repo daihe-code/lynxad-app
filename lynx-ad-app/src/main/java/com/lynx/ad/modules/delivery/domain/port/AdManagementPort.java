@@ -24,6 +24,10 @@ public interface AdManagementPort {
         // Older data sources must not present payment figures as net figures.
         return new MetricReport(report(credential,start,end),Map.of());
     }
+    record TrendReport(List<JsonNode> rows,Map<String,String> metricFields,String timeDimension,String warning) {}
+    default TrendReport planTrendReport(Credential credential,LocalDate start,LocalDate end,boolean net,boolean daily) {
+        throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供计划列表趋势报表");
+    }
     List<JsonNode> materials(Credential credential, String adId);
     default List<JsonNode> materialReport(Credential credential,String adId,LocalDate start,LocalDate end,String type) {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供素材报表");

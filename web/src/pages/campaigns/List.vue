@@ -14,10 +14,7 @@
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
       <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
       <div class="metrics">
-        <article v-for="(column, index) in metricColumns" :key="column.field" class="metric" :class="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]">
-          <el-tooltip :content="column.description" :trigger="['hover', 'focus']" :show-after="200" :enterable="false" effect="light" placement="top-start" popper-class="campaign-metric-tooltip"><span class="metric-label" tabindex="0">{{ column.label }}</span></el-tooltip>
-          <strong>{{ metricText(summary?.[column.key], column.kind) }}</strong><small>{{ column.hint }}</small>
-        </article>
+        <CampaignMetricCard v-for="(column, index) in metricColumns" :key="`${trendVersion}:${column.field}`" :column="column" :value="summary?.[column.key]" :tone="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]!" :range="{ startDate: displayedRange[0], endDate: displayedRange[1] }" :trend="campaignTrend" :loading="trendLoading" :error="trendError" :disabled="loading || metricTemplate !== displayedMetricTemplate" @request-trend="loadCampaignTrend" />
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">
@@ -140,9 +137,11 @@ import { ArrowDown, Calendar, Check, DataAnalysis, Delete, Download, EditPen, Fi
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
+import CampaignMetricCard from './components/CampaignMetricCard.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate } from '@/features/delivery/deliveryApi';
+import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
 import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey, type MetricField } from '@/features/delivery/campaignMetricTemplates';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
@@ -194,6 +193,23 @@ function selectMetricTemplate(value: PlanMetricTemplate) {
 }
 const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
 const summary = ref<PageResult<PlanListVo>['summary']>();
+const displayedFilters = ref<PlanFilters>();
+const campaignTrend = ref<CampaignStatisticsTrend>(), trendLoading = ref(false), trendError = ref(''), trendVersion = ref(0);
+let trendSerial = 0, trendLoadedAt = 0, trendNeedsRefresh = false;
+function clearCampaignTrend(refresh: boolean) { trendSerial++; trendVersion.value++; campaignTrend.value = undefined; trendLoading.value = false; trendError.value = ''; trendLoadedAt = 0; trendNeedsRefresh = refresh; }
+async function loadCampaignTrend(refresh = false) {
+  if (!displayedFilters.value || loading.value || metricTemplate.value !== displayedMetricTemplate.value || trendLoading.value) return;
+  if (!refresh && campaignTrend.value && Date.now() - trendLoadedAt < 60000) return;
+  const serial = ++trendSerial, filters = { ...displayedFilters.value, refreshStatistics: refresh || trendNeedsRefresh };
+  trendLoading.value = true; trendError.value = '';
+  try {
+    const result = await getCampaignTrend(filters);
+    if (serial !== trendSerial) return;
+    if (result.metricTemplate !== filters.metricTemplate || result.statisticsRange.startDate !== filters.startDate || result.statisticsRange.endDate !== filters.endDate) throw new Error('趋势范围不匹配');
+    campaignTrend.value = result; trendLoadedAt = Date.now(); trendNeedsRefresh = false;
+  } catch { if (serial === trendSerial) trendError.value = '趋势数据加载失败，请重试'; }
+  finally { if (serial === trendSerial) trendLoading.value = false; }
+}
 const actingId = ref(''), transferringId = ref('');
 const statisticsRange = ref<StatisticsRange>(recentRange(1));
 const rangeDraft = ref<StatisticsRange>([...statisticsRange.value]);
@@ -278,7 +294,7 @@ let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
 watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
-onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; });
+onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; trendSerial++; });
 function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function remainingDays(date: string) {
@@ -290,12 +306,15 @@ function openOperation(title: string, row: PlanListVo) { operationKind.value = t
 async function load(refreshStatistics = false) {
   const version = ++requestVersion;
   const requestedTemplate = metricTemplate.value;
+  const filters = queryFilters();
   loading.value = true; summaryLoading.value = true; loadFailed.value = false;
   const plansTask = (async () => {
     try {
-      const result = await listPlans(pageNum.value, pageSize.value, { ...queryFilters(), refreshStatistics });
+      const result = await listPlans(pageNum.value, pageSize.value, { ...filters, refreshStatistics });
       if (version !== requestVersion) return;
       if ((result.metricTemplate || 'PAYMENT') !== requestedTemplate) throw new Error('指标模板与报表不匹配');
+      if (!displayedFilters.value || campaignTrendScope(displayedFilters.value) !== campaignTrendScope(filters) || refreshStatistics) clearCampaignTrend(refreshStatistics);
+      displayedFilters.value = filters;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
       displayedMetricTemplate.value = requestedTemplate;
       try { if (templateStorageKey.value) localStorage.setItem(templateStorageKey.value, requestedTemplate); } catch { /* Storage is optional. */ }
@@ -413,7 +432,6 @@ onMounted(async () => {
 
 <style scoped>
 .metric-label { text-decoration: underline dashed #aaa8ba; text-underline-offset: 4px; cursor: help; }
-.metric > .metric-label { display: inline-block; }
 .metric-label:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 2px; }
 :global(.campaign-metric-tooltip) { max-width: 320px; color: #45445c; font-size: 12px; line-height: 1.7; }
 .template-trigger { gap: 6px; color: #575cf6; }
@@ -443,9 +461,8 @@ h1 { margin: 0; padding-right: 14px; border-right: 3px solid #575cf6; font-size:
 .title-actions { gap: 10px; }.snapshot-label { display: flex; gap: 8px; align-items: center; background: #fff; padding: 10px 14px; border: 1px solid #e9e8f1; border-radius: 8px; font-size: 12px; color: #666679; }.trial-alert { margin-bottom: 20px; }
 .panel { background: #fff; border: 1px solid #eeedf6; border-radius: 24px; padding: 24px 32px 28px; box-shadow: 0 2px 8px #24204003; }.overview { margin-bottom: 24px; padding-bottom: 24px; }.section-heading { justify-content: space-between; margin-bottom: 18px; }.overview .section-heading { margin-bottom: 16px; }
 h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 700; color: #252537; }.section-heading > span { color: #aaa8ba; font-size: 12px; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }.metric { border-radius: 14px; padding: 16px 22px; }.metric > span { display: block; color: #7e7b94; font-size: 13px; }.metric strong { display: block; font-size: 25px; font-weight: 750; color: #222234; margin: 8px 0; font-variant-numeric: tabular-nums; }.metric small { color: #9996ad; font-size: 11px; }
-.metric-cost { background: #ebecfe; }.metric-orders { background: #f5f0f8; }.metric-gmv { background: #eaf0fd; }.metric-roi { background: #f4eef6; }
-.metric > span { line-height: 18px; }.metric strong { line-height: 30px; margin: 5px 0; }.metric small { display: block; line-height: 16px; }.actions-cell button.pause-action { color: #dc777a; }.actions-cell button.enable-action { color: #45aa79; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.actions-cell button.pause-action { color: #dc777a; }.actions-cell button.enable-action { color: #45aa79; }
 .toolbar { justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }.toolbar-left, .toolbar-right { gap: 10px; }
 .toolbar :deep(.el-button), .title-actions :deep(.el-button) { height: 38px; margin-left: 0; font-size: 12px; padding: 0 14px; }.toolbar :deep(.el-button .el-icon) { margin-right: 5px; font-size: 14px; }.toolbar :deep(.el-button--primary) { padding: 0 18px; font-size: 13px; box-shadow: 0 3px 8px #575cf618; }
 .search-input { width: 300px; }.status-select { width: 134px; }.toolbar :deep(.el-input__wrapper), .toolbar :deep(.el-select__wrapper) { min-height: 38px; font-size: 12px; box-shadow: 0 0 0 1px #e9e8f1 inset; }
@@ -470,8 +487,7 @@ td { vertical-align: top; border-bottom: 1px solid #f0eff5; padding: 18px 8px; f
 /* Match the reference typography, including native controls and secondary text. */
 .campaign-page { color: #4e5069; }
 h1 { font-weight: 700; color: #1a1b2e; }h2 { color: #1a1b2e; }
-.metric strong { font-size: 24px; font-weight: 700; color: #1a1b2e; }
-.metric > span, .metric small, .section-heading > span { color: #7c7f99; }.metric small { font-size: 12px; }
+.section-heading > span { color: #7c7f99; }
 .snapshot-label { cursor: pointer; font-size: 13px; height: 38px; color: #4e5069; }.snapshot-label:hover { border-color: #bfc1fc; }
 .toolbar :deep(.el-button), .toolbar :deep(.el-input__wrapper), .toolbar :deep(.el-select__wrapper) { font-size: 13px; }
 th { color: #7c7f99; padding-top: 12px; padding-bottom: 12px; }
@@ -503,8 +519,8 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
 .schedule-range { display: block; white-space: nowrap; }.schedule-cell small { display: block; margin-top: 1px; line-height: 20px; }
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
-@media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; }.metric { padding: 16px; }.metric strong { font-size: 22px; } }
-@media (max-width: 700px) { .title-row { align-items: flex-start; flex-direction: column; gap: 16px; }.title-group { flex-wrap: wrap; gap: 12px; }h1 { font-size: 21px; }.panel { padding: 20px 16px; border-radius: 18px; }.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.metric strong { font-size: 20px; }.toolbar-left { width: 100%; }.search-input { width: 100%; order: 3; }.toolbar-right { flex-wrap: wrap; }.pager { flex-wrap: wrap; justify-content: flex-start; }.pager :deep(.el-pagination) { flex-wrap: wrap; row-gap: 10px; } }
+@media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; } }
+@media (max-width: 700px) { .title-row { align-items: flex-start; flex-direction: column; gap: 16px; }.title-group { flex-wrap: wrap; gap: 12px; }h1 { font-size: 21px; }.panel { padding: 20px 16px; border-radius: 18px; }.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.toolbar-left { width: 100%; }.search-input { width: 100%; order: 3; }.toolbar-right { flex-wrap: wrap; }.pager { flex-wrap: wrap; justify-content: flex-start; }.pager :deep(.el-pagination) { flex-wrap: wrap; row-gap: 10px; } }
 .plan-info-cell .plan-name { color: #34374f; font-size: 14px; font-weight: 600; line-height: 22px; }
 tr:hover .plan-info-cell .plan-name, tr:focus-within .plan-info-cell .plan-name { color: #575cf6; }
 .product-line { flex-wrap: wrap; }

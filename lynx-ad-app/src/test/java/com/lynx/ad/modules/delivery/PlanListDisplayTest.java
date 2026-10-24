@@ -171,6 +171,7 @@ class PlanListDisplayTest {
         assertEquals("456",reverse.records().getFirst().qcPlanId());
         var filtered=query.list(tenant,1,20,new PlanQueryService.Filters("123",null,null,null,null,null,null,true,range,false,PlanMetricTemplate.NET));
         assertEquals(1,filtered.total());assertEquals(new BigDecimal("90"),filtered.summary().netGmv());assertEquals(new BigDecimal("10.0000"),filtered.summary().refundRate());
+        assertEquals(Map.of("account-a",Set.of("123")),query.statisticsScope(tenant,new PlanQueryService.Filters("123",null,null,null,null,null,null,true,range,false,PlanMetricTemplate.NET)));
         verify(statistics,never()).report(any(),any(),any(),anyBoolean());
     }
     @Test void missingNetMetricsAndNoExplicitRangeNeverReusePaymentOrHistoricalMetrics() {

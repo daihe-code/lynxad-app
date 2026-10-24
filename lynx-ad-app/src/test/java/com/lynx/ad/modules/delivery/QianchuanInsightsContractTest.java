@@ -21,7 +21,7 @@ class QianchuanInsightsContractTest {
     final Credential credential=new Credential("fixture-token",new AdvertiserId("9007199254740993"));
     final LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));final List<Map<String,String>> queries=new ArrayList<>();final List<String> paths=new ArrayList<>();
     boolean filterable=true,hour=true;String guaranteeId="9007199254740995";
-    boolean netAmounts=true;
+    boolean netAmounts=true,excludeHourlyNet=false;
     Map<String,String> query(String text) { Map<String,String> result=new LinkedHashMap<>();for(String item:text.split("&")){var pair=item.split("=",2);result.put(pair[0],URLDecoder.decode(pair[1],StandardCharsets.UTF_8));}return result; }
     @BeforeEach void start() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -33,7 +33,8 @@ class QianchuanInsightsContractTest {
                 var topic=data.putArray("custom_config_datas").addObject();topic.put("data_topic","SITE_PROMOTION_PRODUCT_AD");
                 var dims=topic.putArray("dimensions");var ad=dims.addObject().put("field","ad_id").put("filterable",filterable);ad.putObject("filter_config").put("operator",6).put("type",1);
                 dims.addObject().put("field","stat_time_day");if(hour)dims.addObject().put("field","stat_time_hour");
-                var metrics=topic.putArray("metrics");metrics.addObject().put("name","净成交ROI").put("field","actual_net_roi");
+                var metrics=topic.putArray("metrics");var netRoi=metrics.addObject().put("name","净成交ROI").put("field","actual_net_roi");
+                if(excludeHourlyNet)netRoi.putArray("exclusion_dims").add("stat_time_hour");
                 if(netAmounts)metrics.addObject().put("name","净成交金额（元）").put("field","actual_net_amount");
                 metrics.addObject().put("name","1小时内退款率").put("field","actual_refund_rate");
                 metrics.addObject().put("name","其他指标").put("field","unrelated_field");
@@ -82,5 +83,18 @@ class QianchuanInsightsContractTest {
         netAmounts=false;var result=adapter().netReport(credential,today,today);
         assertFalse(result.metricFields().containsKey("netGmv"));assertFalse(queries.getLast().get("metrics").contains("actual_net_amount"));
         assertTrue(queries.getLast().get("metrics").contains("total_pay_order_gmv_include_coupon_for_roi2"));
+    }
+    @Test void overviewTrendBatchesPlansAndPaginatesTheSupportedHourlyReport() throws Exception {
+        var result=adapter().planTrendReport(credential,today,today,true,false);
+        assertEquals("stat_time_hour",result.timeDimension());assertEquals(2,result.rows().size());assertEquals("actual_net_roi",result.metricFields().get("netRoi"));
+        assertEquals("[\"ad_id\",\"stat_time_hour\"]",queries.getLast().get("dimensions"));assertEquals("[]",queries.getLast().get("filters"));
+        assertEquals(3,paths.size());assertEquals("2",queries.getLast().get("page"));
+    }
+    @Test void overviewTrendRespectsMetricTimeExclusionsAndDailyFallback() {
+        excludeHourlyNet=true;var hourly=adapter().planTrendReport(credential,today,today,true,false);
+        assertFalse(hourly.metricFields().containsKey("netRoi"));assertFalse(queries.getLast().get("metrics").contains("actual_net_roi"));
+        hour=false;var daily=adapter().planTrendReport(credential,today,today,true,false);
+        assertEquals("stat_time_day",daily.timeDimension());assertEquals("actual_net_roi",daily.metricFields().get("netRoi"));assertNotNull(daily.warning());
+        assertEquals("stat_time_day",adapter().planTrendReport(credential,today.minusDays(6),today,false,false).timeDimension());
     }
 }

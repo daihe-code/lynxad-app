@@ -93,4 +93,33 @@ class PlanStatisticsServiceTest {
         assertEquals(BigDecimal.ZERO,m.netGmv());assertNull(m.netRoi());assertNull(m.refundRate());
         assertThrows(BizException.class,()->service.report(new TenantId("tenant-b"),account.value(),range,false,PlanMetricTemplate.NET));
     }
+    @Test void trendCacheSeparatesTemplateGranularityRangeAndStillChecksAuthorization() throws Exception {
+        var single=new PlanStatisticsRange(today,today);
+        var row=json.readTree("{\"dimensions\":{\"ad_id\":{\"Value\":\"123\"},\"stat_time_hour\":\"09\"},\"metrics\":{\"stat_cost\":0,\"net\":0}}");
+        var fixture=new AdManagementPort.TrendReport(List.of(row),Map.of("netGmv","net"),"stat_time_hour",null);
+        when(port.planTrendReport(credential,today,today,true,false)).thenReturn(fixture);
+        when(port.planTrendReport(credential,today,today,false,false)).thenReturn(fixture);
+        when(port.planTrendReport(credential,today,today,true,true)).thenReturn(new AdManagementPort.TrendReport(List.of(),Map.of(),"stat_time_day",null));
+        var first=service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,false);
+        assertEquals(today+" 09:00:00",first.points().getFirst().time());assertEquals(BigDecimal.ZERO,first.points().getFirst().metrics().netGmv());
+        assertSame(first,service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,false));verify(port).planTrendReport(credential,today,today,true,false);
+        service.trend(tenant,account.value(),single,PlanMetricTemplate.PAYMENT,false,false);verify(port).planTrendReport(credential,today,today,false,false);
+        service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,true,false);verify(port).planTrendReport(credential,today,today,true,true);
+        service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,true);verify(port,times(2)).planTrendReport(credential,today,today,true,false);
+        assertThrows(BizException.class,()->service.trend(new TenantId("tenant-b"),account.value(),single,PlanMetricTemplate.NET,false,false));
+        when(credentials.getUsableCredential(tenant,account)).thenThrow(new BizException(1211,"授权失效"));
+        assertThrows(BizException.class,()->service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,false));
+    }
+    @Test void invalidAndDuplicateTrendBucketsAreRejectedAndNotCached() throws Exception {
+        var single=new PlanStatisticsRange(today,today);
+        var row=json.readTree("{\"dimensions\":{\"ad_id\":\"123\",\"stat_time_hour\":\"9\"},\"metrics\":{}}");
+        var duplicate=json.readTree("{\"dimensions\":{\"ad_id\":\"123\",\"stat_time_hour\":\"09:00\"},\"metrics\":{}}");
+        when(port.planTrendReport(credential,today,today,true,false)).thenReturn(new AdManagementPort.TrendReport(List.of(row,duplicate),Map.of(),"stat_time_hour",null));
+        assertThrows(BizException.class,()->service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,false));
+        when(port.planTrendReport(credential,today,today,true,false)).thenReturn(new AdManagementPort.TrendReport(List.of(row),Map.of(),"stat_time_hour",null));
+        assertEquals(1,service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,false).points().size());
+        var invalid=json.readTree("{\"dimensions\":{\"ad_id\":\"123\",\"stat_time_hour\":\""+today.minusDays(1)+" 09:00:00\"},\"metrics\":{}}");
+        when(port.planTrendReport(credential,today,today,true,false)).thenReturn(new AdManagementPort.TrendReport(List.of(invalid),Map.of(),"stat_time_hour",null));
+        assertThrows(BizException.class,()->service.trend(tenant,account.value(),single,PlanMetricTemplate.NET,false,true));
+    }
 }

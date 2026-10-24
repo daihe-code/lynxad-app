@@ -22,8 +22,12 @@ public class PlanStatisticsService {
         public Metrics(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders) {this(cost,gmv,roi,orders,null,null,null);}
     }
     public record Snapshot(Map<String,Metrics> plans,Instant fetchedAt) {}
+    public record TrendPoint(String planId,String time,Metrics metrics) {}
+    public record TrendSnapshot(List<TrendPoint> points,String timeDimension,Instant fetchedAt,String warning) {}
     private record Key(String tenant,String account,String advertiser,PlanStatisticsRange range,PlanMetricTemplate template) {}
+    private record TrendKey(Key scope,boolean daily) {}
     private final Map<Key,Snapshot> cache=new LinkedHashMap<>();
+    private final Map<TrendKey,TrendSnapshot> trendCache=new LinkedHashMap<>();
     private final OauthAccountRepository accounts;
     private final QianchuanCredentialFacade credentials;
     private final AdManagementPort management;
@@ -35,10 +39,7 @@ public class PlanStatisticsService {
         return report(tenant,accountId,range,refresh,PlanMetricTemplate.PAYMENT);
     }
     public synchronized Snapshot report(TenantId tenant,String accountId,PlanStatisticsRange range,boolean refresh,PlanMetricTemplate template) {
-        var id=new AccountId(accountId);
-        var account=accounts.findById(tenant,id).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
-        if(account.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(account.status())) throw new BizException(1201,"该广告账户授权已失效，无法查询区间统计");
-        var credential=credentials.getUsableCredential(tenant,id);
+        var credential=credential(tenant,accountId);
         Key key=new Key(tenant.value(),accountId,credential.advertiserId().value(),range,template);
         Instant now=Instant.now();
         cache.entrySet().removeIf(e->e.getValue().fetchedAt().plusSeconds(60).isBefore(now));
@@ -48,20 +49,53 @@ public class PlanStatisticsService {
         var report=template==PlanMetricTemplate.NET?management.netReport(credential,range.startDate(),range.endDate()):null;
         var fields=report==null?Map.<String,String>of():report.metricFields();
         for(JsonNode row:report==null?management.report(credential,range.startDate(),range.endDate()):report.rows()) {
-            JsonNode ad=row.path("dimensions").path("ad_id");
-            if(ad.isObject())ad=ad.has("Value")?ad.path("Value"):ad.path("value");
-            if(ad.isMissingNode() || ad.isNull() || ad.asText().isBlank())throw new BizException(1406,"千川区间报表缺少计划ID，请重试");
-            JsonNode m=row.path("metrics");
-            BigDecimal cost=QianchuanPlanMapping.number(m,"stat_cost"),gmv=QianchuanPlanMapping.number(m,"total_pay_order_gmv_include_coupon_for_roi2");
-            BigDecimal orders=QianchuanPlanMapping.number(m,"total_pay_order_count_for_roi2"),roi=QianchuanPlanMapping.number(m,"total_prepay_and_pay_order_roi2");
-            if(roi==null && cost!=null && cost.signum()>0 && gmv!=null)roi=gmv.divide(cost,4,RoundingMode.HALF_UP);
-            if(values.putIfAbsent(ad.asText(),new Metrics(cost,gmv,roi,orders==null?null:orders.longValue(),
-                    metric(m,fields,"netGmv"),metric(m,fields,"netRoi"),metric(m,fields,"refundRate")))!=null)
+            String ad=PlanInsightsService.dimension(row,"ad_id");
+            if(ad.isBlank())throw new BizException(1406,"千川区间报表缺少计划ID，请重试");
+            if(values.putIfAbsent(ad,metrics(row.path("metrics"),fields))!=null)
                 throw new BizException(1406,"千川区间报表包含重复计划，请重试");
         }
         Snapshot result=new Snapshot(Map.copyOf(values),Instant.now());
         if(cache.size()>=256)cache.remove(cache.keySet().iterator().next());
         cache.put(key,result);return result;
+    }
+    private com.lynx.ad.modules.identity.domain.model.Credential credential(TenantId tenant,String accountId) {
+        var id=new AccountId(accountId);
+        var account=accounts.findById(tenant,id).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        if(account.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(account.status())) throw new BizException(1201,"该广告账户授权已失效，无法查询区间统计");
+        return credentials.getUsableCredential(tenant,id);
+    }
+    public TrendSnapshot trend(TenantId tenant,String accountId,PlanStatisticsRange range,PlanMetricTemplate template,boolean daily,boolean refresh) {
+        // A slow trend query must not hold the monitor used by ordinary list reports.
+        synchronized(trendCache) { return cachedTrend(tenant,accountId,range,template,daily,refresh); }
+    }
+    private TrendSnapshot cachedTrend(TenantId tenant,String accountId,PlanStatisticsRange range,PlanMetricTemplate template,boolean daily,boolean refresh) {
+        var credential=credential(tenant,accountId);
+        var key=new TrendKey(new Key(tenant.value(),accountId,credential.advertiserId().value(),range,template),daily);
+        trendCache.entrySet().removeIf(e->e.getValue().fetchedAt().plusSeconds(60).isBefore(Instant.now()));
+        var cached=trendCache.get(key);if(!refresh && cached!=null)return cached;
+        var report=management.planTrendReport(credential,range.startDate(),range.endDate(),template==PlanMetricTemplate.NET,daily);
+        if(report.timeDimension()!=null && !Set.of("stat_time_hour","stat_time_day").contains(report.timeDimension()))throw new BizException(1406,"千川趋势报表的时间维度不正确");
+        List<TrendPoint> points=new ArrayList<>();Set<String> seen=new HashSet<>();
+        for(JsonNode row:report.rows()) {
+            String ad=PlanInsightsService.dimension(row,"ad_id");
+            if(ad.isBlank() || report.timeDimension()==null)throw new BizException(1406,"千川趋势报表缺少计划或时间维度");
+            String time=PlanInsightsService.reportTime(PlanInsightsService.dimension(row,report.timeDimension()),report.timeDimension(),range);
+            try {
+                time="stat_time_day".equals(report.timeDimension())?LocalDate.parse(time.substring(0,10)).toString():
+                        LocalDateTime.parse(time.replace(' ','T')).withMinute(0).withSecond(0).withNano(0).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } catch(RuntimeException invalid){throw new BizException(1406,"千川趋势报表的时间不正确");}
+            if(!seen.add(ad+"/"+time))throw new BizException(1406,"千川趋势报表包含重复计划和时间，请重试");
+            points.add(new TrendPoint(ad,time,metrics(row.path("metrics"),report.metricFields())));
+        }
+        var result=new TrendSnapshot(List.copyOf(points),report.timeDimension(),Instant.now(),report.warning());
+        if(trendCache.size()>=32)trendCache.remove(trendCache.keySet().iterator().next());
+        trendCache.put(key,result);return result;
+    }
+    private static Metrics metrics(JsonNode m,Map<String,String> fields) {
+        BigDecimal cost=QianchuanPlanMapping.number(m,fields.getOrDefault("cost","stat_cost")),gmv=QianchuanPlanMapping.number(m,fields.getOrDefault("gmv","total_pay_order_gmv_include_coupon_for_roi2"));
+        BigDecimal orders=QianchuanPlanMapping.number(m,fields.getOrDefault("orders","total_pay_order_count_for_roi2")),roi=QianchuanPlanMapping.number(m,fields.getOrDefault("roi","total_prepay_and_pay_order_roi2"));
+        if(roi==null && cost!=null && cost.signum()>0 && gmv!=null)roi=gmv.divide(cost,4,RoundingMode.HALF_UP);
+        return new Metrics(cost,gmv,roi,orders==null?null:orders.longValue(),metric(m,fields,"netGmv"),metric(m,fields,"netRoi"),metric(m,fields,"refundRate"));
     }
     private static BigDecimal metric(JsonNode values,Map<String,String> fields,String key) {
         if(!fields.containsKey(key))return null;
