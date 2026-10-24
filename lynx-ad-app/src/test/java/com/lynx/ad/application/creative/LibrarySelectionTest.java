@@ -44,6 +44,13 @@ class LibrarySelectionTest {
         assertTrue(first.items().stream().allMatch(i->i.assetId().startsWith("usable-")));
         assertTrue(Collections.disjoint(first.items().stream().map(i->i.id()).toList(),second.items().stream().map(i->i.id()).toList()));
         assertEquals("usable-0",service.query(tenant,"IMAGE",null,null,null,"ALL","usable-0",1,18,true).items().getFirst().assetId());
+        when(bindings.productMedia(tenant,"account","product")).thenReturn(Set.of("usable-3"));
+        var related=service.query(tenant,"IMAGE",null,null,null,"ALL",null,1,2,true,"account","product","AUTO");
+        assertEquals("RELATED",related.productScope());assertEquals(1,related.relatedCount());assertEquals("usable-3",related.items().getFirst().assetId());
+        assertEquals(5,service.query(tenant,"IMAGE",null,null,null,"ALL",null,1,2,true,"account","product","ALL").pageInfo().total());
+        var unknown=service.query(tenant,"IMAGE",null,null,null,"ALL",null,1,2,true,"account","unlinked","AUTO");
+        assertEquals("ALL",unknown.productScope());assertEquals(0,unknown.relatedCount());assertEquals(5,unknown.pageInfo().total());
+        assertEquals(0,service.query(tenant,"IMAGE",null,null,null,"ALL",null,1,2,true,"other-account","product","RELATED").pageInfo().total());
         verifyNoInteractions(platform);
         var other=new TenantId("other-tenant");
         assertEquals(0,service.query(other,"IMAGE",null,null,null,"ALL",null,1,18,true).pageInfo().total());

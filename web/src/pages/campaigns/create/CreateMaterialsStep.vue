@@ -86,7 +86,7 @@ import MaterialPreview from './MaterialPreview.vue';
 import MaterialTitleList from './ProductTitleList.vue';
 import AddMaterialDialog from './AddMaterialDialog.vue';
 import '../reference/creative-workspace.css';
-import type { CreationState, CreationMaterial, CreationAdditionBody } from '@/features/delivery/creationApi';
+import type { CreationState, CreationMaterial, CreationAdditionBody, creationAdd } from '@/features/delivery/creationApi';
 import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel, generationResultLabel, processingSummary, componentLabel, processingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
@@ -94,7 +94,7 @@ import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/featu
 const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; draftSaveDisabled?: boolean }>();
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }] }>();
+const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });

@@ -25,6 +25,12 @@ class CreationStoreTest {
         jdbc=new JdbcTemplate(ds);store=new CreationStore(jdbc,new ObjectMapper(),new DataSourceTransactionManager(ds));
     }
     @BeforeEach void reset(){jdbc.update("DELETE FROM delivery_publish_attempt");jdbc.update("DELETE FROM delivery_creation");}
+    @Test void productMediaUsesOnlyExplicitBindingsWithinTenantAndAccount() {
+        var s=new CreationState();s.planId="linked";s.tenantId="t";s.accountId="account";
+        var m=new CreationState.Material();m.productId="product";m.videoAssetId="video";m.carouselId="carousel";m.imageAssetIds=List.of("image");s.materials.add(m);store.insert(s);
+        assertEquals(Set.of("video","carousel","image"),store.productMedia("t","account","product"));
+        assertTrue(store.productMedia("t","other","product").isEmpty());assertTrue(store.productMedia("other","account","product").isEmpty());assertTrue(store.productMedia("t","account","unlinked").isEmpty());
+    }
     CreationState state(String id){var s=new CreationState();s.planId=id;s.tenantId="t";store.insert(s);return s;}
     @Test void rowLockAllowsOneEditorAndRollsBackInvalidMutation() throws Exception {
         state("one");var executor=Executors.newFixedThreadPool(2);var gate=new CountDownLatch(1);

@@ -23,6 +23,15 @@ public class MediaFileInspector {
         this.executable = executable; this.timeoutSeconds = Math.max(5, Math.min(600, timeoutSeconds));
     }
     public record Metadata(Integer width, Integer height, double durationSeconds) {}
+    public void cover(Path video,Path image) {
+        boolean acquired=false;
+        try {
+            if(!(acquired=slots.tryAcquire(5,TimeUnit.SECONDS)))throw new BizException(1526,"封面处理繁忙，请稍后重试");
+            run(List.of("-hide_banner","-nostdin","-v","error","-y","-threads","1","-protocol_whitelist","file",
+                    "-i",video.toString(),"-map","0:v:0","-frames:v","1","-threads","1","-update","1",image.toString()),true);
+        }catch(InterruptedException ex){Thread.currentThread().interrupt();throw new BizException(1526,"封面处理被中断，请重试");}
+        finally{if(acquired)slots.release();}
+    }
     public Metadata validate(Path file, String filename) {
         var kind = AssetFilePolicy.spec(filename).kind();
         if (kind != AssetKind.VIDEO && kind != AssetKind.AUDIO) return null;

@@ -5,12 +5,13 @@ import { targetError } from './assetPreflight';
 import { assetFileRules } from './assetUploadTypes';
 
 export const carouselDraft = reactive({ name: '', text: '', images: [] as File[], audio: undefined as File | undefined,
+  textAigc: undefined as boolean | undefined, fileAigc: {} as Record<string, boolean>,
   accounts: [] as string[], aigc: false, busy: false, error: '', keys: [] as string[], requestId: '', result: undefined as CarouselDetail | undefined });
 let owner = localStorage.getItem('lynx.token');
 let textFile: File | undefined, fileText = '', bodySignature = '', textRevision = Date.now();
 function reset() {
   textFile = undefined; fileText = ''; bodySignature = '';
-  Object.assign(carouselDraft, { name: '', text: '', images: [], audio: undefined, accounts: [], aigc: false, busy: false, error: '', keys: [], requestId: '', result: undefined });
+  Object.assign(carouselDraft, { name: '', text: '', images: [], audio: undefined, textAigc: undefined, fileAigc: {}, accounts: [], aigc: false, busy: false, error: '', keys: [], requestId: '', result: undefined });
 }
 function session() {
   ensureUploadSession();
@@ -33,6 +34,7 @@ function message(error: unknown) {
   const e = error as { message?: string; response?: { data?: { message?: string } } };
   return e.response?.data?.message || e.message || '图文上传失败，请重试';
 }
+export function fileAigcKey(file: File) { return JSON.stringify([file.name, file.size, file.lastModified]); }
 /** All components use existing OSS/preflight/review flow; the composite owns platform targets. */
 export async function uploadCarousel() {
   const token = session(); if (carouselDraft.busy || carouselDraft.result) return;
@@ -46,15 +48,17 @@ export async function uploadCarousel() {
     const problem = targetError(carouselDraft.audio, !!carouselDraft.accounts.length); if (problem) throw new Error(problem);
     if (!textFile || fileText !== carouselDraft.text) { fileText = carouselDraft.text; textFile = new File([fileText], '图文文本.txt', { type: 'text/plain', lastModified: ++textRevision }); }
     const files = [textFile, ...carouselDraft.images, carouselDraft.audio];
+    const isAigc = (file: File) => file === textFile ? carouselDraft.textAigc ?? carouselDraft.aigc : carouselDraft.fileAigc[fileAigcKey(file)] ?? carouselDraft.aigc;
     for (let i = uploadRows.length - 1; i >= 0; i--) {
       const row = uploadRows[i]!;
-      if (row.library === 'CAROUSEL' && !row.busy && (row.result && row.result.isAigc !== carouselDraft.aigc || !files.some(f => f.name === row.file.name && f.size === row.file.size && f.lastModified === row.file.lastModified))) uploadRows.splice(i, 1);
+      if (row.library === 'CAROUSEL' && !row.busy && (row.result && row.result.isAigc !== isAigc(row.file) || !files.some(f => f.name === row.file.name && f.size === row.file.size && f.lastModified === row.file.lastModified))) uploadRows.splice(i, 1);
     }
     // Validate every part before any transfer. Keep successful rows when a transfer or registration is retried.
     const errors = await addUploadFiles(files, 'CAROUSEL'); check();
     if (errors.length) throw new Error(errors.join('；'));
     const rows = files.map(f => uploadRows.find(r => r.library === 'CAROUSEL' && r.file.name === f.name && r.file.size === f.size && r.file.lastModified === f.lastModified));
     if (rows.some(r => !r?.valid)) throw new Error(rows.find(r => !r?.valid)?.error || '图文组件预检未通过');
+    rows.forEach((row, index) => { row!.isAigc = isAigc(files[index]!); });
     carouselDraft.keys = rows.map(r => r!.key);
     await startUploads([], carouselDraft.aigc, 'CAROUSEL', carouselDraft.keys); check();
     if (rows.some(r => !r?.result)) throw new Error(rows.find(r => !r?.result)?.error || '图文组件未全部上传，请重试');

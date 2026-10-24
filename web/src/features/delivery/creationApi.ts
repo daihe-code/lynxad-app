@@ -125,7 +125,7 @@ export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|
 export const creationAddition = (s: CreationState, body: CreationAdditionBody) => apiPost<CreationState>(`${root}/${s.planId}/generation/additions`, { revision: s.revision, ...body });
 export const creationMaterialContext = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/context`);
 export const creationVisibility = (s: CreationState, hideInAweme: boolean) => apiPut<CreationState>(`${root}/${s.planId}/visibility`, { revision: s.revision, hideInAweme });
-export const creationAdd = (s: CreationState, body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles: string[] }) => apiPost<CreationState>(`${root}/${s.planId}/materials`, { revision: s.revision, ...body }, slow);
+export const creationAdd = (s: CreationState, body: { productId: string; type: string; videoAssetId?: string; coverAssetId?: string; imageAssetIds?: string[]; carouselId?: string; titles?: string[] }) => apiPost<CreationState>(`${root}/${s.planId}/materials`, { revision: s.revision, ...body }, slow);
 export const creationFeedback = (s: CreationState, id: string, action: string, body: { reasons: string[]; description: string }) => action === 'delete'
   ? apiDelete<CreationState>(`${root}/${s.planId}/materials/${id}`, { data: { revision: s.revision, ...body } })
   : apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/regenerate`, { revision: s.revision, ...body }, slow);

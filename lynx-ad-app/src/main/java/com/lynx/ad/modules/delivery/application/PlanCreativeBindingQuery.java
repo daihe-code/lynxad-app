@@ -23,4 +23,7 @@ public class PlanCreativeBindingQuery {
         Set<String> keys=new java.util.HashSet<>(store.usedKeys(planRepository.findByTenant(tenantId).stream().map(p -> p.id().value()).toList()));
         keys.addAll(creation.usedMedia(tenantId.value()));return keys;
     }
+    public Set<String> productMedia(TenantId tenant,String account,String product) {
+        return creation.productMedia(tenant.value(),account,product);
+    }
 }

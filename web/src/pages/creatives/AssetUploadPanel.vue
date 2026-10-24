@@ -44,7 +44,7 @@ import AssetSyncAction from './AssetSyncAction.vue';
 const reviewRetrying = ref('');
 const props = defineProps<{ libraryType: UploadLibrary; defaultAccountIds?: string[] }>();
 const policy = computed(() => libraryUploadPolicy(props.libraryType));
-const rows = computed(() => uploadRows.filter(row => row.library !== 'CAROUSEL' && !libraryFileError(row.file.name, props.libraryType)));
+const rows = computed(() => uploadRows.filter(row => !row.scope && row.library !== 'CAROUSEL' && !libraryFileError(row.file.name, props.libraryType)));
 const emit = defineEmits<{ close: []; changed: []; closeBlocked: [blocked: boolean] }>();
 const input = ref<HTMLInputElement>(), accounts = ref<AccountVo[]>([]), selected = ref<string[]>([...(props.defaultAccountIds || [])]), aigc = ref(false), accountError = ref(''), retrying = ref('');
 const adding = ref(0);

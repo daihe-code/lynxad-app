@@ -3,7 +3,7 @@ import { completeAssetUpload, getUploadedAsset, getUploadPolicy, initAssetUpload
 import { preflight, targetError, type FileMetadata } from './assetPreflight';
 import { libraryFileError, type UploadLibrary } from './assetUploadTypes';
 
-export interface UploadRow { key: string; file: File; library?: UploadLibrary; progress: number; stage: string; busy: boolean; valid: boolean; metadata?: FileMetadata; error: string; result?: UploadedAsset }
+export interface UploadRow { key: string; file: File; library?: UploadLibrary; scope?: string; isAigc?: boolean; progress: number; stage: string; busy: boolean; valid: boolean; metadata?: FileMetadata; error: string; result?: UploadedAsset }
 /** In-memory transfers outlive a dialog; server-side sync tasks also outlive a browser session. */
 export const uploadRows = reactive<UploadRow[]>([]);
 let ownerToken = localStorage.getItem('lynx.token');
@@ -11,7 +11,7 @@ export function ensureUploadSession() {
   const token = localStorage.getItem('lynx.token');
   if (ownerToken !== token) { uploadRows.splice(0); ownerToken = token; }
 }
-export async function addUploadFiles(files: FileList | File[] | undefined | null, library?: UploadLibrary) {
+export async function addUploadFiles(files: FileList | File[] | undefined | null, library?: UploadLibrary, scope?: string) {
   ensureUploadSession();
   const errors: string[] = [];
   const candidates = Array.from(files || []).filter(file => {
@@ -27,10 +27,10 @@ export async function addUploadFiles(files: FileList | File[] | undefined | null
   ensureUploadSession(); if (session !== ownerToken) return errors;
   for (const file of candidates) {
     if (session !== localStorage.getItem('lynx.token')) break;
-    if (uploadRows.filter(r => r.library === library).length >= policy.maxFiles) { errors.push(`一次最多选择 ${policy.maxFiles} 个文件`); break; }
-    if (uploadRows.some(r => r.library === library && r.file.name === file.name && r.file.size === file.size && r.file.lastModified === file.lastModified)) continue;
+    if (uploadRows.filter(r => r.library === library && r.scope === scope).length >= policy.maxFiles) { errors.push(`一次最多选择 ${policy.maxFiles} 个文件`); break; }
+    if (uploadRows.some(r => r.library === library && r.scope === scope && r.file.name === file.name && r.file.size === file.size && r.file.lastModified === file.lastModified)) continue;
     const key = crypto.randomUUID();
-    uploadRows.push({ key, file, library, progress: 0, stage: '正在本地预检', busy: true, valid: false, error: '' });
+    uploadRows.push({ key, file, library, scope, progress: 0, stage: '正在本地预检', busy: true, valid: false, error: '' });
     const row = uploadRows.find(r => r.key === key)!;
     try { row.metadata = await preflight(file, policy); row.valid = true; row.stage = '待上传'; }
     catch (error) { row.error = errorMessage(error); row.stage = '预检未通过'; }
@@ -86,7 +86,7 @@ export async function startUploads(accountIds: string[], aigc: boolean, library?
   running = true;
   const session = ownerToken;
   function checkSession() { ensureUploadSession(); if (session !== ownerToken || !session) throw new Error('登录账户已切换，文件传输已停止'); }
-  const pending = uploadRows.filter(r => (!keys || keys.includes(r.key)) && (r.library !== 'CAROUSEL' || library === 'CAROUSEL') && r.valid && !r.result && !r.busy && !libraryFileError(r.file.name, library) && !targetError(r.file, accountIds.length > 0));
+  const pending = uploadRows.filter(r => (keys ? keys.includes(r.key) : !r.scope) && (r.library !== 'CAROUSEL' || library === 'CAROUSEL') && r.valid && !r.result && !r.busy && !libraryFileError(r.file.name, library) && !targetError(r.file, accountIds.length > 0));
   let index = 0;
   async function work() {
     while (index < pending.length) {
@@ -97,7 +97,7 @@ export async function startUploads(accountIds: string[], aigc: boolean, library?
         const problem = libraryFileError(row.file.name, library) || targetError(row.file, accountIds.length > 0);
         if (problem) throw new Error(problem);
         // New session after a failed attempt; unfinished server/OSS sessions expire and are cleaned up.
-        const init = await initAssetUpload(row.file, crypto.randomUUID(), accountIds, aigc, library);
+        const init = await initAssetUpload(row.file, crypto.randomUUID(), accountIds, row.isAigc ?? aigc, library);
         checkSession();
         let asset: UploadedAsset;
         if (init.uploadMode === 'NONE') asset = await getUploadedAsset(init.assetId);

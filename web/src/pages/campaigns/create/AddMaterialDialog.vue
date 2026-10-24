@@ -1,188 +1,105 @@
 <template>
-  <ReferenceModal class="add-material-dialog" :class="{ 'upload-view': uploadOpen }" title="新增素材" :width="820" :busy="locked" @close="emit('close')">
-    <template v-if="uploadOpen">
-      <div class="upload-heading"><strong>{{ uploadType === 'VIDEO' ? '上传视频' : uploadType === 'IMAGE' ? '上传图片' : '上传图文' }}</strong><button type="button" :disabled="uploadBlocked" @click="closeUpload">返回{{ libraryLabel }}</button></div>
-      <div class="asset-center dialog-upload">
-        <CarouselUploadPanel v-if="uploadType === 'CAROUSEL'" :default-account-ids="[state.accountId]" @close="closeUpload" @close-blocked="uploadBlocked = $event" @changed="uploadChanged" />
-        <AssetUploadPanel v-else :library-type="uploadType" :default-account-ids="[state.accountId]" @close="closeUpload" @close-blocked="uploadBlocked = $event" @changed="uploadChanged" />
-      </div>
-    </template>
-    <template v-else>
-    <div class="format-tabs" role="tablist" aria-label="新增素材类型">
-      <button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button>
+  <ReferenceModal class="add-material-dialog" title="新增素材" :width="820" :busy="locked" @close="close">
+    <div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div>
+    <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
+    <div class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
+    <div v-if="source === 'AI'" class="ai-source"><label for="addition-description">生成要求 <small>选填</small></label><textarea id="addition-description" v-model="description" rows="3" maxlength="50" :disabled="locked" placeholder="可填写希望突出的场景或卖点" /><p class="hint">为当前商品新增{{ type === 'VIDEO' ? '一条视频' : type === 'IMAGE' ? '一张商品卡图片' : '一套图文' }}，保留已有素材。</p></div>
+    <div v-if="source === 'LIBRARY'" class="library-source">
+      <form class="library-search" @submit.prevent="search"><input v-model="query" aria-label="搜索素材名称" placeholder="搜索素材名称" :disabled="locked" /><button type="submit" :disabled="locked || loading">搜索</button><select :value="scope === 'AUTO' ? 'RELATED' : scope" aria-label="商品关联范围" :disabled="locked || loading" @change="scopeChanged"><option value="RELATED">当前商品相关</option><option value="ALL">{{ allLabel }}</option></select><button type="button" :disabled="locked || loading" @click="refresh"><ReferenceIcon name="refresh" />刷新</button></form>
+      <p v-if="relatedCount === 0 && scope === 'ALL'" class="hint">暂无明确关联当前商品的{{ kindLabel }}，可按名称搜索{{ allLabel }}。</p>
+      <div v-if="loading" class="library-state" role="status">正在加载{{ kindLabel }}…</div>
+      <div v-else-if="loadError" class="library-state" role="alert"><p>{{ loadError }}</p><button type="button" :disabled="locked" @click="loadLibrary()">重试</button></div>
+      <div v-else-if="!items.length" class="library-state"><p>{{ query.trim() ? `未找到匹配的${kindLabel}` : scope === 'RELATED' ? `暂无与当前商品明确关联的${kindLabel}` : `暂无${kindLabel}，可切换至“本地上传”。` }}</p><button v-if="scope === 'RELATED'" type="button" :disabled="locked" @click="showAll">查看{{ allLabel }}</button><button type="button" :disabled="locked" @click="chooseSource('UPLOAD')">本地上传</button></div>
+      <div v-else class="asset-grid" role="group" :aria-label="`${kindLabel}素材库`"><article v-for="item in items" :key="`${item.id}:${previewVersion}`" :class="{ selected: librarySelected?.id === item.id }"><button type="button" class="asset-select" :aria-pressed="librarySelected?.id === item.id" :aria-label="`选择 ${item.filename}`" :disabled="locked" @click="librarySelected = item"><span class="asset-preview"><AssetThumbnail :item="item" /></span><span class="check-mark">{{ librarySelected?.id === item.id ? '✓' : '' }}</span><strong :title="item.filename">{{ item.filename }}</strong><small>{{ materialMeta(item) }}</small><small>{{ item.source === 'UPLOAD' ? '本地上传' : item.source === 'LYNX' ? '智能生成' : '千川素材' }} · {{ createdDate(item.createdAt) }}</small></button><button type="button" class="preview-button" :aria-label="`预览 ${item.filename}`" :title="type === 'VIDEO' ? '播放预览' : '预览'" :disabled="locked" @click="preview(item)"><ReferenceIcon :name="type === 'VIDEO' ? 'play' : 'search'" /></button></article></div>
+      <nav v-if="!loadError && !loading && total > 0" class="library-pager" :aria-label="`${kindLabel}分页`"><span>共 {{ total }} 条，每页 {{ pageSize }} 条</span><div><button type="button" :aria-label="`${kindLabel}上一页`" :disabled="locked || page <= 1" @click="changePage(page - 1)">上一页</button><span>第 {{ page }} / {{ totalPages }} 页</span><button type="button" :aria-label="`${kindLabel}下一页`" :disabled="locked || page >= totalPages" @click="changePage(page + 1)">下一页</button></div></nav>
     </div>
-    <div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品：<strong>{{ product?.name }}</strong></span></div>
-    <div class="dialog-row"><span>{{ type === 'VIDEO' ? '视频来源' : '素材来源' }}</span><div class="source-options" role="group" aria-label="素材来源">
-      <button type="button" :aria-pressed="source === 'AI'" :disabled="locked" @click="source = 'AI'">智能生成</button>
-      <button type="button" :aria-pressed="source === 'LIBRARY'" :disabled="locked" @click="source = 'LIBRARY'">{{ libraryLabel }}</button>
-    </div></div>
-    <template v-if="source === 'AI'">
-      <p class="addition-note">提交后将根据商品分析为当前商品新增{{ type === 'VIDEO' ? '一条视频' : type === 'IMAGE' ? '一张商品卡图片' : '一套图文' }}，保留已有素材。</p>
-    </template>
-    <template v-else>
-      <div class="library-search"><input v-model="query" aria-label="搜索我的素材" placeholder="搜索素材名称" :disabled="locked" @keyup.enter="search" /><button type="button" :disabled="locked || loading" @click="search">搜索</button><button type="button" :disabled="locked || loading" @click="refreshPreviews">刷新素材</button><button type="button" class="local-upload" :disabled="locked" @click="openUpload(type)">本地上传</button></div>
-      <p v-if="type === 'VIDEO'" class="library-hint">这里选择视频，卡片图片是视频预览缩略图；投放封面在下方单独选择。</p>
-      <p v-if="items.some(item => assetPreview(item).source === 'UNAVAILABLE')" class="preview-warning" role="status">部分素材的原文件和千川副本暂不可预览，请检查存储服务及千川授权，恢复后点击“刷新素材”。</p>
-      <p v-if="loading" role="status">正在加载{{ libraryLabel }}…</p><p v-else-if="loadError" class="dialog-error" role="alert">{{ loadError }}<button type="button" @click="loadLibrary()">重试</button></p>
-      <div v-else ref="libraryScroll" class="asset-scroll" tabindex="0" :aria-label="`${libraryLabel}，可上下滚动查看更多`">
-        <div class="asset-grid" role="group" :aria-label="libraryLabel">
-          <button v-for="item in items" :key="`${item.id}:${previewVersion}`" type="button" :aria-pressed="selectedId === item.id" :disabled="locked" @click="selectItem(item)"><span class="asset-preview"><AssetThumbnail :item="item" /><span v-if="item.type === 'VIDEO'" class="video-badge"><ReferenceIcon name="video" />视频</span></span><strong :title="item.filename">{{ item.filename }}</strong><small>{{ item.type === 'VIDEO' ? item.durationSec && item.durationSec > 0 ? `${item.durationSec} 秒` : '视频' : item.type === 'CAROUSEL' ? item.category || '图文' : '图片' }}</small></button>
-          <p v-if="!items.length">暂无可选择的素材，可点击本地上传；图文审核完成后会显示在这里。</p>
-        </div>
-      </div>
-      <nav class="library-pager" :aria-label="`${libraryLabel}分页`"><span>共 {{ total }} 条，每页 {{ pageSize }} 条</span><div><button type="button" :aria-label="`${libraryLabel}上一页`" :disabled="locked || loading || page <= 1" @click="changePage(page - 1)">上一页</button><span aria-live="polite">第 {{ page }} / {{ totalPages }} 页</span><button type="button" :aria-label="`${libraryLabel}下一页`" :disabled="locked || loading || page >= totalPages" @click="changePage(page + 1)">下一页</button></div></nav>
-      <p v-if="selected" class="selection-note">已选{{ type === 'VIDEO' ? '视频' : '素材' }}：{{ selected.filename }}</p>
-      <video v-if="!loading && type === 'VIDEO' && selectedUrls?.playUrl" class="selected-preview" :src="assetUrl(selectedUrls.playUrl)" :poster="assetUrl(selectedUrls.posterUrl)" controls preload="metadata" @error="selectedPreviewFailed" />
-      <p v-if="selectedMediaError" class="preview-warning" role="status">{{ selectedUrls?.message || '视频暂不可播放，请检查存储服务后刷新素材。' }}</p>
-      <div v-if="type === 'VIDEO'" class="library-field">
-        <div class="cover-heading"><label for="addition-cover">视频封面</label><button type="button" :disabled="locked" @click="openUpload('IMAGE')">上传封面图片</button></div>
-        <button id="addition-cover" type="button" class="cover-select" :aria-expanded="coverPickerOpen" aria-controls="addition-cover-options" :disabled="locked" @click="coverPickerOpen = !coverPickerOpen"><span v-if="chosenCover" class="chosen-cover-preview"><AssetThumbnail :key="`${chosenCover.id}:${previewVersion}`" :item="chosenCover" /></span><span>{{ chosenCover ? `已选封面：${chosenCover.filename}` : '选择封面图片' }}</span><span class="cover-select-action">{{ coverPickerOpen ? '收起' : chosenCover ? '更换' : '展开选择' }}</span></button>
-        <div v-if="coverPickerOpen" id="addition-cover-options" class="cover-library">
-          <p class="library-hint">以下为我的图片，可选作视频投放封面，也可上传新的封面图片。</p>
-          <p v-if="coverLoading" role="status">正在加载封面图片…</p><p v-else-if="coverError" class="dialog-error" role="alert">{{ coverError }}<button type="button" @click="loadCovers()">重试</button></p>
-          <div v-else class="cover-grid" role="group" aria-label="可选视频封面"><button v-for="cover in covers" :key="`${cover.id}:${previewVersion}`" type="button" :disabled="locked" :aria-pressed="coverId === cover.assetId" @click="selectCover(cover)"><span class="cover-preview"><AssetThumbnail :item="cover" /></span><strong :title="cover.filename">{{ cover.filename }}</strong></button><p v-if="!covers.length">暂无可用封面图片，请点击“上传封面图片”。</p></div>
-          <nav class="library-pager cover-pager" aria-label="视频封面分页"><span>共 {{ coverTotal }} 张，每页 {{ pageSize }} 张</span><div><button type="button" :disabled="locked || coverLoading || coverPage <= 1" @click="changeCoverPage(coverPage - 1)">上一页封面</button><span aria-live="polite">第 {{ coverPage }} / {{ coverTotalPages }} 页</span><button type="button" :disabled="locked || coverLoading || coverPage >= coverTotalPages" @click="changeCoverPage(coverPage + 1)">下一页封面</button></div></nav>
-        </div>
-      </div>
-      <p v-if="imageSpecError" class="dialog-error" role="alert">{{ imageSpecError }}</p>
-      <div class="library-field"><label for="addition-titles">素材标题</label><textarea id="addition-titles" v-model="titles" :disabled="locked" rows="2" placeholder="每行一条标题，最多29条，每条55字" /><p v-if="titleError" class="dialog-error">{{ titleError }}</p></div>
-    </template>
-    <p v-if="submitError" class="dialog-error" role="alert">{{ submitError }}</p>
-    </template>
-    <template #footer><template v-if="!uploadOpen"><button type="button" class="dialog-secondary" :disabled="locked" @click="emit('close')">取消</button><button type="button" class="dialog-primary" :disabled="locked || !canSubmit" @click="submit">{{ locked ? '提交中…' : '提交' }}</button></template></template>
+    <LocalMaterialUpload v-if="uploadMounted" v-show="source === 'UPLOAD'" :active="source === 'UPLOAD'" :type="type" :account-id="state.accountId" :busy="busy || awaiting" @blocked="uploadBlocked = $event" @select="localSelected = $event" />
+    <div v-if="previewItem" class="preview-panel"><div><strong>{{ previewItem.filename }}</strong><button type="button" aria-label="关闭素材预览" @click="previewItem = undefined">关闭预览</button></div><video v-if="previewItem.type === 'VIDEO' && previewUrls?.playUrl" :key="previewItem.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls autoplay preload="metadata" @error="previewFailed" /><img v-else-if="previewUrls?.posterUrl" :src="assetUrl(previewUrls.posterUrl)" :alt="previewItem.filename" /><p v-else class="hint">此素材暂不可预览，请刷新后重试。</p><p v-if="previewError" class="error">{{ previewError }}</p></div>
+    <p v-if="imageSpecError" class="error" role="alert">{{ imageSpecError }}</p><p v-if="submitError" class="error" role="alert">{{ submitError }}</p>
+    <template #footer><span v-if="source !== 'AI'" class="selection-count">已选 {{ selected ? 1 : 0 }} {{ type === 'IMAGE' ? '张图片' : type === 'VIDEO' ? '条视频' : '套图文' }}</span><button type="button" class="secondary" :disabled="locked" @click="close">取消</button><button type="button" class="primary" :disabled="locked || !canSubmit" @click="submit">{{ busy || awaiting ? '提交中…' : source === 'AI' ? '提交' : '添加所选素材' }}</button></template>
   </ReferenceModal>
 </template>
 <script setup lang="ts">
-import { titlesInputError } from '@/features/delivery/inputValidation';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import LocalMaterialUpload from './LocalMaterialUpload.vue';
+import AssetThumbnail from '@/pages/creatives/AssetThumbnail.vue';
+import { assetUrl } from '@/pages/creatives/assetFormat';
+import { assetPreview, clearAssetPreviews, resolveAssetPreview } from '@/features/creative/assetPreviews';
+import { materialMeta } from '@/features/creative/materialSources';
 import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
-import AssetThumbnail from '@/pages/creatives/AssetThumbnail.vue';
-import AssetUploadPanel from '@/pages/creatives/AssetUploadPanel.vue';
-import CarouselUploadPanel from '@/pages/creatives/CarouselUploadPanel.vue';
-import { assetUrl } from '@/pages/creatives/assetFormat';
-import { assetPreview, resolveAssetPreview, clearAssetPreviews } from '@/features/creative/assetPreviews';
-import { uploadRows, reviewPending } from '@/features/creative/assetUploads';
-import { carouselDraft, carouselPending } from '@/features/creative/carouselUploads';
 type Format = CreationAdditionBody['type'];
+type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
 const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean }>();
 const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]] }>();
-const formats: Record<Format, string> = { VIDEO: '新增视频', IMAGE: '新增商品卡图片', CAROUSEL: '新增图文' };
-const type = ref<Format>(props.initialType), source = ref<'AI' | 'LIBRARY'>('AI');
-const awaiting = ref(false), submitError = ref(''), requestId = ref('');
-const uploadOpen = ref(false), uploadBlocked = ref(false), uploadType = ref<Format>(props.initialType);
+const formats: Record<Format, string> = { VIDEO: '视频', IMAGE: '商品卡图片', CAROUSEL: '图文' };
+const sources: Record<Source, string> = { AI: '智能生成', LIBRARY: '从素材库选择', UPLOAD: '本地上传' };
+const type = ref<Format>(props.initialType), source = ref<Source>('AI'), description = ref('');
+const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(false);
 const locked = computed(() => props.busy || awaiting.value || uploadBlocked.value);
 const product = computed(() => props.state.products.find(p => p.qcProductId === props.productId));
-const libraryLabel = computed(() => ({ VIDEO: '我的视频', IMAGE: '我的图片', CAROUSEL: '我的图文' })[type.value]);
-const query = ref(''), page = ref(1), total = ref(0), items = ref<LibraryItemVo[]>([]), covers = ref<LibraryItemVo[]>([]), selectedId = ref(''), coverId = ref(''), titles = ref('');
-const pageSize = 6, libraryScroll = ref<HTMLElement>(), chosenItem = ref<LibraryItemVo>();
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
-const coverPage = ref(1), coverTotal = ref(0), chosenCover = ref<LibraryItemVo>();
-const coverTotalPages = computed(() => Math.max(1, Math.ceil(coverTotal.value / pageSize)));
-const coverPickerOpen = ref(false), coverLoading = ref(false), coverError = ref('');
-const loading = ref(false), loadError = ref('');
-const selected = computed(() => items.value.find(item => item.id === selectedId.value) || chosenItem.value);
-function selectItem(item: LibraryItemVo) { selectedId.value = item.id; chosenItem.value = item; }
-function selectCover(item: LibraryItemVo) { coverId.value = item.assetId!; chosenCover.value = item; coverPickerOpen.value = false; }
-const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片' : '');
-const selectedUrls = computed(() => selected.value ? assetPreview(selected.value) : undefined);
-const previewVersion = ref(0), selectedMediaError = ref(false);
-watch(selected, () => { selectedMediaError.value = false; });
-async function selectedPreviewFailed() {
-  const item = selected.value; if (!item) return;
-  if (assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item) && assetPreview(item).playUrl) return;
-  if (selected.value?.id === item.id) selectedMediaError.value = true;
-}
-async function refreshPreviews() {
-  loading.value = true;
-  await nextTick();
-  clearAssetPreviews([...items.value, ...covers.value, ...(chosenItem.value ? [chosenItem.value] : []), ...(chosenCover.value ? [chosenCover.value] : [])]); selectedMediaError.value = false; previewVersion.value++;
-  await Promise.all([loadLibrary(true), type.value === 'VIDEO' ? loadCovers() : Promise.resolve()]);
-}
-const titleList = computed(() => titles.value.split('\n').map(t => t.trim()).filter(Boolean));
-const titleError = computed(() => titles.value.trim() ? titlesInputError(titleList.value) : '');
-const canSubmit = computed(() => !!product.value && (source.value === 'AI' || !!selected.value && !!titleList.value.length && !titleError.value && !imageSpecError.value && (type.value !== 'VIDEO' || !!coverId.value)));
-let loadNumber = 0, coverLoadNumber = 0, previousIds = new Set<string>(), submissionSource: 'AI' | 'LIBRARY' = 'AI';
-let submissionKey = '';
-const available = (i: LibraryItemVo) => (i.assetId || i.carouselId) && i.storageStatus !== 'FAILED' && i.reviewBadge !== 'REJECTED';
+const kindLabel = computed(() => ({ VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文' })[type.value]);
+const allLabel = computed(() => `全部${kindLabel.value}`);
+const query = ref(''), scope = ref<'AUTO' | 'RELATED' | 'ALL'>('AUTO'), relatedCount = ref<number>(), page = ref(1), total = ref(0), items = ref<LibraryItemVo[]>([]);
+const loading = ref(false), loadError = ref(''), librarySelected = ref<LibraryItemVo>(), localSelected = ref<LibraryItemVo>();
+const pageSize = 6, totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+const selected = computed(() => source.value === 'LIBRARY' ? librarySelected.value : source.value === 'UPLOAD' ? localSelected.value : undefined);
+const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。' : '');
+const canSubmit = computed(() => !!product.value && (source.value === 'AI' || !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
+const previewItem = ref<LibraryItemVo>(), previewError = ref(''), previewVersion = ref(0);
+const previewUrls = computed(() => previewItem.value ? assetPreview(previewItem.value) : undefined);
+async function preview(item: LibraryItemVo) { previewError.value = ''; previewItem.value = item; if (!assetPreview(item).posterUrl && !assetPreview(item).playUrl) await resolveAssetPreview(item); }
+async function previewFailed() { const item = previewItem.value; if (item && assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item) && assetPreview(item).playUrl) return; previewError.value = '素材暂不可预览，请刷新后重试。'; }
+function createdDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '日期未知' : date.toLocaleDateString('zh-CN'); }
+let loadNumber = 0, previousIds = new Set<string>(), submissionSource: Source = 'AI', submissionKey = '';
 async function loadLibrary(keepSelection = false) {
-  const number = ++loadNumber; loading.value = true; if (!keepSelection) { selectedId.value = ''; chosenItem.value = undefined; } loadError.value = '';
+  const number = ++loadNumber; loading.value = true; loadError.value = '';
+  if (!keepSelection) librarySelected.value = undefined;
   try {
-    const result = await listLibraryFull({ type: type.value, q: query.value.trim(), page: page.value, pageSize, selectable: true });
+    const result = await listLibraryFull({ type: type.value, q: query.value.trim(), page: page.value, pageSize, selectable: true, accountId: props.state.accountId, productId: props.productId, productScope: scope.value });
     if (number !== loadNumber) return;
-    total.value = result.pageInfo?.total ?? result.items.length;
+    total.value = result.pageInfo?.total ?? result.items.length; relatedCount.value = result.relatedCount;
+    if (scope.value === 'AUTO') scope.value = result.productScope || 'ALL';
     if (page.value > totalPages.value) { page.value = totalPages.value; await loadLibrary(keepSelection); return; }
     items.value = result.items;
-    const current = items.value.find(i => i.id === selectedId.value); if (current) chosenItem.value = current;
-    await nextTick(); libraryScroll.value?.scrollTo({ top: 0 });
-  } catch { if (number === loadNumber) { loadError.value = '素材库加载失败，请重试'; items.value = []; } }
+    const updated = items.value.find(item => item.id === librarySelected.value?.id); if (updated) librarySelected.value = updated;
+  } catch { if (number === loadNumber) { loadError.value = `暂时无法加载${kindLabel.value}，请重试。`; items.value = []; total.value = 0; librarySelected.value = undefined; } }
   finally { if (number === loadNumber) loading.value = false; }
 }
-async function loadCovers() {
-  const number = ++coverLoadNumber; coverLoading.value = true; coverError.value = '';
-  try {
-    const result = await listLibraryFull({ type: 'IMAGE', page: coverPage.value, pageSize, selectable: true });
-    if (number !== coverLoadNumber) return;
-    coverTotal.value = result.pageInfo?.total ?? result.items.length;
-    if (coverPage.value > coverTotalPages.value) { coverPage.value = coverTotalPages.value; await loadCovers(); return; }
-    covers.value = result.items.filter(i => available(i) && !!i.assetId);
-    const current = covers.value.find(i => i.assetId === coverId.value); if (current) chosenCover.value = current;
-  } catch { if (number === coverLoadNumber) { coverError.value = '封面图片加载失败，请重试'; covers.value = []; } }
-  finally { if (number === coverLoadNumber) coverLoading.value = false; }
-}
-function changePage(next: number) { if (loading.value || next < 1 || next > totalPages.value) return; page.value = next; void loadLibrary(true); }
-function changeCoverPage(next: number) { if (coverLoading.value || next < 1 || next > coverTotalPages.value) return; coverPage.value = next; void loadCovers(); }
-function openUpload(format: Format) { uploadType.value = format; uploadOpen.value = true; }
-function closeUpload() { if (uploadBlocked.value) return; uploadOpen.value = false; if (type.value === 'VIDEO' && uploadType.value === 'IMAGE') { coverPickerOpen.value = true; void loadCovers(); } else void loadLibrary(true); }
-function uploadChanged() { if (type.value === 'VIDEO' && uploadType.value === 'IMAGE') { coverPage.value = 1; void loadCovers(); } else { query.value = ''; page.value = 1; void loadLibrary(true); } }
-function search() { page.value = 1; void loadLibrary(); }
-function chooseType(value: Format) { if (value === type.value) return; type.value = value; selectedId.value = ''; chosenItem.value = undefined; coverId.value = ''; chosenCover.value = undefined; coverPage.value = 1; coverPickerOpen.value = false; covers.value = []; coverTotal.value = 0; coverError.value = ''; titles.value = ''; query.value = ''; page.value = 1; }
-watch([source, type], () => { loadNumber++; coverLoadNumber++; submitError.value = ''; if (source.value === 'LIBRARY') { void loadLibrary(); if (type.value === 'VIDEO') void loadCovers(); } });
+async function refresh() { clearAssetPreviews(items.value); previewVersion.value++; previewItem.value = undefined; await nextTick(); await loadLibrary(); }
+function search() { if (locked.value) return; page.value = 1; previewItem.value = undefined; void loadLibrary(); }
+function scopeChanged(event: Event) { scope.value = (event.target as HTMLSelectElement).value as 'RELATED' | 'ALL'; search(); }
+function showAll() { scope.value = 'ALL'; query.value = ''; search(); }
+function changePage(value: number) { if (locked.value || loading.value || value < 1 || value > totalPages.value) return; page.value = value; void loadLibrary(true); }
+function chooseSource(value: Source) { if (locked.value || source.value === value) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
+function chooseType(value: Format) { if (locked.value || type.value === value) return; type.value = value; librarySelected.value = undefined; localSelected.value = undefined; previewItem.value = undefined; scope.value = 'AUTO'; relatedCount.value = undefined; query.value = ''; page.value = 1; submitError.value = ''; }
+watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); });
 watch([() => props.state, () => props.busy], () => {
   const accepted = submissionSource === 'AI' ? props.state.generationAdditions?.some(r => r.id === requestId.value) : props.state.materials.some(m => !previousIds.has(m.id));
   if (!awaiting.value && !(requestId.value && submissionSource === 'AI' && accepted)) return;
   if (accepted) { if (submissionKey) sessionStorage.removeItem(submissionKey); emit('close'); }
-  else if (!props.busy) { awaiting.value = false; submitError.value = '提交状态暂未确认，请稍后重试。已填写内容会保留。'; }
+  else if (!props.busy) { awaiting.value = false; submitError.value = '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
 });
+function close() { if (!locked.value) emit('close'); }
 function submit() {
   if (locked.value || !canSubmit.value) return;
   awaiting.value = true; submitError.value = ''; submissionSource = source.value; previousIds = new Set(props.state.materials.map(m => m.id));
   if (source.value === 'AI') {
-    const body = { productId: props.productId, type: type.value, description: '' };
+    const body = { productId: props.productId, type: type.value, description: description.value.trim() };
     submissionKey = `creation-addition:${props.state.planId}:${JSON.stringify(body)}`;
     const pending = sessionStorage.getItem(submissionKey);
     requestId.value = pending && !props.state.generationAdditions?.some(r => r.id === pending) ? pending : crypto.randomUUID();
-    sessionStorage.setItem(submissionKey, requestId.value);
-    emit('generate', { ...body, requestId: requestId.value });
+    sessionStorage.setItem(submissionKey, requestId.value); emit('generate', { ...body, requestId: requestId.value });
   } else {
     const item = selected.value!;
-    emit('add', { productId: props.productId, type: type.value, titles: titleList.value,
-      ...(type.value === 'VIDEO' ? { videoAssetId: item.assetId, coverAssetId: coverId.value } : type.value === 'IMAGE' ? { imageAssetIds: [item.assetId!] } : { carouselId: item.carouselId }) });
+    emit('add', { productId: props.productId, type: type.value, ...(type.value === 'VIDEO' ? { videoAssetId: item.assetId } : type.value === 'IMAGE' ? { imageAssetIds: [item.assetId!] } : { carouselId: item.carouselId }) });
   }
 }
-const poll = setInterval(() => {
-  const pending = uploadRows.some(r => reviewPending(r.result?.aiReview?.status)) || (carouselDraft.result && carouselPending(carouselDraft.result));
-  if (source.value === 'LIBRARY' && !uploadOpen.value && !locked.value && !loading.value && pending) void loadLibrary(true);
-}, 5000);
-watch(() => JSON.stringify([uploadRows.map(r => [r.result?.id,r.result?.aiReview?.status]),carouselDraft.result?.id,carouselDraft.result?.aiReview.status]), () => {
-  if (source.value === 'LIBRARY' && !uploadOpen.value && !locked.value) void loadLibrary(true);
-});
-onUnmounted(() => { loadNumber++; coverLoadNumber++; clearInterval(poll); });
+onUnmounted(() => { ++loadNumber; });
 </script>
 <style scoped>
-.preview-warning{color:#9b741e;background:#fff9e9;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.6}
-.add-material-dialog :deep(.reference-modal__box){padding:28px 38px;border-radius:24px}.add-material-dialog :deep(.reference-modal__body){margin:24px 0 32px}.format-tabs{display:flex;padding:4px;background:#f5f5fa;border-radius:12px;margin-bottom:18px}.format-tabs button{flex:1;padding:12px 5px;border:1px solid transparent;border-radius:8px;color:#555978;background:transparent}.format-tabs button[aria-selected=true]{border-color:#a9aaff;background:white;color:#22263c;font-weight:600}.current-product{display:flex;align-items:center;gap:10px;color:#878aa5;font-size:12px;margin-bottom:22px}.current-product img{width:32px;height:32px;object-fit:cover;border-radius:6px}.current-product strong{font-weight:500;color:#555978}.dialog-row{display:flex;align-items:center;gap:22px;margin:14px 0;color:#555978;font-size:14px}.dialog-row>span:first-child,.dialog-row>label{width:84px;flex-shrink:0}.source-options{display:flex;gap:4px}.source-options button{border-radius:8px;padding:10px 22px;border:1px solid transparent;color:#555978;background:transparent}.source-options button[aria-pressed=true]{background:#eeedff;border-color:#b1adff;color:#282d47}.library-field textarea{box-sizing:border-box;width:100%;border:1px solid #dedff2;border-radius:8px;resize:vertical;padding:12px 58px 12px 12px;color:#282d47;font:inherit;min-height:72px}.addition-note{margin:30px 0 0 106px;color:#878aa5;font-size:12px;line-height:1.7}.addition-note:before{content:'!';display:inline-block;width:13px;height:13px;margin-right:6px;border-radius:50%;background:#f2a026;color:white;text-align:center;line-height:13px}.dialog-primary,.dialog-secondary{border-radius:9px;padding:10px 22px;border:1px solid #dedff2}.dialog-primary{background:#575cf6;color:white;border-color:#575cf6}.dialog-secondary{color:#555978;background:white}button:disabled{opacity:.5;cursor:not-allowed}.library-search{display:flex;gap:10px;margin:20px 0}.library-search input{flex:1;padding:10px;border:1px solid #dedff2;border-radius:8px}.library-search button,.dialog-error button{color:#575cf6}.asset-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}.asset-grid button{border:1px solid #dedff2;border-radius:9px;overflow:hidden;background:white;text-align:left;padding:8px}.asset-grid button[aria-pressed=true]{border-color:#575cf6;background:#f4f3ff}.asset-grid img,.asset-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:95px;object-fit:contain;background:#f5f5fa}.asset-grid strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;margin-top:8px}.asset-grid small{font-size:11px;color:#878aa5}.selected-preview{display:block;width:100%;max-height:220px;margin:15px 0;background:#f5f5fa}.library-field{margin:16px 0;font-size:13px;color:#555978}.library-field label{display:block;margin-bottom:8px}.library-field select{width:100%;padding:9px;border:1px solid #dedff2;border-radius:8px}.dialog-error{color:#dc5966;font-size:12px;margin-top:10px}textarea:focus,input:focus,select:focus{outline:1px solid #8584ff}.add-material-dialog :deep(footer){gap:12px}
-@media(max-width:639px){.add-material-dialog :deep(.reference-modal__box){padding:20px 16px}.format-tabs button{font-size:12px}.dialog-row{gap:10px}.dialog-row>span:first-child,.dialog-row>label{width:66px}.addition-note{margin-left:0}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.source-options button{padding:9px 15px}}
-</style>
-<style scoped>
-.library-hint,.selection-note{font-size:12px;line-height:1.6;color:#878aa5;margin:8px 0}.selection-note{color:#555978;overflow-wrap:anywhere}.video-badge{position:absolute;left:5px;bottom:5px;display:flex;align-items:center;gap:4px;background:#252946b8;color:white;font-size:11px;border-radius:4px;padding:2px 5px}.video-badge svg{width:13px;height:13px}.library-pager{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0;font-size:12px;color:#878aa5}.library-pager>div{display:flex;align-items:center;gap:12px}.library-pager button{color:#575cf6;padding:4px 0}.library-pager button:disabled{color:#b1b3c7}.cover-select{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid #dedff2;border-radius:8px;text-align:left;background:white;color:#555978}.cover-select>span:not(.chosen-cover-preview){overflow-wrap:anywhere}.cover-select-action{color:#575cf6;white-space:nowrap;margin-left:auto;flex-shrink:0}.chosen-cover-preview{position:relative;width:54px;height:54px;flex-shrink:0;overflow:hidden;border-radius:5px;background:#f5f5fa}.cover-library{padding:12px;margin-top:10px;border:1px solid #dedff2;border-radius:9px;background:#fcfcff}.cover-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cover-grid button{min-width:0;padding:7px;border:1px solid #dedff2;border-radius:8px;background:white;text-align:left}.cover-grid button[aria-pressed=true]{border-color:#575cf6;background:#f4f3ff}.cover-preview{display:block;position:relative;height:95px;overflow:hidden;background:#f5f5fa;border-radius:4px}.cover-grid strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;line-height:18px;margin-top:6px}.cover-pager{margin-bottom:0}
-@media(max-width:639px){.cover-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.library-pager{justify-content:center}.library-pager>span{text-align:center;width:100%}.library-pager>div{justify-content:center}}
-.dialog-upload{min-height:0;background:transparent}.upload-view :deep(.reference-modal__box>footer){display:none}
-</style>
-<style src="@/pages/creatives/asset-center.css"></style>
-<style scoped>
-.add-material-dialog :deep(.reference-modal__box){display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}.add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain}.add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}.add-material-dialog :deep(footer:empty){display:none}.library-search{align-items:center}.library-search input{min-width:0}.library-search .local-upload{border:1px solid #c5c3ff;border-radius:8px;padding:9px 12px;white-space:nowrap;background:#f3f2ff}.asset-scroll{max-height:312px;overflow-y:auto;overscroll-behavior:contain;margin:12px 0;padding:1px 3px 1px 1px;border-radius:8px}.asset-grid{margin:0;grid-auto-rows:150px}.asset-grid button{box-sizing:border-box;min-height:0}.asset-grid .asset-preview{position:relative;display:block;height:95px;background:#f5f5fa;border-radius:5px;overflow:hidden}.asset-grid strong{line-height:18px}.scroll-note{font-size:12px;color:#878aa5;margin:8px 0}.cover-heading,.upload-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.cover-heading label{margin-bottom:0}.cover-heading button,.upload-heading button{color:#575cf6}.upload-heading{margin-bottom:18px}.dialog-upload{font-size:13px}.dialog-upload :deep(.modal__foot){position:static;padding:16px 0 0}.asset-scroll:focus-visible{outline:2px solid #8584ff;outline-offset:2px}
-@media(max-width:639px){.asset-scroll{max-height:474px}.library-search{gap:6px;flex-wrap:wrap}.library-search input{min-width:130px}.library-search .local-upload{font-size:12px;padding:9px}.dialog-upload :deep(.upload-settings){padding-bottom:10px}}
+.add-material-dialog :deep(.reference-modal__box){display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:26px 32px;border-radius:20px}.add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:20px 0}.add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}.current-product{display:flex;align-items:center;gap:10px;font-size:12px;color:#878aa5;margin-bottom:18px}.current-product img{width:36px;height:36px;object-fit:cover;border-radius:5px}.current-product span{min-width:0}.current-product strong{display:block;color:#30344e;font-weight:500;line-height:1.6;overflow-wrap:anywhere}.format-tabs{display:flex;padding:4px;background:#f5f5fa;border-radius:10px}.format-tabs button{flex:1;padding:10px 5px;border:1px solid transparent;border-radius:7px;color:#555978;background:transparent}.format-tabs button[aria-selected=true]{border-color:#b7b3ff;background:#fff;color:#292d45;font-weight:600}.source-row{display:flex;align-items:center;gap:20px;margin:20px 0;font-size:13px;color:#555978}.source-options{display:flex;gap:20px}.source-options button{display:flex;align-items:center;gap:7px;color:#555978;background:none;padding:4px 0;white-space:nowrap}.source-options button[aria-pressed=true]{color:#5b55ff;font-weight:600}.radio-dot{width:13px;height:13px;border:1px solid #bdbfcc;border-radius:50%;box-sizing:border-box}.source-options button[aria-pressed=true] .radio-dot{border:4px solid #5b55ff}.ai-source label{display:block;margin-bottom:8px;color:#555978;font-size:13px}.ai-source small{color:#878aa5}.ai-source textarea{box-sizing:border-box;width:100%;padding:12px;border:1px solid #dedff2;border-radius:8px;resize:vertical;font:inherit;font-size:13px;color:#30344e}.hint{font-size:12px;line-height:1.7;color:#878aa5;margin:10px 0}.library-search{display:flex;align-items:center;gap:10px;margin:12px 0}.library-search input{min-width:0;flex:1;padding:9px 12px;border:1px solid #dedff2;border-radius:7px;font:inherit;font-size:12px}.library-search select{max-width:132px;border:1px solid #dedff2;border-radius:7px;padding:8px;font:inherit;font-size:12px;color:#555978;background:white}.library-search button{display:flex;align-items:center;gap:4px;white-space:nowrap;color:#5b55ff;font-size:12px}.library-search svg{width:14px;height:14px}.asset-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.asset-grid article{position:relative;min-width:0;border:1px solid #dedff2;border-radius:9px;background:#fff;overflow:hidden}.asset-grid article.selected{border-color:#5b55ff;background:#f6f5ff}.asset-select{width:100%;height:100%;padding:8px;text-align:left;color:#30344e;background:transparent}.asset-preview{position:relative;display:block;height:100px;border-radius:5px;overflow:hidden;background:#f5f5fa}.asset-select strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;margin-top:8px;line-height:20px}.asset-select small{display:block;font-size:11px;line-height:18px;color:#878aa5}.check-mark{position:absolute;top:12px;right:12px;border:1px solid #bdbfcc;border-radius:50%;width:15px;height:15px;line-height:15px;text-align:center;background:white;font-size:10px}.selected .check-mark{background:#5b55ff;border-color:#5b55ff;color:white}.preview-button{position:absolute;right:12px;top:82px;width:24px;height:24px;background:#30344e99;color:#fff;border-radius:50%;display:grid;place-items:center}.preview-button svg{width:16px;height:16px}.library-state{min-height:210px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;align-content:center;color:#878aa5;font-size:13px}.library-state p{width:100%;text-align:center}.library-state button{color:#5b55ff;padding:8px;border:1px solid #dcd9ff;border-radius:6px}.library-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#878aa5}.library-pager>div{display:flex;gap:12px}.library-pager button{color:#5b55ff}.selection-count{margin-right:auto;font-size:12px;color:#555978;align-self:center}.primary,.secondary{padding:10px 20px;border-radius:8px;border:1px solid #dedff2;font-size:13px}.primary{color:white;background:#5b55ff;border-color:#5b55ff}.secondary{color:#555978;background:white}button:disabled{opacity:.45;cursor:not-allowed}.error{color:#dc5966;font-size:12px;line-height:1.7}.preview-panel{padding:14px;border:1px solid #e5e5f3;border-radius:10px;margin-top:16px}.preview-panel>div{display:flex;justify-content:space-between;align-items:center;gap:12px}.preview-panel strong{font-size:12px;overflow-wrap:anywhere}.preview-panel button{flex-shrink:0;color:#5b55ff}.preview-panel video,.preview-panel img{display:block;width:100%;max-height:280px;object-fit:contain;background:#f5f5fa;margin-top:10px}input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid #8584ff;outline-offset:2px}
+@media(max-width:639px){.add-material-dialog :deep(.reference-modal__box){padding:20px 16px}.source-row{gap:12px;flex-wrap:wrap}.source-options{gap:15px}.library-search{flex-wrap:wrap;gap:8px}.library-search input{min-width:140px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.library-pager{justify-content:center}.selection-count{font-size:11px}.primary,.secondary{padding:10px 12px}}
 </style>

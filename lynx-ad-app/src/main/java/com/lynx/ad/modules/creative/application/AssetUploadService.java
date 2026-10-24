@@ -90,6 +90,30 @@ public class AssetUploadService {
     }
     public void attachPreview(TenantId tenant,String id,String preview){repository.preview(tenant.value(),id,preview);}
 
+    /** Reuse a bound cover, or derive one from the owned video and use the normal review pipeline. */
+    public String videoCover(TenantId tenant,UserId user,String id) {
+        var video=repository.require(tenant.value(),id);
+        if(video.canonicalId()!=null)video=repository.require(tenant.value(),video.canonicalId());
+        if(!"VIDEO".equals(video.kind())||!"STORED".equals(video.storageStatus()))throw new BizException(1520,"请选择已上传的视频");
+        var meta=repository.storageMetadata(tenant.value(),video.id());
+        if(meta!=null&&meta.previewAssetId()!=null) {
+            var cover=repository.require(tenant.value(),meta.previewAssetId());
+            if("IMAGE".equals(cover.kind())&&"STORED".equals(cover.storageStatus()))return cover.id();
+        }
+        String request="video-cover:"+video.id();
+        var existing=repository.request(tenant.value(),request).orElse(null);
+        if(existing!=null&&("STORED".equals(existing.storageStatus())||existing.canonicalId()!=null)) {
+            String cover=detail(tenant,existing.id()).id();attachPreview(tenant,video.id(),cover);return cover;
+        }
+        Path file=null,image=null;
+        try {
+            file=download(tenant,video);image=Files.createTempFile("lynx-video-cover-",".jpg");inspector.cover(file,image);
+            var cover=ingest(tenant,user,request,image,"视频首帧封面.jpg",video.isAigc(),null,false);
+            attachPreview(tenant,video.id(),cover.id());return cover.id();
+        }catch(IOException ex){throw new BizException(1521,"视频封面处理失败，请重试");}
+        finally{remove(file);remove(image);}
+    }
+
     public void ensureTarget(TenantId tenant,String id,String account) {
         var a=repository.require(tenant.value(),id);
         if(a.canonicalId()!=null)a=repository.require(tenant.value(),a.canonicalId());

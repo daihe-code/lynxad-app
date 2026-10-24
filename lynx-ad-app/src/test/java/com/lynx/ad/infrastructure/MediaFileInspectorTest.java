@@ -30,6 +30,8 @@ class MediaFileInspectorTest {
         Path file=generate("video.mp4","-f","lavfi","-i","color=c=blue:s=320x240:r=25","-t","1","-c:v","libx264","-pix_fmt","yuv420p");
         AssetFilePolicy.validate(file,"video.mp4",Files.size(file));
         var result=inspector.validate(file,"video.mp4"); assertEquals(320,result.width()); assertEquals(240,result.height()); assertEquals(1,result.durationSeconds(),0.1);
+        Path cover=dir.resolve("cover.jpg");inspector.cover(file,cover);
+        var image=javax.imageio.ImageIO.read(cover.toFile());assertNotNull(image);assertEquals(320,image.getWidth());assertEquals(240,image.getHeight());
     }
     @Test void realAudioFormatsAndCodecMismatch() throws Exception {
         for(String ext:List.of("mp3","m4a","wav")) {

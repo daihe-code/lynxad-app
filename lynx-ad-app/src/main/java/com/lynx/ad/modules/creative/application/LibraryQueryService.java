@@ -86,6 +86,10 @@ public class LibraryQueryService {
 
     public LibraryResponse query(TenantId tenantId,String typeRaw,String platform,LocalDate from,LocalDate to,
             String status,String q,int page,int pageSize,boolean selectable) {
+        return query(tenantId,typeRaw,platform,from,to,status,q,page,pageSize,selectable,null,null,"ALL");
+    }
+    public LibraryResponse query(TenantId tenantId,String typeRaw,String platform,LocalDate from,LocalDate to,
+            String status,String q,int page,int pageSize,boolean selectable,String accountId,String productId,String productScope) {
         String type = parseType(typeRaw);
         LocalDate today = LocalDate.now(SHANGHAI);
         LocalDate end = to == null ? today : to;
@@ -132,6 +136,10 @@ public class LibraryQueryService {
                 .filter(i -> i.type.equals(type))
                 .filter(i -> inRange(i.createdAt, start, end))
                 .toList();
+        Set<String> related=accountId!=null&&productId!=null?bindingQuery.productMedia(tenantId,accountId,productId):Set.of();
+        int relatedCount=(int)typed.stream().filter(i->related.contains(i.carouselId==null?i.objectId:i.carouselId)).count();
+        String scope="RELATED".equals(productScope)||"AUTO".equals(productScope)&&relatedCount>0?"RELATED":"ALL";
+        if("RELATED".equals(scope))typed=typed.stream().filter(i->related.contains(i.carouselId==null?i.objectId:i.carouselId)).toList();
         List<Item> searched = typed.stream().filter(i -> matchQ(i, q)).toList();
         int usedCount = (int) searched.stream().filter(i -> "USED".equals(statusOf(i))).count();
         int unusedCount = (int) searched.stream().filter(i -> "UNUSED".equals(statusOf(i))).count();
@@ -147,12 +155,13 @@ public class LibraryQueryService {
         int toIdx = Math.min(fromIdx + size, filtered.size());
         List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(i -> toVo(tenantId, i)).toList();
         return new LibraryResponse(
-                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning);
+                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning,relatedCount,scope);
     }
 
     private static boolean selectable(Item item) {
         if (item.carouselId!=null) return item.aiReview!=null && Set.of("APPROVED","NOT_REQUIRED").contains(item.aiReview.status());
-        return (item.id.startsWith("UPLOAD:") || item.id.startsWith("ENGINE:")) && !"REJECTED".equals(item.reviewBadge);
+        return (item.id.startsWith("UPLOAD:") || item.id.startsWith("ENGINE:")) && item.aiReview!=null
+                && Set.of("APPROVED","NOT_REQUIRED").contains(item.aiReview.status());
     }
 
     public List<LibraryVideoVo> libraryVideos(TenantId tenantId) {

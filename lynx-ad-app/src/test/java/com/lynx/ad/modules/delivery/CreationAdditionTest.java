@@ -40,6 +40,15 @@ class CreationAdditionTest {
         service=new CreationWorkflowService(store,null,null,null,engine,json,importer,assets,carousels,mock(CreationPayloadBuilder.class),mock(BillingTrialService.class),mock(PlatformTransactionManager.class));
     }
     CreationWorkflowService.Addition body(String type,String description){return new CreationWorkflowService.Addition(s.revision,"123",type,description,"request");}
+    @Test void manualVideoNeedsNoCoverOrTitleInputsAndReusesProductCopy() {
+        var pool=new CreationState.TitlePool();pool.customTitles.add("户外商品实拍展示标题");s.titlePools.put("123",pool);
+        when(assets.videoCover(new TenantId("tenant"),new com.lynx.ad.common.domain.Ids.UserId("user"),"uploaded-video")).thenReturn("automatic-cover");
+        when(assets.detail(new TenantId("tenant"),"automatic-cover")).thenReturn(CreationPayloadTest.asset("automatic-cover","IMAGE","APPROVED",null,null,null));
+        var result=service.add(new TenantId("tenant"),"plan",new CreationWorkflowService.MaterialSelection(s.revision,"123","VIDEO","uploaded-video",null,null,null,null));
+        var added=result.materials.getLast();assertEquals("automatic-cover",added.coverAssetId);assertEquals(pool.customTitles,added.titles);
+        verify(assets).ensureTarget(new TenantId("tenant"),"uploaded-video","account");verify(assets).ensureTarget(new TenantId("tenant"),"automatic-cover","account");
+        assertEquals(2,result.materials.size());assertEquals("old",result.materials.getFirst().id);
+    }
     @ParameterizedTest @ValueSource(strings={"VIDEO","IMAGE","CAROUSEL"})
     void acceptsSingleFormatWithoutAnEarlierGenerationJob(String type) throws Exception {
         var r=service.addition(new TenantId("tenant"),"plan",body(type,"突出通勤场景"));

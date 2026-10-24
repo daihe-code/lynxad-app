@@ -63,6 +63,8 @@ export interface LibraryResponse {
   pageInfo: { page: number; pageSize: number; total: number };
   items: LibraryItemVo[];
   platformWarning?: string;
+  relatedCount?: number;
+  productScope?: 'RELATED' | 'ALL';
 }
 
 export interface AssetReview {
@@ -146,6 +148,9 @@ export function listLibraryFull(params: {
   page?: number;
   pageSize?: number;
   selectable?: boolean;
+  accountId?: string;
+  productId?: string;
+  productScope?: 'AUTO' | 'RELATED' | 'ALL';
 }) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {

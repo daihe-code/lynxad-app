@@ -8,7 +8,10 @@ public record LibraryResponse(
         StatusCounts statusCounts,
         PageInfo pageInfo,
         List<LibraryItemVo> items,
-        String platformWarning) {
+        String platformWarning,
+        Integer relatedCount,
+        String productScope) {
+    public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items,String warning) { this(bound,tabs,statuses,page,items,warning,null,null); }
     public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items) { this(bound,tabs,statuses,page,items,null); }
 
     public record TabCounts(int video, int image, int carousel, int audio, int text) {

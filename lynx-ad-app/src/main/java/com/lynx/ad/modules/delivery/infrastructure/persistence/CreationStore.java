@@ -86,6 +86,19 @@ public class CreationStore {
         }
         result.remove("");return result;
     }
+    /** Explicit product bindings only; filenames and inferred categories are not associations. */
+    public Set<String> productMedia(String tenant,String account,String product) {
+        Set<String> result=new HashSet<>();
+        for(var state:jdbc.query("SELECT state_json FROM delivery_creation WHERE tenant_id=?",(r,n)->decode(r.getString(1)),tenant)) {
+            if(!Objects.equals(account,state.accountId))continue;
+            for(var material:state.materials)if(Objects.equals(product,material.productId)) {
+                if(material.videoAssetId!=null)result.add(material.videoAssetId);
+                if(material.carouselId!=null)result.add(material.carouselId);
+                result.addAll(material.imageAssetIds);
+            }
+        }
+        return result;
+    }
     /** Reuse selected product snapshots until the platform list provides its own product metadata. */
     public Map<String,List<CreationState.Product>> productsByPlan(String tenant,List<String> planIds) {
         Map<String,List<CreationState.Product>> result=new HashMap<>();

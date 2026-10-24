@@ -389,11 +389,11 @@ public class CreationWorkflowService {
         if(!ids(initial).contains(request.productId))throw new BizException(1503,"素材对应商品不属于当前计划");
         var m=new CreationState.Material();m.id=UUID.randomUUID().toString();m.productId=request.productId;m.type=request.type;
         m.videoAssetId=request.videoAssetId;m.coverAssetId=request.coverAssetId;m.imageAssetIds=request.imageAssetIds==null?new ArrayList<>():new ArrayList<>(request.imageAssetIds);
-        m.carouselId=request.carouselId;m.titles=request.titles==null?new ArrayList<>():request.titles.stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isEmpty()).distinct().toList();
+        m.carouselId=request.carouselId;m.titles=CreationManualSelectionPolicy.titles(initial,request.productId,request.type,request.titles).stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isEmpty()).distinct().toList();
         DeliveryInputPolicy.titles(m.titles,true);
         m.title=m.titles.getFirst();
         List<String> targetAssets=new ArrayList<>();
-        if("VIDEO".equals(m.type)){requireKind(tenant,m.videoAssetId,"VIDEO");requireKind(tenant,m.coverAssetId,"IMAGE");targetAssets.addAll(List.of(m.videoAssetId,m.coverAssetId));}
+        if("VIDEO".equals(m.type)){requireKind(tenant,m.videoAssetId,"VIDEO");if(m.coverAssetId==null||m.coverAssetId.isBlank())m.coverAssetId=assets.videoCover(tenant,new UserId(initial.userId),m.videoAssetId);requireKind(tenant,m.coverAssetId,"IMAGE");assets.attachPreview(tenant,m.videoAssetId,m.coverAssetId);targetAssets.addAll(List.of(m.videoAssetId,m.coverAssetId));}
         else if("IMAGE".equals(m.type)){if(m.imageAssetIds.isEmpty())throw new BizException(1503,"请选择图片");for(String a:m.imageAssetIds){requireKind(tenant,a,"IMAGE");CreationPayloadBuilder.cardImage(assets.detail(tenant,a));targetAssets.add(a);}}
         else if("CAROUSEL".equals(m.type)){var b=carousels.detail(tenant,m.carouselId);if(!Set.of("APPROVED","NOT_REQUIRED").contains(b.aiReview().status()))throw new BizException(1503,"图文质检未通过或引擎图文尚未就绪");m.imageAssetIds=b.parts().stream().filter(p->p.role().equals("IMAGE")).map(p->p.asset().id()).toList();m.audioAssetId=b.parts().stream().filter(p->p.role().equals("AUDIO")).findFirst().orElseThrow().asset().id();targetAssets.addAll(b.parts().stream().filter(p->!p.role().equals("TEXT")).map(p->p.asset().id()).toList());}
         else throw new BizException(1503,"不支持的素材类型");
