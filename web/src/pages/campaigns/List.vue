@@ -5,7 +5,6 @@
       <div class="title-actions">
         <div class="statistics-picker">
           <el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" range-separator="至" start-placeholder="统计开始日期" end-placeholder="统计结束日期" :clearable="false" :shortcuts="rangeShortcuts" :disabled-date="disabledStatisticsDate" popper-class="campaign-date-picker" @calendar-change="onRangeCalendar" @visible-change="onRangeVisible" @change="applyStatisticsRange" />
-          <small :title="snapshotDate ? `数据同步时间：${snapshotDate}` : undefined">最多180天 · {{ comparisonCaption }}</small>
         </div>
         <el-button class="square-button" :loading="syncing" aria-label="刷新数据" @click="syncRemote"><el-icon><Refresh /></el-icon></el-button>
       </div>
@@ -13,7 +12,7 @@
     <el-alert v-if="!user.trialActive" class="trial-alert" type="warning" show-icon :closable="false" title="试用已结束，工作台只读。仍可查看历史计划与报表。" />
     <el-alert v-if="loadFailed && records.length" type="warning" :closable="false" title="列表加载失败，当前保留上次加载的数据，请重试" /><el-alert v-if="syncWarning" type="warning" show-icon :closable="false" :title="syncWarning" />
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
-      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2><span class="statistics-caption">{{ displayedRange[0] }} 至 {{ displayedRange[1] }} · {{ rangeDays(displayedRange) }}天 · {{ summaryCoverage }}</span></div>
+      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
       <div class="metrics">
         <article class="metric metric-cost"><span>广告消耗（元）</span><strong>{{ summary?.cost != null ? money(summary.cost) : '—' }}</strong><small>与列表采用相同数据范围</small></article>
         <article class="metric metric-orders"><span>成交订单数（单）</span><strong>{{ summary?.orders != null ? summary.orders.toLocaleString('zh-CN') : '—' }}</strong><small>与列表采用相同数据范围</small></article>
@@ -148,7 +147,7 @@ import { useWizardStore } from '@/stores/wizard';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { BID_TYPE, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
 import { planStatusOptions, planStatusDisplay, type PlanStatusOption } from '@/features/delivery/planStatus';
-import { recentRange, rangeDays, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
+import { recentRange, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
 
 const user = useUserStore();
 const router = useRouter(), route = useRoute(), wizard = useWizardStore();
@@ -183,12 +182,10 @@ type SortField = 'costYuan' | 'gmvYuan' | 'convert' | 'roi';
 const metricColumns: { field: SortField; label: string }[] = [{ field: 'costYuan', label: '广告消耗' }, { field: 'convert', label: '成交订单' }, { field: 'gmvYuan', label: '成交金额' }, { field: 'roi', label: '支付 ROI' }];
 const sortField = ref<SortField | 'name' | ''>(''), sortDescending = ref(true);
 const summary = ref<PageResult<PlanListVo>['summary']>();
-const summaryCoverage = computed(() => summary.value ? `${summary.value.covered}/${summary.value.plans} 个计划有统计数据` : '暂无统计数据');
-const snapshotDate = ref(''), actingId = ref(''), transferringId = ref('');
+const actingId = ref(''), transferringId = ref('');
 const statisticsRange = ref<StatisticsRange>(recentRange(1));
 const rangeDraft = ref<StatisticsRange>([...statisticsRange.value]);
 const displayedRange = ref<StatisticsRange>([...statisticsRange.value]);
-const comparisonCaption = computed(() => rangeDays(displayedRange.value) > 1 ? '较前一个等长区间' : displayedRange.value[1] === shanghaiToday() ? '较昨日全天' : '较前一日全天');
 function deltaProps(row: PlanListVo, metric: 'cost' | 'orders' | 'gmv' | 'roi') {
   const field = { cost: 'costChangePct', orders: 'convertChangePct', gmv: 'gmvChangePct', roi: 'roiChangePct' } as const;
   const comparison = row.comparison;
@@ -297,7 +294,6 @@ async function load(refreshStatistics = false) {
       if (version !== requestVersion) return;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
-      snapshotDate.value = result.summary?.snapshotTs ? new Date(result.summary.snapshotTs).toLocaleString('zh-CN') : '';
     } catch { if (version === requestVersion) loadFailed.value = true; }
     finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
   })();
@@ -404,14 +400,11 @@ onMounted(async () => {
 <style scoped>
 .statistics-picker { display: flex; flex-direction: column; gap: 4px; }
 .statistics-picker :deep(.el-date-editor) { width: 300px; height: 38px; border-radius: 10px; }
-.statistics-picker small { color: #878aa4; font-size: 11px; padding-left: 8px; }
-.statistics-caption { text-align: right; overflow-wrap: anywhere; }
 @media (max-width: 700px) {
   .statistics-picker { flex: 1; min-width: 0; }
   .statistics-picker :deep(.el-date-editor) { width: 100%; min-width: 0; }
   .title-actions { width: 100%; }
   .overview .section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .statistics-caption { text-align: left; }
   :global(.campaign-date-picker) { max-width: calc(100vw - 24px); max-height: 75vh; overflow: auto; }
   :global(.campaign-date-picker .el-date-range-picker) { width: calc(100vw - 24px); min-width: 0; }
   :global(.campaign-date-picker .el-picker-panel__sidebar) { position: static; width: 100%; display: flex; flex-wrap: wrap; }
