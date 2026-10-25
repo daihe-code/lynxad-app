@@ -1,12 +1,16 @@
 <template>
   <div class="campaign-page">
     <Teleport to="#campaign-header-actions" defer>
-      <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end">
-        <el-option label="全部广告账户" value="" />
-        <el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId">
-          <div class="campaign-account-option"><span class="campaign-account-avatar" aria-hidden="true">{{ account.accountName.slice(0, 1) }}</span><span class="campaign-account-details"><strong>{{ account.accountName }}</strong><small>千川ID：{{ account.advertiserId }}</small></span></div>
-        </el-option>
-      </el-select>
+      <el-tooltip content="广告账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom">
+        <span class="campaign-account-trigger">
+          <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end">
+            <el-option label="全部广告账户" value="" />
+            <el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId">
+              <div class="campaign-account-option"><span class="campaign-account-avatar" aria-hidden="true">{{ account.accountName.slice(0, 1) }}</span><span class="campaign-account-details"><strong>{{ account.accountName }}</strong><small>千川ID：{{ account.advertiserId }}</small></span></div>
+            </el-option>
+          </el-select>
+        </span>
+      </el-tooltip>
     </Teleport>
     <div class="title-row">
       <div class="title-group"><h1>广告投放管理</h1><span class="platform-chip">抖音 · 巨量千川</span></div>
@@ -429,12 +433,17 @@ async function exportRows() {
 }
 onMounted(async () => {
   accounts.value = (await listAccounts().catch(() => [])).filter(a => a.platform === 'QIANCHUAN' && a.credentialSource !== 'MOCK');
+  const activeAccounts = accounts.value.filter(a => a.status === 'ACTIVE');
+  accountId.value = (activeAccounts.find(a => a.authorizedByUserId === user.me?.userId) || activeAccounts[0] || accounts.value[0])?.accountId || '';
+  await nextTick();
+  clearTimeout(loadTimer);
   await load();
   if (accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
 });
 </script>
 
 <style scoped>
+.campaign-account-trigger { display: inline-flex; }
 .campaign-account-select { width: 176px; }
 .campaign-account-select :deep(.el-select__wrapper) { min-height: 36px; padding: 6px 10px; border-radius: 8px; background: #f7f7ff; box-shadow: none; font-size: 13px; }
 .campaign-account-select :deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px #575cf6 inset; }

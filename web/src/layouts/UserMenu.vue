@@ -1,4 +1,6 @@
 <template>
+  <el-tooltip content="灵投账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom" :disabled="open">
+    <span class="user-menu-hint">
   <el-popover v-model:visible="open" placement="bottom-end" :width="236" :offset="24" trigger="click" popper-class="lynx-user-popover" :show-arrow="false">
     <template #reference>
       <button ref="trigger" type="button" class="user-menu-trigger" :class="{ 'is-open': open, 'user-menu-trigger--home': appearance === 'home' }" aria-label="用户菜单" aria-haspopup="menu" :aria-expanded="open" aria-controls="user-menu-panel" @keydown="triggerKey">
@@ -13,6 +15,8 @@
       <div class="um__ft"><button type="button" class="um__out" role="menuitem" @click="logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 17 5-5-5-5M20 12H9M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/></svg>退出登录</button></div>
     </section>
   </el-popover>
+    </span>
+  </el-tooltip>
 </template>
 
 <script setup lang="ts">
@@ -55,6 +59,7 @@ function logout() { open.value = false; user.logout(); void router.push('/login'
 </script>
 
 <style scoped>
+.user-menu-hint { display: inline-flex; }
 .user-menu-trigger { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 999px; padding: 4px 12px 4px 4px; font-family: inherit; font-size: 15px; font-weight: 500; line-height: 1; color: #1a1b2e; cursor: pointer; }
 .user-menu-trigger:hover, .user-menu-trigger.is-open { background: #f7f8fe; }
 .user-menu-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border-radius: 50%; color: #fff; background: linear-gradient(135deg,#575cf6,#a165ef); }
