@@ -34,16 +34,17 @@
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
-        <div class="actionbar"><div class="container-page actionbar__inner">
-          <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving" @click="navigate(step - 1)">上一步</button>
-          <button v-if="step < 4" class="btn-next-primary" type="button" :disabled="saving" @click="navigate(step + 1)">下一步</button>
+        <CreationFooter :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+          <template #previous>
+            <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
+            <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
+          </template>
+          <button v-if="step < 4" :class="canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
           <button v-if="!editing && canEdit" class="btn-next-primary" type="button" @click="enterEdit">修改计划</button>
           <button v-if="transferring && !transferPending" class="btn-next-primary" type="button" :disabled="saving || !transferAllowed || bidType === plan.smartBidType || !!budgetError || !!roiError" @click="submitTransfer">{{ saving ? '转投处理中…' : '确认转投' }}</button>
           <button v-else-if="transferring && user.trialActive" class="btn-next-primary" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '核查转投结果' }}</button>
           <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
-          <button v-if="editing" class="btn-cancel" type="button" :disabled="saving" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
-          <router-link v-else class="btn-cancel" to="/campaigns">返回投放列表</router-link>
-        </div></div>
+        </CreationFooter>
       </template>
       <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
     </template>
@@ -69,6 +70,7 @@ import { useUserStore } from '@/stores/user';
 import { planStatusLabel } from '@/utils/labels';
 import { dateText } from './reference/planPresentation';
 import CreationFrame from './reference/CreationFrame.vue';
+import CreationFooter from './create/CreationFooter.vue';
 import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
 import PlanReviewNotice from './components/PlanReviewNotice.vue';
@@ -133,6 +135,12 @@ const account = computed(() => {
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
 const canEdit = computed(() => user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
+const footerHint = computed(() => {
+  if (transferring.value) return transferPending.value ? '转投结果待核查，请核对后继续' : '确认后创建另一投放方式的计划';
+  if (!editing.value || !canEdit.value) return '当前为查看详情';
+  if (!plan.value?.qcPlanId) return '保存修改后更新草稿';
+  return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '保存修改后同步到千川';
+});
 const bidType = computed(() => transferring.value ? transferMode.value : plan.value?.smartBidType || (creation.value?.smartBidType ? `SMART_BID_${creation.value.smartBidType}` : ''));
 const isCost = computed(() => bidType.value === 'SMART_BID_CUSTOM');
 const products = computed<CreationProduct[]>(() => (plan.value?.products || []).map(p => {
@@ -197,6 +205,7 @@ async function reloadMedia() {
   finally { mediaLoading.value=false; }
 }
 function navigate(value: number) { if (!saving.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
+function backToPlans() { if (!saving.value && !materialBusy.value) void router.push('/campaigns'); }
 function enterEdit() { if (plan.value && canEdit.value) void router.push({ path: `/campaigns/${plan.value.planId}/edit`, query: { step: String(step.value) } }); }
 function cancelEdit() { if (!saving.value && plan.value) { resetForm(); void router.replace({ path: `/campaigns/${plan.value.planId}`, query: { step: String(step.value) } }); } }
 function changeTransferMode(value: string) {
@@ -321,12 +330,12 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 </script>
 
 <style scoped>
-.plan-workspace { padding-bottom: 92px; }
+.plan-workspace { padding-bottom: 132px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
 .workspace-plan-settings{padding-top:0}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
-.plan-workspace > .actionbar .actionbar__inner { height: auto; min-height: 75px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; gap: 12px; }
+@media(max-width:767px){.plan-workspace{padding-bottom:220px}}
 </style>
 
 <style scoped>

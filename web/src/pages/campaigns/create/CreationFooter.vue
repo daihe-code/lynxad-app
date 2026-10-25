@@ -4,13 +4,13 @@
       <button class="creation-footer__back" type="button" :disabled="busy" @click="emit('back')"><ReferenceIcon name="arrow-left" />返回计划列表</button>
       <div class="creation-footer__summary">
         <div class="creation-footer__name"><span>计划名称</span><strong :title="planName || undefined">{{ planName || '保存草稿后自动生成' }}</strong></div>
-        <p class="creation-footer__status">计划状态：<span>草稿</span></p>
+        <p class="creation-footer__status">计划状态：<span :class="status.group.toLowerCase()">{{ status.label }}</span></p>
       </div>
       <div class="creation-footer__actions">
-        <p v-if="!publishingStep" class="creation-footer__hint">本步骤不会发布广告</p>
+        <p v-if="footerHint" class="creation-footer__hint">{{ footerHint }}</p>
         <div class="creation-footer__buttons">
           <slot name="previous" />
-          <button class="creation-footer__save" type="button" :disabled="busy || saveDisabled" @click="emit('save')">保存草稿</button>
+          <button v-if="showDraftSave" class="creation-footer__save" type="button" :disabled="busy || saveDisabled" @click="emit('save')">保存草稿</button>
           <slot />
         </div>
       </div>
@@ -18,8 +18,12 @@
   </footer>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue';
+import { planStatusDisplay } from '@/features/delivery/planStatus';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
-defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; publishingStep?: boolean }>();
+const props = withDefaults(defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; publishingStep?: boolean; planStatus?: string; qcStatus?: string | null; showDraftSave?: boolean; hint?: string }>(), { planStatus: 'DRAFT', showDraftSave: true });
+const status = computed(() => planStatusDisplay(props.planStatus, props.qcStatus));
+const footerHint = computed(() => props.hint ?? (props.publishingStep ? '' : '本步骤不会发布广告'));
 const emit = defineEmits<{ back: []; save: [] }>();
 </script>
 <style scoped>
@@ -33,9 +37,12 @@ const emit = defineEmits<{ back: []; save: [] }>();
 .creation-footer__name strong{display:block;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
 .creation-footer__status{display:flex;align-items:center;flex-shrink:0;gap:6px;margin:0;white-space:nowrap}
 .creation-footer__status span{padding:4px 12px;border-radius:20px;background:#eeebff;color:#7a5ee8;font-weight:600}
+.creation-footer__status .delivering{background:#eaf8ee;color:#0ba05f}.creation-footer__status .paused{background:#fff4e9;color:#cc8b19}.creation-footer__status .audit,.creation-footer__status .reaudit,.creation-footer__status .pending_audit{background:#fff8e7;color:#d08a1c}.creation-footer__status .rejected{background:#fff0f0;color:#d54c54}.creation-footer__status .completed,.creation-footer__status .finished,.creation-footer__status .terminated,.creation-footer__status .deleted,.creation-footer__status .unknown{background:#f4f4f8;color:#89899b}
 .creation-footer__actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
 .creation-footer__hint{margin:0;color:#8588a5;font-size:12px;line-height:16px}
-.creation-footer__buttons{display:flex;align-items:center;gap:12px}
+.creation-footer__buttons{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px}
+.creation-footer__hint{text-align:right}
+@media(min-width:768px) and (max-width:1023px){.creation-footer__actions{flex-shrink:1;max-width:55%}}
 .creation-footer__save,.creation-footer__buttons :deep(.btn-prev),.creation-footer__buttons :deep(.btn-next),.creation-footer__buttons :deep(.btn-next-primary){box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;min-width:96px;height:44px;padding:0 18px;border:1px solid #e2e3f1;border-radius:10px;background:#fff;color:#25263c;font:inherit;font-size:14px;font-weight:500;line-height:1;white-space:nowrap;cursor:pointer}
 .creation-footer__buttons :deep(.btn-next),.creation-footer__buttons :deep(.btn-next-primary){min-width:112px;border-color:#575cf6;background:#575cf6;color:#fff;font-weight:600;box-shadow:0 4px 12px #575cf61f}
 .creation-footer__buttons :deep(svg){width:15px;height:15px}
