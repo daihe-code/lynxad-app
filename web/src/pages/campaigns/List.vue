@@ -20,18 +20,18 @@
     <el-alert v-if="!user.trialActive" class="trial-alert" type="warning" show-icon :closable="false" title="试用已结束，工作台只读。仍可查看历史计划与报表。" />
     <el-alert v-if="loadFailed && records.length" type="warning" :closable="false" title="列表加载失败，当前保留上次加载的数据，请重试" /><el-alert v-if="syncWarning" type="warning" show-icon :closable="false" :title="syncWarning" />
     <section class="panel overview" aria-labelledby="overview-title" v-loading="summaryLoading">
-      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2></div>
-      <div class="metrics">
-        <CampaignMetricCard v-for="(column, index) in metricColumns" :key="`${trendVersion}:${column.field}`" :column="column" :value="summary?.[column.key]" :tone="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]!" :range="{ startDate: displayedRange[0], endDate: displayedRange[1] }" :trend="campaignTrend" :loading="trendLoading" :error="trendError" :disabled="loading || metricTemplate !== displayedMetricTemplate" @request-trend="loadCampaignTrend" />
-      </div>
-    </section>
-    <section class="panel plans-panel" aria-labelledby="plans-title">
-      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2>
+      <div class="section-heading"><h2 id="overview-title">广告投放数据概览</h2>
         <el-dropdown trigger="click" placement="bottom-end" popper-class="campaign-template-menu" @command="selectMetricTemplate">
           <el-button class="template-trigger" :loading="metricTemplate !== displayedMetricTemplate && loading" aria-label="切换指标模板"><el-icon><Operation /></el-icon>{{ metricTemplates[displayedMetricTemplate].label }}<el-icon><ArrowDown /></el-icon></el-button>
           <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="(template, key) in metricTemplates" :key="key" :command="key" :class="{ 'is-active': metricTemplate === key }" :aria-current="metricTemplate === key ? 'true' : undefined"><el-icon class="template-check"><Check v-if="metricTemplate === key" /></el-icon><span>{{ template.label }}</span><small class="template-badge">系统模板</small></el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
       </div>
+      <div class="metrics">
+        <CampaignMetricCard v-for="(column, index) in metricColumns" :key="`${trendVersion}:${column.field}`" :column="column" :value="summary?.[column.key]" :tone="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]!" :range="{ startDate: displayedRange[0], endDate: displayedRange[1] }" :trend="campaignTrend" :loading="trendLoading" :error="trendError" :disabled="loading || metricTemplate !== displayedMetricTemplate" @request-trend="loadCampaignTrend" />
+      </div>
+    </section>
+    <section class="panel plans-panel" aria-labelledby="plans-title">
+      <div class="section-heading"><h2 id="plans-title">投放计划列表</h2></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
           <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
