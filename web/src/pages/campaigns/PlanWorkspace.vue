@@ -139,7 +139,7 @@ const footerHint = computed(() => {
   if (transferring.value) return transferPending.value ? '转投结果待核查，请核对后继续' : '确认后创建另一投放方式的计划';
   if (!editing.value || !canEdit.value) return '当前为查看详情';
   if (!plan.value?.qcPlanId) return '保存修改后更新草稿';
-  return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '保存修改后同步到千川';
+  return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '';
 });
 const bidType = computed(() => transferring.value ? transferMode.value : plan.value?.smartBidType || (creation.value?.smartBidType ? `SMART_BID_${creation.value.smartBidType}` : ''));
 const isCost = computed(() => bidType.value === 'SMART_BID_CUSTOM');
