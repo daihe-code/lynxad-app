@@ -109,7 +109,7 @@
                 <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
-            <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 10 : 9" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p><el-button v-if="keyword || status || deliveryPlatform || bidType || createdWithin" text type="primary" @click="resetFilters">清除筛选</el-button></td></tr>
+            <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 10 : 9" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p></td></tr>
           </tbody>
         </table>
       </div>
@@ -300,7 +300,6 @@ function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => 
 watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
 onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; trendSerial++; });
-function resetFilters() { keyword.value = ''; status.value = ''; deliveryPlatform.value = ''; bidType.value = ''; createdWithin.value = null; accountId.value = ''; }
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function remainingDays(date: string) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
