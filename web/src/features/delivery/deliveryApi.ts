@@ -145,7 +145,7 @@ export function getCampaignTrend(filters: PlanFilters) {
 export function syncPlans(accountId?: string) {
   return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000 });
 }
-export function syncPlanDetail(id: string) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000 }); }
+export function syncPlanDetail(id: string, quiet = false) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000, ...(quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}) }); }
 export function refreshPlanAudit(id:string){return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/audit-refresh`,undefined,{timeout:60000,headers:{'X-Quiet-Request':'true'}});}
 export function updatePlanSettings(id: string, body: { name?: string; budget?: number; roi2Goal?: number; scheduleType?: 'FROM_NOW' | 'DATE_RANGE'; endDate?: string; expectedVersion: string }) {
   return apiPut<PlanVo>(`/api/v1/delivery/plans/${id}/settings`, body, { timeout: 60000,headers:{'X-Quiet-Request':'true'} });

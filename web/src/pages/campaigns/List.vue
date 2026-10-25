@@ -108,7 +108,7 @@
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
                   <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
-                  <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '启用' }}</button>
+                  <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
                 </template>
                 <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
@@ -120,16 +120,13 @@
       <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
     <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" @saved="load" />
-    <el-dialog v-model="confirmOpen" :title="confirmPlan?.status === 'DELIVERING' ? '暂停计划提醒' : '启用投放计划'" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!actingId" :show-close="!actingId" :before-close="closeConfirmation">
-      <div class="confirmation-intro"><span class="confirmation-icon" :class="{ resume: confirmPlan?.status === 'PAUSED' }"><el-icon><component :is="confirmPlan?.status === 'DELIVERING' ? VideoPause : VideoPlay" /></el-icon></span><div><strong>{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停该计划？' : '确认恢复该计划的投放？' }}</strong><p>{{ confirmPlan?.status === 'DELIVERING' ? '暂停后计划将停止投放，可在列表中重新启用。' : '启用后计划将恢复投放；如有关联的转投计划，会先暂停另一种投放方式。请确认当前预算和目标。' }}</p></div></div>
+    <el-dialog v-if="confirmPlan?.status === 'DELIVERING'" v-model="confirmOpen" title="暂停计划提醒" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!actingId" :show-close="!actingId" :before-close="closeConfirmation">
+      <div class="confirmation-intro"><span class="confirmation-icon"><el-icon><VideoPause /></el-icon></span><div><strong>确认暂停该计划？</strong><p>暂停后计划将停止投放，可在列表中恢复投放。</p></div></div>
       <div class="confirmation-plan"><strong>{{ confirmPlan?.name }}</strong><span>ID：{{ confirmPlan?.qcPlanId || confirmPlan?.planId }}</span><div><span>每日预算 <b>{{ yuan(confirmPlan?.budget) }}</b></span><span>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? '预估净成交ROI' : 'ROI 目标' }} <b>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? estimateText(confirmPlan?.roiEstimate) : roiText(confirmPlan?.roi2Goal) }}</b></span></div></div>
-      <template #footer><el-button :disabled="!!actingId" @click="confirmOpen = false">取消</el-button><el-button type="primary" :loading="!!actingId" @click="confirmAction">{{ confirmPlan?.status === 'DELIVERING' ? '确认暂停' : '确认启用' }}</el-button></template>
+      <template #footer><el-button :disabled="!!actingId" @click="confirmOpen = false">取消</el-button><el-button type="primary" :loading="!!actingId" @click="confirmAction">确认暂停</el-button></template>
     </el-dialog>
-    <el-dialog v-model="deleteOpen" title="删除投放计划" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!deletingId" :show-close="!deletingId" :before-close="closeDeleteConfirmation">
-      <div class="confirmation-intro"><span class="confirmation-icon delete-icon"><el-icon><Delete /></el-icon></span><div><strong>确认删除该计划？</strong><p>{{ deleteTarget?.qcPlanId ? '计划将从千川和当前列表中删除，删除后无法恢复。' : '该草稿将从列表中删除，删除后无法恢复。' }}仅删除当前计划，关联的转投计划和共用素材会保留。</p></div></div>
-      <div class="confirmation-plan"><strong>{{ deleteTarget?.name }}</strong><span>ID：{{ deleteTarget?.qcPlanId || deleteTarget?.planId }}</span><div><span>{{ BID_TYPE[deleteTarget?.smartBidType || ''] || '未设置投放方式' }}</span><span>{{ planStatusLabel(deleteTarget?.status || '') }}</span></div></div>
-      <template #footer><el-button :disabled="!!deletingId" @click="deleteOpen = false">取消</el-button><el-button type="danger" :loading="!!deletingId" @click="confirmDelete">确认删除</el-button></template>
-    </el-dialog>
+    <CampaignPlanActionDialog v-else v-model="confirmOpen" :plan="confirmPlan" action="restore" :busy="!!actingId" :blocked-reason="restoreBlockedReason" @confirm="confirmAction" />
+    <CampaignPlanActionDialog v-model="deleteOpen" :plan="deleteTarget" action="delete" :busy="!!deletingId" @confirm="confirmDelete" />
     <ControlTaskReport v-model="quickReportOpen" :plan-id="quickReportPlan?.planId || ''" :plan-name="quickReportPlan?.name" :task="quickReportTask" :tasks="quickReportTasks" :tasks-loading="quickReportLoading" :tasks-error="quickReportError" :kind="quickReportKind" :initial-range="quickReportRange" @select-task="selectQuickReportTask" @reload-tasks="loadQuickReportTasks" />
     <el-drawer :model-value="!!insightsPlanId" :with-header="false" size="min(1180px, 80vw)" class="plan-insights-drawer" destroy-on-close @update:model-value="onInsightsVisible">
       <button type="button" class="insights-close" aria-label="关闭计划运营面板" @click="closeInsights">×</button>
@@ -142,14 +139,16 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, Calendar, Check, DataAnalysis, Delete, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause, VideoPlay } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
+import CampaignPlanActionDialog from './components/CampaignPlanActionDialog.vue';
 import MetricDelta from './components/MetricDelta.vue';
 import CampaignMetricCard from './components/CampaignMetricCard.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
 import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey, type MetricField } from '@/features/delivery/campaignMetricTemplates';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
@@ -273,6 +272,7 @@ watch(quickReportOpen, value => { if (!value) { quickReportSerial++; quickReport
 onUnmounted(() => { quickReportSerial++; });
 const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<PlanListVo | null>(null);
 const confirmOpen = ref(false), confirmPlan = ref<PlanListVo | null>(null);
+const restoreBlockedReason = computed(() => confirmPlan.value ? restoreUnavailableReason(confirmPlan.value, shanghaiToday()) : '');
 const deleteOpen = ref(false), deleteTarget = ref<PlanListVo | null>(null), deletingId = ref('');
 const platformOptions = [{ value: 'ALL', label: '商品全域投放' }, { value: 'STANDARD', label: '标准投放' }];
 const bidOptions = [{ value: 'SMART_BID_CONSERVATIVE', label: '放量投放' }, { value: 'SMART_BID_CUSTOM', label: '控成本投放' }];
@@ -357,10 +357,25 @@ function onAct(row: PlanListVo) {
 function closeConfirmation(done: () => void) { if (!actingId.value) done(); }
 async function confirmAction() {
   const row = confirmPlan.value;
-  if (!row || actingId.value || !canManage(row)) return;
-  const label = row.status === 'DELIVERING' ? '暂停' : '启用';
+  if (!row || actingId.value || !canManage(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
+  const restoring = row.status === 'PAUSED';
+  if (restoring) {
+    const reason = restoreUnavailableReason(row, shanghaiToday());
+    if (reason) { ElMessage.warning(reason); return; }
+  }
   actingId.value = row.planId;
-  try { await actPlan(row.planId, row.status === 'DELIVERING' ? 'DISABLE' : 'ENABLE'); confirmOpen.value = false; ElMessage.success(`计划已${label}`); await load(); }
+  try {
+    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE');
+    confirmOpen.value = false;
+    if (restoring) {
+      try {
+        const latest = await syncPlanDetail(row.planId, true);
+        const feedback = restoreResultFeedback(latest);
+        ElMessage({ type: feedback.type, message: feedback.message });
+      } catch { ElMessage.warning('恢复指令已提交，暂未获取千川最新状态，请刷新核查。'); }
+    } else ElMessage.success('计划已暂停');
+    await load();
+  }
   catch { /* API interceptor displays the error. */ }
   finally { actingId.value = ''; }
 }
@@ -368,7 +383,6 @@ function onDelete(row: PlanListVo) {
   if (deletingId.value || actingId.value || transferringId.value || !canDelete(row)) return;
   deleteTarget.value = row; deleteOpen.value = true;
 }
-function closeDeleteConfirmation(done: () => void) { if (!deletingId.value) done(); }
 async function confirmDelete() {
   const row = deleteTarget.value;
   if (!row || deletingId.value || !canDelete(row)) return;
