@@ -1,5 +1,5 @@
 <template>
-  <div ref="container" class="asset-thumbnail" :data-state="ready ? 'ready' : failed ? 'error' : 'loading'">
+  <div ref="container" class="asset-thumbnail" :style="{ '--asset-thumbnail-fit': fit }" :data-state="ready ? 'ready' : failed ? 'error' : 'loading'">
     <img v-if="imageUrl && !imageFailed" :key="imageUrl" :src="imageUrl" :alt="item.filename" loading="lazy" @load="ready = true; attempts = 0" @error="imageFailed = true; ready = false" />
     <video v-else-if="item.type === 'VIDEO' && urls.playUrl && visible && !videoFailed"
       ref="video" :key="urls.playUrl" :src="assetUrl(urls.playUrl)" :class="{ 'is-ready': ready }"
@@ -16,7 +16,7 @@ import AssetIcon from './AssetIcon.vue';
 import { assetUrl } from './assetFormat';
 import { assetPreview, previewNeedsRefresh, resolveAssetPreview } from '@/features/creative/assetPreviews';
 
-const props = defineProps<{ item: LibraryItemVo }>();
+const props = withDefaults(defineProps<{ item: LibraryItemVo; fit?: 'cover' | 'contain' }>(), { fit: 'cover' });
 const container = ref<HTMLElement>();
 const video = ref<HTMLVideoElement>();
 const visible = ref(false);
@@ -83,7 +83,7 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .asset-thumbnail { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
-.asset-thumbnail img, .asset-thumbnail video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.asset-thumbnail img, .asset-thumbnail video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: var(--asset-thumbnail-fit, cover); }
 .asset-thumbnail video { opacity: 0; }
 .asset-thumbnail video.is-ready { opacity: 1; }
 .asset-placeholder { width: 44px; height: 44px; color: #7c7f99; }
