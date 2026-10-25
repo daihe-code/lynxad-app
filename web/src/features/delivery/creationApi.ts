@@ -91,6 +91,7 @@ export interface CreationState {
   basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number;
   recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
+  generationSelection?: string[] | null;
   regenerationRetryAt?: number;
   materialEdit?: { status: string; message: string } | null;
   generationStage?: string;

@@ -55,6 +55,8 @@ public class CreationState {
         public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
     }
     public List<String> generationProductIds = new ArrayList<>();
+    /** Null means undecided; an empty list records the explicit choice to use existing/uploaded materials. */
+    public List<String> generationSelection;
     public String pendingAdditionId;
     public List<GenerationAddition> generationAdditions = new ArrayList<>();
     public static class GenerationAddition {

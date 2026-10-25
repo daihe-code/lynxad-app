@@ -32,6 +32,14 @@ class CreationStoreTest {
         assertTrue(store.productMedia("t","other","product").isEmpty());assertTrue(store.productMedia("other","account","product").isEmpty());assertTrue(store.productMedia("t","account","unlinked").isEmpty());
     }
     CreationState state(String id){var s=new CreationState();s.planId=id;s.tenantId="t";store.insert(s);return s;}
+    @Test void generationChoiceAndCurrentPagePersistWithoutSchedulingAnEngineJob() {
+        state("no-generation");
+        store.mutate("t","no-generation",1,s->{s.step=3;s.generationSelection=List.of();s.revision++;});
+        var reloaded=store.get("t","no-generation");
+        assertEquals(3,reloaded.step);assertEquals(List.of(),reloaded.generationSelection);
+        assertEquals("NONE",reloaded.generationStatus);assertEquals(2,reloaded.revision);
+        assertEquals(0,jdbc.queryForObject("SELECT work_pending FROM delivery_creation WHERE plan_id='no-generation'",Integer.class));
+    }
     @Test void rowLockAllowsOneEditorAndRollsBackInvalidMutation() throws Exception {
         state("one");var executor=Executors.newFixedThreadPool(2);var gate=new CountDownLatch(1);
         Callable<Boolean> write=()->{gate.await();try{store.mutate("t","one",1,s->s.changed());return true;}catch(BizException e){assertEquals(1404,e.code());return false;}};

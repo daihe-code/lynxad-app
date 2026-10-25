@@ -9,7 +9,7 @@
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
     <CreateProductsStep :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :accounts="accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
+    <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :accounts="accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在提交当前投放方案，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED' && state.publishRecovery === 'REFRESH_ESTIMATE'" class="btn-brand" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
     <RequestFailureNotice :failure="initialFailure" :busy="initializing" @retry="initialize" />
@@ -48,6 +48,7 @@ import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const props = defineProps<{ initialPlanId?: string; initialStep?: number }>();
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
+const resumingMaterials = ref(false);
 const catalogLoading = ref(false);
 const initialFailure = ref<ApiRequestError>(), productFailure = ref<ApiRequestError>(), operationFailure = ref<ApiRequestError>(), pollFailure = ref<ApiRequestError>();
 const initializing = ref(false), recovering = ref(false), polling = ref(false);
@@ -207,7 +208,7 @@ async function chooseAccount(key: string) {
   autosave.suspend(); clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++;
   operationFailure.value = undefined; pollFailure.value = undefined; pollFailures = 0;
   if (state.value) ElMessage.info('原账户草稿已保留，切换账户将新建草稿');
-  state.value = undefined; selected.value = []; fillDraft(serverDraftInputs(undefined,today())); accountKey.value = key;
+  resumingMaterials.value = false; state.value = undefined; selected.value = []; fillDraft(serverDraftInputs(undefined,today())); accountKey.value = key;
   await router.replace({ path: '/campaigns/create', query: { account: key } }); if (disposed) return; await loadProducts(); await autosave.activate();
 }
 async function ensureSelection() {
@@ -216,6 +217,7 @@ async function ensureSelection() {
   const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
   if (fresh) autosave.suspend();
   state.value = saved;
+  if (fresh || selectionChanged) resumingMaterials.value = false;
   if(selectionChanged){budget.value='';restoreRoi('');reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
   if (fresh) { await autosave.activate(true); }
@@ -375,6 +377,7 @@ async function initialize() {
     if (id) {
       state.value = await api.creationGet(id); if (disposed) return;
       const s = state.value;
+      resumingMaterials.value = s.step === 3;
       accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
       const restoredStep = Math.min(s.step, Math.max(1, Math.min(4, props.initialStep ?? s.step)));
       step.value = restoredStep < 4 && !analysisReady.value ? 1 : restoredStep;

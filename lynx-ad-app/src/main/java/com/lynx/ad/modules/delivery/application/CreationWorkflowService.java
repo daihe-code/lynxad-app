@@ -222,7 +222,7 @@ public class CreationWorkflowService {
                 }
                 if(!previous.equals(next)) {
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.enginePlanId=null;s.engineJobId=null;s.groups=null;s.recommendations=null;
-                    s.generationStatus="NONE";s.generationRetry=null;s.progress=0;s.generationStage=null;s.generationCounts.clear();s.generationIssues.clear();s.materials.clear();s.titlePools.clear();s.removedMaterialIds.clear();s.budget=null;s.roi2Goal=null;s.mediaChanged();s.step=1;
+                    s.generationStatus="NONE";s.generationSelection=null;s.generationProductIds.clear();s.generationRetry=null;s.progress=0;s.generationStage=null;s.generationCounts.clear();s.generationIssues.clear();s.materials.clear();s.titlePools.clear();s.removedMaterialIds.clear();s.budget=null;s.roi2Goal=null;s.mediaChanged();s.step=1;
                 }
                 s.products=new ArrayList<>(selected);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
                 var p=plan(s);p.replaceProducts(request.productIds.stream().map(QcProductId::new).toList());plans.save(p);bindProducts(p);
@@ -306,11 +306,13 @@ public class CreationWorkflowService {
     public CreationState generate(TenantId tenant,String requestedId,Generate g) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
-        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
+        if(authorizationCapabilities!=null && g.productIds!=null && !g.productIds.isEmpty())authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         return store.mutate(tenant.value(),id,g.revision,s->{
             editable(s);CreationPayloadBuilder.settings(s);
             requireBasicAnalysis(s);
-            if(g.productIds==null||g.productIds.isEmpty()||!ids(s).containsAll(g.productIds))throw new BizException(1503,"请选择当前计划中的商品生成素材");
+            if(g.productIds==null||!ids(s).containsAll(g.productIds))throw new BizException(1503,"请选择当前计划中的商品生成素材");
+            s.generationSelection=new ArrayList<>(new LinkedHashSet<>(g.productIds));
+            if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
             s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
             s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
         });

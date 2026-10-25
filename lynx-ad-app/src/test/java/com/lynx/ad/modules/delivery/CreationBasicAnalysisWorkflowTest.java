@@ -61,6 +61,29 @@ class CreationBasicAnalysisWorkflowTest {
     CreationWorkflowService.Goal goal() { return new CreationWorkflowService.Goal(saved.get().revision,"已填写目标","CUSTOM",new BigDecimal("600"),new BigDecimal("2.25"),"FROM_NOW",null,null); }
     void queueAnalysis() { service.analyze(tenant,id,new CreationWorkflowService.Analysis(saved.get().revision,false)); }
 
+    @Test void noGenerationChoiceSurvivesReloadWithoutStartingEngineOrInvalidatingMaterials() throws Exception {
+        saved.get().step=3;saved.get().confirmedVersion=saved.get().packageVersion;
+        var result=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of()));
+        var reloaded=json.readValue(json.writeValueAsString(result),CreationState.class);
+        assertEquals(List.of(),CreationView.of(reloaded).generationSelection());
+        assertEquals("NONE",reloaded.generationStatus);assertEquals(3,reloaded.step);
+        assertEquals(2,reloaded.revision);assertEquals(1,reloaded.packageVersion);assertEquals(1,reloaded.confirmedVersion);
+        verifyNoInteractions(engine);
+    }
+
+    @Test void generationChoiceRetainsSelectedProductsAndStillQueuesOnlyThoseProducts() {
+        var result=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123")));
+        assertEquals(List.of("123"),result.generationSelection);
+        assertEquals(List.of("123"),result.generationProductIds);assertEquals("QUEUED",result.generationStatus);
+        assertEquals(List.of("123"),CreationView.of(copy(result)).generationSelection());
+    }
+
+    @Test void invalidGenerationChoiceCannotBeSaved() {
+        assertThrows(BizException.class,()->service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("unknown"))));
+        assertNull(saved.get().generationSelection);assertEquals("NONE",saved.get().generationStatus);
+        assertThrows(BizException.class,()->service.generate(tenant,id,new CreationWorkflowService.Generate(1,null)));
+    }
+
     @ParameterizedTest @ValueSource(strings={"QUEUED","RUNNING","FAILED","NONE"})
     void goalEditingDoesNotRequireEngineAvailabilityOrAiSuccess(String aiStatus) {
         saved.get().analysisStatus=aiStatus;saved.get().enginePlanId=null;

@@ -59,7 +59,7 @@
       </template>
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || busy || running" /><p class="plan__hint">自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。</p></div></div></div></section></div></main>
     <CreationFooter v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" publishing-step @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy || running" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">发布投放</button></CreationFooter>
-    <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="generationOpen = false">
+    <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="deferGeneration">
       <p class="generation-intro">我会为勾选的商品生成投放素材。已有素材、无需生成的商品，可取消勾选。</p>
       <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
         <button v-for="p in state.products" :key="p.qcProductId" class="generation-product" type="button" role="checkbox" :aria-checked="generationIds.includes(p.qcProductId)" :disabled="busy || generationSubmitting" @click="toggleGeneration(p.qcProductId)">
@@ -69,7 +69,7 @@
         </button>
       </div>
       <p class="generation-help">未勾选的商品仍保留在投放计划中，需从素材库补充素材。<br />所有商品配齐素材后，才能发布投放。</p>
-      <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : '为所选商品生成素材' }}</button></template>
+      <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
     </ReferenceModal>
     <AddMaterialDialog v-if="!readOnly && addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" />
   </div>
@@ -90,7 +90,8 @@ import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel, generationResultLabel, processingSummary, componentLabel, processingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
-const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; draftSaveDisabled?: boolean }>();
+import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
+const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; draftSaveDisabled?: boolean }>();
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });
@@ -160,7 +161,7 @@ const visibilityLocked = computed(() => props.readOnly || props.busy || running.
 function selectVisibility(hideInAweme: boolean) {
   if (!visibilityLocked.value && props.state.hideInAweme !== hideInAweme) emit('visibility', hideInAweme);
 }
-const generationOpen = ref(!props.readOnly && props.state.generationStatus === 'NONE'), generationIds = ref(props.state.products.map(p => p.qcProductId));
+const generationOpen = ref(!props.readOnly && shouldPromptGeneration(props.state, props.resumingMaterials)), generationIds = ref(selectedGenerationProducts(props.state));
 const generationSubmitting = ref(false), brokenGenerationImages = ref<Record<string, boolean>>({});
 const generationProgress = ref<InstanceType<typeof MaterialGenerationProgress>>();
 watch(batchRunning, async generating => {
@@ -170,7 +171,7 @@ watch(batchRunning, async generating => {
 });
 function openGeneration() {
   if (props.readOnly || props.busy || running.value) return;
-  generationIds.value = props.state.products.map(p => p.qcProductId);
+  generationIds.value = selectedGenerationProducts(props.state);
   generationOpen.value = true;
 }
 function toggleGeneration(id: string) {
@@ -180,11 +181,20 @@ function toggleGeneration(id: string) {
 function submitGeneration() {
   if (props.readOnly || props.busy || generationSubmitting.value || running.value) return;
   generationOpen.value = false;
-  if (!generationIds.value.length) return;
   generationSubmitting.value = true;
   emit('generate', [...generationIds.value]);
 }
-watch(() => props.busy, busy => { if (!busy) generationSubmitting.value = false; });
+function deferGeneration() {
+  if (hasGenerationDecision(props.state)) { generationOpen.value = false; return; }
+  generationIds.value = [];
+  submitGeneration();
+}
+watch(() => props.busy, busy => {
+  if (!busy && generationSubmitting.value) {
+    generationSubmitting.value = false;
+    if (!hasGenerationDecision(props.state)) generationOpen.value = true;
+  }
+});
 watch(() => props.state.generationStatus, status => {
   if (['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(status)) {
     generationOpen.value = false;
