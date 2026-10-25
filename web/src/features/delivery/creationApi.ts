@@ -84,6 +84,7 @@ export interface CreationState {
   publishRecovery?: 'REFRESH_ESTIMATE';
   titlePools?: Record<string,{customTitles:string[];cardTitles:string[]}>;
   planId: string; accountId: string; awemeId: string; name: string; revision: number; step: number;
+  reachedStep?: number;
   packageVersion: number; confirmedVersion?: number; smartBidType: 'CUSTOM' | 'CONSERVATIVE';
   budget?: number; roi2Goal?: number; scheduleType: string; startDate?: string; endDate?: string; hideInAweme: boolean;
   products: CreationProduct[]; analysisStatus: string; analysisError?: string;

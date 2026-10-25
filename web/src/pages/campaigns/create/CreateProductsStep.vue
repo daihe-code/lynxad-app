@@ -15,7 +15,7 @@
         <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly" @change="emit('account', $event)" />
       </div>
     </section>
-    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
+    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i > 0 && i + 1 <= (reachedStep ?? 1) }" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
     </template><main class="ad-main"><div class="container-page">
       <section v-if="!analysisOpen" class="panel" aria-labelledby="panel-goods">
         <div class="panel__pad">
@@ -103,7 +103,7 @@ import ProductPrice from '@/components/ProductPrice.vue';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {

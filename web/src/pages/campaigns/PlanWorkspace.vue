@@ -25,7 +25,7 @@
 
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
-        <CreationFrame :step="step" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
+        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
@@ -64,6 +64,7 @@ import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
 import { awemeLabels } from '@/features/identity/awemeLabels';
+import { creationReachedStep, validReachedStep } from '@/features/delivery/creationProgress';
 import { publishedSchedule, publishedScheduleError } from '@/features/delivery/publishedSchedule';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { useUserStore } from '@/stores/user';
@@ -153,6 +154,12 @@ const changedBudget = computed(() => plan.value != null && Number(budget.value) 
 const changedRoi = computed(() => isCost.value && plan.value != null && Number(roi.value) !== plan.value.roi2Goal);
 const changedSchedule = computed(() => !!plan.value && (duration.value !== publishedSchedule(plan.value).duration || duration.value === 'custom' && end.value !== (plan.value.endDate || '')));
 const dateError = computed(() => editing.value && !transferring.value && changedSchedule.value ? publishedScheduleError(duration.value,start.value,end.value) : '');
+const reachedStep = computed(() => {
+  const reached = plan.value?.qcPlanId ? 4 : creationReachedStep(creation.value,step.value);
+  if (!editing.value) return reached;
+  const valid = validReachedStep(reached,false,changedBudget.value || changedRoi.value || changedSchedule.value || transferring.value && bidType.value !== plan.value?.smartBidType);
+  return materialBusy.value || materialPending.value || name.value.trim() !== plan.value?.name ? Math.min(valid,3) : valid;
+});
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value || changedSchedule.value));
 const nameError = computed(() => !transferring.value && editing.value && name.value.trim() !== plan.value?.name ? planNameError(name.value) : '');
 const inputProfile = computed(() => transferring.value || draftEditor.value ? 'creation' : 'update');

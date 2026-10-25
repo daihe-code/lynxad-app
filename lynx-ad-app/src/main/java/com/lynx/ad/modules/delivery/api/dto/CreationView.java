@@ -23,7 +23,7 @@ public record CreationView(
         String qcPlanId, String publishError, List<AdditionView> generationAdditions,
         ProductBasicAnalysis basicAnalysis, long analysisStartedAt, String generationResultStatus, long regenerationRetryAt,
         java.util.Map<String,TitlePoolView> titlePools,String publishRecovery,String groupingDecision,MaterialEditView materialEdit,
-        List<String> generationSelection) {
+        List<String> generationSelection,int reachedStep) {
 
     public static CreationView of(CreationState s) {
         var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
@@ -38,7 +38,7 @@ public record CreationView(
                 s.publishStatus, s.publishKey, s.qcPlanId, s.publishError,
                 s.generationAdditions.stream().map(AdditionView::of).toList(),
                 ProductBasicAnalysisService.analyze(s.products), s.analysisStartedAt, MaterialProcessing.generationResult(s),s.regenerationRetryAt,s.titlePools.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(java.util.Map.Entry::getKey,e->new TitlePoolView(List.copyOf(e.getValue().customTitles),List.copyOf(e.getValue().cardTitles)))),s.publishRecovery,s.groupingDecision,s.materialEdit==null?null:new MaterialEditView(s.materialEdit.status,s.materialEdit.message),
-                s.generationSelection==null?null:List.copyOf(s.generationSelection));
+                s.generationSelection==null?null:List.copyOf(s.generationSelection),s.reachedStep());
     }
     public record MaterialEditView(String status,String message) {}
     public record TitlePoolView(List<String> customTitles,List<String> cardTitles) {}

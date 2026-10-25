@@ -45,6 +45,7 @@ class CreationDraftStepTest {
         var saved=service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,step));
         var reloaded=json.readValue(json.writeValueAsString(saved),CreationState.class);
         assertEquals(step,CreationView.of(reloaded).step());
+        assertEquals(3,CreationView.of(reloaded).reachedStep());
         assertEquals(8,reloaded.revision);assertEquals(3,reloaded.packageVersion);assertEquals(3,reloaded.confirmedVersion);
         assertEquals("material",reloaded.materials.getFirst().id);assertEquals("READY",reloaded.materials.getFirst().status);
     }
@@ -52,6 +53,25 @@ class CreationDraftStepTest {
     @Test void savingCurrentPageIsIdempotent() {
         service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,3));
         assertEquals(7,state.revision);assertEquals(3,state.confirmedVersion);
+    }
+
+    @Test void visitedGoalRemainsLitAfterReturningToProductsAndReloading() throws Exception {
+        state.step=2;state.reachedStep=2;state.budget=null;state.materials.clear();
+        var saved=service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,1));
+        var reloaded=json.readValue(json.writeValueAsString(saved),CreationState.class);
+        assertEquals(1,reloaded.step);assertEquals(2,CreationView.of(reloaded).reachedStep());
+    }
+
+    @Test void revisitingMaterialsAfterGoalEditConfirmsProgressEvenIfPageAlreadyMatches() {
+        state.reachedStep=2;
+        service.step(new TenantId("tenant"),"plan",new CreationWorkflowService.Step(7,3));
+        assertEquals(3,state.reachedStep());assertEquals(8,state.revision);
+        assertEquals(3,state.packageVersion);assertEquals(3,state.confirmedVersion);
+    }
+
+    @Test void legacyPublishedPlanKeepsAllStepsLitEvenWhenViewingProducts() {
+        state.step=1;state.qcPlanId="123";
+        assertEquals(4,CreationView.of(state).reachedStep());
     }
 
     @ParameterizedTest @ValueSource(ints={0,4,-1})

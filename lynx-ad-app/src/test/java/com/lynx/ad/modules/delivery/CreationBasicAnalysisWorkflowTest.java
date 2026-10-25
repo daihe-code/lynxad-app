@@ -84,6 +84,22 @@ class CreationBasicAnalysisWorkflowTest {
         assertThrows(BizException.class,()->service.generate(tenant,id,new CreationWorkflowService.Generate(1,null)));
     }
 
+    @Test void changedGoalInvalidatesLaterProgressUntilMaterialsAreRevisited() {
+        saved.get().step=2;saved.get().reachedStep=3;
+        var updated=service.goal(tenant,id,goal());
+        assertEquals(2,CreationView.of(updated).reachedStep());
+        service.step(tenant,id,new CreationWorkflowService.Step(updated.revision,2));
+        assertEquals(2,CreationView.of(saved.get()).reachedStep());
+        service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,3));
+        assertEquals(3,CreationView.of(saved.get()).reachedStep());
+    }
+
+    @Test void renamingOrReformattingTheSameGoalDoesNotInvalidateLaterProgress() {
+        saved.get().step=2;saved.get().reachedStep=3;
+        var updated=service.goal(tenant,id,new CreationWorkflowService.Goal(1,"仅修改计划名称","CUSTOM",new BigDecimal("300.00"),new BigDecimal("1.500"),"FROM_NOW",null,null));
+        assertEquals(3,CreationView.of(updated).reachedStep());
+    }
+
     @ParameterizedTest @ValueSource(strings={"QUEUED","RUNNING","FAILED","NONE"})
     void goalEditingDoesNotRequireEngineAvailabilityOrAiSuccess(String aiStatus) {
         saved.get().analysisStatus=aiStatus;saved.get().enginePlanId=null;
@@ -118,14 +134,23 @@ class CreationBasicAnalysisWorkflowTest {
         verifyNoInteractions(engine);
     }
     @Test void changedProductFactsInvalidateThePreviousCombinationConfirmation() {
-        saved.get().groupingDecision="KEEP_CURRENT";
+        saved.get().groupingDecision="KEEP_CURRENT";saved.get().reachedStep=3;
         var product=saved.get().products.getFirst();
         var changed=new CreationState.Product(product.productId(),product.qcProductId(),product.name(),new BigDecimal("600"),
                 product.userPrice(),product.imageUrl(),product.category(),product.stock(),product.tags(),product.unavailableReasons());
         when(qc.refreshPrices(eq(tenant),eq("account"),eq("aweme"),anyList())).thenReturn(List.of(changed));
         queueAnalysis();
         assertNull(saved.get().groupingDecision);assertEquals("QUEUED",saved.get().analysisStatus);
+        assertEquals(1,saved.get().reachedStep());
         verifyNoInteractions(engine);
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void selectionProgressIsResetOnlyWhenProductsReallyChange(boolean changed) {
+        saved.get().reachedStep=3;
+        var selected=changed?ProductBasicAnalysisTest.valid("456"):saved.get().products.getFirst();
+        when(qc.selected(eq(tenant),eq("account"),eq("aweme"),anyList())).thenReturn(List.of(selected));
+        var updated=service.select(tenant,new CreationWorkflowService.Selection(id,1,"account","aweme",List.of(selected.qcProductId())));
+        assertEquals(changed?1:3,updated.reachedStep());
     }
     @ParameterizedTest @ValueSource(strings={"ValueError","TimeoutError","ModelRequestError"})
     void modelFallbackIsFailedEvenWhenTheEngineRequestReturnedSuccessfully(String error) {

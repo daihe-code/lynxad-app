@@ -218,6 +218,7 @@ public class CreationWorkflowService {
                 editable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
                 var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
                 if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
+                    s.reachedStep=1;
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
                 }
                 if(!previous.equals(next)) {
@@ -241,7 +242,7 @@ public class CreationWorkflowService {
             editable(s);
             boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
             s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
-            if(changed){s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(changed){s.reachedStep=1;s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
             if(!s.basicAnalysis.canContinue())return;
             if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
             s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;
@@ -271,9 +272,11 @@ public class CreationWorkflowService {
         return store.mutate(tenant.value(),id,g.revision,s->{
             editable(s);requireBasicAnalysis(s);
             if(g.smartBidType==null||!Set.of("CUSTOM","CONSERVATIVE","SMART_BID_CUSTOM","SMART_BID_CONSERVATIVE").contains(g.smartBidType))throw new BizException(1402,"请选择有效的投放方式");
+            var previousGoal=goalProgressKey(s);int previousReached=s.reachedStep();
             s.name=DeliveryInputPolicy.text(g.name);s.smartBidType=SmartBidType.fromOcean(g.smartBidType).name();s.budget=g.budget;
             s.roi2Goal="CUSTOM".equals(s.smartBidType)?g.roi2Goal:null;s.scheduleType=g.scheduleType;s.startDate=g.startDate;s.endDate=g.endDate;
             CreationPayloadBuilder.settings(s);
+            s.reachedStep=previousGoal.equals(goalProgressKey(s))?previousReached:Math.min(previousReached,2);
             var p=plan(s);var name=new PlanName(s.name);
             if(plans.existsUnfinishedName(tenant,p.awemeId(),name,Optional.of(p.id())))throw new BizException(1402,"同一抖音号已有同名计划，请修改计划名称");
             p.rename(name);p.updateSetting(new DeliverySetting(SmartBidType.fromOcean(s.smartBidType),Money.ofYuan(s.budget),Optional.ofNullable(s.roi2Goal).map(RoiGoal::new),
@@ -291,7 +294,8 @@ public class CreationWorkflowService {
             if(request.step==2 && s.step==1)confirmAnalysisSnapshot(s);
             if(request.step==3&&s.step!=3)CreationPayloadBuilder.settings(s);
             // Navigation changes no creative content and must preserve an already confirmed package.
-            if(s.step!=request.step){s.step=request.step;s.revision++;}
+            int reached=s.reachedStep();
+            if(s.step!=request.step||reached<request.step){s.reachedStep=Math.max(reached,request.step);s.step=request.step;s.revision++;}
         });
     }
     public CreationState visibility(TenantId tenant,String requestedId,Visibility request) {
@@ -302,6 +306,12 @@ public class CreationWorkflowService {
             editable(s);
             if(s.hideInAweme!=request.hideInAweme){s.hideInAweme=request.hideInAweme;s.mediaChanged();}
         });
+    }
+    private static List<Object> goalProgressKey(CreationState s) {
+        boolean custom="CUSTOM".equals(s.smartBidType),dated="DATE_RANGE".equals(s.scheduleType);
+        return Arrays.asList(s.smartBidType,s.budget==null?null:s.budget.stripTrailingZeros(),
+                custom&&s.roi2Goal!=null?s.roi2Goal.stripTrailingZeros():null,s.scheduleType,
+                dated?s.startDate:null,dated?s.endDate:null);
     }
     public CreationState generate(TenantId tenant,String requestedId,Generate g) {
         String id=sharedId(tenant,requestedId,true);

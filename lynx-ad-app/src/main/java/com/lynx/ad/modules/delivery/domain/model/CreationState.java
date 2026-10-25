@@ -8,6 +8,15 @@ import java.util.*;
 public class CreationState {
     public String planId, tenantId, userId, accountId, awemeId, name;
     public int revision = 1, step = 1, packageVersion = 1;
+    /** Furthest valid visited page, independent of the page currently being viewed. */
+    public Integer reachedStep;
+    public int reachedStep() {
+        if(qcPlanId!=null||"CREATED".equals(publishStatus))return 4;
+        if(reachedStep!=null)return Math.max(1,Math.min(4,reachedStep));
+        // Older drafts stored only the current page; retain progress evidenced by saved work.
+        if(budget!=null||generationSelection!=null||!"NONE".equals(generationStatus)||!materials.isEmpty())return Math.max(step,3);
+        return Math.max(step,analysisConfirmation!=null?2:1);
+    }
     public Integer confirmedVersion;
     public String smartBidType = "CUSTOM", scheduleType = "FROM_NOW", startDate, endDate;
     public BigDecimal budget, roi2Goal;

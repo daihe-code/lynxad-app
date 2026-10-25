@@ -26,9 +26,9 @@
         :is="navigable ? 'button' : 'span'"
         :type="navigable ? 'button' : undefined"
         :aria-label="navigable ? label : undefined"
-        :disabled="navigable ? navigationDisabled || i + 1 > (maxStep ?? step) || i === 3 : undefined"
+        :disabled="navigable ? navigationDisabled || i + 1 > (maxStep ?? step) : undefined"
         class="step"
-        :class="{ 'step--done': i + 1 < step, 'step--nav': navigable }"
+        :class="{ 'step--done': i + 1 <= (reachedStep ?? step) && i + 1 !== step, 'step--nav': navigable }"
         :aria-current="i + 1 === step ? 'step' : undefined"
         @click="navigable && emit('navigate', i + 1)"
         ><span class="step__dot"
@@ -52,6 +52,7 @@ defineProps<{
   navigable?: boolean;
   navigationDisabled?: boolean;
   maxStep?: number;
+  reachedStep?: number;
 }>();
 const emit = defineEmits<{ navigate: [step: number]; account: [key: string] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],

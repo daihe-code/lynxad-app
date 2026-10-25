@@ -34,9 +34,9 @@ class CreationStoreTest {
     CreationState state(String id){var s=new CreationState();s.planId=id;s.tenantId="t";store.insert(s);return s;}
     @Test void generationChoiceAndCurrentPagePersistWithoutSchedulingAnEngineJob() {
         state("no-generation");
-        store.mutate("t","no-generation",1,s->{s.step=3;s.generationSelection=List.of();s.revision++;});
+        store.mutate("t","no-generation",1,s->{s.step=1;s.reachedStep=3;s.generationSelection=List.of();s.revision++;});
         var reloaded=store.get("t","no-generation");
-        assertEquals(3,reloaded.step);assertEquals(List.of(),reloaded.generationSelection);
+        assertEquals(1,reloaded.step);assertEquals(3,reloaded.reachedStep());assertEquals(List.of(),reloaded.generationSelection);
         assertEquals("NONE",reloaded.generationStatus);assertEquals(2,reloaded.revision);
         assertEquals(0,jdbc.queryForObject("SELECT work_pending FROM delivery_creation WHERE plan_id='no-generation'",Integer.class));
     }

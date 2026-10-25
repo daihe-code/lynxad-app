@@ -77,7 +77,7 @@
         <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly || settingsOnly" @change="emit('account', $event)" />
       </div>
     </section>
-    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i === 0 }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
+    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i !== 1 && i + 1 <= (reachedStep ?? 2) }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
 </template><main class="ad-main">
   <div class="container-page">
 
@@ -306,7 +306,7 @@ import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
