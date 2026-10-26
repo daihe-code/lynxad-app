@@ -29,6 +29,7 @@ export const defaultCreativeGeneration = (): CreativeGeneration => ({ enabled: f
 export interface CreativeStrategy { scene_strategy?: { mode: string; avoid_scenes: string[]; avoid_styles: string[]; avoid_angles: string[] }; product_id: string; target: string; trigger: string; hypothesis: string; visual_style?: string; evidence_summary: string; reserved_cost: string; cost_note: string; experiment_mode: string; test_dimension?: string; baseline_material_id?: string; warnings: string[] }
 export interface ProposedAction { kind: 'BUDGET' | 'ROI' | 'PAUSE' | 'ENABLE' | 'BOOST' | 'MATERIAL_FOLLOW' | 'MATERIAL_GENERATE' | 'MATERIAL_ADD' | 'MATERIAL_REMOVE' | 'PRODUCT_ADD' | 'PRODUCT_REMOVE'; expected?: string; target?: string; cause: string; budget?: string; duration?: string; entity_id?: string; product_id?: string; material_type?: string; source_plan_id?: string; generation_id?: string; strategy?: CreativeStrategy }
 export interface MonitoringReport {
+  plan_id?: string;
   state: 'READY' | 'WAITING_DATA' | 'PAUSED';
   observed_at: string;
   source: string;
@@ -80,7 +81,7 @@ export interface CenterView { records: CenterRow[]; total: number; watched: numb
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
 export const getMonitoringCenter = (params: Record<string, unknown>) => apiGet<CenterView>(`${centerPath}/center`, { params, headers: { 'X-Quiet-Request': 'true' } });
-export const getOptimizationHistory = (params: Record<string, unknown>) => apiGet<HistoryPage>(`${centerPath}/history`, { params, headers: { 'X-Quiet-Request': 'true' } });
+export const getOptimizationHistory = (params: Record<string, unknown>, signal?: AbortSignal) => apiGet<HistoryPage>(`${centerPath}/history`, { params, signal, headers: { 'X-Quiet-Request': 'true' } });
 export const setAccountBudgetLimit = (id: string, budgetLimit: number) => apiPut(`${centerPath}/accounts/${encodeURIComponent(id)}/limit`, { budgetLimit });
 export const holdAllOptimization = () => apiPost(`${centerPath}/hold-all`);
 export const resumeOptimization = (id: string, expectedVersion: number) => apiPost(`${centerPath}/plans/${encodeURIComponent(id)}/resume`, { expectedVersion });

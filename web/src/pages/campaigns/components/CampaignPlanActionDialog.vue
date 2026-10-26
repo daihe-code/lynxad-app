@@ -60,13 +60,16 @@ import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { BID_TYPE, yuan, roiText } from '@/utils/labels';
 import { PLAN_PAUSE_REASONS, isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 
-const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string }>();
+const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason] }>();
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
 const draft = computed(() => !props.plan?.qcPlanId);
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
-const state = computed(() => planStatusDisplay(props.plan?.status, props.plan?.qcStatus));
+const state = computed(() => {
+  const display = planStatusDisplay(props.plan?.status, props.plan?.qcStatus);
+  return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
+});
 const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');
 const subtitle = computed(() => props.action === 'delete' && draft.value ? '请核对计划信息，确认后将从列表中删除。' : `该计划当前为${state.value.label}，${props.action === 'restore' ? '请确认恢复后的投放设置。' : '请核对后再操作。'}`);
 function close(done: () => void) { if (!props.busy) done(); }

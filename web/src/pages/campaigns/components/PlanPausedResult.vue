@@ -3,12 +3,17 @@
     <header class="paused-result__heading"><span class="paused-result__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span><h2>已暂停</h2><p>广告计划已暂停投放，恢复前请核对暂停原因与投放设置。</p><span v-if="elapsed" class="paused-result__elapsed"><ReferenceIcon name="pause" />{{ elapsed }}</span></header>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <details class="paused-fold paused-reason" open>
-      <summary><h3>暂停原因</h3><span class="paused-fold__brief">{{ pauseRecord?.manual ? pauseRecord.reason || '历史记录未填写具体原因' : pauseRecord ? '平台异常暂停' : '暂停原因待核对' }}</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>
+      <summary><h3>暂停原因</h3><span class="paused-fold__brief">{{ pauseRecord?.automatic ? '系统自动暂停 · 无需选择原因' : pauseRecord?.manual ? pauseRecord.reason || '历史记录未填写具体原因' : pauseRecord ? '平台异常暂停' : '暂停原因待核对' }}</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>
       <div class="paused-fold__body">
+        <article v-if="pauseRecord?.automatic" class="paused-automatic" aria-label="自动暂停触发原因">
+          <span class="paused-automatic__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span>
+          <div><h4>{{ pauseRecord.reason }}</h4><p v-if="pauseRecord.action.automation?.evidence">{{ pauseRecord.action.automation.evidence }}</p><p>灵投已自动暂停此计划，千川回查已确认生效。</p><p>确认生效时间：{{ reviewTime(pauseRecord.action.snapshotTs) }}</p><p>{{ automaticPauseAdvice(pauseRecord.action.automation?.cause || '') }}</p><router-link :to="{ path:'/monitoring', query:{ planId:plan.planId, tab:'history' } }">查看自动调控记录 →</router-link></div>
+        </article>
         <template v-if="pauseRecord?.manual"><ul class="pause-reason-options" aria-label="已记录的暂停原因（只读）"><li v-for="reason in PLAN_PAUSE_REASONS" :key="reason" :class="{ selected: pauseRecord.selected === reason }"><i aria-hidden="true" /><span>{{ reason }}</span><span v-if="pauseRecord.selected === reason" class="sr-only">（已记录）</span></li></ul><p class="paused-muted">已记录原因：<strong>{{ pauseRecord.reason || '历史记录未填写具体原因' }}</strong></p></template>
-        <p v-else class="paused-muted">{{ pauseRecord?.reason || (actionsLoading ? '正在读取本计划的暂停记录…' : '尚未取得本次暂停原因，历史暂停原因不会自动作为本次原因。') }}</p>
-        <p class="paused-muted">{{ pauseRecord ? `系统记录的暂停时间：${reviewTime(pauseRecord.action.snapshotTs)}` : '暂停时间尚未记录。' }}</p>
+        <p v-else-if="!pauseRecord?.automatic" class="paused-muted">{{ pauseRecord?.reason || (actionsLoading ? '正在读取本计划的暂停记录…' : '尚未取得本次暂停原因，历史暂停原因不会自动作为本次原因。') }}</p>
+        <p v-if="!pauseRecord?.automatic" class="paused-muted">{{ pauseRecord ? `系统记录的暂停时间：${reviewTime(pauseRecord.action.snapshotTs)}` : '暂停时间尚未记录。' }}</p>
         <p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p>
+        <router-link v-if="actionsError && !pauseRecord?.automatic" class="paused-records-link" :to="{ path:'/monitoring', query:{ planId:plan.planId, tab:'history' } }">查看自动调控记录 →</router-link>
         <button class="paused-read" type="button" :disabled="loading || busy" @click="read(true)"><ReferenceIcon name="refresh" />{{ loading ? '正在读取…' : '刷新记录与数据' }}</button>
       </div>
     </details>
@@ -27,16 +32,17 @@
       <div class="paused-fold__body"><ol class="paused-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!history.length && !createdAtKnown" class="paused-muted">暂无已记录的状态流转事件。</p><p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p><p class="paused-current">当前状态：已暂停</p></div>
     </details>
     <footer class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__finish" disabled title="当前千川计划暂不支持终止操作，请保持暂停或返回列表管理。" aria-describedby="finish-unavailable">终止计划</button><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="busy || loading" @click="restoreOpen = true; actionError = ''"><ReferenceIcon name="play" />恢复投放</button><router-link to="/campaigns">查看所有投放计划</router-link></div><p v-if="canRestore" id="finish-unavailable">当前千川计划暂不支持终止操作，可继续保持暂停。</p></footer>
-    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" @confirm="restore" />
+    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { listActions, type AgentActionVo } from '@/features/agentops/agentopsApi';
+import { listActions } from '@/features/agentops/agentopsApi';
+import { getOptimizationHistory } from '@/features/delivery/optimizationApi';
 import { actPlan, syncPlanDetail, type PlanVo, type PlanListVo } from '@/features/delivery/deliveryApi';
 import { insightData, type InsightStatistics } from '@/features/delivery/planInsightsApi';
-import { currentPause, pauseElapsed, pauseHistory, pauseStatisticsRange, pauseTimestamp, pausedMetricCards, pauseActionLabel } from '@/features/delivery/planPausedResult';
+import { currentPause, pauseElapsed, pauseHistory, pauseStatisticsRange, pauseTimestamp, pausedMetricCards, pauseActionLabel, automaticPauseActions, automaticPauseAdvice, loadPauseAutomation, type PauseAction } from '@/features/delivery/planPausedResult';
 import { PLAN_PAUSE_REASONS } from '@/features/delivery/planPause';
 import { reviewTime } from '@/features/delivery/planReview';
 import { requestFailure } from '@/api/apiErrors';
@@ -46,7 +52,7 @@ import PlanResultSummary from './PlanResultSummary.vue';
 import CampaignPlanActionDialog from './CampaignPlanActionDialog.vue';
 const props = defineProps<{ plan: PlanListVo; awemeName?: string }>();
 const emit = defineEmits<{ updated: [plan: PlanVo] }>();
-const user = useUserStore(), actions = ref<AgentActionVo[]>([]), now = ref(Date.now());
+const user = useUserStore(), actions = ref<PauseAction[]>([]), now = ref(Date.now());
 const history = computed(() => pauseHistory(props.plan,actions.value));
 const pauseRecord = computed(() => currentPause(props.plan,actions.value,now.value));
 const elapsed = computed(() => pauseElapsed(pauseRecord.value?.timestamp ?? NaN,now.value));
@@ -62,21 +68,23 @@ async function read(force = false) {
   const id = props.plan.planId, turn = context;
   controller = new AbortController(); const signal = controller.signal;
   loading.value = true; actionsLoading.value = true; actionsError.value = ''; statisticsError.value = '';
-  const [events,status] = await Promise.allSettled([listActions(signal),force ? syncPlanDetail(id,true) : Promise.resolve(null)]);
+  const [events,automation,status] = await Promise.allSettled([listActions(signal),loadPauseAutomation(id,getOptimizationHistory,signal),force ? syncPlanDetail(id,true) : Promise.resolve(null)]);
   if (turn !== context || signal.aborted) return;
   actionsLoading.value = false;
-  if (events.status === 'fulfilled' && Array.isArray(events.value)) actions.value = events.value.filter(action=>action?.planId === id);
-  else actionsError.value = '本次暂停记录未完整读取，已保留当前内容，请稍后刷新。';
+  const recordsComplete = events.status === 'fulfilled' && Array.isArray(events.value) && automation.status === 'fulfilled' && automation.value.complete;
+  if (recordsComplete && events.status === 'fulfilled' && automation.status === 'fulfilled') actions.value = [...events.value.filter(action=>action?.planId === id),...automaticPauseActions(props.plan,automation.value.records)];
+  else actionsError.value = actions.value.length ? '本次暂停记录未完整读取，当前显示上次核对的记录，请稍后刷新或前往自动调控记录核查。' : '本次暂停记录未完整读取，暂不能确认当前暂停原因，请稍后刷新或前往自动调控记录核查。';
   if (status.status === 'fulfilled' && status.value) {
     if (status.value.status !== 'PAUSED') { loading.value = false; emit('updated',status.value); return; }
     emit('updated',status.value);
     await nextTick();
     if (turn !== context || signal.aborted) return;
   }
+  if (status.status === 'rejected') actionsError.value += `${actionsError.value ? ' ' : ''}计划状态暂未刷新，请稍后重试。`;
   const range = period.value;
   const key = range ? `${pauseRecord.value?.action.id}:${range.range.join(':')}` : '';
   if (key !== statisticsKey) { statistics.value = undefined; statisticsKey = key; }
-  if (events.status === 'fulfilled' && range) {
+  if (recordsComplete && range) {
     try { const result = await insightData(id,range.range,force,signal); if (turn === context && !signal.aborted && result?.summary && typeof result.summary === 'object') statistics.value = result; }
     catch { if (turn === context && !signal.aborted) statisticsError.value = statistics.value ? '本次报表刷新未完成，已保留上次读取的数据。' : '暂停前的投放数据暂未取得，请稍后刷新。'; }
   }
@@ -102,6 +110,8 @@ onUnmounted(() => { context++; controller?.abort(); clearInterval(timer); });
 .paused-result__heading{text-align:center;margin-bottom:6px}.paused-result__icon{display:grid;place-items:center;width:56px;height:56px;margin:0 auto 14px;border-radius:50%;background:#fff3df;color:#f3a31c}.paused-result__icon svg{width:25px;height:25px}.paused-result__heading h2{margin:0 0 8px;font-size:22px;font-weight:700;line-height:1.5}.paused-result__heading p{margin:3px 0;color:#81849f;font-size:14px;line-height:1.8}.paused-result__elapsed{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:7px 14px;border-radius:20px;background:#fff3df;color:#c5821d;font-size:12px}.paused-result__elapsed svg{width:14px;height:14px}
 .paused-fold{border:1px solid #e9eaf4;border-radius:22px;background:#fff;box-shadow:0 4px 16px #262c6b05}.paused-fold summary{display:flex;align-items:center;gap:14px;padding:22px 32px;min-height:68px;box-sizing:border-box;cursor:pointer;list-style:none}.paused-fold summary::-webkit-details-marker{display:none}.paused-fold summary:focus-visible{outline:2px solid #575cf6;outline-offset:3px;border-radius:22px}.paused-fold h3{flex:none;margin:0;padding-left:13px;border-left:4px solid #5b55ff;font-size:17px;font-weight:650;line-height:22px}.paused-fold:not([open]) h3{border-color:#c9c9d6}.paused-fold__brief{margin-left:auto;color:#81849f;font-size:12px;text-align:right;line-height:1.8}.paused-fold__caret{width:17px;height:17px;flex:none;color:#81849f}.paused-fold[open] .paused-fold__caret{transform:rotate(180deg)}.paused-fold__body{padding:4px 32px 30px}
 .pause-reason-options{display:flex;flex-wrap:wrap;gap:12px 10px;margin:0 0 20px;padding:0;list-style:none}.pause-reason-options li{display:flex;align-items:center;gap:8px;padding:9px 14px;border:1px solid #e2e3ef;border-radius:24px;color:#696d86;font-size:13px;line-height:20px}.pause-reason-options i{width:13px;height:13px;border:1px solid #c9ccdc;border-radius:50%;box-sizing:border-box;flex:none}.pause-reason-options .selected{color:#5b55ff;background:#f0eeff;border-color:#7067ff;font-weight:600}.pause-reason-options .selected i{border:4px solid #655bff}
+.paused-automatic{display:flex;align-items:flex-start;gap:14px;padding:22px 24px;border:1px solid #f4dfba;border-radius:14px;background:#fffbf2}.paused-automatic__icon{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:#ffedcd;color:#d99a28}.paused-automatic__icon svg{width:16px;height:16px}.paused-automatic>div{min-width:0}.paused-automatic h4{margin:2px 0 10px;font-size:15px;line-height:1.7}.paused-automatic p{margin:6px 0;color:#7f7b88;font-size:13px;line-height:1.9;overflow-wrap:anywhere}.paused-automatic a{display:inline-block;margin-top:10px;font-size:13px;color:#5b55ff;text-decoration:none;line-height:1.8}
+.paused-records-link{display:block;width:fit-content;margin-top:10px;color:#5b55ff;font-size:13px;text-decoration:none;line-height:1.8}
 .paused-muted{margin:12px 0 0;color:#81849f;font-size:13px;line-height:1.9;overflow-wrap:anywhere}.paused-muted strong{font-weight:600}.paused-error{margin:12px 0 0;color:#ac7834;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.paused-read{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;margin-top:16px;border:1px solid #e1e3ef;border-radius:8px;background:#fff;color:#656a85;font:inherit;font-size:12px;cursor:pointer}.paused-read svg{width:14px;height:14px}
 .paused-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.paused-metrics article{min-width:0;padding:20px 16px;border:1px solid #e8eaf4;border-radius:14px}.paused-metrics .warning{background:#fffbf3;border-color:#f4e3c6}.paused-metrics h4{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:400;color:#81849f;line-height:1.8}.paused-metrics h4 svg{width:14px;height:14px;flex:none}.paused-metrics article>p{margin:8px 0;font-size:26px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}.paused-metrics small{margin-left:4px;font-size:12px;font-weight:400;color:#81849f}.paused-metrics article>span{font-size:12px;color:#81849f;line-height:1.9}.paused-metrics .warning>span{color:#ac7832}
 .paused-timeline{list-style:none;padding:0 0 0 8px;margin:0}.paused-timeline li{position:relative;padding:0 0 24px 24px;border-left:2px solid #efeff7}.paused-timeline li::before{position:absolute;content:'';left:-7px;top:3px;width:12px;height:12px;border-radius:50%;background:#655bff}.paused-timeline li:last-child{border-color:transparent;padding-bottom:8px}.paused-timeline h4{display:flex;align-items:baseline;flex-wrap:wrap;gap:12px;margin:0;font-size:14px;font-weight:600;line-height:1.8}.paused-timeline time{font-size:12px;font-weight:400;color:#81849f}.paused-timeline p{margin:6px 0 0;color:#81849f;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.paused-current{margin:12px 0 0;padding:10px 14px;border-radius:10px;background:#fff8ed;color:#a87324;font-size:13px}
