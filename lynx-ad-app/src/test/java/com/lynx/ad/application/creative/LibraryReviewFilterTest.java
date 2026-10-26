@@ -55,6 +55,14 @@ class LibraryReviewFilterTest {
         assertEquals(2,result.items().size());
         assertEquals("NONE",result.items().stream().filter(i->i.source().equals("UPLOAD")).findFirst().orElseThrow().reviewBadge());
         org.mockito.Mockito.verify(uploads,org.mockito.Mockito.never()).review(any(),any());
+        var scopedA=service.query(tenant,"IMAGE","QIANCHUAN",LocalDate.of(2026,10,1),LocalDate.of(2026,10,7),"ALL",null,1,8,false,"account-a",null,"ALL");
+        assertEquals(1,scopedA.pageInfo().total());
+        assertEquals(1,scopedA.tabCounts().image());
+        assertEquals("UPLOAD",scopedA.items().getFirst().source());
+        var scopedB=service.query(tenant,"IMAGE","QIANCHUAN",LocalDate.of(2026,10,1),LocalDate.of(2026,10,7),"ALL",null,1,8,false,"account-b",null,"ALL");
+        assertEquals(1,scopedB.pageInfo().total());
+        assertEquals(1,scopedB.statusCounts().all());
+        assertEquals("EXTERNAL",scopedB.items().getFirst().source());
     }
     @Test
     void reviewStatesHaveSeparateCountsAndFilterBeforePagination() {

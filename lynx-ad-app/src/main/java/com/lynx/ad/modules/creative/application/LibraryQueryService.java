@@ -126,6 +126,12 @@ public class LibraryQueryService {
             }
         }
         merged = dedup(merged);
+        if (!selectable && accountId != null && !accountId.isBlank()) {
+            // Unsynced local assets are shared within the tenant; platform assets belong to an advertising account.
+            merged = merged.stream().filter(item -> item.source == MaterialSource.EXTERNAL
+                    ? accountId.equals(item.accountId)
+                    : item.syncs.isEmpty() || item.syncs.stream().anyMatch(sync -> accountId.equals(sync.accountId()))).toList();
+        }
         if (selectable) merged=merged.stream().filter(LibraryQueryService::selectable).toList();
         Set<String> usedKeys = bindingQuery.usedKeys(tenantId);
         for (Item item : merged) {

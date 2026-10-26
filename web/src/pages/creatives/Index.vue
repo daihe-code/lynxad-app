@@ -40,6 +40,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { storeToRefs } from 'pinia';
+import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { ElMessage } from "element-plus";
 import { listLibraryFull, type LibraryItemVo, type LibraryResponse } from "@/features/creative/creativeApi";
 import AssetIcon from "./AssetIcon.vue";
@@ -59,6 +61,7 @@ function defaultRange(days = 7): [string, string] {
   return [fmt(start), fmt(end)];
 }
 const range = ref(defaultRange()), draftRange = ref<[string, string]>([...range.value]);
+const { accountId } = storeToRefs(useAdvertisingAccountsStore());
 const calendarOpen = ref(false), dateError = ref("");
 const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
 const data = ref<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
@@ -79,7 +82,7 @@ watch(() => carouselDraft.result, () => { void reload(); });
 async function reload() {
   clearTimeout(searchTimer); const id = ++requestId; loading.value = true; failMsg.value = "";
   try {
-    const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", from: range.value[0], to: range.value[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
+    const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", accountId: accountId.value || undefined, from: range.value[0], to: range.value[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
     if (id !== requestId) return;
     data.value = result;
     if (page.value > totalPages.value) { page.value = totalPages.value; await reload(); }
@@ -90,6 +93,7 @@ async function reload() {
   } finally { if (id === requestId) loading.value = false; }
 }
 function resetAndReload() { clearTimeout(searchTimer); page.value = 1; picked.value.clear(); void reload(); }
+watch(accountId, () => { closeModal(); resetAndReload(); });
 function searchChanged() { clearTimeout(searchTimer); ++requestId; searchTimer = setTimeout(resetAndReload, 300); }
 function pickTab(key: AssetType) { type.value = key; status.value = "ALL"; resetAndReload(); }
 function pickStatus(key: Status) { status.value = key; resetAndReload(); }

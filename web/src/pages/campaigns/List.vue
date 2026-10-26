@@ -1,18 +1,5 @@
 <template>
   <div class="campaign-page">
-    <Teleport to="#campaign-header-actions" defer>
-      <el-tooltip content="广告账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom">
-        <span class="campaign-account-trigger">
-          <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end" @change="rememberAccount">
-            <template v-if="selectedAccount" #prefix><span class="campaign-account-avatar campaign-account-avatar--selected" aria-hidden="true">{{ selectedAccount.accountName.slice(0, 1) }}</span></template>
-            <el-option label="全部广告账户" value="" />
-            <el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId">
-              <div class="campaign-account-option"><span class="campaign-account-avatar" aria-hidden="true">{{ account.accountName.slice(0, 1) }}</span><span class="campaign-account-details"><strong>{{ account.accountName }}</strong><small>千川ID：{{ account.advertiserId }}</small></span></div>
-            </el-option>
-          </el-select>
-        </span>
-      </el-tooltip>
-    </Teleport>
     <div class="title-row">
       <div class="title-group"><h1>广告投放管理</h1><span class="platform-chip">抖音 · 巨量千川</span></div>
       <div class="title-actions">
@@ -151,12 +138,12 @@ import ControlTaskReport from './components/ControlTaskReport.vue';
 import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
 import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
-import { campaignAccountPreferenceKey, resolveCampaignAccount } from '@/features/delivery/campaignAccountPreference';
+import { storeToRefs } from 'pinia';
+import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey, type MetricField } from '@/features/delivery/campaignMetricTemplates';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
-import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { BID_TYPE, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
 import { planStatusOptions, planStatusDisplay, type PlanStatusOption } from '@/features/delivery/planStatus';
 import { recentRange, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
@@ -177,13 +164,8 @@ function startCreate() {
   void router.push('/campaigns/create');
 }
 const loading = ref(false), summaryLoading = ref(false), loadFailed = ref(false);
-const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = ref('');
-const accounts = ref<AccountVo[]>([]);
-const selectedAccount = computed(() => accounts.value.find(account => account.accountId === accountId.value));
-const accountStorageKey = computed(() => campaignAccountPreferenceKey(user.me?.tenantId, user.me?.userId));
-function rememberAccount(value: string) {
-  try { if (accountStorageKey.value) localStorage.setItem(accountStorageKey.value, value); } catch { /* Keep filtering usable when storage is unavailable. */ }
-}
+const syncing = ref(false), syncWarning = ref(''), total = ref(0);
+const { accounts, accountId } = storeToRefs(useAdvertisingAccountsStore());
 const keyword = ref(''), status = ref(''), bidType = ref('');
 const statusPicker = ref<CascaderInstance>();
 function closeStatusFilter() { statusPicker.value?.togglePopperVisible(false); }
@@ -453,10 +435,6 @@ async function exportRows() {
   ElMessage.success(`已导出 ${rows.length} 条计划`);
 }
 onMounted(async () => {
-  accounts.value = (await listAccounts().catch(() => [])).filter(a => a.platform === 'QIANCHUAN' && a.credentialSource !== 'MOCK');
-  let remembered: string | null = null;
-  try { if (accountStorageKey.value) remembered = localStorage.getItem(accountStorageKey.value); } catch { /* Use the default account if storage is unavailable. */ }
-  accountId.value = resolveCampaignAccount(accounts.value, user.me?.userId, remembered);
   await nextTick();
   clearTimeout(loadTimer);
   await load();
@@ -465,21 +443,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.campaign-account-trigger { display: inline-flex; }
-.campaign-account-select { width: 176px; }
-.campaign-account-select :deep(.el-select__wrapper) { min-height: 36px; padding: 6px 10px; border-radius: 8px; background: #f7f7ff; box-shadow: none; font-size: 13px; }
-.campaign-account-select :deep(.el-select__wrapper.is-focused) { box-shadow: 0 0 0 1px #575cf6 inset; }
-.campaign-account-option { display: flex; align-items: center; gap: 10px; }
-.campaign-account-avatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: #eeedff; color: #575cf6; font-size: 15px; font-weight: 600; }
-.campaign-account-avatar--selected { width: 24px; height: 24px; font-size: 12px; }
-.campaign-account-details { display: grid; gap: 4px; min-width: 0; }
-.campaign-account-details strong { font-size: 13px; font-weight: 500; }
-.campaign-account-details small { color: #7c7f99; font-size: 12px; }
-.campaign-account-details strong, .campaign-account-details small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-:global(.campaign-account-dropdown) { min-width: 280px; max-width: calc(100vw - 32px); }
-:global(.campaign-account-dropdown .el-select-dropdown__item) { height: auto; min-height: 40px; padding: 10px 12px; line-height: 20px; }
-@media (max-width: 639px) { .campaign-account-select { width: 128px; } }
-@media (max-width: 479px) { .campaign-account-select { width: 112px; } }
 .metric-label { text-decoration: underline dashed #aaa8ba; text-underline-offset: 4px; cursor: help; }
 .metric-label:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 2px; }
 :global(.campaign-metric-tooltip) { max-width: 320px; color: #45445c; font-size: 12px; line-height: 1.7; }

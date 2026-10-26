@@ -54,6 +54,9 @@ class LibraryRealDataTest {
             var result = query(service, kind);
             assertEquals(1, result.pageInfo().total());
             assertEquals("UPLOAD:" + kind, result.items().getFirst().id());
+            var scoped = service.query(tenant, kind, "QIANCHUAN", LocalDate.of(2026, 10, 1),
+                    LocalDate.of(2026, 10, 7), "ALL", null, 1, 8, false, "account", null, "ALL");
+            assertEquals(1, scoped.pageInfo().total(), "Unsynced local assets remain available in each account context");
         }
         assertEquals(0, query(service, "CAROUSEL").pageInfo().total());
         for (MaterialType type : MaterialType.values()) assertTrue(new MockMaterialLibraryPort()

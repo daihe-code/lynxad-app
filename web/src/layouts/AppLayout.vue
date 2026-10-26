@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell" :class="{ 'campaign-shell': route.path === '/campaigns' || isReference, 'create-shell': isCreate, 'asset-shell': isAsset, 'account-shell': isAccount, 'reference-content': isReference, 'reference-header': usesReferenceHeader }">
-    <header class="topbar" :class="{ 'campaign-list-topbar': route.path === '/campaigns' }">
+    <header class="topbar" :class="{ 'campaign-list-topbar': showAdvertisingAccount }">
       <div class="topbar-inner">
       <div class="left">
         <router-link :to="usesReferenceHeader ? '/' : '/campaigns'" class="brand">
@@ -25,7 +25,7 @@
       </div>
       <div class="right">
         <button v-if="usesReferenceHeader" class="nav-toggle" type="button" :aria-label="navOpen ? '收起导航' : '展开导航'" aria-controls="app-navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></button>
-        <div id="campaign-header-actions" class="header-page-actions"></div>
+        <AdvertisingAccountPicker v-if="showAdvertisingAccount" />
         <NotificationCenter />
         <UserMenu v-if="usesReferenceHeader" />
         <template v-else><span class="who">{{ user.me?.nickname || user.me?.phone || "用户" }}</span><el-button text @click="onLogout">退出</el-button></template>
@@ -34,7 +34,11 @@
     </header>
     <div v-if="user.demoMode" class="demo-watermark">演示数据</div>
     <main class="main">
-      <router-view />
+      <div v-if="showAdvertisingAccount && !advertisingAccounts.ready" class="account-context-loading" role="status">
+        <template v-if="advertisingAccounts.error">{{ advertisingAccounts.error }} <el-button text type="primary" @click="advertisingAccounts.load">重试</el-button></template>
+        <template v-else>正在加载广告账户…</template>
+      </div>
+      <router-view v-else />
     </main>
     <div v-if="route.path === '/campaigns'" class="campaign-reference reference-footer-only"><ReferenceFooter /></div>
     <footer v-if="!isReference && route.path !== '/campaigns'" class="foot">
@@ -56,6 +60,8 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import UserMenu from "./UserMenu.vue";
 import NotificationCenter from "./NotificationCenter.vue";
+import AdvertisingAccountPicker from '@/components/AdvertisingAccountPicker.vue';
+import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { useUserStore } from "@/stores/user";
 import "@/pages/campaigns/campaign-ui.css";
 import ReferenceFooter from "@/pages/campaigns/reference/ReferenceFooter.vue";
@@ -63,6 +69,9 @@ import "@/pages/campaigns/reference/reference.css";
 
 const user = useUserStore();
 const route = useRoute();
+const advertisingAccounts = useAdvertisingAccountsStore();
+const showAdvertisingAccount = computed(() => ['/campaigns', '/monitoring', '/creatives'].includes(route.path));
+watch([showAdvertisingAccount, () => advertisingAccounts.preferenceKey], ([visible]) => { if (visible) void advertisingAccounts.load(); }, { immediate: true });
 const isCreate = computed(() => route.path === "/campaigns/create");
 const isAsset = computed(() => route.path === "/creatives");
 const isAccount = computed(() => route.path === "/accounts" || route.path === "/subscription");
@@ -134,8 +143,7 @@ function onLogout() {
   align-items: center;
   gap: 12px;
 }
-.header-page-actions { display: flex; align-items: center; }
-.header-page-actions:empty { display: none; }
+.account-context-loading { padding: 40px 24px; text-align: center; color: #7c7f99; font-size: 14px; }
 .campaign-list-topbar :deep(.user-menu-name) { max-width: 96px; }
 .who {
   color: #4b5563;

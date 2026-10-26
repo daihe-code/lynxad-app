@@ -4,7 +4,7 @@
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
     <div class="overview"><div><span>持续盯盘</span><strong>{{ center?.watched ?? '—' }}</strong></div><div><span>已授权自动执行</span><strong>{{ center?.automatic ?? '—' }}</strong></div><div><span>已暂停自动执行</span><strong>{{ center?.held ?? '—' }}</strong></div><div><span>更新频率</span><strong>5 分钟</strong></div></div>
     <el-tabs v-model="tab" @tab-change="changed"><el-tab-pane label="全店计划" name="plans" /><el-tab-pane label="建议与执行历史" name="history" /></el-tabs>
-    <div class="filters"><el-select v-model="accountId" clearable placeholder="全部广告账户" @change="changed"><el-option v-for="account in center?.accounts || []" :key="account.accountId" :label="account.name" :value="account.accountId" /></el-select>
+    <div class="filters">
       <template v-if="tab === 'plans'"><el-select v-model="state" clearable placeholder="全部盯盘状态" @change="changed"><el-option v-for="item in states" :key="item.value" :label="item.label" :value="item.value" /></el-select><el-input v-model="query" clearable placeholder="搜索计划名称 / 千川 ID" @keyup.enter="changed" @clear="changed" /><el-button @click="changed">搜索</el-button></template>
       <template v-else><el-select v-model="status" clearable placeholder="全部处理结果" @change="changed"><el-option v-for="(label, value) in statuses" :key="value" :label="label" :value="value" /></el-select><el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="changed" /><el-button v-if="planId" @click="clearPlan">取消单计划筛选</el-button></template>
     </div>
@@ -32,12 +32,15 @@
 </template>
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { getMonitoringCenter, getOptimizationHistory, holdAllOptimization, setAccountBudgetLimit, resumeOptimization, recheckOptimization, acknowledgeOptimization, type CenterView, type CenterRow, type HistoryPage, type OptimizationEvent } from '@/features/delivery/optimizationApi';
 const route = useRoute(), router = useRouter();
 const center = ref<CenterView>(), history = ref<HistoryPage>(), tab = ref(route.query.tab === 'history' ? 'history' : 'plans'), planId = ref(typeof route.query.planId === 'string' ? route.query.planId : '');
-const accountId = ref(''), state = ref(''), query = ref(''), status = ref(''), range = ref<[string, string]>(), page = ref(1), error = ref(''), busy = ref(false), actionBusy = ref(false), detail = ref<OptimizationEvent>();
+const { accountId } = storeToRefs(useAdvertisingAccountsStore());
+const state = ref(''), query = ref(''), status = ref(''), range = ref<[string, string]>(), page = ref(1), error = ref(''), busy = ref(false), actionBusy = ref(false), detail = ref<OptimizationEvent>();
 const limitsOpen = ref(false), limits = ref<Record<string, number | undefined>>({}), savingLimit = ref('');
 const states = [{ value: 'AUTO', label: '自动调控' }, { value: 'OBSERVE', label: '只看建议' }, { value: 'HELD', label: '自动执行已暂停' }, { value: 'ERROR', label: '采集异常' }, { value: 'OFF', label: '未开启' }];
 const statuses: Record<string, string> = { RECOMMENDED: '待人工参考', READY: '等待执行检查', EXECUTING: '提交中', SUCCEEDED: '已回查生效', SKIPPED: '未执行', EXPIRED: '已过期', VERIFY_PENDING: '等待平台回查', UNKNOWN: '待核查', ACKNOWLEDGED: '已人工核查', GENERATING: '生成中', REVIEW: '素材待确认发布', SYNCING: '素材同步 / 等待发布条件', PUBLISHING: '生成素材发布核查中', PLATFORM_REVIEW: '等待平台审核', TRIAL: '素材试投中', QUALIFIED: '素材试投达标', FAILED: '未完成', CANCELLED: '已停止', REMOVING: '亏损素材移除中', REMOVED: '亏损素材已移除', LOSS_RETAINED: '达到亏损线需人工处理', UNTESTED: '验证期结束未达标' };
@@ -59,6 +62,7 @@ async function load() {
   finally { if (!disposed && turn === revision) busy.value = false; }
 }
 function changed() { page.value = 1; void load(); }
+watch(accountId, changed);
 function openHistory(id: string) { void router.push({ path: '/monitoring', query: { planId: id, tab: 'history' } }); }
 function clearPlan() { void router.replace({ path: '/monitoring', query: { tab: 'history' } }); }
 watch(() => route.query, value => { planId.value = typeof value.planId === 'string' ? value.planId : ''; tab.value = value.tab === 'history' ? 'history' : 'plans'; changed(); });
