@@ -85,7 +85,7 @@ const active = computed(() => {
   if (route.path.startsWith("/monitoring")) return "/monitoring";
   if (route.path.startsWith("/creatives")) return "/creatives";
   if (route.path.startsWith("/analytics")) return "/campaigns";
-  if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription")) return "/accounts";
+  if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription") || route.path.startsWith("/authorization") || route.path === "/oauth/callback") return "/accounts";
   return "/campaigns";
 });
 
