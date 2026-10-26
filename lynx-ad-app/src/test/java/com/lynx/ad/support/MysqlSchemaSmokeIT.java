@@ -38,6 +38,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class MysqlSchemaSmokeIT {
 
+    private static final String LATEST_VERSION = "46";
+
     @SuppressWarnings("resource")
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("lynx_ad_app")
@@ -88,8 +90,14 @@ class MysqlSchemaSmokeIT {
     @Test
     void migratedSchemaRoundTrips() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("42", latestVersion(connection));
+            assertEquals(LATEST_VERSION, latestVersion(connection));
             assertTrue(businessTableCount(connection) >= 24);
+            assertEquals("YES", scalar(connection,
+                    "SELECT is_nullable FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='platform_material_catalog' AND column_name='created_at'"));
+            for (String table : java.util.List.of("notification", "inbox_outbox")) {
+                assertEquals("text", scalar(connection,
+                        "SELECT data_type FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='" + table + "' AND column_name='result_json'"));
+            }
 
             try (PreparedStatement update = connection.prepareStatement(
                     "UPDATE billing_plan SET benefits_json = ? WHERE code = 'BASIC'")) {
@@ -170,11 +178,11 @@ class MysqlSchemaSmokeIT {
         assertTrue(postgresVendor.getMessage().contains("does not match"));
 
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("42", latestVersion(connection));
+            assertEquals(LATEST_VERSION, latestVersion(connection));
         }
         assertThrows(IllegalStateException.class, () -> DbVendorFlywayConfig.prepare(dataSource, "postgresql"));
         try (Connection connection = dataSource.getConnection()) {
-            assertEquals("42", latestVersion(connection));
+            assertEquals(LATEST_VERSION, latestVersion(connection));
         }
     }
 
