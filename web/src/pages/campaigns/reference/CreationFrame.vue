@@ -25,7 +25,7 @@
       ><component
         :is="navigable ? 'button' : 'span'"
         :type="navigable ? 'button' : undefined"
-        :aria-label="i === 3 && resultState === 'warning' ? '查看投放结果，提交未成功' : navigable ? label : undefined"
+        :aria-label="i === 3 && resultState === 'warning' ? `查看投放结果，${resultLabel || '提交未成功'}` : navigable ? label : undefined"
         :disabled="navigable ? navigationDisabled || i + 1 > (maxStep ?? step) : undefined"
         class="step"
         :class="{ 'step--done': i + 1 <= (reachedStep ?? step) && i + 1 !== step, 'step--nav': navigable, 'step--warning': i === 3 && resultState === 'warning' }"
@@ -54,6 +54,7 @@ defineProps<{
   maxStep?: number;
   reachedStep?: number;
   resultState?: 'warning';
+  resultLabel?: string;
 }>();
 const emit = defineEmits<{ navigate: [step: number]; account: [key: string] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],

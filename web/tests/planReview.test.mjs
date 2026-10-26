@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reviewNotice, reviewTimeline, reviewTime, isPlanUnderReview } from '../src/features/delivery/planReview.ts';
+import { reviewNotice, reviewTimeline, reviewTime, isPlanUnderReview, hasPlanAuditResult } from '../src/features/delivery/planReview.ts';
 const now=Date.parse('2026-10-17T10:30:00Z');
 const plan={status:'PENDING_AUDIT',qcPlanId:'456',createdAt:'2025-01-01T00:00:00Z'};
 test('历史草稿创建时间不冒充审核开始时间，也不推断审核失败',()=>{
@@ -51,4 +51,12 @@ test('审批时间统一用北京时间，缺失和无效时间保留未知',()=
   }
   for(const value of [null,undefined,'','bad'])assert.equal(reviewTime(value,'尚未查询'),'尚未查询');
   assert.match(reviewNotice({...plan,review:{pendingSince:'2026-10-27 07:00:12'}},Date.parse('2026-10-26T23:05:12Z')).waiting,/5 分钟/);
+});
+
+test('拒审结果仍展示审核结果模块，审核完成后不再显示审批进度',()=>{
+  assert.equal(hasPlanAuditResult(plan),true);
+  assert.equal(hasPlanAuditResult({status:'REJECTED',qcPlanId:'456'}),true);
+  assert.equal(hasPlanAuditResult({status:'REJECTED'}),true);
+  assert.deepEqual(reviewTimeline({status:'REJECTED',qcPlanId:'456'}),[]);
+  for(const status of ['DELIVERING','SCHEDULED','PAUSED','FINISHED','COMPLETED','DRAFT'])assert.equal(hasPlanAuditResult({status,qcPlanId:'456'}),false);
 });

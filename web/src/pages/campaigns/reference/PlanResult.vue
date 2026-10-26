@@ -1,6 +1,6 @@
 <template>
   <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase }">
-    <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" :result-state="submissionPhase === 'FAILED' ? 'warning' : undefined" />
+    <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" :result-state="submissionPhase === 'FAILED' || plan?.status === 'REJECTED' ? 'warning' : undefined" :result-label="plan?.status === 'REJECTED' ? '审核未通过' : undefined" />
     <main class="ad-main">
       <div class="container-page">
         <div v-if="loading && !plan" class="result-loading">
@@ -11,7 +11,7 @@
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
         <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="recoverFailedPlan" @back="router.push('/campaigns')" />
-        <PlanAuditResult v-else-if="plan && underReview" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
+        <PlanAuditResult v-else-if="plan && auditResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <section v-else-if="plan" class="st" :data-st="tone">
           <div class="reshead">
             <span class="reshead__ico" :class="`ico-tone--${tone}`"
@@ -99,33 +99,6 @@
                     <p class="vtl__desc">{{ node.description }}</p>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-          <div v-if="tone === 'rejected'" class="panel pcard">
-            <div class="pcard__pad">
-              <h3 class="pcard__title">审核未通过原因</h3>
-              <div class="rejection-box">
-                <ReferenceIcon name="warn-tri" />
-                <div>
-                  <b>需处理平台审核意见</b>
-                  <p>
-                    {{
-                      plan.rejectReason ||
-                      "平台暂未返回详细拒审原因，请稍后刷新或在巨量千川查看。"
-                    }}
-                  </p>
-                </div>
-              </div>
-              <p class="pcard__sub">
-                请根据平台审核意见检查素材、商品信息和广告资质，修改后重新提交。修复状态以实际操作结果为准。
-              </p>
-              <div class="result-links">
-                <router-link :to="`/campaigns/${plan.planId}/edit`"
-                  >修改计划</router-link
-                ><router-link to="/accounts?tab=oauth"
-                  >前往广告授权管理</router-link
-                >
               </div>
             </div>
           </div>
@@ -298,7 +271,7 @@
         </section>
       </div>
     </main>
-    <div v-if="plan && !terminal && !submissionPhase && !underReview" class="actionbar">
+    <div v-if="plan && !terminal && !submissionPhase && !auditResult" class="actionbar">
       <div class="container-page actionbar__inner">
         <router-link class="btn-res" to="/campaigns">返回投放管理</router-link
         ><template v-if="canAct"
@@ -383,7 +356,7 @@ import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
 import PlanAuditResult from '../components/PlanAuditResult.vue';
-import { isPlanUnderReview } from '@/features/delivery/planReview';
+import { isPlanUnderReview, hasPlanAuditResult } from '@/features/delivery/planReview';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
 import CampaignPlanActionDialog from '../components/CampaignPlanActionDialog.vue';
 import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
@@ -402,6 +375,7 @@ const user = useUserStore(),
   refreshedAt = ref("—"),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
 const underReview = computed(() => isPlanUnderReview(plan.value));
+const auditResult = computed(() => hasPlanAuditResult(plan.value));
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
 const failedPublication = ref<CreationState>();

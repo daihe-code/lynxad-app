@@ -9,6 +9,9 @@ export interface ReviewPlan {
 export function isPlanUnderReview(plan?: ReviewPlan | null): boolean {
   return plan?.status === 'PENDING_AUDIT' && !!plan.qcPlanId;
 }
+export function hasPlanAuditResult(plan?: ReviewPlan | null): boolean {
+  return isPlanUnderReview(plan) || plan?.status === 'REJECTED';
+}
 export function reviewNotice(plan: ReviewPlan, now=Date.now()) {
   if(!isPlanUnderReview(plan))return null;
   const review=plan.review;
