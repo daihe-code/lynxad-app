@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planPublishFailure, showPublishFailureResult } from '../src/features/delivery/planPublishFailure.ts';
+import { readFileSync } from 'node:fs';
+import { planPublishFailure, showPublishFailureResult, classifyPublishFailure, publishFailureTarget, publishFailureLocation } from '../src/features/delivery/planPublishFailure.ts';
+
+test('新失败位置与旧错误消息使用同一组定位案例，商品、目标、素材分别对应负责页面', () => {
+  const cases = JSON.parse(readFileSync(new URL('../../lynx-ad-app/src/test/resources/publish-failure-recovery.json',import.meta.url),'utf8'));
+  for (const row of cases) assert.equal(classifyPublishFailure(row.message),row.recovery,row.message);
+  for (const [code,step] of [['PRODUCTS',1],['GOAL',2],['MATERIALS',3]]) {
+    const view = planPublishFailure(code,'没有描述具体字段');
+    assert.equal(view.targetStep,step);
+    assert.equal(publishFailureLocation('plan',code).query.step,String(step));
+  }
+  assert.deepEqual(publishFailureLocation('plan','ACCOUNTS'),{path:'/accounts',query:{tab:'oauth'}});
+});
+
+test('已保存的明确失败位置优先，不能被页面上的选择或旧错误文案覆盖', () => {
+  assert.equal(publishFailureTarget('PRODUCTS','日预算过低','MATERIALS'),'PRODUCTS');
+  assert.equal(publishFailureTarget(undefined,'日预算过低'),'GOAL');
+  assert.equal(planPublishFailure(undefined,'效果预估结果已更新，请重新获取').refreshEstimate,true);
+});
 
 test('默认恢复失败结果页，明确返回编辑、消息定位或未保存选品时保留操作上下文', () => {
   assert.equal(showPublishFailureResult('FAILED'), true);
@@ -21,13 +39,19 @@ test('投放参考信息更新时明确处理事项与下一步，返回目标�
   assert.match(view.retention, /商品、素材和投放设置会保留/);
 });
 
-test('普通或未知错误不伪装成预估过期，指向投放内容核对', () => {
-  for (const recovery of [undefined, null, 'UNKNOWN_FUTURE_RECOVERY']) {
+test('素材问题返回素材页；无法定位的错误必须明确选择，不能直接退回上一页', () => {
+  for (const recovery of [undefined, null, 'MATERIALS']) {
     const view = planPublishFailure(recovery, '素材不满足平台要求');
     assert.doesNotMatch(view.description, /参考信息已更新/);
     assert.equal(view.targetStep, 3);
-    assert.equal(view.action, '返回检查投放内容');
+    assert.equal(view.action, '返回修改素材');
     assert.equal(view.detail, '素材不满足平台要求');
+  }
+  for (const recovery of [undefined,'UNKNOWN','UNKNOWN_FUTURE_RECOVERY']) {
+    assert.equal(planPublishFailure(recovery,'平台拒绝请求：参数异常').targetStep,undefined);
+    assert.equal(publishFailureLocation('plan',recovery,'平台拒绝请求：参数异常'),undefined);
+    assert.equal(publishFailureLocation('plan',recovery,'平台拒绝请求：参数异常','GOAL').query.step,'2');
+    assert.equal(publishFailureLocation('plan',recovery,'平台拒绝请求：参数异常','invalid'),undefined);
   }
 });
 

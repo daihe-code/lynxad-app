@@ -14,21 +14,31 @@
       <summary>查看错误详情<ReferenceIcon name="caret" /></summary>
       <p>{{ failure.detail }}</p>
     </details>
+    <label v-if="!failure.target" class="publish-failure__destination">需要检查的页面
+      <select v-model="selectedPage" aria-label="需要检查的页面" :disabled="busy">
+        <option value="" disabled>请根据错误详情选择</option>
+        <option v-for="page in publishFailurePages" :key="page.value" :value="page.value">{{ page.label }}</option>
+      </select>
+    </label>
     <div class="publish-failure__actions">
-      <button type="button" class="publish-failure__primary" :disabled="busy" @click="emit('recover')">{{ busy ? '正在更新…' : failure.action }}<ReferenceIcon name="forward" /></button>
+      <button type="button" class="publish-failure__primary" :disabled="busy || !target" @click="recover">{{ busy ? '正在返回…' : failure.action }}<ReferenceIcon name="forward" /></button>
       <button type="button" class="publish-failure__back" :disabled="busy" @click="emit('back')">返回投放列表</button>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { planPublishFailure } from '@/features/delivery/planPublishFailure';
+import { computed, ref, watch } from 'vue';
+import { planPublishFailure, publishFailurePages, publishFailureTarget, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 
 const props = defineProps<{ recovery?: string | null; error?: string; busy?: boolean }>();
-const emit = defineEmits<{ recover: []; back: [] }>();
+const emit = defineEmits<{ recover: [target: PublishFailureTarget]; back: [] }>();
+const selectedPage = ref('');
+watch([() => props.recovery, () => props.error], () => { selectedPage.value = ''; });
 const failure = computed(() => planPublishFailure(props.recovery, props.error));
+const target = computed(() => publishFailureTarget(props.recovery, props.error, selectedPage.value));
+function recover() { if (!props.busy && target.value) emit('recover', target.value); }
 </script>
 
 <style scoped>
@@ -51,6 +61,8 @@ const failure = computed(() => planPublishFailure(props.recovery, props.error));
 .publish-failure__details[open] summary svg { transform: rotate(180deg); }
 .publish-failure__details p { margin: 14px 0 0; padding: 16px 20px; border: 1px solid #e8e9f4; border-radius: 10px; background: #fafaff; color: #656b87; text-align: left; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .publish-failure__actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 28px; }
+.publish-failure__destination { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px; margin: 20px 0 0; color: #74799e; font-size: 14px; }
+.publish-failure__destination select { max-width: 100%; padding: 10px 12px; border: 1px solid #dfe2f5; border-radius: 8px; background: white; color: #20213b; font: inherit; }
 .publish-failure__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; padding: 10px 24px; border: 1px solid #5b55f9; border-radius: 8px; font: inherit; font-size: 15px; font-weight: 600; line-height: 1.5; cursor: pointer; }
 .publish-failure__primary { background: #5b55f9; box-shadow: 0 3px 10px #5755f81c; color: white; }
 .publish-failure__back { background: white; color: #5755f9; }

@@ -15,7 +15,7 @@
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4">
       <CreationFrame :step="4" :account="account" :account-chips="accountChips" :result-state="state.publishStatus === 'FAILED' ? 'warning' : undefined" />
       <main class="ad-main"><div class="container-page">
-        <PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="state.publishError" :recovery="state.publishRecovery" :busy="busy" @recover="recoverPublishFailure" @back="router.push('/campaigns')">
+        <PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="state.publishError" :recovery="state.publishRecovery" :busy="busy || initializing || draftRestoring || draftUnresolved" @recover="recoverPublishFailure" @back="router.push('/campaigns')">
           <template v-if="state.publishStatus === 'UNCERTAIN'" #recovery>
             <div class="submit-recovery">
               <input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" />
@@ -49,7 +49,7 @@ import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { getPlan } from '@/features/delivery/deliveryApi';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
-import { planPublishFailure, showPublishFailureResult } from '@/features/delivery/planPublishFailure';
+import { planPublishFailure, showPublishFailureResult, publishFailureTarget, publishFailureStep, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import { creationScheduleDefaults } from '@/features/delivery/creationSchedule';
 import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
@@ -370,19 +370,27 @@ async function add(body: Parameters<typeof api.creationAdd>[1]) { await run(asyn
 function openAction(kind: 'regenerate'|'delete', id: string) { if (!busy.value) action.value = { kind, id }; }
 async function resolveVersion(id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD') { await run(async () => { acceptWrite(await api.creationResolveVersion(state.value!, id, decision)); schedulePoll(); }); }
 async function feedback(body: MaterialFeedback) { const a = action.value; if (!a?.id) return; await run(async () => { acceptWrite(await api.creationFeedback(state.value!, a.id!, a.kind, body)); action.value = null; schedulePoll(); }); }
-async function recoverPublishFailure() {
-  if (!state.value || state.value.publishStatus !== 'FAILED' || busy.value) return;
-  const recovery = planPublishFailure(state.value.publishRecovery);
+async function recoverPublishFailure(choice: PublishFailureTarget) {
+  if (!state.value || state.value.publishStatus !== 'FAILED' || busy.value || initializing.value || draftRestoring.value || draftUnresolved.value) return;
+  const recovery = planPublishFailure(state.value.publishRecovery, state.value.publishError);
+  const target = publishFailureTarget(state.value.publishRecovery, state.value.publishError, choice);
+  if (target === 'ACCOUNTS') { await router.push({ path: '/accounts', query: { tab: 'oauth' } }); return; }
+  const targetStep = publishFailureStep(target);
+  if (!targetStep) return;
   await run(async () => {
-    if (recovery.targetStep === 2) {
+    if (recovery.refreshEstimate) {
       const previous = state.value!;
       acceptRecommendations(previous, await api.creationRecommendations(previous.planId, true));
       reviewedQuote.value = '';
     }
-    await persistStep(recovery.targetStep);
-    step.value = recovery.targetStep;
+    await persistStep(targetStep);
+    step.value = targetStep;
     window.scrollTo(0, 0);
   });
+  if (targetStep === 1 && step.value === 1) {
+    await nextTick();
+    await productStep.value?.confirmProductAdjustment();
+  }
 }
 async function reviewPublishEstimate() {
   if(!state.value || busy.value)return;
@@ -482,14 +490,18 @@ async function initialize() {
     if (!disposed) {
       await autosave.activate();
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3';
-      if (showPublishFailureResult(state.value?.publishStatus, props.initialStep, noticeMaterials, sameSelection.value)) step.value = 4;
+      const recoveryStep = state.value?.publishStatus === 'FAILED' && typeof route.query.recover === 'string'
+        ? publishFailureStep(publishFailureTarget(state.value.publishRecovery, state.value.publishError, route.query.recover)) : undefined;
+      if (recoveryStep) step.value = recoveryStep;
+      else if (showPublishFailureResult(state.value?.publishStatus, props.initialStep, noticeMaterials, sameSelection.value)) step.value = 4;
       if (step.value < 4 && !analysisReady.value && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
       if(step.value === 2 && state.value) {
-        await refreshRecommendations(state.value.publishRecovery === 'REFRESH_ESTIMATE');
+        await refreshRecommendations(planPublishFailure(state.value.publishRecovery, state.value.publishError).refreshEstimate);
       }
-      if (props.adjustProductsOnOpen && step.value === 1 && !initialFailure.value) {
+      if ((props.adjustProductsOnOpen || recoveryStep === 1) && step.value === 1 && !initialFailure.value) {
         await nextTick();
-        await productStep.value?.openProductAdjustment();
+        if (props.adjustProductsOnOpen) await productStep.value?.openProductAdjustment();
+        else await productStep.value?.confirmProductAdjustment();
       }
     }
   } catch (error) { if (!disposed) { const failure=requestFailure(error,{method:'GET'}); if (failure.kind !== 'CANCELLED') initialFailure.value = failure; } }

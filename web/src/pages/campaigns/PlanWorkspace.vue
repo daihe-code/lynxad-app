@@ -35,7 +35,7 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
-        <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="router.push({ path: `/campaigns/${plan.planId}/edit`, query: { step: String(planPublishFailure(creation?.publishRecovery).targetStep) } })" @back="backToPlans" /></div></main>
+        <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="recoverFailedPlan" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
         <CreationFooter v-if="step !== 4 || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
@@ -79,7 +79,7 @@ import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
 import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
-import { planPublishFailure } from '@/features/delivery/planPublishFailure';
+import { publishFailureLocation, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import PlanReviewNotice from './components/PlanReviewNotice.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
@@ -98,6 +98,11 @@ async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.va
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const submissionPhase = computed(() => planSubmissionPhase({ ...plan.value, publishStatus: !plan.value?.qcPlanId && creation.value?.publishStatus === 'FAILED' ? 'FAILED' : undefined }));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
+function recoverFailedPlan(choice: PublishFailureTarget) {
+  if (!plan.value) return;
+  const location = publishFailureLocation(plan.value.planId, creation.value?.publishRecovery, creation.value?.publishError, choice);
+  if (location) void router.push(location);
+}
 const loading = ref(true), saving = ref(false), loadError = ref('');
 const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
 const materialPending=computed(()=>!!creation.value?.materialEdit&&!['SUCCEEDED','FAILED'].includes(creation.value.materialEdit.status));

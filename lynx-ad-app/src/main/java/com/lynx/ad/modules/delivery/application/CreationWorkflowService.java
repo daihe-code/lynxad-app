@@ -14,6 +14,7 @@ import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
 import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
+import com.lynx.ad.modules.delivery.domain.service.PublishFailureRecovery;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.*;
@@ -1003,10 +1004,7 @@ public class CreationWorkflowService {
         try {
             var body=json.readTree(a.payload());qcId=qc.create(new TenantId(a.tenant()),s.accountId,s.awemeId,body);
         }catch(BizException e){
-            if(e.code()!=1523&&e.getMessage()!=null&&e.getMessage().contains("效果预估")&&(e.getMessage().contains("更新")||e.getMessage().contains("重新获取"))) {
-                failed(a,"FAILED",e.getMessage());
-                store.mutate(a.tenant(),a.planId(),null,state->{state.publishRecovery="REFRESH_ESTIMATE";state.publishError="平台效果预估已更新，请刷新预估并确认后重新发布。预算和素材已保留。";});
-            }else failed(a,e.code()==1523?"UNCERTAIN":"FAILED",e.getMessage());
+            failed(a,e.code()==1523?"UNCERTAIN":"FAILED",e.getMessage(),e.code());
             return;
         }
         catch(Exception e){failed(a,"UNCERTAIN","平台创建结果待确认，请核对平台计划，避免重复创建");return;}
@@ -1015,15 +1013,20 @@ public class CreationWorkflowService {
         accepted(a,qcId);
     }
     public void accepted(CreationStore.Attempt a,String qcId) {
-        store.mutate(a.tenant(),a.planId(),null,s->{s.publishStatus="CREATED";s.qcPlanId=qcId;s.publishError=null;
+        store.mutate(a.tenant(),a.planId(),null,s->{s.publishStatus="CREATED";s.qcPlanId=qcId;s.publishError=null;s.publishRecovery=null;
             var p=plan(s);if(p.qcPlanId().isEmpty()){p.apply(PlanStatus.SUBMITTING);p.acceptExternalId(new QcPlanId(qcId));plans.save(p);}
         });
         store.applied(a);
     }
     public void failed(CreationStore.Attempt a,String state,String message) {
+        failed(a,state,message,null);
+    }
+    private void failed(CreationStore.Attempt a,String state,String message,Integer code) {
         var existing=store.attempt(a.tenant(),a.key());if(existing.isPresent()&&"CREATED".equals(existing.get().status())){accepted(existing.get(),existing.get().qcId());return;}
         store.finishPublish(a.tenant(),a.key(),state,null,message);
         store.mutate(a.tenant(),a.planId(),null,s->{s.publishStatus=state;s.publishError=message;
+            s.publishRecovery="FAILED".equals(state)?PublishFailureRecovery.classify(code,message):null;
+            if("REFRESH_ESTIMATE".equals(s.publishRecovery))s.publishError="平台效果预估已更新，请刷新预估并确认后重新发布。预算和素材已保留。";
             var p=plan(s);if("FAILED".equals(state)){p.apply(PlanStatus.DRAFT);s.step=3;s.changed();}plans.save(p);});
     }
     private void writable(TenantId tenant,WriteAction action){billing.assertWritable(tenant,Instant.now(),action);}

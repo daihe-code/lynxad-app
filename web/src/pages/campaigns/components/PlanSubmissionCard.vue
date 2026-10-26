@@ -1,5 +1,5 @@
 <template>
-  <PlanPublishFailureCard v-if="phase === 'FAILED'" :recovery="recovery" :error="error" :busy="busy" @recover="emit('recover')" @back="emit('back')" />
+  <PlanPublishFailureCard v-if="phase === 'FAILED'" :recovery="recovery" :error="error" :busy="busy" @recover="emit('recover', $event)" @back="emit('back')" />
   <section v-else class="submission-card" :class="`submission-card--${phase.toLowerCase()}`" aria-label="投放计划状态">
     <header class="submission-card__head" role="status" aria-live="polite">
       <span v-if="phase === 'SUBMITTING'" class="submission-card__spinner" aria-hidden="true" />
@@ -39,6 +39,7 @@ import { computed } from 'vue';
 import { planSubmissionMessage, type PlanSubmissionPhase } from '@/features/delivery/planSubmissionPresentation';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import PlanPublishFailureCard from './PlanPublishFailureCard.vue';
+import type { PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 
 const props = defineProps<{
   phase: PlanSubmissionPhase;
@@ -47,7 +48,7 @@ const props = defineProps<{
   recovery?: string | null;
   busy?: boolean;
 }>();
-const emit = defineEmits<{ back: []; recover: [] }>();
+const emit = defineEmits<{ back: []; recover: [target: PublishFailureTarget] }>();
 const message = computed(() => planSubmissionMessage(props.phase));
 </script>
 

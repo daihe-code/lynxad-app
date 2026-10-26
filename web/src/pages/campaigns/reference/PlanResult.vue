@@ -10,7 +10,7 @@
           <p>计划状态加载失败</p>
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
-        <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="router.push({ path: `/campaigns/${plan.planId}/edit`, query: { step: String(planPublishFailure(failedPublication?.publishRecovery).targetStep) } })" @back="router.push('/campaigns')" />
+        <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="recoverFailedPlan" @back="router.push('/campaigns')" />
         <section v-else-if="plan" class="st" :data-st="tone">
           <div class="reshead">
             <span class="reshead__ico" :class="`ico-tone--${tone}`"
@@ -406,7 +406,7 @@ import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { creationGet, type CreationState } from '@/features/delivery/creationApi';
-import { planPublishFailure } from '@/features/delivery/planPublishFailure';
+import { publishFailureLocation, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import "./campaign-result.css";
 const props = defineProps<{ planId?: string }>(),
   route = useRoute(), router = useRouter();
@@ -421,6 +421,11 @@ const user = useUserStore(),
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
 const failedPublication = ref<CreationState>();
+function recoverFailedPlan(choice: PublishFailureTarget) {
+  if (!plan.value) return;
+  const location = publishFailureLocation(plan.value.planId, failedPublication.value?.publishRecovery, failedPublication.value?.publishError, choice);
+  if (location) void router.push(location);
+}
 watch(() => plan.value?.status === 'DRAFT' && !plan.value.qcPlanId ? plan.value.planId : undefined, async (id, _previous, onCleanup) => {
   failedPublication.value = undefined;
   if (!id) return;

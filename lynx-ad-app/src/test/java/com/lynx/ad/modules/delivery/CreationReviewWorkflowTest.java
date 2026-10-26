@@ -75,4 +75,24 @@ class CreationReviewWorkflowTest {
         service.send(attempt);assertEquals("FAILED",s.publishStatus);assertEquals("REFRESH_ESTIMATE",s.publishRecovery);assertEquals("existing",s.materials.getFirst().id);
         assertFalse(s.publishError.contains("40000"));verify(qc,times(1)).create(any(),anyString(),anyString(),any());
     }
+    @Test void failedSubmissionPersistsItsCauseWithoutChangingSavedSettingsOrRegeneratingMaterials() {
+        var attempt=new CreationStore.Attempt("attempt","tenant","plan",7,"publish-request-000001","hash","{}","QUEUED",null,null);
+        s.publishRecovery="REFRESH_ESTIMATE";s.budget=new java.math.BigDecimal("300");s.roi2Goal=new java.math.BigDecimal("4.82");
+        var m=new CreationState.Material();m.id="existing";s.materials.add(m);
+        service.failed(attempt,"FAILED","商品已下架，无法投放");
+        assertEquals("FAILED",s.publishStatus);assertEquals("PRODUCTS",s.publishRecovery);
+        assertEquals(new java.math.BigDecimal("300"),s.budget);assertEquals(new java.math.BigDecimal("4.82"),s.roi2Goal);
+        assertEquals("existing",s.materials.getFirst().id);verifyNoInteractions(engine,qc);
+        service.failed(attempt,"FAILED","日预算不能低于300元");assertEquals("GOAL",s.publishRecovery);
+        service.failed(attempt,"FAILED","视频格式不支持");assertEquals("MATERIALS",s.publishRecovery);
+        service.failed(attempt,"FAILED","请求异常");assertEquals("UNKNOWN",s.publishRecovery);
+    }
+    @Test void unconfirmedCreationNeverGetsAnEditorRecoveryOrAnAutomaticResubmission() {
+        var attempt=new CreationStore.Attempt("attempt","tenant","plan",7,"publish-request-000001","hash","{}","QUEUED",null,null);
+        when(store.claimPublish("tenant",attempt.key())).thenReturn(true);
+        when(qc.create(any(),anyString(),anyString(),any())).thenThrow(new BizException(1523,"预算提交结果尚未确认"));
+        s.publishRecovery="GOAL";
+        service.send(attempt);assertEquals("UNCERTAIN",s.publishStatus);assertNull(s.publishRecovery);
+        verify(qc,times(1)).create(any(),anyString(),anyString(),any());verifyNoInteractions(engine);
+    }
 }

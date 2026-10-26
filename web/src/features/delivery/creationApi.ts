@@ -87,7 +87,7 @@ export interface CreationState {
   regeneration?: { requestId?: string; resultMaterialId?: string };
   generationRetry?: { requestId?: string };
   groupingDecision?: 'KEEP_CURRENT';
-  publishRecovery?: 'REFRESH_ESTIMATE';
+  publishRecovery?: 'REFRESH_ESTIMATE' | 'PRODUCTS' | 'GOAL' | 'MATERIALS' | 'ACCOUNTS' | 'UNKNOWN';
   titlePools?: Record<string,{customTitles:string[];cardTitles:string[]}>;
   planId: string; accountId: string; awemeId: string; name: string; revision: number; step: number;
   reachedStep?: number;

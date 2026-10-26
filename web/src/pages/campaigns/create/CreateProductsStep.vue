@@ -240,7 +240,7 @@ async function confirm() {
   adjusting.value = false; closeRecommendations(); emit('analyze');
   await nextTick(); analysisPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-defineExpose({ openProductAdjustment });
+defineExpose({ openProductAdjustment, confirmProductAdjustment: adjustProducts });
 </script>
 
 <style scoped src="./create-products.css"></style>
