@@ -67,7 +67,25 @@
       <section v-if="analysisOpen" ref="analysisPanel" class="panel analysis" aria-labelledby="panel-analysis">
         <div class="analysis-heading"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
         <div class="analysis-content" aria-live="polite">
-          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button></div>
+          <div class="analysis-selection" aria-label="已选商品摘要">
+            <span>已选 <b>{{ selected.length }}</b> 款商品</span>
+            <div class="analysis-selection__thumbs">
+              <el-popover v-for="p in selected" :key="p.productId" placement="bottom-start" width="min(320px, calc(100vw - 32px))" :trigger="['hover', 'focus']" :show-after="150" :hide-after="100" popper-class="selected-product-popover">
+                <template #reference>
+                  <button class="sthumb__box" type="button" :aria-label="readOnly ? `查看${p.name}的商品信息` : `查看${p.name}的推荐商品`" :aria-pressed="readOnly ? undefined : recommendationSource === p.qcProductId" :disabled="saving" @click="!readOnly && showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button>
+                </template>
+                <div class="selected-product-info" :aria-label="`${p.name}的商品信息`">
+                  <strong class="selected-product-info__name">{{ p.name }}</strong>
+                  <dl>
+                    <div><dt>价格</dt><dd class="selected-product-info__price">{{ productPriceText(p.priceInfo, p.price) }}<small v-if="p.priceInfo?.stale">上次价格</small></dd></div>
+                    <div><dt>销量</dt><dd>{{ p.sales == null ? '暂未获取' : p.sales.toLocaleString('zh-CN') }}</dd></div>
+                    <div><dt>库存</dt><dd>{{ p.stock == null ? '暂未获取' : p.stock.toLocaleString('zh-CN') }}</dd></div>
+                  </dl>
+                </div>
+              </el-popover>
+            </div>
+            <button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button>
+          </div>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
             <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
@@ -100,6 +118,7 @@ import ProductSelectionNotice from './ProductSelectionNotice.vue';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
 import { useProductSuggestions } from '@/features/delivery/useProductSuggestions';
 import ProductPrice from '@/components/ProductPrice.vue';
+import { productPriceText } from '@/features/catalog/productPrice';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
