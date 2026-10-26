@@ -67,8 +67,7 @@
       <section v-if="analysisOpen" ref="analysisPanel" class="panel analysis" aria-labelledby="panel-analysis">
         <div class="analysis-heading"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
         <div class="analysis-content" aria-live="polite">
-          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button><button v-else class="analysis-adjust" type="button" :aria-expanded="selectedExpanded" @click="selectedExpanded = !selectedExpanded">{{ selectedExpanded ? '收起商品' : '查看已选商品' }}</button></div>
-          <ul v-if="readOnly && selectedExpanded" class="analysis-selected-names"><li v-for="p in selected" :key="p.productId">{{ p.name }}</li></ul>
+          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button></div>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
             <p>{{ basicAnalysis.canContinue ? '已检查所选商品的信息和可投状态。主图地址与价格仍需以实际可用情况为准。' : '请先处理以下不可投问题，再继续设置投放目标。' }}</p>
@@ -124,7 +123,7 @@ watch(() => [props.account?.key, props.draftId], closeRecommendations);
 watch(() => props.selected.map(p => p.qcProductId), ids => {
   if (recommendationSource.value && !ids.includes(recommendationSource.value)) closeRecommendations();
 });
-const analysisOpen = ref(false), adjusting = ref(false), selectedExpanded = ref(false);
+const analysisOpen = ref(false), adjusting = ref(false);
 const analyzedInput = ref<string>();
 const selectionStale = computed(() => adjusting.value && analyzedInput.value !== productAnalysisInput(props.selected));
 const analysisPanel = ref<HTMLElement>();
