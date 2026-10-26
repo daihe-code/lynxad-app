@@ -42,8 +42,7 @@
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
             <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
           </template>
-          <button v-if="step < 4" :class="canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
-          <button v-if="!editing && canEdit" class="btn-next-primary" type="button" @click="enterEdit">修改计划</button>
+          <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
           <button v-if="transferring && !transferPending" class="btn-next-primary" type="button" :disabled="saving || !transferAllowed || bidType === plan.smartBidType || !!budgetError || !!roiError" @click="submitTransfer">{{ saving ? '转投处理中…' : '确认转投' }}</button>
           <button v-else-if="transferring && user.trialActive" class="btn-next-primary" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '核查转投结果' }}</button>
           <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
@@ -226,7 +225,6 @@ async function reloadMedia() {
 }
 function navigate(value: number) { if (!saving.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
 function backToPlans() { if (!saving.value && !materialBusy.value) void router.push('/campaigns'); }
-function enterEdit() { if (plan.value && canEdit.value) void router.push({ path: `/campaigns/${plan.value.planId}/edit`, query: { step: String(step.value) } }); }
 function cancelEdit() { if (!saving.value && plan.value) { resetForm(); void router.replace({ path: `/campaigns/${plan.value.planId}`, query: { step: String(step.value) } }); } }
 function changeTransferMode(value: string) {
   if (!transferring.value || !transferAllowed.value || saving.value) return;
