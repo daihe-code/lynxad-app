@@ -33,7 +33,11 @@ class InboxOutboxTest {
         time=new Time();var ds=new DriverManagerDataSource("jdbc:h2:mem:outbox_"+UUID.randomUUID()+";MODE="+mode+";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=3000","sa","");
         jdbc=new JdbcTemplate(ds);var manager=new DataSourceTransactionManager(ds);tx=new TransactionTemplate(manager);
         jdbc.execute("CREATE TABLE notification(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(64),channel VARCHAR(16),title VARCHAR(128),body TEXT,biz_type VARCHAR(32),biz_id VARCHAR(64),read_at TIMESTAMP NULL,sent_at TIMESTAMP NOT NULL)");
-        try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V38__audit_notification_outbox.sql"));}
+        try(var c=ds.getConnection()){
+            String root="db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/";
+            ScriptUtils.executeSqlScript(c,new ClassPathResource(root+"V38__audit_notification_outbox.sql"));
+            ScriptUtils.executeSqlScript(c,new ClassPathResource(root+"V46__notification_task_result.sql"));
+        }
         first=new InboxOutboxStore(jdbc,manager,time);second=new InboxOutboxStore(new JdbcTemplate(ds),manager,time);job=new InboxDeliveryJob(first,mock(AuditRecorder.class));
         var config=new MybatisConfiguration();config.setMapUnderscoreToCamelCase(true);config.addMapper(NotificationMapper.class);
         var factory=new MybatisSqlSessionFactoryBean();factory.setDataSource(ds);factory.setConfiguration(config);
@@ -42,6 +46,16 @@ class InboxOutboxTest {
     void enqueue(String event,TenantId owner){tx.executeWithoutResult(s->first.enqueue(owner,event,"计划审核通过","该轮审核结果已确认，请查看当前状态。",new BizRef("AUDIT_PASS","plan"),time.instant().minusSeconds(3600)));}
     String eventId(){return jdbc.queryForObject("SELECT id FROM inbox_outbox WHERE tenant_id=?",String.class,tenant.value());}
     String state(){return jdbc.queryForObject("SELECT state FROM inbox_outbox WHERE tenant_id=?",String.class,tenant.value());}
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void taskResultSurvivesDeliveryReadAndIdempotentRecovery(String mode)throws Exception {
+        database(mode);
+        var result=new com.lynx.ad.modules.tenant.domain.model.InboxResult("PARTIAL","测试计划","working","job","retry","material","VIDEO",4);
+        tx.executeWithoutResult(s->first.enqueue(tenant,"generation","部分素材生成完成","已生成4条",new BizRef("CREATION_EDIT_GENERATED","original",result),time.instant()));
+        var message=inbox.list(tenant).getFirst();assertEquals(result,message.result());assertTrue(message.unread());
+        inbox.markRead(tenant,new NotificationId(message.id()),new UserId("reader"));
+        var read=inbox.list(tenant).getFirst();assertFalse(read.unread());assertEquals(result,read.result());assertEquals(message.sentAt(),read.sentAt());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification",Integer.class));
+    }
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void sourceRollbackLeavesNoEventAndEnqueueRequiresSourceTransaction(String mode)throws Exception {
         database(mode);assertThrows(IllegalStateException.class,()->first.enqueue(tenant,"e","t","b",new BizRef("AUDIT_PASS","p"),time.instant()));

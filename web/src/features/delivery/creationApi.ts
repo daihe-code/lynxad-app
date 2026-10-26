@@ -15,6 +15,7 @@ export interface ProductSuggestions {
   fetchedAt: string; method: string; message: string;
 }
 export interface CreationMaterial {
+  engineJobId?: string;
   id: string; productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; title: string; text?: string; displayName?: string;
   status: string; error?: string; previewUrl?: string; posterUrl?: string; engineMaterialId?: string;
   titles: string[]; imageUrls?: string[];
@@ -80,6 +81,9 @@ export interface ProductBasicAnalysis {
   issues: ProductBasicIssue[];
 }
 export interface CreationState {
+  engineJobId?: string;
+  regeneration?: { requestId?: string; resultMaterialId?: string };
+  generationRetry?: { requestId?: string };
   groupingDecision?: 'KEEP_CURRENT';
   publishRecovery?: 'REFRESH_ESTIMATE';
   titlePools?: Record<string,{customTitles:string[];cardTitles:string[]}>;

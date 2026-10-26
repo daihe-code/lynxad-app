@@ -8,6 +8,7 @@ export interface InboxMessage {
   bizId?: string;
   unread: boolean;
   sentAt: string;
+  result?: { outcome: 'PARTIAL' | 'FAILED' | 'GENERATED' | 'NEW_VERSION'; planName: string; creationPlanId: string; jobId?: string; operationId?: string; materialId?: string; materialType?: string; produced: number } | null;
 }
 
 export function listInbox(background = false) {

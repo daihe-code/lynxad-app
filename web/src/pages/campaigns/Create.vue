@@ -19,8 +19,8 @@
 </template>
 <script setup lang="ts">
 import { roiInputError, scheduleInputError } from '@/features/delivery/inputValidation';
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { ApiRequestError, requestFailure } from '@/api/apiErrors';
 import { pollRecoveryDelay } from '@/api/readRetry';
@@ -415,8 +415,9 @@ async function initialize() {
       const s = state.value;
       resumingMaterials.value = creationReachedStep(s) >= 3;
       accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
-      const restoredStep = Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? s.step)));
-      step.value = restoredStep < 4 && !analysisReady.value ? 1 : restoredStep;
+      const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3' && creationReachedStep(s) >= 3;
+      const restoredStep = Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
+      step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget);
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
       const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
@@ -433,7 +434,7 @@ async function initialize() {
     if (!state.value || state.value.analysisStatus === 'NONE' && !state.value.analysis) await loadProducts();
     if (!disposed) {
       await autosave.activate();
-      if (step.value < 4 && !analysisReady.value) step.value = 1;
+      if (step.value < 4 && !analysisReady.value && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
       if(step.value === 2 && state.value) {
         await refreshRecommendations();
       }
@@ -447,6 +448,15 @@ async function initialize() {
 }
 onMounted(initialize); onUnmounted(() => { disposed = true; clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++; });
 onBeforeRouteLeave(() => { if (!autosave.flush()) { ElMessage.warning('未提交内容尚未可靠保存，请先处理草稿提示或明确选择不保存'); return false; } });
+onBeforeRouteUpdate((to, from) => {
+  if (!props.initialPlanId && to.query.draftId !== from.query.draftId && to.query.draftId !== state.value?.planId && !autosave.flush()) {
+    ElMessage.warning('未提交内容尚未可靠保存，请先处理草稿提示或明确选择不保存'); return false;
+  }
+});
+watch(() => route.query.draftId, id => { if (!props.initialPlanId && id !== state.value?.planId) void initialize(); });
+watch(() => route.query.notice, () => {
+  if (route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3) { step.value = 3; resumingMaterials.value = true; }
+});
 </script>
 <style scoped>
 .creation-error{padding:24px;color:#db515b;text-align:center}.creation-error button{margin-left:15px}.submit-result{background:#f7f7ff;min-height:85vh}.submit-result section{max-width:900px;margin:30px auto;padding:60px;background:white;border-radius:24px;text-align:center}.submit-result h2{font-size:26px;font-weight:700}.submit-result p{margin:22px;color:#8588a5}.submit-result button{margin:10px;padding:12px 24px;background:#575cf6;color:white;border-radius:10px}

@@ -45,6 +45,7 @@ class PlanReviewRepositoryTest {
             ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V38__audit_notification_outbox.sql"));
         }
         jdbc.execute("CREATE TABLE notification(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(64),channel VARCHAR(16),title VARCHAR(128),body TEXT,biz_type VARCHAR(32),biz_id VARCHAR(64),read_at TIMESTAMP NULL,sent_at TIMESTAMP NOT NULL)");
+        try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V46__notification_task_result.sql"));}
         var config=new MybatisConfiguration();config.setMapUnderscoreToCamelCase(true);config.addMapper(AdPlanMapper.class);
         var factory=new MybatisSqlSessionFactoryBean();factory.setDataSource(ds);factory.setConfiguration(config);
         var manager=new DataSourceTransactionManager(ds);store=new PlanReviewStore(jdbc,manager,time);

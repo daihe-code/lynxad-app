@@ -35,6 +35,7 @@ class CreationReadNoticeTest {
             String root="db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/";
             ScriptUtils.executeSqlScript(c,new ClassPathResource(root+"V18__creation_workflow.sql"));
             ScriptUtils.executeSqlScript(c,new ClassPathResource(root+"V38__audit_notification_outbox.sql"));
+            c.createStatement().execute("ALTER TABLE inbox_outbox ADD COLUMN result_json TEXT");
         }
         jdbc=new JdbcTemplate(ds);var manager=new DataSourceTransactionManager(ds);
         store=new CreationStore(jdbc,json,manager);engine=mock(CreationEngineClient.class);
@@ -77,7 +78,7 @@ class CreationReadNoticeTest {
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void failedNoticeWriteRollsBackReconciliationAndKeepsSavedPlanReadable(String mode) throws Exception {
         database(mode);
-        jdbc.execute("ALTER TABLE inbox_outbox ADD CONSTRAINT reject_notice CHECK(title<>'素材生成阶段已完成')");
+        jdbc.execute("ALTER TABLE inbox_outbox ADD CONSTRAINT reject_notice CHECK(title<>'素材生成完成')");
         var result=assertDoesNotThrow(()->service.get(tenant,plan));
         assertEquals("FAILED",result.generationStatus);assertEquals("partial_failed",result.engineTerminalStatus);
         assertEquals(6,result.materials.size());assertTrue(result.materials.stream().allMatch(m->"READY".equals(m.status)));

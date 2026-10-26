@@ -37,6 +37,7 @@ public class MpInboxMessageRepository implements InboxMessageRepository {
         if (msg.ref() != null) {
             po.setBizType(msg.ref().bizType());
             po.setBizId(msg.ref().bizId());
+            po.setResultJson(InboxResultJson.write(msg.ref().result()));
         }
         po.setReadAt(msg.readAt());
         if (insert) {
@@ -80,7 +81,7 @@ public class MpInboxMessageRepository implements InboxMessageRepository {
                 new TenantId(po.getTenantId()),
                 po.getTitle(),
                 po.getBody(),
-                new BizRef(po.getBizType(), po.getBizId()),
+                new BizRef(po.getBizType(), po.getBizId(), InboxResultJson.read(po.getResultJson())),
                 po.getReadAt(),
                 po.getSentAt());
     }

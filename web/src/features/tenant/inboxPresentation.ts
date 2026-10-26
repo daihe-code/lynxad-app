@@ -1,5 +1,6 @@
 import type { InboxMessage } from './inboxApi';
 import { WATCHER_TYPES } from '@/features/agentops/agentopsApi';
+import { generationNotice } from './inboxGeneration';
 
 export type InboxFilterCategory = 'system' | 'warning' | 'approval' | 'optimization';
 
@@ -17,8 +18,8 @@ export function filterInbox(items: InboxMessage[], tab: 'all' | 'unread', catego
 
 export function inboxPresentation(item: InboxMessage) {
   const type = item.bizType || '';
-  if(type === 'CREATION_EDIT_GENERATED')return {category:'素材',tone:'material',action:'继续调整原计划',destination:'contentEdit' as const};
-  if(type === 'CREATION_GENERATED')return {category:'素材',tone:'material',action:'返回本计划',destination:'draft' as const};
+  const generation = generationNotice(item);
+  if(generation)return {category:'素材',tone:'material',action:generation.action,destination:type === 'CREATION_EDIT_GENERATED' ? 'contentEdit' as const : 'draft' as const};
   if (type.startsWith('OPTIMIZATION_')) return { category: '自动盯盘', tone: 'warning', action: '查看盯盘', destination: 'optimization' as const };
   if (type.startsWith('CREATIVE_')) return { category: '素材', tone: 'material', action: '查看素材', destination: 'creative' as const };
   if (type === 'TOKEN_EXPIRED') return { category: '授权', tone: 'authorization', action: '重新授权', destination: 'authorization' as const };

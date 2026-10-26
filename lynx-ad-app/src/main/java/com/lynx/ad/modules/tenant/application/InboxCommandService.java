@@ -62,7 +62,8 @@ public class InboxCommandService {
                         m.ref() == null ? null : m.ref().bizType(),
                         m.ref() == null ? null : m.ref().bizId(),
                         m.unread(),
-                        m.sentAt()))
+                        m.sentAt(),
+                        m.ref() == null ? null : m.ref().result()))
                 .toList();
     }
 

@@ -3,6 +3,7 @@
     <CreationFrame v-if="!embedded" :step="3" navigable :navigation-disabled="busy" :reached-step="reachedStep" :max-step="maxStep ?? 3" @navigate="step => emit('navigate',step)" :account="account" :accounts="readOnly ? [] : accounts" :account-switch-disabled="busy || running || readOnly" :account-chips="accountChips" @account="emit('account', $event)" />
     <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
       <h2 class="panel__title">{{ batchRunning ? '生成投放素材' : published ? '已投放素材' : '确定投放素材' }}</h2><p class="panel__sub">{{ batchRunning ? `我正在为你选中的 ${state.generationProductIds.length || state.products.length} 款商品准备素材，生成后由你预览确认` : published ? '当前计划使用的素材，点击素材或标题可查看投放效果预览' : '我已整理好素材，请预览并确认用于本次投放的内容' }}</p>
+      <GenerationNoticeResult :state="state" @focus="focusNotice" />
       <MaterialGenerationProgress v-if="batchRunning" ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
       <template v-else>
       <div v-if="showStatusNotice" class="tip" role="status"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ statusMessage }}<span v-if="typographyPendingCount"> 有 {{ typographyPendingCount }} 条素材的文字待完善，现有画面已保留。</span></p></div>
@@ -80,6 +81,8 @@ import CreationFooter from './CreationFooter.vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import MaterialGenerationProgress from './MaterialGenerationProgress.vue';
+import GenerationNoticeResult from './GenerationNoticeResult.vue';
+import type { generationNoticeTarget } from '@/features/delivery/generationNoticeTarget';
 import MaterialPreview from './MaterialPreview.vue';
 import MaterialTitleList from './ProductTitleList.vue';
 import AddMaterialDialog from './AddMaterialDialog.vue';
@@ -101,6 +104,11 @@ watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, 
 const regenerationWaitSeconds = computed(() => regenerationWait(props.state.regenerationRetryAt, now.value));
 const tabs = { VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文', TITLE: '标题' };
 const productId = ref(props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>('VIDEO'), selectedId = ref('');
+function focusNotice(target: NonNullable<ReturnType<typeof generationNoticeTarget>>) {
+  if (target.productId && props.state.products.some(p => p.qcProductId === target.productId)) productId.value = target.productId;
+  if (target.type && target.type in tabs) tab.value = target.type as keyof typeof tabs;
+  if (target.materialId) selectedId.value = target.materialId;
+}
 const materials = computed(() => props.state.materials.filter(m => m.productId === productId.value));
 const visible = computed(() => materials.value.filter(m => m.type === tab.value));
 const failureRows = computed(() => generationFailureRows(props.state, productId.value, tab.value));

@@ -28,8 +28,8 @@ public class InboxOutboxStore {
     public void enqueue(TenantId tenant,String eventKey,String title,String body,BizRef ref,Instant occurredAt) {
         if(!TransactionSynchronizationManager.isActualTransactionActive())throw new IllegalStateException("通知事件必须与业务结果在同一事务保存");
         if(jdbc.queryForObject("SELECT COUNT(*) FROM inbox_outbox WHERE tenant_id=? AND event_key=?",Integer.class,tenant.value(),eventKey)>0)return;
-        jdbc.update("INSERT INTO inbox_outbox(id,tenant_id,event_key,notification_id,title,body,biz_type,biz_id,occurred_at,state,attempts,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,?,'READY',0,?)",
-            UUID.randomUUID().toString(),tenant.value(),eventKey,UUID.randomUUID().toString(),title,body,ref.bizType(),ref.bizId(),ts(occurredAt),ts(clock.instant()));
+        jdbc.update("INSERT INTO inbox_outbox(id,tenant_id,event_key,notification_id,title,body,biz_type,biz_id,result_json,occurred_at,state,attempts,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,?,?,'READY',0,?)",
+            UUID.randomUUID().toString(),tenant.value(),eventKey,UUID.randomUUID().toString(),title,body,ref.bizType(),ref.bizId(),InboxResultJson.write(ref.result()),ts(occurredAt),ts(clock.instant()));
     }
     public List<String> due(TenantId tenant,int limit) {
         return due(tenant,limit,false);
@@ -57,14 +57,14 @@ public class InboxOutboxStore {
     /** Notification insertion and SENT acknowledgement commit together; an uncertain commit is safe to retry. */
     public Optional<Delivered> deliver(Claim claim) {
         return tx.execute(s->{
-            var events=jdbc.query("SELECT notification_id,title,body,biz_type,biz_id FROM inbox_outbox WHERE id=? AND tenant_id=? AND state='SENDING' AND lease_key=? FOR UPDATE",
-                (r,n)->new String[]{r.getString(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5)},claim.id(),claim.tenant(),claim.key());
+            var events=jdbc.query("SELECT notification_id,title,body,biz_type,biz_id,result_json FROM inbox_outbox WHERE id=? AND tenant_id=? AND state='SENDING' AND lease_key=? FOR UPDATE",
+                (r,n)->new String[]{r.getString(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5),r.getString(6)},claim.id(),claim.tenant(),claim.key());
             if(events.isEmpty())return Optional.empty();
             var e=events.getFirst();
             var existing=jdbc.query("SELECT tenant_id,channel FROM notification WHERE id=?",(r,n)->new String[]{r.getString(1),r.getString(2)},e[0]);
             if(!existing.isEmpty() && (!claim.tenant().equals(existing.getFirst()[0]) || !"INBOX".equals(existing.getFirst()[1])))throw new IllegalStateException("通知标识归属不一致");
             Instant sent=clock.instant();boolean inserted=existing.isEmpty();
-            if(inserted)jdbc.update("INSERT INTO notification(id,tenant_id,channel,title,body,biz_type,biz_id,sent_at) VALUES(?,?,'INBOX',?,?,?,?,?)",e[0],claim.tenant(),e[1],e[2],e[3],e[4],ts(sent));
+            if(inserted)jdbc.update("INSERT INTO notification(id,tenant_id,channel,title,body,biz_type,biz_id,result_json,sent_at) VALUES(?,?,'INBOX',?,?,?,?,?,?)",e[0],claim.tenant(),e[1],e[2],e[3],e[4],e[5],ts(sent));
             // Never update an existing message: in particular, never reset its read_at or sent_at.
             jdbc.update("UPDATE inbox_outbox SET state='SENT',delivered_at=?,lease_key=NULL,lease_until=NULL,last_failure=NULL WHERE id=? AND tenant_id=? AND lease_key=?",ts(sent),claim.id(),claim.tenant(),claim.key());
             return inserted?Optional.of(new Delivered(claim.tenant(),e[0],e[1])):Optional.empty();

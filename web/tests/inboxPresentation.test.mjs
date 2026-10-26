@@ -5,6 +5,7 @@ import test from 'node:test';
 // Load the real presentation and watcher definitions without starting HTTP/store infrastructure.
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === './inboxGeneration') return { url: new URL('../src/features/tenant/inboxGeneration.ts', import.meta.url).href, shortCircuit: true };
     if (specifier === '@/features/agentops/agentopsApi') return { url: new URL('../src/features/agentops/agentopsApi.ts', import.meta.url).href, shortCircuit: true };
     if (specifier === '@/api/http') return { url: 'data:text/javascript,export function apiGet(){throw new Error("Unexpected HTTP call")}', shortCircuit: true };
     return nextResolve(specifier, context);

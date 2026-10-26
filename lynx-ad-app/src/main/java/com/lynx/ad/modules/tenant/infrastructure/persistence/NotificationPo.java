@@ -15,6 +15,7 @@ public class NotificationPo {
     private String body;
     private String bizType;
     private String bizId;
+    private String resultJson;
     private Instant readAt;
     private Instant sentAt;
 
@@ -31,6 +32,8 @@ public class NotificationPo {
     public String getBizType() { return bizType; }
     public void setBizType(String bizType) { this.bizType = bizType; }
     public String getBizId() { return bizId; }
+    public String getResultJson() { return resultJson; }
+    public void setResultJson(String resultJson) { this.resultJson = resultJson; }
     public void setBizId(String bizId) { this.bizId = bizId; }
     public Instant getReadAt() { return readAt; }
     public void setReadAt(Instant readAt) { this.readAt = readAt; }
