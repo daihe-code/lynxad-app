@@ -92,7 +92,9 @@ public class PlanProductsService {
         var a=access(tenant,id);String qcId=a.plan().qcPlanId().orElseThrow().value();
         var group=transfers.group(tenant,id);String root=group==null?id.value():group.root();
         var bound=boundProducts(detail(a),qcId);var snapshots=new HashMap<String,CreationState.Product>();
-        creation(tenant,root).ifPresent(s->s.products.forEach(p->snapshots.put(p.qcProductId(),p)));
+        var creation=creation(tenant,root);
+        creation.ifPresent(s->s.products.forEach(p->snapshots.put(p.qcProductId(),p)));
+        boolean selectionLocked=creation.map(s->selectionLocked(tenant,s)).orElse(false);
         var refs=bound.entrySet().stream().map(e->new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(e.getKey(),
                 e.getValue().path("channel_id").asText(snapshots.containsKey(e.getKey())?snapshots.get(e.getKey()).channelId():null))).toList();
         var quotes=prices==null?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,a.credential(),a.plan().awemeId().value(),refs,refreshPrices);
@@ -106,6 +108,7 @@ public class PlanProductsService {
             }
         } catch(BizException ex) { rows.clear();warning="商品统计暂不可用："+ex.getMessage(); }
         var pending=group==null || group.requestKey()==null?null:changes.get(tenant,group.requestKey()).filter(c->"PENDING".equals(c.status())).map(this::view).orElse(null);
+        if(selectionLocked)warning=(warning==null?"":warning+"；")+"素材正在生成或处理中，暂不能调整商品，请完成后再试";
         List<Product> result=new ArrayList<>();Map<String,BigDecimal> sum=new LinkedHashMap<>();int count=0;
         for(var entry:bound.entrySet()) {
             String product=entry.getKey();var snapshot=snapshots.get(product);var nativeRow=rows.get(product);
@@ -118,7 +121,7 @@ public class PlanProductsService {
             String image=info.path("product_image").asText(snapshot==null?null:snapshot.imageUrl());
             var quote=quotes.get(product);
             if(quote==null && snapshot!=null && snapshot.priceInfo()!=null)quote=snapshot.priceInfo().staleCopy();
-            result.add(new Product(product,name,image,info.path("audit_status").asText(null),Collections.unmodifiableMap(metrics),bound.size()>1 && (group==null || group.requestKey()==null),quote));
+            result.add(new Product(product,name,image,info.path("audit_status").asText(null),Collections.unmodifiableMap(metrics),!selectionLocked && bound.size()>1 && (group==null || group.requestKey()==null),quote));
         }
         sum.put("ctr",ratio(sum.get("clicks"),sum.get("shows"),100));sum.put("cvr",ratio(sum.get("orders"),sum.get("clicks"),100));sum.put("roi",ratio(sum.get("gmv"),sum.get("cost"),1));
         return new Result(List.copyOf(result),Collections.unmodifiableMap(sum),count,group!=null && group.conservative()!=null && group.custom()!=null,Instant.now(),warning,pending);
@@ -132,10 +135,15 @@ public class PlanProductsService {
     private ChangeResult view(PlanProductChangeStore.Change c) { return new ChangeResult(c.key(),c.product(),c.status(),"DONE".equals(c.status())?"商品已从关联计划中删除":c.error()==null?"删除正在处理，请稍后核查":c.error()); }
     private void idleCreation(TenantId tenant,String root) {
         creation(tenant,root).ifPresent(s->{
-            if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus) || Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
-                    || Set.of("QUEUED","SENDING").contains(s.publishStatus) || s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)))
+            if(selectionLocked(tenant,s) || Set.of("QUEUED","RUNNING").contains(s.analysisStatus)
+                    || Set.of("QUEUED","SENDING").contains(s.publishStatus))
                 throw new BizException(1403,"素材任务仍在处理，请完成后再删除商品");
         });
+    }
+    private boolean selectionLocked(TenantId tenant,CreationState source) {
+        if(com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(source))return true;
+        return source.publishedEditDraftId!=null && creation(tenant,source.publishedEditDraftId)
+                .map(com.lynx.ad.modules.delivery.domain.service.CreationProductSelection::locked).orElse(false);
     }
     private Access member(TenantId tenant,Member m,AdPlan source) {
         var a=access(tenant,new PlanId(m.id()));

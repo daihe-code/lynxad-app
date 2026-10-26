@@ -24,7 +24,7 @@
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
-      <aside v-if="editing && !transferring && canEdit && plan.qcPlanId && creation && !contentDraftId" class="workspace-notice content-edit-entry"><p>调整商品与素材时，原商品已生成的素材会保留；移出商品前会提示对应素材和生成用量影响。</p><button class="btn-prev" type="button" :disabled="saving || materialBusy || materialPending || dirty || settingsBlocked" @click="startContentEdit">{{ creation.contentEditDraftId ? '继续调整商品与素材' : '调整商品与素材' }}</button><p v-if="dirty">请先保存当前投放目标或名称修改，再调整商品与素材。</p></aside>
+      <aside v-if="editing && !transferring && canEdit && plan.qcPlanId && creation && !contentDraftId" class="workspace-notice content-edit-entry"><p>调整商品与素材时，原商品已生成的素材会保留；移出商品前会提示对应素材和生成用量影响。</p><button class="btn-prev" type="button" :disabled="saving || materialBusy || selectionLocked || dirty || settingsBlocked" @click="startContentEdit">{{ creation.contentEditDraftId ? '继续调整商品与素材' : '调整商品与素材' }}</button><p v-if="selectionLocked">素材正在生成或处理中，暂不能调整商品，请完成后再试。</p><p v-if="dirty">请先保存当前投放目标或名称修改，再调整商品与素材。</p></aside>
       <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" />
       <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
@@ -68,6 +68,7 @@ import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { creationReachedStep, validReachedStep } from '@/features/delivery/creationProgress';
+import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { publishedSchedule, publishedScheduleError } from '@/features/delivery/publishedSchedule';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { useUserStore } from '@/stores/user';
@@ -90,11 +91,12 @@ import './create/create-theme.css';
 const props = defineProps<{ mode: 'view' | 'edit' | 'transfer' }>();
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const contentDraftId=ref('');
-async function startContentEdit(){if(!plan.value||dirty.value||settingsBlocked.value||saving.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
+async function startContentEdit(){if(!plan.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const loading = ref(true), saving = ref(false), loadError = ref('');
 const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
 const materialPending=computed(()=>!!creation.value?.materialEdit&&!['SUCCEEDED','FAILED'].includes(creation.value.materialEdit.status));
+const selectionLocked=computed(()=>productSelectionLocked(creation.value));
 let materialTimer:ReturnType<typeof setTimeout>|undefined;
 function openMaterialAction(kind:'regenerate'|'delete',id:string) {
   if(editing.value&&!transferring.value&&canEdit.value&&!saving.value&&!materialBusy.value&&!materialPending.value)materialAction.value={kind,id};
@@ -108,7 +110,7 @@ async function submitMaterialAction(feedback:MaterialFeedback) {
   finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}}
 }
 function scheduleMaterialPoll() {
-  clearTimeout(materialTimer);if(!materialPending.value)return;
+  clearTimeout(materialTimer);if(!materialPending.value&&!selectionLocked.value)return;
   const version=loadNumber,id=plan.value?.planId;if(!id)return;
   materialTimer=setTimeout(async()=>{try{const current=await creationGet(id);if(version===loadNumber){creation.value=current;mediaFailure.value=undefined;}}catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'GET'});}finally{if(version===loadNumber)scheduleMaterialPoll();}},3000);
 }
@@ -211,6 +213,7 @@ async function load() {
     resetForm();
   }
   loading.value = false;
+  scheduleMaterialPoll();
 }
 async function reloadMedia() {
   if (!plan.value || mediaLoading.value) return;

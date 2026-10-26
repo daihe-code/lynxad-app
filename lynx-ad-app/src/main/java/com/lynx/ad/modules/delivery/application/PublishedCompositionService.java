@@ -54,8 +54,8 @@ public class PublishedCompositionService {
         return full;
     }
     private static void idle(CreationState s) {
-        if(s.materialEditPending()||s.publishedEditPending()||Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
-                ||Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)))throw new BizException(1523,"素材任务或保存正在处理，请完成并核查后再调整商品");
+        if(com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s)
+                ||Set.of("QUEUED","RUNNING").contains(s.analysisStatus))throw new BizException(1523,"素材任务或保存正在处理，请完成并核查后再调整商品");
     }
     public CreationState begin(TenantId tenant,String target) {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);

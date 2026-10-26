@@ -74,6 +74,8 @@ public class PlanCommandService {
     private final ObjectMapper objectMapper;
     private final AuditRecorder auditRecorder;
     private final AdPlanCreativeBindingStore bindingStore;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore creations;
+    @org.springframework.beans.factory.annotation.Autowired public void creationStore(com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore value) { creations=value; }
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     private PlanTransferService transferService;
@@ -142,6 +144,13 @@ public class PlanCommandService {
         }
         if (!plan.accountId().value().equals(cmd.accountId()) || !plan.awemeId().value().equals(cmd.awemeId())) {
             throw new BizException(1403, "草稿不可切换广告账户或抖音号，请新建计划");
+        }
+        if(creations!=null) {
+            boolean hasCreation;
+            try {hasCreation=creations.get(tenantId.value(),id.value())!=null;}
+            catch(BizException missing){if(missing.code()!=1403)throw missing;hasCreation=false;}
+            if(hasCreation)creations.mutate(tenantId.value(),id.value(),null,
+                    com.lynx.ad.modules.delivery.domain.service.CreationProductSelection::assertEditable);
         }
         PlanName name = new PlanName(cmd.name());
         namePolicy.assertUnique(planRepository.existsUnfinishedName(tenantId, plan.awemeId(), name, Optional.of(id)));

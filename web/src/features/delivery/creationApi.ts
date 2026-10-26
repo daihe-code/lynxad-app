@@ -101,7 +101,7 @@ export interface CreationState {
   generationResultStatus?: string;
   generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null; failed?: number }[];
   generationIssues?: { productId: string; productName: string; message: string; type?: 'VIDEO' | 'IMAGE' | 'CAROUSEL' | 'TITLE' | null; materialId?: string | null; title?: string | null; slotId?: string | null }[];
-  canAdjustProductsDuringGeneration?:boolean;
+  productSelectionLocked?:boolean;
   contentEdit?: {targetPlanId:string;status:string;message?:string;planStatus?:string}; contentEditDraftId?:string;
   materials: CreationMaterial[]; publishStatus: string; publishKey?: string; qcPlanId?: string; publishError?: string;
   generationAdditions?: { id: string; productId: string; type: string; description: string; status: string; createdAt: string; materialId?: string; error?: string }[];

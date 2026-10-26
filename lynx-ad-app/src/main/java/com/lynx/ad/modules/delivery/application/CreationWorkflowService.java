@@ -997,8 +997,7 @@ public class CreationWorkflowService {
         if(Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
     }
     private static void selectionEditable(CreationState s){
-        if(com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.canAdjustWhileGenerating(s)
-                &&Set.of("NONE","FAILED").contains(s.publishStatus)&&(s.publishedEdit==null||"DRAFT".equals(s.publishedEdit.status)))return;
+        com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.assertEditable(s);
         editable(s);
     }
     private static void requireBasicAnalysis(CreationState s) {

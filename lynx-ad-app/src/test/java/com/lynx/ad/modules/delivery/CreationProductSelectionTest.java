@@ -38,14 +38,21 @@ class CreationProductSelectionTest {
         var s=state();CreationProductSelection.apply(s,List.of(s.products.get(1),s.products.getFirst()));
         assertEquals("SUCCEEDED",s.generationStatus);assertEquals("original-job",s.engineJobId);assertNull(s.selectionChange);assertTrue(s.generationPendingProductIds.isEmpty());
     }
-    @Test void runningGenerationKeepsOriginalGroupMappingAndDoesNotRestartOrLoseRetainedPreviews() throws Exception {
+    @Test void runningGenerationRejectsProductChangesWithoutTouchingPurchasedWork() throws Exception {
         var s=state();s.generationStatus="RUNNING";s.generationProductIds=new ArrayList<>(List.of("123","456"));
-        CreationProductSelection.apply(s,List.of(s.products.get(1),ProductBasicAnalysisTest.valid("789")));
-        assertEquals("RUNNING",s.generationStatus);assertEquals("original-job",s.engineJobId);assertEquals("original-task",s.enginePlanId);
-        assertEquals("123",s.generationGroupProducts.get("group-1"));assertEquals("456",s.generationGroupProducts.get("group-2"));
-        assertEquals(List.of("456"),s.generationProductIds);assertEquals(List.of("789"),s.generationPendingProductIds);
-        assertEquals("456",s.materials.getFirst().productId);assertTrue(s.removedMaterialIds.contains("material-123"));
-        var restored=new ObjectMapper().readValue(new ObjectMapper().writeValueAsString(s),CreationState.class);
-        assertEquals(s.generationGroupProducts,restored.generationGroupProducts);
+        var json=new ObjectMapper();String before=json.writeValueAsString(s);
+        assertThrows(com.lynx.ad.common.exception.BizException.class,()->CreationProductSelection.apply(s,List.of(s.products.get(1),ProductBasicAnalysisTest.valid("789"))));
+        assertEquals(before,json.writeValueAsString(s));
+    }
+    @Test void oneUnfinishedMaterialOrAdditionLocksSelectionEvenAfterTheBatchSummaryEnds() {
+        var s=state();s.generationStatus="FAILED";s.materials.getFirst().status="PROCESSING";
+        assertTrue(CreationProductSelection.locked(s));s.materials.getFirst().status="READY";
+        assertFalse(CreationProductSelection.locked(s));
+        var addition=new CreationState.GenerationAddition();addition.status="RUNNING";s.generationAdditions.add(addition);
+        assertTrue(CreationProductSelection.locked(s));addition.status="FAILED";
+        assertFalse(CreationProductSelection.locked(s));
+        s.regeneration=new CreationState.Regeneration();s.regeneration.status="CONFIRMED";
+        assertTrue(CreationProductSelection.locked(s));s.regeneration.status="SUCCEEDED";
+        assertFalse(CreationProductSelection.locked(s));
     }
 }

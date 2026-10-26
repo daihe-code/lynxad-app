@@ -88,6 +88,15 @@ class PlanProductsTest {
     @Test void changedQcIdAndCrossAccountPairAreRejected() {assertThrows(BizException.class,()->service.delete(tenant,root,a,request("999",UUID.randomUUID().toString())));when(paired.accountId()).thenReturn(new AccountId("other"));assertThrows(BizException.class,()->service.delete(tenant,root,a,request(qcRoot,UUID.randomUUID().toString())));verify(port,never()).deleteProduct(any(),any(),any());}
     @Test void concurrentWorkerCannotMutateTheSameOperation() {when(changes.claim(any())).thenReturn(false);assertEquals("PENDING",service.delete(tenant,root,a,request(qcRoot,UUID.randomUUID().toString())).status());verify(port,never()).deleteProduct(any(),any(),any());}
     @Test void activeGenerationPreventsDeletionAndLeavesMaterials() {state.generationStatus="RUNNING";assertThrows(BizException.class,()->service.delete(tenant,root,a,request(qcRoot,UUID.randomUUID().toString())));assertEquals(2,state.materials.size());verifyNoInteractions(port);}
+    @Test void generatingWorkingDraftAlsoLocksThePublishedPlansProductDeleteEntry() {
+        state.publishedEditDraftId="working";var work=new CreationState();work.generationStatus="RUNNING";
+        when(creations.get(tenant.value(),"working")).thenReturn(work);
+        var result=service.products(tenant,root,range);
+        assertTrue(result.records().stream().noneMatch(PlanProductsService.Product::deletable));assertTrue(result.warning().contains("暂不能调整商品"));
+        clearInvocations(port);
+        assertThrows(BizException.class,()->service.delete(tenant,root,a,request(qcRoot,UUID.randomUUID().toString())));
+        verifyNoInteractions(port);assertEquals(2,state.materials.size());
+    }
     @Test void failedLocalCommitRemainsRecoverableAfterAllNativeDeletes() {String key=UUID.randomUUID().toString();doThrow(new RuntimeException("db-failure")).when(bindings).removeProduct(root,a);assertEquals("PENDING",service.delete(tenant,root,a,request(qcRoot,key)).status());doNothing().when(bindings).removeProduct(root,a);assertEquals("DONE",service.delete(tenant,root,a,request(qcRoot,key)).status());verify(port,times(1)).deleteProduct(credential,qcRoot,a);verify(port,times(1)).deleteProduct(credential,qcCost,a);}
     @Test void completedConcurrentRequestObservedAfterGroupLockDoesNotLeaveGroupLocked() {String key=UUID.randomUUID().toString();var completed=new PlanProductChangeStore.Change(tenant.value(),key,"root","root",a,"[{\"id\":\"root\",\"qcId\":\""+qcRoot+"\"}]","DONE",null);when(changes.get(tenant,key)).thenReturn(Optional.empty(),Optional.of(completed));assertEquals("DONE",service.delete(tenant,root,a,request(qcRoot,key)).status());verify(transfers).finishProductChange(tenant,"root",key);verify(changes,never()).insert(any());verifyNoInteractions(port);}
     @Test void supplementalHistoricalMetadataDoesNotRestoreDeletedCreativeMembership() {var d=(com.fasterxml.jackson.databind.node.ObjectNode)detail(qcRoot);d.putArray("product_infos").addObject().put("product_id","1234");when(port.detail(credential,qcRoot)).thenReturn(d);assertEquals(2,service.products(tenant,root,range).records().size());}

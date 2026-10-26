@@ -7,6 +7,21 @@ interface GenerationDraft {
   materials: unknown[];
 }
 
+interface SelectionState {
+  productSelectionLocked?: boolean;
+  generationStatus: string;
+  materials: { status: string }[];
+  generationAdditions?: { status: string }[];
+  materialEdit?: { status: string } | null;
+}
+const activeGeneration = new Set(['QUEUED','SUBMITTING','SENDING','RUNNING','IMPORTING','REVISING','UNCERTAIN']);
+export function productSelectionLocked(state?: SelectionState): boolean {
+  return !!state && (state.productSelectionLocked === true || activeGeneration.has(state.generationStatus)
+    || state.materials.some(material => material.status === 'PROCESSING')
+    || !!state.generationAdditions?.some(addition => activeGeneration.has(addition.status))
+    || !!state.materialEdit && !['SUCCEEDED','FAILED'].includes(state.materialEdit.status));
+}
+
 export function hasGenerationDecision(state: GenerationDraft): boolean {
   if (state.generationPendingProductIds?.length) return false;
   return Array.isArray(state.generationSelection) || state.generationStatus !== 'NONE'

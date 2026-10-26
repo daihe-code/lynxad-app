@@ -60,6 +60,19 @@ class CreationBasicAnalysisWorkflowTest {
     CreationState copy(CreationState state) { return json.convertValue(state,CreationState.class); }
     CreationWorkflowService.Goal goal() { return new CreationWorkflowService.Goal(saved.get().revision,"已填写目标","CUSTOM",new BigDecimal("600"),new BigDecimal("2.25"),"FROM_NOW",null,null); }
     void queueAnalysis() { service.analyze(tenant,id,new CreationWorkflowService.Analysis(saved.get().revision,false)); }
+    @ParameterizedTest @ValueSource(strings={"QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN"})
+    void generatingDraftsAndPublishedEditDraftsRejectSelectionAtTheSaveBoundary(String status) throws Exception {
+        when(qc.selected(tenant,"account","aweme",List.of("456"))).thenReturn(List.of(ProductBasicAnalysisTest.valid("456")));
+        for(boolean published:List.of(false,true)) {
+            saved.get().generationStatus=status;saved.get().engineJobId="active-job";
+            if(published){saved.get().publishedEdit=new CreationState.PublishedEdit();saved.get().publishedEdit.status="DRAFT";}
+            String before=json.writeValueAsString(saved.get());
+            var error=assertThrows(BizException.class,()->service.select(tenant,new CreationWorkflowService.Selection(id,saved.get().revision,"account","aweme",List.of("456"))));
+            assertEquals(1403,error.code());assertTrue(CreationView.of(saved.get()).productSelectionLocked());
+            assertEquals(before,json.writeValueAsString(saved.get()));
+        }
+        verify(plans,never()).save(any());verifyNoInteractions(engine);
+    }
 
     @Test void noGenerationChoiceSurvivesReloadWithoutStartingEngineOrInvalidatingMaterials() throws Exception {
         saved.get().step=3;saved.get().confirmedVersion=saved.get().packageVersion;

@@ -31,6 +31,7 @@ import * as recommendations from '@/features/delivery/creationRecommendations';
 import { recommendedRoiDefault } from '@/features/delivery/creationRoiDefault';
 import { creationReachedStep, creationGoalChanged, validReachedStep } from '@/features/delivery/creationProgress';
 import { selectionImpact, selectionImpactText } from '@/features/delivery/selectionImpact';
+import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
@@ -80,7 +81,7 @@ const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
   && canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus, state.value.analysis, selected.value));
 const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
-const selectionLocked=computed(()=>contentLocked.value || working.value && !state.value?.canAdjustProductsDuringGeneration);
+const selectionLocked=computed(()=>contentLocked.value || productSelectionLocked(state.value));
 const reconcileId = ref(''), reviewedQuote=ref('');
 const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
@@ -229,13 +230,15 @@ async function chooseAccount(key: string) {
   await router.replace({ path: '/campaigns/create', query: { account: key } }); if (disposed) return; await loadProducts(); await autosave.activate();
 }
 async function ensureSelection() {
+  if(selectionLocked.value)throw new Error('素材正在生成或处理中，暂不能调整商品，请完成后再试');
   if (!account.value || !selected.value.length) throw new Error('请先选择授权账号和商品');
   const fresh = !state.value, emptyName = !name.value, selectionChanged=!!state.value && !sameSelection.value;
   const impact=pendingSelectionImpact.value;
   if (selectionChanged && impact?.changed) {
-    try { await ElMessageBox.confirm(selectionImpactText(impact,contentEditing.value)+(working.value ? '\n\n当前生成任务会继续处理；保留商品的结果将回填预览，移出商品的结果不会重新加入本计划，已发生的生成用量不会撤销。' : ''),'确认商品与素材调整',{confirmButtonText:'确认调整商品',cancelButtonText:'返回继续核对',type:'warning',customClass:'selection-impact-confirm'}); }
+    try { await ElMessageBox.confirm(selectionImpactText(impact,contentEditing.value),'确认商品与素材调整',{confirmButtonText:'确认调整商品',cancelButtonText:'返回继续核对',type:'warning',customClass:'selection-impact-confirm'}); }
     catch { return false; }
   }
+  if(selectionLocked.value)throw new Error('素材正在生成或处理中，暂不能调整商品，请完成后再试');
   const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
   if (fresh) autosave.suspend();
   state.value = saved;

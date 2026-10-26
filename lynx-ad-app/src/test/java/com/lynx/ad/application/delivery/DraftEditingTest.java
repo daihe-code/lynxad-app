@@ -51,6 +51,16 @@ class DraftEditingTest {
         return new PlanDraftRequest(account, "aweme-1", "新计划", "SMART_BID_CONSERVATIVE",
                 new BigDecimal("600"), null, List.of("new-product"), null);
     }
+    @Test void legacyDraftUpdateCannotBypassActiveMaterialGeneration() {
+        var plan=plan();var creations=mock(com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore.class);service.creationStore(creations);
+        var state=new com.lynx.ad.modules.delivery.domain.model.CreationState();state.generationStatus="RUNNING";
+        when(creations.get(tenant.value(),plan.id().value())).thenReturn(state);
+        when(creations.mutate(eq(tenant.value()),eq(plan.id().value()),isNull(),any())).thenAnswer(call->{
+            java.util.function.Consumer<com.lynx.ad.modules.delivery.domain.model.CreationState> change=call.getArgument(3);change.accept(state);return state;
+        });
+        assertThrows(BizException.class,()->service.updateDraft(tenant,plan.id(),request("account-1")));
+        assertEquals(List.of(new QcProductId("old-product")),plan.productIds());verify(plans,never()).save(any());verifyNoInteractions(bindings);
+    }
 
     @Test
     void draftReselectionReplacesPersistedProductBindingsWithoutClaimingMedia() {
