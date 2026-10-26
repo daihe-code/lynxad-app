@@ -1,5 +1,5 @@
 <template>
-  <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase || deliveryResult || pausedResult || terminatedResult }">
+  <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase || deliveryResult || pausedResult || terminatedResult || completedResult }">
     <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" :result-state="submissionPhase === 'FAILED' || plan?.status === 'REJECTED' ? 'warning' : undefined" :result-label="plan?.status === 'REJECTED' ? '审核未通过' : undefined" />
     <main class="ad-main">
       <div class="container-page">
@@ -10,6 +10,7 @@
           <p>计划状态加载失败</p>
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
+        <PlanCompletedResult v-else-if="plan && completedResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <PlanTerminatedResult v-else-if="plan && terminatedResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <PlanPausedResult v-else-if="plan && pausedResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <PlanDeliveryResult v-else-if="plan && deliveryResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
@@ -274,7 +275,7 @@
         </section>
       </div>
     </main>
-    <div v-if="plan && !terminal && !submissionPhase && !auditResult && !deliveryResult && !pausedResult && !terminatedResult" class="actionbar">
+    <div v-if="plan && !terminal && !submissionPhase && !auditResult && !deliveryResult && !pausedResult && !terminatedResult && !completedResult" class="actionbar">
       <div class="container-page actionbar__inner">
         <router-link class="btn-res" to="/campaigns">返回投放管理</router-link
         ><template v-if="canAct"
@@ -365,6 +366,8 @@ import PlanPausedResult from '../components/PlanPausedResult.vue';
 import { hasPlanPausedResult } from '@/features/delivery/planPausedResult';
 import PlanTerminatedResult from '../components/PlanTerminatedResult.vue';
 import { hasPlanTerminatedResult } from '@/features/delivery/planTerminatedResult';
+import PlanCompletedResult from '../components/PlanCompletedResult.vue';
+import { hasPlanCompletedResult } from '@/features/delivery/planCompletedResult';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { isPlanUnderReview, hasPlanAuditResult } from '@/features/delivery/planReview';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
@@ -389,6 +392,7 @@ const auditResult = computed(() => hasPlanAuditResult(plan.value));
 const deliveryResult = computed(() => hasPlanDeliveryResult(plan.value));
 const pausedResult = computed(() => hasPlanPausedResult(plan.value));
 const terminatedResult = computed(() => hasPlanTerminatedResult(plan.value));
+const completedResult = computed(() => hasPlanCompletedResult(plan.value));
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
 const failedPublication = ref<CreationState>();
