@@ -10,8 +10,8 @@ export interface AgentActionVo {
   open: boolean;
 }
 
-export function listActions() {
-  return apiGet<AgentActionVo[]>("/api/v1/agentops/actions");
+export function listActions(signal?: AbortSignal) {
+  return apiGet<AgentActionVo[]>("/api/v1/agentops/actions", signal ? { signal, headers: { 'X-Quiet-Request': 'true' } } : undefined);
 }
 
 export const WATCHER_TYPES = ["ROI_DROP", "BUDGET_EXHAUST", "QC_ABNORMAL_PAUSE"] as const;

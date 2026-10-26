@@ -1,5 +1,5 @@
 <template>
-  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing, 'plan-workspace--audit': step === 4 && (auditResult || deliveryResult) }">
+  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing, 'plan-workspace--audit': step === 4 && (auditResult || deliveryResult || pausedResult) }">
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
@@ -35,11 +35,12 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
+        <main v-else-if="pausedResult" class="ad-main workspace-audit"><div class="container-page"><PlanPausedResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="deliveryResult" class="ad-main workspace-audit"><div class="container-page"><PlanDeliveryResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="auditResult" class="ad-main workspace-audit"><div class="container-page"><PlanAuditResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="recoverFailedPlan" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
-        <CreationFooter v-if="!((auditResult || deliveryResult) && step === 4) && (step !== 4 || !submissionPhase || editing)" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+        <CreationFooter v-if="!((auditResult || deliveryResult || pausedResult) && step === 4) && (step !== 4 || !submissionPhase || editing)" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
             <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
@@ -86,6 +87,8 @@ import PlanReviewNotice from './components/PlanReviewNotice.vue';
 import PlanAuditResult from './components/PlanAuditResult.vue';
 import PlanDeliveryResult from './components/PlanDeliveryResult.vue';
 import { hasPlanDeliveryResult } from '@/features/delivery/planDeliveryResult';
+import PlanPausedResult from './components/PlanPausedResult.vue';
+import { hasPlanPausedResult } from '@/features/delivery/planPausedResult';
 import { hasPlanAuditResult } from '@/features/delivery/planReview';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
@@ -104,6 +107,7 @@ async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.va
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const auditResult = computed(() => hasPlanAuditResult(plan.value));
 const deliveryResult = computed(() => props.mode === 'view' && hasPlanDeliveryResult(plan.value));
+const pausedResult = computed(() => props.mode === 'view' && hasPlanPausedResult(plan.value));
 const submissionPhase = computed(() => planSubmissionPhase({ ...plan.value, publishStatus: !plan.value?.qcPlanId && creation.value?.publishStatus === 'FAILED' ? 'FAILED' : undefined }));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
 function recoverFailedPlan(choice: PublishFailureTarget) {
@@ -239,7 +243,7 @@ async function load() {
     }
     plan.value = current; accounts.value = a.status === 'fulfilled' ? a.value : [];
     creation.value = c.status === 'fulfilled' ? c.value : undefined;
-    initialViewStep.value = submissionPhase.value || auditResult.value || deliveryResult.value ? 4 : 1;
+    initialViewStep.value = submissionPhase.value || auditResult.value || deliveryResult.value || pausedResult.value ? 4 : 1;
     if(editing.value&&!transferring.value&&current.qcPlanId&&creation.value?.contentEditDraftId)contentDraftId.value=creation.value.contentEditDraftId;
     transferContext.value = t.status === 'fulfilled' ? t.value : undefined;
     if (transferring.value && t.status === 'rejected') transferMessage.value = '转投配置加载失败，请重新加载。';
@@ -380,7 +384,7 @@ async function acceptCurrentSettings() {
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
 watch(materialPending, scheduleMaterialPoll);
-watch(() => !editing.value && step.value === 4 && (submissionPhase.value === 'SUBMITTING' || deliveryResult.value) ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
+watch(() => !editing.value && step.value === 4 && (submissionPhase.value === 'SUBMITTING' || deliveryResult.value || pausedResult.value) ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
   if (!id) return;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout>;
