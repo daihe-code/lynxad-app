@@ -27,7 +27,7 @@
       <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
       <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
-        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
+        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && submissionPhase === 'FAILED' ? 'warning' : undefined" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
@@ -35,7 +35,7 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
-        <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" @back="backToPlans" /></div></main>
+        <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="router.push({ path: `/campaigns/${plan.planId}/edit`, query: { step: String(planPublishFailure(creation?.publishRecovery).targetStep) } })" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
         <CreationFooter v-if="step !== 4 || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
@@ -79,6 +79,7 @@ import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
 import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
+import { planPublishFailure } from '@/features/delivery/planPublishFailure';
 import PlanReviewNotice from './components/PlanReviewNotice.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
@@ -95,7 +96,7 @@ const route = useRoute(), router = useRouter(), user = useUserStore();
 const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
 async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
-const submissionPhase = computed(() => planSubmissionPhase(plan.value || {}));
+const submissionPhase = computed(() => planSubmissionPhase({ ...plan.value, publishStatus: !plan.value?.qcPlanId && creation.value?.publishStatus === 'FAILED' ? 'FAILED' : undefined }));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
 const loading = ref(true), saving = ref(false), loadError = ref('');
 const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
@@ -223,8 +224,9 @@ async function load() {
       catch(error) { if(request === loadNumber) { if(missingAweme)contextFailure.value=requestFailure(error,{method:'GET'}); else settingsFailure.value=requestFailure(error,{method:'GET'}); } }
       if(request !== loadNumber)return;
     }
-    plan.value = current; initialViewStep.value = planSubmissionPhase(current) ? 4 : 1; accounts.value = a.status === 'fulfilled' ? a.value : [];
+    plan.value = current; accounts.value = a.status === 'fulfilled' ? a.value : [];
     creation.value = c.status === 'fulfilled' ? c.value : undefined;
+    initialViewStep.value = submissionPhase.value ? 4 : 1;
     if(editing.value&&!transferring.value&&current.qcPlanId&&creation.value?.contentEditDraftId)contentDraftId.value=creation.value.contentEditDraftId;
     transferContext.value = t.status === 'fulfilled' ? t.value : undefined;
     if (transferring.value && t.status === 'rejected') transferMessage.value = '转投配置加载失败，请重新加载。';
@@ -365,7 +367,7 @@ async function acceptCurrentSettings() {
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
 watch(materialPending, scheduleMaterialPoll);
-watch(() => !editing.value && step.value === 4 && submissionPhase.value ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
+watch(() => !editing.value && step.value === 4 && ['SUBMITTING', 'DELIVERING'].includes(submissionPhase.value || '') ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
   if (!id) return;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout>;
@@ -376,7 +378,11 @@ watch(() => !editing.value && step.value === 4 && submissionPhase.value ? plan.v
     try {
       if (document.visibilityState !== 'visible') return;
       const current = await getPlan(id!, { quiet: true, signal: controller.signal });
-      if (!stopped && version === loadNumber && plan.value?.planId === id) plan.value = current;
+      const publication = current.status === 'DRAFT' ? await creationGet(id!, controller.signal) : undefined;
+      if (!stopped && version === loadNumber && plan.value?.planId === id) {
+        plan.value = current;
+        if (publication) creation.value = publication;
+      }
     } catch { /* Keep the last confirmed status and retry on the next read. */ }
     finally { schedule(); }
   }

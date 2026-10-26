@@ -37,8 +37,8 @@ export function planSubmissionMessage(phase: PlanSubmissionPhase) {
       hint: '核对完成后可关联已有的千川计划，避免重复创建。', note: '返回列表不影响结果核查。',
     },
     FAILED: {
-      title: '发布失败', description: '本次投放计划未提交成功，请查看原因后处理',
-      hint: '当前计划内容已保留，可返回修改后重新提交。', note: '',
+      title: '投放计划暂未提交成功', description: '本次投放计划未提交成功，请查看错误详情并核对投放内容。',
+      hint: '已保存的商品、素材和投放设置会保留，无需重新准备。', note: '',
     },
   }[phase];
 }

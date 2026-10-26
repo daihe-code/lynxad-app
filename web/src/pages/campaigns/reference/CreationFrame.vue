@@ -25,14 +25,14 @@
       ><component
         :is="navigable ? 'button' : 'span'"
         :type="navigable ? 'button' : undefined"
-        :aria-label="navigable ? label : undefined"
+        :aria-label="i === 3 && resultState === 'warning' ? '查看投放结果，提交未成功' : navigable ? label : undefined"
         :disabled="navigable ? navigationDisabled || i + 1 > (maxStep ?? step) : undefined"
         class="step"
-        :class="{ 'step--done': i + 1 <= (reachedStep ?? step) && i + 1 !== step, 'step--nav': navigable }"
+        :class="{ 'step--done': i + 1 <= (reachedStep ?? step) && i + 1 !== step, 'step--nav': navigable, 'step--warning': i === 3 && resultState === 'warning' }"
         :aria-current="i + 1 === step ? 'step' : undefined"
         @click="navigable && emit('navigate', i + 1)"
         ><span class="step__dot"
-          ><ReferenceIcon v-if="i === 3" name="check" /><template v-else>{{
+          ><span v-if="i === 3 && resultState === 'warning'" aria-hidden="true">!</span><ReferenceIcon v-else-if="i === 3" name="check" /><template v-else>{{
             i + 1
           }}</template></span
         ><span class="step__label">{{ label }}</span></component
@@ -53,6 +53,7 @@ defineProps<{
   navigationDisabled?: boolean;
   maxStep?: number;
   reachedStep?: number;
+  resultState?: 'warning';
 }>();
 const emit = defineEmits<{ navigate: [step: number]; account: [key: string] }>();
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],
@@ -74,6 +75,7 @@ const steps = ["选择商品", "设置投放目标", "定素材并投放", "查�
   width: 16px;
   height: 16px;
 }
+.ad-stepper .step.step--warning .step__dot { background: #ffab00; color: white; box-shadow: 0 0 0 5px #ffab001a; font-weight: 700; }
 .ad-banner .ad-account { width: 300px; }
 .ad-banner .ad-account__card { padding: 16px; }
 @media (max-width: 639px) {

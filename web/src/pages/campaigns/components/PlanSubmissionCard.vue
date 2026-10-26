@@ -1,9 +1,10 @@
 <template>
-  <section class="submission-card" :class="`submission-card--${phase.toLowerCase()}`" aria-label="投放计划状态">
+  <PlanPublishFailureCard v-if="phase === 'FAILED'" :recovery="recovery" :error="error" :busy="busy" @recover="emit('recover')" @back="emit('back')" />
+  <section v-else class="submission-card" :class="`submission-card--${phase.toLowerCase()}`" aria-label="投放计划状态">
     <header class="submission-card__head" role="status" aria-live="polite">
       <span v-if="phase === 'SUBMITTING'" class="submission-card__spinner" aria-hidden="true" />
       <span v-else class="submission-card__icon" aria-hidden="true">
-        <ReferenceIcon :name="phase === 'DELIVERING' ? 'play' : phase === 'FAILED' ? 'close' : 'info'" />
+        <ReferenceIcon :name="phase === 'DELIVERING' ? 'play' : 'info'" />
       </span>
       <h2>{{ message.title }}</h2>
       <p>{{ message.description }}</p>
@@ -37,13 +38,16 @@
 import { computed } from 'vue';
 import { planSubmissionMessage, type PlanSubmissionPhase } from '@/features/delivery/planSubmissionPresentation';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import PlanPublishFailureCard from './PlanPublishFailureCard.vue';
 
 const props = defineProps<{
   phase: PlanSubmissionPhase;
   summary: { title: string; rows: string[][] }[];
   error?: string;
+  recovery?: string | null;
+  busy?: boolean;
 }>();
-const emit = defineEmits<{ back: [] }>();
+const emit = defineEmits<{ back: []; recover: [] }>();
 const message = computed(() => planSubmissionMessage(props.phase));
 </script>
 
@@ -55,7 +59,6 @@ const message = computed(() => planSubmissionMessage(props.phase));
 .submission-card__spinner { width: 40px; height: 40px; border: 6px solid #eeedff; border-top-color: #5b55f9; border-right-color: #5b55f9; border-radius: 50%; animation: submission-spin 1s linear infinite; }
 .submission-card__icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: #5755f8; background: #efedff; }
 .submission-card__icon svg { width: 24px; height: 24px; }
-.submission-card--failed .submission-card__icon { color: #e4535d; background: #fff0f1; }
 .submission-card--uncertain .submission-card__icon { color: #bd7c18; background: #fff6e5; }
 .submission-card__summary { padding: 22px 12px 12px; background: #f7f7fd; border-radius: 14px; text-align: left; }
 .submission-card__summary h3 { margin: 0 18px 12px; padding-left: 12px; border-left: 4px solid #5b55f9; font-size: 18px; font-weight: 700; line-height: 1.3; }

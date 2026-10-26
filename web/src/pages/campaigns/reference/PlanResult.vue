@@ -1,6 +1,6 @@
 <template>
   <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase }">
-    <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" />
+    <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" :result-state="submissionPhase === 'FAILED' ? 'warning' : undefined" />
     <main class="ad-main">
       <div class="container-page">
         <div v-if="loading && !plan" class="result-loading">
@@ -10,7 +10,7 @@
           <p>计划状态加载失败</p>
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
-        <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" @back="router.push('/campaigns')" />
+        <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="router.push({ path: `/campaigns/${plan.planId}/edit`, query: { step: String(planPublishFailure(failedPublication?.publishRecovery).targetStep) } })" @back="router.push('/campaigns')" />
         <section v-else-if="plan" class="st" :data-st="tone">
           <div class="reshead">
             <span class="reshead__ico" :class="`ico-tone--${tone}`"
@@ -386,7 +386,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { actPlan } from "@/features/delivery/deliveryApi";
@@ -405,6 +405,8 @@ import PlanReviewNotice from '../components/PlanReviewNotice.vue';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
+import { creationGet, type CreationState } from '@/features/delivery/creationApi';
+import { planPublishFailure } from '@/features/delivery/planPublishFailure';
 import "./campaign-result.css";
 const props = defineProps<{ planId?: string }>(),
   route = useRoute(), router = useRouter();
@@ -418,7 +420,18 @@ const user = useUserStore(),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
-const submissionPhase = computed(() => planSubmissionPhase(plan.value || {}));
+const failedPublication = ref<CreationState>();
+watch(() => plan.value?.status === 'DRAFT' && !plan.value.qcPlanId ? plan.value.planId : undefined, async (id, _previous, onCleanup) => {
+  failedPublication.value = undefined;
+  if (!id) return;
+  const controller = new AbortController();
+  onCleanup(() => controller.abort());
+  try {
+    const creation = await creationGet(id, controller.signal);
+    if (!controller.signal.aborted && creation.publishStatus === 'FAILED') failedPublication.value = creation;
+  } catch { /* Historical drafts may have no creation snapshot. */ }
+});
+const submissionPhase = computed(() => planSubmissionPhase(failedPublication.value || plan.value || {}));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, shop.value));
 const info = computed(() => statusInfo(plan.value?.status));
 const tone = computed(() =>
