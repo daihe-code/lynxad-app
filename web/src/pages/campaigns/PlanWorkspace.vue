@@ -24,12 +24,11 @@
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
-      <aside v-if="editing && !transferring && canEdit && plan.qcPlanId && creation && !contentDraftId" class="workspace-notice content-edit-entry"><p>调整商品与素材时，原商品已生成的素材会保留；移出商品前会提示对应素材和生成用量影响。</p><button class="btn-prev" type="button" :disabled="saving || materialBusy || selectionLocked || dirty || settingsBlocked" @click="startContentEdit">{{ creation.contentEditDraftId ? '继续调整商品与素材' : '调整商品与素材' }}</button><p v-if="selectionLocked">素材正在生成或处理中，暂不能调整商品，请完成后再试。</p><p v-if="dirty">请先保存当前投放目标或名称修改，再调整商品与素材。</p></aside>
-      <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" />
+      <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
       <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
         <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
-        <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="false" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" read-only embedded />
+        <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
           <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" />
@@ -89,8 +88,8 @@ import './create/create-theme.css';
 
 const props = defineProps<{ mode: 'view' | 'edit' | 'transfer' }>();
 const route = useRoute(), router = useRouter(), user = useUserStore();
-const contentDraftId=ref('');
-async function startContentEdit(){if(!plan.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
+const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
+async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const loading = ref(true), saving = ref(false), loadError = ref('');
 const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
@@ -143,6 +142,8 @@ const account = computed(() => {
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
 const canEdit = computed(() => user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
+const productAdjustmentAvailable = computed(() => editing.value && !transferring.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
+const productAdjustmentBlockedReason = computed(() => dirty.value ? '请先保存当前投放目标或名称修改，再调整商品。' : settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
 const footerHint = computed(() => {
   if (transferring.value) return transferPending.value ? '转投结果待核查，请核对后继续' : '确认后创建另一投放方式的计划';
@@ -186,7 +187,7 @@ function resetForm() {
   }
 }
 async function load() {
-  clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;contentDraftId.value='';
+  clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
   const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined; contextFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
@@ -358,8 +359,4 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 
 <style scoped>
 .settings-recovery{margin-top:16px;padding:14px 16px;border:1px solid #dcdcf3;border-radius:12px;background:#fafaff;font-size:13px;line-height:1.7;color:#555875;overflow-wrap:anywhere}.settings-recovery p+p{margin-top:8px}.settings-actions{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:12px}.settings-actions button{font:inherit;color:#575cf6;text-decoration:underline;white-space:normal;text-align:left}.settings-actions button:disabled{opacity:.45;cursor:not-allowed}.settings-table-scroll{max-width:100%;overflow:auto;margin-top:12px}.settings-table-scroll table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:440px}.settings-table-scroll th,.settings-table-scroll td{padding:8px;border:1px solid #e4e4f3;vertical-align:top;overflow-wrap:anywhere;text-align:left;font-size:12px}.settings-table-scroll thead th{font-weight:600;background:#f0f0ff}.settings-table-scroll tbody th{font-weight:500}.settings-changed td:nth-child(3){color:#575cf6;background:#f0f0ff}
-</style>
-
-<style scoped>
-.content-edit-entry{max-width:1200px;margin:16px auto;padding:16px 24px;background:#fff9ed;border:1px solid #efcf96;border-radius:12px;line-height:1.7}.content-edit-entry button{padding:10px 18px;background:white;border:1px solid #575cf6;color:#575cf6;border-radius:10px;cursor:pointer}.content-edit-entry button:disabled{opacity:.45;cursor:not-allowed}
 </style>

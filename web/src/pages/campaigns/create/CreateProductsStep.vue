@@ -84,7 +84,7 @@
                 </div>
               </el-popover>
             </div>
-            <button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button>
+            <button v-if="!readOnly || allowAdjustment" class="analysis-adjust" type="button" :disabled="saving || selectionLocked || !!adjustmentBlockedReason" :title="adjustmentBlockedReason" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button>
           </div>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
@@ -122,7 +122,7 @@ import { productPriceText } from '@/features/catalog/productPrice';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; selectionLocked?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {
@@ -130,7 +130,7 @@ async function dismissTip() {
   await nextTick();
   filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
-const emit = defineEmits<{ keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
+const emit = defineEmits<{ adjust: []; keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 10), jump = ref(String(page.value));
@@ -211,7 +211,8 @@ async function showAllProducts() {
   await nextTick(); revealCatalog();
 }
 async function adjustProducts() {
-  if (props.readOnly || props.saving || props.selectionLocked) return;
+  if (props.saving || props.selectionLocked || props.adjustmentBlockedReason) return;
+  if (props.readOnly) { if (props.allowAdjustment) emit('adjust'); return; }
   adjusting.value = true; analysisOpen.value = false; emit('retry');
   await nextTick(); filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
@@ -220,6 +221,7 @@ async function confirm() {
   adjusting.value = false; closeRecommendations(); emit('analyze');
   await nextTick(); analysisPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+defineExpose({ adjustProducts });
 </script>
 
 <style scoped src="./create-products.css"></style>
