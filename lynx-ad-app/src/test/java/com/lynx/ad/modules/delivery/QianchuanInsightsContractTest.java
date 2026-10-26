@@ -21,7 +21,7 @@ class QianchuanInsightsContractTest {
     final Credential credential=new Credential("fixture-token",new AdvertiserId("9007199254740993"));
     final LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));final List<Map<String,String>> queries=new ArrayList<>();final List<String> paths=new ArrayList<>();
     boolean filterable=true,hour=true;String guaranteeId="9007199254740995";
-    boolean netAmounts=true,excludeHourlyNet=false;
+    boolean netAmounts=true,excludeHourlyNet=false,traffic=false;
     Map<String,String> query(String text) { Map<String,String> result=new LinkedHashMap<>();for(String item:text.split("&")){var pair=item.split("=",2);result.put(pair[0],URLDecoder.decode(pair[1],StandardCharsets.UTF_8));}return result; }
     @BeforeEach void start() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -38,6 +38,7 @@ class QianchuanInsightsContractTest {
                 if(netAmounts)metrics.addObject().put("name","净成交金额（元）").put("field","actual_net_amount");
                 metrics.addObject().put("name","1小时内退款率").put("field","actual_refund_rate");
                 metrics.addObject().put("name","其他指标").put("field","unrelated_field");
+                if(traffic){metrics.addObject().put("name","展示次数").put("field","show_cnt_for_roi2");metrics.addObject().put("name","点击次数").put("field","click_cnt_for_roi2").putArray("exclusion_dims").add("stat_time_hour");}
             } else if(path.endsWith("data/get/")) {
                 var dims=json.readTree(query.get("dimensions"));var row=data.putArray("rows").addObject();row.putObject("dimensions").putObject("ad_id").put("Value","9007199254740995");row.putObject("metrics").put("stat_cost",1);
                 boolean trend=dims.size()==2;int page=Integer.parseInt(query.get("page"));
@@ -61,6 +62,13 @@ class QianchuanInsightsContractTest {
         assertEquals(today+" 00:00:00",queries.get(1).get("start_time"));assertEquals(today+" 23:59:59",queries.get(1).get("end_time"));
     }
     @Test void multiDayReportsUseDayDimension() { var value=adapter().insightReport(credential,"9007199254740995",today.minusDays(6),today);assertEquals("stat_time_day",value.timeDimension()); }
+    @Test void trafficMetricsAreRequestedOnlyWhenAdvertisedAndRespectTrendExclusions() {
+        var unavailable=adapter().insightReport(credential,"9007199254740995",today,today);
+        assertFalse(unavailable.metricFields().containsKey("shows"));assertFalse(queries.get(1).get("metrics").contains("show_cnt_for_roi2"));
+        queries.clear();traffic=true;var available=adapter().insightReport(credential,"9007199254740995",today,today);
+        assertEquals("show_cnt_for_roi2",available.metricFields().get("shows"));assertEquals("click_cnt_for_roi2",available.metricFields().get("clicks"));
+        assertTrue(queries.get(1).get("metrics").contains("click_cnt_for_roi2"));assertFalse(queries.get(2).get("metrics").contains("click_cnt_for_roi2"));
+    }
     @Test void calendarUsesDailyDimensionEvenWhenThePeriodIsOneDay() throws Exception {
         var result=adapter().insightReport(credential,"9007199254740995",today,today,true);
         assertEquals("stat_time_day",result.timeDimension());assertEquals("stat_time_day",json.readTree(queries.get(2).get("dimensions")).get(1).asText());

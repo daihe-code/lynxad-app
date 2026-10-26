@@ -42,6 +42,7 @@
       <p class="plan-confirm-retained">仅删除当前{{ draft ? '草稿' : '计划' }}，关联的转投计划和共用素材会保留。</p>
       <p v-if="!draft && plan?.status === 'PAUSED'" class="plan-confirm-retained">若只是暂时不投放，可继续保持暂停。</p>
     </template>
+    <p v-if="error" class="plan-confirm-blocked" role="alert">{{ error }}</p>
     <template #footer>
       <span v-if="action === 'restore'" class="plan-confirm-footer-note">恢复结果以千川返回状态为准。</span>
       <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
@@ -59,10 +60,10 @@ import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { BID_TYPE, yuan, roiText } from '@/utils/labels';
 import { PLAN_PAUSE_REASONS, isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 
-const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string }>();
+const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason] }>();
 const pauseReason = ref('');
-watch(() => [props.modelValue, props.plan?.planId, props.action], () => { pauseReason.value = ''; });
+watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
 const draft = computed(() => !props.plan?.qcPlanId);
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
 const state = computed(() => planStatusDisplay(props.plan?.status, props.plan?.qcStatus));

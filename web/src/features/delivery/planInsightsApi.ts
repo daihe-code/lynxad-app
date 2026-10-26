@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from '@/api/http';
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
 import type { StatisticsRange } from './statisticsRange';
-export type InsightMetrics = Partial<Record<'cost' | 'orders' | 'gmv' | 'roi' | 'netRoi' | 'netGmv' | 'settlementRate' | 'refundRate', number | null>>;
+export type InsightMetrics = Partial<Record<'cost' | 'orders' | 'gmv' | 'roi' | 'netRoi' | 'netGmv' | 'settlementRate' | 'refundRate' | 'shows' | 'clicks', number | null>>;
 export interface InsightPoint { time: string; metrics: InsightMetrics }
 export interface InsightStatistics { summary: InsightMetrics; trend: InsightPoint[]; timeDimension?: string; fetchedAt: string; warning?: string }
 export interface InsightPage<T> { records: T[]; total: number; page: number; pageSize: number }
@@ -10,7 +10,7 @@ export interface GuaranteeObservation { id: string; time: string; status: string
 export interface InsightGuarantee { status?: string; reason?: string; url?: string; fetchedAt: string; warning?: string; history: InsightPage<GuaranteeObservation> }
 export interface DailySpending { startDate: string; endDate: string; totalCost: number | null; days: { date: string; cost: number | null }[]; fetchedAt: string; warning?: string }
 const options = (range: StatisticsRange, extra = {}) => ({ timeout: 60000, headers: { 'X-Quiet-Request': 'true' }, params: { startDate: range[0], endDate: range[1], ...extra } });
-export const insightData = (id: string, range: StatisticsRange, refresh = false) => apiGet<InsightStatistics>(`/api/v1/delivery/plans/${id}/insights/data`, options(range, { refresh }));
+export const insightData = (id: string, range: StatisticsRange, refresh = false, signal?: AbortSignal) => apiGet<InsightStatistics>(`/api/v1/delivery/plans/${id}/insights/data`, { ...options(range, { refresh }), signal });
 export const insightLogs = (id: string, range: StatisticsRange, source: string, page: number) => apiGet<InsightPage<InsightLog>>(`/api/v1/delivery/plans/${id}/insights/logs`, options(range, { source, page }));
 export const insightGuarantee = (id: string, range: StatisticsRange, page: number) => apiGet<InsightGuarantee>(`/api/v1/delivery/plans/${id}/insights/guarantee`, options(range, { page }));
 export const insightDailySpending = (id: string, range: StatisticsRange) => apiGet<DailySpending>(`/api/v1/delivery/plans/${id}/insights/guarantee/daily-spending`, options(range));

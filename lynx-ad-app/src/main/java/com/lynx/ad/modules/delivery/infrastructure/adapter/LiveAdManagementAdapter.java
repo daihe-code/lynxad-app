@@ -390,6 +390,8 @@ public class LiveAdManagementAdapter implements AdManagementPort {
             else if(name.equals("净成交金额") || name.equals("净成交金额(元)") || name.equals("净成交金额（元）"))fields.put("netGmv",field);
             else if(name.equals("净成交金额结算率"))fields.put("settlementRate",field);
             else if(name.equals("1小时内退款率"))fields.put("refundRate",field);
+            if(Set.of("show_cnt", "show_cnt_for_roi2").contains(field))fields.put("shows",field);
+            else if(Set.of("click_cnt", "click_cnt_for_roi2").contains(field))fields.put("clicks",field);
         }
         String timeField=null;JsonNode adDimension=null;
         Set<String> dimensions=new HashSet<>();

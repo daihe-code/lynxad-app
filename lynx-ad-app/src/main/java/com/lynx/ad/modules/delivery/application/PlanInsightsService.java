@@ -55,7 +55,7 @@ public class PlanInsightsService {
     }
     static Map<String,BigDecimal> metrics(JsonNode row,Map<String,String> fields) {
         Map<String,BigDecimal> result=new LinkedHashMap<>();
-        for(String name:List.of("cost","orders","gmv","roi","netRoi","netGmv","settlementRate","refundRate"))
+        for(String name:List.of("cost","orders","gmv","roi","netRoi","netGmv","settlementRate","refundRate","shows","clicks"))
             result.put(name,fields.containsKey(name)?QianchuanPlanMapping.number(row.path("metrics"),fields.get(name)):null);
         if(result.get("roi")==null && result.get("cost")!=null && result.get("cost").signum()>0 && result.get("gmv")!=null)
             result.put("roi",result.get("gmv").divide(result.get("cost"),4,RoundingMode.HALF_UP));

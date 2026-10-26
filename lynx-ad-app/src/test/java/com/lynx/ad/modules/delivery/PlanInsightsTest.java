@@ -48,6 +48,13 @@ class PlanInsightsTest {
         verify(port,times(2)).insightReport(credential,qcId,today,today);
         assertThrows(BizException.class,()->service.data(new TenantId("other"),id,range,false));
     }
+    @Test void exposureAndClickCountsUseActualReportFieldsAndPreserveMissingValues() {
+        var fieldsWithTraffic=new HashMap<>(fields);fieldsWithTraffic.put("shows","show_cnt_for_roi2");fieldsWithTraffic.put("clicks","click_cnt_for_roi2");
+        var summary=row(qcId,null);summary.withObject("/metrics").put("show_cnt_for_roi2",48320).put("click_cnt_for_roi2",0);
+        when(port.insightReport(credential,qcId,today,today)).thenReturn(new AdManagementPort.InsightReport(summary,List.of(),"stat_time_day",fieldsWithTraffic,null));
+        var result=service.data(tenant,id,range,false);assertEquals(new BigDecimal("48320"),result.summary().get("shows"));assertEquals(BigDecimal.ZERO,result.summary().get("clicks"));
+        summary.withObject("/metrics").remove("click_cnt_for_roi2");assertNull(service.data(tenant,id,range,true).summary().get("clicks"));
+    }
     @Test void mismatchedSummaryCannotDisplayAnotherPlansMetrics() { report(row("456",null),List.of());assertThrows(BizException.class,()->service.data(tenant,id,range,false));verifyNoInteractions(fallback); }
     @Test void mismatchedTrendCannotDisplayAnotherPlansMetrics() { report(row(qcId,null),List.of(row("456",today.toString())));assertThrows(BizException.class,()->service.data(tenant,id,range,false)); }
     @Test void duplicateTimeAndOutOfRangeAreRejected() {

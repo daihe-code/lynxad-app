@@ -1,5 +1,5 @@
 <template>
-  <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase }">
+  <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase || deliveryResult }">
     <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" :result-state="submissionPhase === 'FAILED' || plan?.status === 'REJECTED' ? 'warning' : undefined" :result-label="plan?.status === 'REJECTED' ? '审核未通过' : undefined" />
     <main class="ad-main">
       <div class="container-page">
@@ -10,6 +10,7 @@
           <p>计划状态加载失败</p>
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
+        <PlanDeliveryResult v-else-if="plan && deliveryResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="recoverFailedPlan" @back="router.push('/campaigns')" />
         <PlanAuditResult v-else-if="plan && auditResult" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <section v-else-if="plan" class="st" :data-st="tone">
@@ -271,7 +272,7 @@
         </section>
       </div>
     </main>
-    <div v-if="plan && !terminal && !submissionPhase && !auditResult" class="actionbar">
+    <div v-if="plan && !terminal && !submissionPhase && !auditResult && !deliveryResult" class="actionbar">
       <div class="container-page actionbar__inner">
         <router-link class="btn-res" to="/campaigns">返回投放管理</router-link
         ><template v-if="canAct"
@@ -356,6 +357,8 @@ import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
 import PlanAuditResult from '../components/PlanAuditResult.vue';
+import PlanDeliveryResult from '../components/PlanDeliveryResult.vue';
+import { hasPlanDeliveryResult } from '@/features/delivery/planDeliveryResult';
 import { isPlanUnderReview, hasPlanAuditResult } from '@/features/delivery/planReview';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
 import CampaignPlanActionDialog from '../components/CampaignPlanActionDialog.vue';
@@ -376,6 +379,7 @@ const user = useUserStore(),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
 const underReview = computed(() => isPlanUnderReview(plan.value));
 const auditResult = computed(() => hasPlanAuditResult(plan.value));
+const deliveryResult = computed(() => hasPlanDeliveryResult(plan.value));
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
 const failedPublication = ref<CreationState>();
