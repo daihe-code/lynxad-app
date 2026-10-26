@@ -62,13 +62,18 @@ public class AgentAction {
 
     public static AgentAction recordManual(
             TenantId tenantId, PlanId planId, ActionType type, String beforeJson, String afterJson) {
+        return recordManual(tenantId, planId, type, beforeJson, afterJson, type.name());
+    }
+
+    public static AgentAction recordManual(
+            TenantId tenantId, PlanId planId, ActionType type, String beforeJson, String afterJson, String summary) {
         return new AgentAction(
                 new ActionId(UUID.randomUUID().toString()),
                 tenantId,
                 planId,
                 type,
                 Instant.now(),
-                type.name(),
+                summary,
                 beforeJson,
                 afterJson,
                 "DONE",

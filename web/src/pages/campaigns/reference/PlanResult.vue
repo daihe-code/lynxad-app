@@ -197,26 +197,8 @@
                 <p class="pcard__sub">
                   请先在巨量千川检查账户、余额和审核状态，再决定是否恢复投放。
                 </p></template
-              ><template v-else
-                ><div class="rchips" role="radiogroup" aria-label="暂停原因">
-                  <button
-                    v-for="r in reasons"
-                    :key="r"
-                    class="rchip"
-                    :aria-checked="reason === r"
-                    role="radio"
-                    @click="reason = r"
-                  >
-                    {{ r }}
-                  </button>
-                </div>
-                <p class="pcard__sub">
-                  {{
-                    reason
-                      ? "当前复盘备注：" + reason
-                      : "可选择一项复盘备注；备注仅保留在当前页面。"
-                  }}
-                </p></template
+              ><template v-else>
+                <p class="pcard__sub">{{ manualPause?.summary && manualPause.summary !== 'MANUAL_DISABLE' ? manualPause.summary : '暂无暂停原因记录。' }}</p></template
               >
             </div>
           </div>
@@ -352,14 +334,13 @@
         </button>
       </div>
     </div>
+    <CampaignPlanActionDialog :model-value="pendingAction === 'DISABLE'" :plan="plan || null" action="pause" :busy="busy" @update:model-value="value => { if (!value) pendingAction = null; }" @confirm="act" />
     <ReferenceModal
-      v-if="pendingAction"
+      v-if="pendingAction && pendingAction !== 'DISABLE'"
       :title="
         pendingAction === 'FINISH'
           ? '终止计划确认'
-          : pendingAction === 'DISABLE'
-            ? '暂停投放确认'
-            : '恢复投放确认'
+          : '恢复投放确认'
       "
       :width="460"
       :busy="busy"
@@ -378,7 +359,7 @@
           @click="pendingAction = null"
         >
           取消</button
-        ><button class="btn-next-primary" :disabled="busy" @click="act">
+        ><button class="btn-next-primary" :disabled="busy" @click="act()">
           {{ busy ? "提交中…" : "确定" }}
         </button></template
       ></ReferenceModal
@@ -403,6 +384,8 @@ import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
 import PlanReviewNotice from '../components/PlanReviewNotice.vue';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
+import CampaignPlanActionDialog from '../components/CampaignPlanActionDialog.vue';
+import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { creationGet, type CreationState } from '@/features/delivery/creationApi';
@@ -414,7 +397,6 @@ const { plan, account: boundAccount, shop, actions, report, metrics, hasData, lo
   usePlanPresentation(() => props.planId || String(route.params.id || ""));
 const user = useUserStore(),
   busy = ref(false),
-  reason = ref(""),
   now = ref(Date.now()),
   refreshedAt = ref("—"),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
@@ -579,16 +561,7 @@ const systemPause = computed(() =>
     actions.value.find((a) => a.type === "MANUAL_FINISH"),
   ),
   autoActions = computed(() => actions.value);
-const reasons = [
-  "净成交ROI低于预期",
-  "预算不足",
-  "素材效果不佳",
-  "商品缺货",
-  "调整投放策略",
-  "等待活动开始",
-  "账户异常",
-  "其他",
-];
+const manualPause = computed(() => [...actions.value].filter(a => a.type === 'MANUAL_DISABLE').sort((a, b) => b.snapshotTs.localeCompare(a.snapshotTs))[0]);
 const remaining = computed(() => {
   const start = plan.value?.startDate
     ? new Date(plan.value.startDate + "T00:00:00").getTime()
@@ -606,11 +579,12 @@ async function refresh() {
   refreshedAt.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   now.value = Date.now();
 }
-async function act() {
+async function act(pauseReason?: PlanPauseReason) {
   if (!plan.value || !pendingAction.value || busy.value) return;
+  if (pendingAction.value === 'DISABLE' && !isPlanPauseReason(pauseReason)) return;
   busy.value = true;
   try {
-    await actPlan(plan.value.planId, pendingAction.value);
+    await actPlan(plan.value.planId, pendingAction.value, pauseReason);
     pendingAction.value = null;
     await refresh();
     ElMessage.success("计划状态已更新");

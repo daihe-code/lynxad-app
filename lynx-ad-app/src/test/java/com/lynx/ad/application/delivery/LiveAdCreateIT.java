@@ -170,7 +170,7 @@ class LiveAdCreateIT extends AbstractContainerIT {
         FIXTURE.statusFail = true;
         try {
             int hits=FIXTURE.statusHits.get();
-            assertThrows(BizException.class, () -> planCommandService.act(new TenantId(s.tenantId), new PlanId(planId), PlanAction.DISABLE));
+            assertThrows(BizException.class, () -> planCommandService.act(new TenantId(s.tenantId), new PlanId(planId), PlanAction.DISABLE,"其他原因"));
             String after = jdbc.queryForObject("select status from ad_plan where id = ?", String.class, planId);
             assertEquals(before, after);
             assertTrue(FIXTURE.statusHits.get()>hits,"status failure must come from the local HTTP fixture");

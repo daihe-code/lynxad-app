@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
 import type { PlanReviewProgress } from './planReview';
+import type { PlanPauseReason } from './planPause';
 
 export interface PlanVo {
   review?: PlanReviewProgress | null;
@@ -202,8 +203,8 @@ export function publishPlan(id: string, idempotencyKey: string) {
   );
 }
 
-export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH") {
-  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action });
+export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason) {
+  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) });
 }
 
 export function deletePlan(id: string) {

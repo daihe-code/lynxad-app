@@ -170,7 +170,7 @@ public class DeliveryPlanController {
     @RequiresActiveTrial
     @PostMapping("/api/v1/delivery/plans/{id}/actions")
     public ApiResponse<PlanVo> actions(@PathVariable String id, @RequestBody ActionRequest req) {
-        commandService.act(TenantContext.requireTenantId(), new PlanId(id), parseAction(req.action()));
+        commandService.act(TenantContext.requireTenantId(), new PlanId(id), parseAction(req.action()), req.pauseReason());
         return ApiResponse.ok(queryService.get(TenantContext.requireTenantId(), new PlanId(id)));
     }
     private PlanAction parseAction(String action) {

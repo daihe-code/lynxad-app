@@ -33,6 +33,7 @@ import com.lynx.ad.modules.delivery.domain.model.PlanCreativeBinding;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.AdPlanCreativeBindingStore;
 import com.lynx.ad.modules.delivery.domain.model.DeliverySetting;
 import com.lynx.ad.modules.delivery.domain.model.PlanAction;
+import com.lynx.ad.modules.delivery.domain.model.PlanPauseReason;
 import com.lynx.ad.modules.delivery.domain.model.PlanName;
 import com.lynx.ad.modules.delivery.domain.model.RoiGoal;
 import com.lynx.ad.modules.delivery.domain.model.Schedule;
@@ -211,10 +212,16 @@ public class PlanCommandService {
 
     @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public PlanVo act(TenantId tenantId, PlanId id, PlanAction action) {
+        return act(tenantId, id, action, null);
+    }
+
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public PlanVo act(TenantId tenantId, PlanId id, PlanAction action, String pauseReason) {
         if(action==PlanAction.DELETE) throw new BizException(1402,"请使用删除计划操作");
         if(transfers!=null)transfers.assertIdle(tenantId,id);
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan = require(tenantId, id);
+        String reason = action == PlanAction.DISABLE ? PlanPauseReason.require(pauseReason) : null;
         String before = plan.status().name();
         if (action == PlanAction.FINISH && plan.qcPlanId().isPresent())
             throw new BizException(1403, "结束计划尚无对应接口，不能替代为删除操作");
@@ -245,8 +252,9 @@ public class PlanCommandService {
             case FINISH -> ActionType.MANUAL_FINISH;
             case DELETE -> throw new BizException(1402,"请使用删除计划操作");
         };
-        agentActionRepository.saveIgnoreDup(AgentAction.recordManual(tenantId, id, type, before, plan.status().name()));
-        recordPlan(tenantId, plan.id().value(), plan.name().text());
+        String summary = reason == null ? type.name() : "暂停投放：" + reason;
+        agentActionRepository.saveIgnoreDup(AgentAction.recordManual(tenantId, id, type, before, plan.status().name(), summary));
+        recordPlan(tenantId, plan.id().value(), reason == null ? plan.name().text() : "暂停计划：" + plan.name().text() + "；暂停原因：" + reason);
         return toVo(plan);
     }
 

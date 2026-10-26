@@ -214,19 +214,15 @@
         ></template>
       </div>
     </main>
-    <CampaignOperationDialog v-model="operationOpen" kind="修改计划" :plan="plan" @saved="load" /><ReferenceFooter /><ReferenceModal
-      v-if="pendingAction"
-      :title="pendingAction === 'DISABLE' ? '暂停计划提醒' : '恢复投放确认'"
+    <CampaignOperationDialog v-model="operationOpen" kind="修改计划" :plan="plan" @saved="load" /><ReferenceFooter />
+    <CampaignPlanActionDialog :model-value="pendingAction === 'DISABLE'" :plan="plan || null" action="pause" :busy="busy" @update:model-value="value => { if (!value) pendingAction = null; }" @confirm="act" />
+    <ReferenceModal
+      v-if="pendingAction && pendingAction !== 'DISABLE'"
+      title="恢复投放确认"
       :width="460"
       :busy="busy"
       @close="pendingAction = null"
-      ><p>
-        {{
-          pendingAction === "DISABLE"
-            ? "暂停后计划将停止消耗，恢复后可继续投放。"
-            : "确认恢复此计划的投放？"
-        }}
-      </p>
+      ><p>确认恢复此计划的投放？</p>
       <template #footer
         ><button
           class="btn-prev"
@@ -234,7 +230,7 @@
           @click="pendingAction = null"
         >
           取消</button
-        ><button class="btn-next-primary" :disabled="busy" @click="act">
+        ><button class="btn-next-primary" :disabled="busy" @click="act()">
           {{ busy ? "提交中…" : "确定" }}
         </button></template
       ></ReferenceModal
@@ -246,6 +242,8 @@ import { computed, ref } from "vue";
 import { actPlan, syncPlanDetail } from "@/features/delivery/deliveryApi";
 import { GUARANTEE_STATUS, planStatusLabel } from '@/utils/labels';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
+import CampaignPlanActionDialog from './components/CampaignPlanActionDialog.vue';
+import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { useUserStore } from "@/stores/user";
 import { ElMessage } from "element-plus";
 import {
@@ -343,11 +341,12 @@ function actionName(type: string) {
     )[type] || ruleLabel(type)
   );
 }
-async function act() {
+async function act(pauseReason?: PlanPauseReason) {
   if (!plan.value || !pendingAction.value || busy.value) return;
+  if (pendingAction.value === 'DISABLE' && !isPlanPauseReason(pauseReason)) return;
   busy.value = true;
   try {
-    await actPlan(plan.value.planId, pendingAction.value);
+    await actPlan(plan.value.planId, pendingAction.value, pauseReason);
     pendingAction.value = null;
     await load();
     ElMessage.success("计划状态已更新");

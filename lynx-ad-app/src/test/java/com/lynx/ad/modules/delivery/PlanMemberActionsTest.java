@@ -7,6 +7,8 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.agentops.domain.port.AgentActionRepository;
+import com.lynx.ad.modules.agentops.domain.model.AgentAction;
+import com.lynx.ad.modules.agentops.domain.model.ActionType;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
 import com.lynx.ad.modules.delivery.application.PlanCommandService;
@@ -18,6 +20,10 @@ import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.Credential;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PlanMemberActionsTest {
     final TenantId tenant=new TenantId("tenant");
@@ -25,10 +31,12 @@ class PlanMemberActionsTest {
     final AdPlanRepository plans=mock(AdPlanRepository.class);
     final AdStatusPort status=mock(AdStatusPort.class);
     final QianchuanCredentialFacade credentials=mock(QianchuanCredentialFacade.class);
+    final AgentActionRepository actions=mock(AgentActionRepository.class);
+    final AuditRecorder audit=mock(AuditRecorder.class);
     final PlanTransferStore transfers=mock(PlanTransferStore.class);
     final Credential credential=new Credential("fixture-token",new AdvertiserId("999"));
     final PlanCommandService service=new PlanCommandService(plans,null,null,null,null,null,mock(BillingTrialService.class),
-            status,credentials,mock(AgentActionRepository.class),new ObjectMapper(),mock(AuditRecorder.class),null);
+            status,credentials,actions,new ObjectMapper(),audit,null);
     AdPlan volume,cost;
     @BeforeEach void setup() {
         volume=plan("volume","111",SmartBidType.CONSERVATIVE);
@@ -53,9 +61,43 @@ class PlanMemberActionsTest {
     }
     @Test void pausingSelectedMemberLeavesTheOtherModeUnchanged() {
         cost.apply(PlanStatus.DELIVERING);
-        service.act(tenant,cost.id(),PlanAction.DISABLE);
+        service.act(tenant,cost.id(),PlanAction.DISABLE,"预算消耗过快");
         verify(status).updateStatus(credential,new QcPlanId("222"),PlanAction.DISABLE);
         assertEquals(PlanStatus.PAUSED,cost.status());assertEquals(PlanStatus.PAUSED,volume.status());verify(plans,never()).save(volume);
+    }
+    static java.util.stream.Stream<String> pauseReasons() { return PlanPauseReason.OPTIONS.stream(); }
+    @ParameterizedTest @MethodSource("pauseReasons")
+    void selectedPauseReasonIsRecordedOnlyAfterSuccessfulPlatformPause(String reason) {
+        cost.apply(PlanStatus.DELIVERING);
+        service.act(tenant,cost.id(),PlanAction.DISABLE,reason);
+        var captured=org.mockito.ArgumentCaptor.forClass(AgentAction.class);
+        verify(actions).saveIgnoreDup(captured.capture());
+        assertEquals(ActionType.MANUAL_DISABLE,captured.getValue().type());
+        assertEquals(cost.id(),captured.getValue().planId());
+        assertEquals(tenant,captured.getValue().tenantId());
+        assertEquals("暂停投放："+reason,captured.getValue().summary());
+        assertEquals("DELIVERING",captured.getValue().beforeJson());
+        assertEquals("PAUSED",captured.getValue().afterJson());
+        verify(audit).record(argThat(command -> command.objectLabel().contains(reason)));
+    }
+    @ParameterizedTest @NullAndEmptySource @ValueSource(strings={" ","随便写一个原因","ROI过低"})
+    void missingOrUnsupportedPauseReasonDoesNotChangeThePlanOrCallPlatform(String reason) {
+        cost.apply(PlanStatus.DELIVERING);
+        assertEquals(1402,assertThrows(BizException.class,()->service.act(tenant,cost.id(),PlanAction.DISABLE,reason)).code());
+        assertEquals(PlanStatus.DELIVERING,cost.status());
+        verifyNoInteractions(status,credentials,actions,audit);verify(plans,never()).save(any());
+    }
+    @Test void platformPauseFailureDoesNotSaveAReasonOrClaimThePlanIsPaused() {
+        cost.apply(PlanStatus.DELIVERING);
+        doThrow(new BizException(1406,"暂停失败")).when(status).updateStatus(credential,new QcPlanId("222"),PlanAction.DISABLE);
+        assertThrows(BizException.class,()->service.act(tenant,cost.id(),PlanAction.DISABLE,"其他原因"));
+        assertEquals(PlanStatus.DELIVERING,cost.status());
+        verifyNoInteractions(actions,audit);verify(plans,never()).save(any());
+    }
+    @Test void staleStateOrAnotherTenantCannotRecordAPauseReason() {
+        assertEquals(1404,assertThrows(BizException.class,()->service.act(tenant,cost.id(),PlanAction.DISABLE,"其他原因")).code());
+        assertThrows(BizException.class,()->service.act(new TenantId("other"),cost.id(),PlanAction.DISABLE,"其他原因"));
+        verifyNoInteractions(status,credentials,actions,audit);verify(plans,never()).save(any());
     }
     @Test void pairedEnableUsesExclusiveTransferWorkflowInsteadOfSinglePlanStatusPort() {
         var transfer=mock(PlanTransferService.class);service.transferService(transfer);volume.apply(PlanStatus.DELIVERING);

@@ -108,12 +108,7 @@
       <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
     <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" @saved="load" />
-    <el-dialog v-if="confirmPlan?.status === 'DELIVERING'" v-model="confirmOpen" title="暂停计划提醒" width="460px" class="campaign-dialog campaign-confirm" modal-class="campaign-overlay" align-center :close-on-click-modal="false" :close-on-press-escape="!actingId" :show-close="!actingId" :before-close="closeConfirmation">
-      <div class="confirmation-intro"><span class="confirmation-icon"><el-icon><VideoPause /></el-icon></span><div><strong>确认暂停该计划？</strong><p>暂停后计划将停止投放，可在列表中恢复投放。</p></div></div>
-      <div class="confirmation-plan"><strong>{{ confirmPlan?.name }}</strong><span>ID：{{ confirmPlan?.qcPlanId || confirmPlan?.planId }}</span><div><span>每日预算 <b>{{ yuan(confirmPlan?.budget) }}</b></span><span>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? '预估净成交ROI' : 'ROI 目标' }} <b>{{ confirmPlan?.smartBidType === 'SMART_BID_CONSERVATIVE' ? estimateText(confirmPlan?.roiEstimate) : roiText(confirmPlan?.roi2Goal) }}</b></span></div></div>
-      <template #footer><el-button :disabled="!!actingId" @click="confirmOpen = false">取消</el-button><el-button type="primary" :loading="!!actingId" @click="confirmAction">确认暂停</el-button></template>
-    </el-dialog>
-    <CampaignPlanActionDialog v-else v-model="confirmOpen" :plan="confirmPlan" action="restore" :busy="!!actingId" :blocked-reason="restoreBlockedReason" @confirm="confirmAction" />
+    <CampaignPlanActionDialog v-model="confirmOpen" :plan="confirmPlan" :action="confirmPlan?.status === 'DELIVERING' ? 'pause' : 'restore'" :busy="!!actingId" :blocked-reason="confirmPlan?.status === 'PAUSED' ? restoreBlockedReason : ''" @confirm="confirmAction" />
     <CampaignPlanActionDialog v-model="deleteOpen" :plan="deleteTarget" action="delete" :busy="!!deletingId" @confirm="confirmDelete" />
     <ControlTaskReport v-model="quickReportOpen" :plan-id="quickReportPlan?.planId || ''" :plan-name="quickReportPlan?.name" :task="quickReportTask" :tasks="quickReportTasks" :tasks-loading="quickReportLoading" :tasks-error="quickReportError" :kind="quickReportKind" :initial-range="quickReportRange" @select-task="selectQuickReportTask" @reload-tasks="loadQuickReportTasks" />
     <el-drawer :model-value="!!insightsPlanId" :with-header="false" size="min(1180px, 80vw)" class="plan-insights-drawer" destroy-on-close @update:model-value="onInsightsVisible">
@@ -127,7 +122,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, VideoPause } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import CampaignPlanActionDialog from './components/CampaignPlanActionDialog.vue';
@@ -137,6 +132,7 @@ import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
 import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
 import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
+import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
 import { storeToRefs } from 'pinia';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
@@ -144,7 +140,7 @@ import { metricTemplates, metricText, metricRowValues, metricDelta, templatePref
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
-import { BID_TYPE, PUBLISHED_BID_MODE_HINT, planStatusLabel, roiText, yuan } from '@/utils/labels';
+import { BID_TYPE, PUBLISHED_BID_MODE_HINT, planStatusLabel } from '@/utils/labels';
 import { planStatusOptions, planStatusDisplay, type PlanStatusOption } from '@/features/delivery/planStatus';
 import { recentRange, rangeError, shanghaiToday, shiftDay, type StatisticsRange } from '@/features/delivery/statisticsRange';
 
@@ -270,13 +266,6 @@ watch([compact, showTools, pageSize], () => { try { localStorage.setItem('lynx.c
 const budgetText = (value?: number | null) => value == null ? '—' : `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 const goalText = (value?: number | null) => value == null ? '—' : Number(value).toString();
 const fullDate = (date: string) => date.slice(0, 10);
-function estimateText(estimate: PlanListVo['roiEstimate']) {
-  if (estimate?.min != null && estimate.max != null) return `${goalText(estimate.min)}～${goalText(estimate.max)}`;
-  if (estimate?.value != null) return goalText(estimate.value);
-  if (estimate?.min != null) return `不低于 ${goalText(estimate.min)}`;
-  if (estimate?.max != null) return `不高于 ${goalText(estimate.max)}`;
-  return '暂无预估';
-}
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !isDeleted(row) && user.trialActive && row.canEdit === true;
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
@@ -343,18 +332,18 @@ function onAct(row: PlanListVo) {
   if (actingId.value || transferringId.value || deletingId.value || !canManage(row)) return;
   confirmPlan.value = row; confirmOpen.value = true;
 }
-function closeConfirmation(done: () => void) { if (!actingId.value) done(); }
-async function confirmAction() {
+async function confirmAction(pauseReason?: PlanPauseReason) {
   const row = confirmPlan.value;
   if (!row || actingId.value || !canManage(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
   const restoring = row.status === 'PAUSED';
+  if (!restoring && !isPlanPauseReason(pauseReason)) { ElMessage.warning('请选择暂停原因'); return; }
   if (restoring) {
     const reason = restoreUnavailableReason(row, shanghaiToday());
     if (reason) { ElMessage.warning(reason); return; }
   }
   actingId.value = row.planId;
   try {
-    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE');
+    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE', pauseReason);
     confirmOpen.value = false;
     if (restoring) {
       try {
@@ -511,7 +500,6 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .tools-cell button, .actions-cell button, .actions-cell a { font-size: 13px; line-height: 22px; }.tools-cell button { color: #4e5069; }.tools-cell button span { color: #575cf6; }.actions-cell a, .actions-cell button { color: #4348db; }.actions-cell button.pause-action, .actions-cell button.delete-action { color: #e5484d; }.actions-cell button.enable-action { color: #0ba05f; }.tools-cell button:disabled, .tools-cell button:disabled span, .actions-cell button:disabled { color: #a3a6bb; }
 .tool-shortcuts{display:flex;align-items:center;gap:4px;min-height:26px}.tools-cell .tool-name{width:auto;white-space:nowrap}.tools-cell .tool-report{width:22px;height:24px;justify-content:center;color:#575cf6;border-radius:4px}.tools-cell .tool-report:hover{background:#eeedff}.tool-report .el-icon{font-size:16px}.tools-cell .tool-add{width:18px;justify-content:center;font-size:16px;color:#575cf6}.tools-cell button:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
 .tools-cell .tool-monitor{color:#4348db;font-size:13px;line-height:22px}.tools-cell .tool-monitor:hover{color:#575cf6}.tools-cell .tool-monitor:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
-.confirmation-icon.delete-icon { color: #e5484d; background: #fff0f0; }
 .muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
 .toolbar.expanded { margin-bottom: 16px; }
 .extra-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; border-top: 1px solid #eeeff4; padding-top: 14px; margin-bottom: 18px; }
@@ -524,7 +512,6 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .density-options { display: flex; background: #f4f5f9; padding: 3px; border-radius: 8px; }.density-options button { border: 0; color: #7c7f99; background: transparent; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }.density-options button.active { background: #fff; color: #4348db; box-shadow: 0 1px 4px #1a1b2e12; }.settings-hint { font-size: 12px; color: #7c7f99; margin: 14px 0 0; line-height: 20px; }
 .snapshot-info { font-size: 13px; }.snapshot-info > span { display: block; color: #7c7f99; font-size: 12px; }.snapshot-info strong { display: block; margin: 5px 0 12px; color: #4e5069; font-weight: 500; }.snapshot-info p { color: #7c7f99; font-size: 12px; line-height: 20px; }.snapshot-note { padding: 10px 12px; border-radius: 8px; background: #f7f8fe; color: #7c7f99; font-size: 12px; }
 .product-preview-list { max-height: 300px; overflow-y: auto; }.product-preview { padding: 10px 0; gap: 12px; border-top: 1px solid #eeeff4; }.product-thumbnail { display: grid; place-items: center; width: 48px; height: 48px; background: #f4f5f9; border-radius: 8px; flex-shrink: 0; color: #a0a3bf; font-size: 20px; }.product-preview .el-image { width: 48px; height: 48px; border-radius: 8px; }.product-preview > div { min-width: 0; }.product-preview strong { display: block; font-size: 13px; font-weight: 500; color: #4e5069; line-height: 20px; overflow-wrap: anywhere; }.product-preview div span { display: block; font-size: 12px; color: #7c7f99; margin-top: 4px; overflow-wrap: anywhere; }
-.confirmation-intro { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 20px; }.confirmation-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #fff3e9; color: #d79a3a; flex-shrink: 0; font-size: 22px; }.confirmation-icon.resume { background: #eaf8ee; color: #0ba05f; }.confirmation-intro strong { font-weight: 600; color: #1a1b2e; font-size: 15px; }.confirmation-intro p { color: #7c7f99; font-size: 13px; line-height: 22px; margin: 8px 0 0; }.confirmation-plan { border: 1px solid #e6e8f2; border-radius: 10px; padding: 14px; margin-bottom: 24px; background: #fafbfe; }.confirmation-plan > strong { display: block; font-size: 13px; font-weight: 500; color: #4e5069; overflow-wrap: anywhere; }.confirmation-plan > span { display: block; font-size: 12px; color: #7c7f99; margin-top: 5px; overflow-wrap: anywhere; }.confirmation-plan > div { display: flex; gap: 24px; margin-top: 12px; font-size: 12px; color: #7c7f99; }.confirmation-plan b { color: #4e5069; font-weight: 500; margin-left: 4px; }
 .plan-info-cell .plan-name { color: #575cf6; line-height: 21px; }.plan-info-cell .plan-name:hover { color: #4348db; }.plan-info-cell .plan-id { margin-top: 1px; line-height: 21px; }.product-line { margin-top: 8px; min-height: 22px; }.product-trigger { gap: 8px; font-size: 13px; }.goods-thumb { display: inline-grid; place-items: center; width: 22px; height: 22px; background: #f7f8fa; border-radius: 4px; color: #9a9eb6; flex-shrink: 0; }.goods-thumb .el-image { width: 22px; height: 22px; border-radius: 4px; }.goods-thumb > .el-icon { font-size: 16px; }
 .settings-cell > div { gap: 4px; line-height: 22px; }.settings-cell b { font-size: 14px; font-weight: 600; }.settings-cell .roi-setting, .settings-cell .roi-setting b { color: #0ba05f; font-size: 13px; }.settings-cell .bid-mode { display: flex; gap: 8px; }
 .bid-mode-info { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; padding: 0; cursor: help; }.bid-mode-info .el-icon { color: #7c7f99; font-size: 12px; }.bid-mode-info:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
