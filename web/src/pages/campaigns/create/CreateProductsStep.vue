@@ -23,7 +23,7 @@
           <div class="panel__head"><div class="min-w-0"><h2 class="panel__title" id="panel-goods" tabindex="-1">{{ readOnly ? '投放商品' : '选择要投放广告的商品' }}</h2><p class="panel__sub">{{ readOnly ? `当前计划已选择 ${selected.length} 款商品` : '确认商品组合，为下一步准备投放素材' }}</p></div></div>
           <p v-if="!readOnly && !recommendationsOpen && !tipDismissed" class="tip" role="note" aria-label="商品投放建议">
             <svg class="tip__icon h-[17px] w-[17px]" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /><path d="M12 6.4v7.2M12 17.1h.01" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" /></svg>
-            <span class="tip__text">建议相似ROI目标的商品集中在一条计划下投放，效果会更好。<span class="tip__accent">灵投将为您推荐最佳投放组合</span></span>
+            <span class="tip__text">结合搭配场景和已有 ROI 目标选择商品。<span class="tip__accent">点击已选商品，查看 AI 商品组合推荐</span></span>
             <button class="tip__close" type="button" aria-label="关闭商品投放建议" title="关闭提示" @click="dismissTip"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button>
           </p>
         </div>
@@ -33,14 +33,15 @@
             <label class="check" :title="activeTab.unpromoted ? undefined : '该分类不支持未投放商品筛选'"><input :checked="unpromoted && activeTab.unpromoted" class="checkbox" type="checkbox" :disabled="!activeTab.unpromoted" @change="unpromoted = ($event.target as HTMLInputElement).checked" /><span class="check__label">只看未投放商品</span></label>
             <div class="filters__right"><span class="filters__hint">（最多可选10个）</span><span class="search"><svg class="search__icon h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.9" /><path d="m15.6 15.6 4 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></svg><input v-model="query" class="search__input" type="search" placeholder="搜索商品名称/ID" aria-label="搜索商品名称或ID" /></span></div>
           </div>
-          <div v-if="recommendationsOpen && !suggestionsLoading && !suggestionsFailure && filtered.length" class="similar-toolbar">
-            <p>相似商品 <span :title="suggestionSource?.name">{{ suggestionSource?.name }}</span></p>
+          <div v-if="recommendationsOpen && !suggestionsLoading && !suggestionsFailure && filtered.length" class="combination-toolbar">
+            <p>商品组合推荐 <span :title="suggestionSource?.name">{{ suggestionSource?.name }}</span></p>
             <button class="catalog-return" type="button" @click="showAllProducts">返回查看全部商品</button>
           </div>
-          <div v-if="recommendationsOpen && (suggestionsLoading || suggestionsFailure || !filtered.length)" class="pgrid__empty similar-empty" :role="suggestionsFailure ? 'alert' : 'status'" :aria-busy="suggestionsLoading">
-            <template v-if="suggestionsLoading"><p>正在查找相似商品…</p></template>
-            <template v-else><h3>商品列表为空</h3><p>{{ suggestionsFailure ? '推荐商品暂时获取失败，请重试或查看全部商品。' : '暂未找到相似的可投放商品' }}</p></template>
-            <div class="similar-empty__actions"><button v-if="suggestionsFailure" class="retry" type="button" :disabled="saving" @click="loadSuggestions(true)">重试推荐</button><button class="catalog-return" type="button" @click="showAllProducts">返回查看全部商品</button></div>
+          <p v-if="recommendationsOpen && suggestionResult && !suggestionsLoading && !suggestionsFailure" class="combination-explanation">{{ suggestionResult.message }}</p>
+          <div v-if="recommendationsOpen && (suggestionsLoading || suggestionsFailure || !filtered.length)" class="pgrid__empty combination-empty" :role="suggestionsFailure ? 'alert' : 'status'" :aria-busy="suggestionsLoading">
+            <template v-if="suggestionsLoading"><p>AI 正在分析商品组合…</p></template>
+            <template v-else><h3>{{ suggestionsFailure ? '商品组合分析暂时失败' : '暂无商品组合建议' }}</h3><p>{{ suggestionsFailure ? '请重试，或返回全部商品自行选择。' : '当前可投商品中，暂未找到有充分搭配依据的商品。' }}</p></template>
+            <div class="combination-empty__actions"><button v-if="suggestionsFailure" class="retry" type="button" :disabled="saving" @click="loadSuggestions(true)">重试推荐</button><button class="catalog-return" type="button" @click="showAllProducts">返回查看全部商品</button></div>
           </div>
           <RequestFailureNotice v-else-if="!recommendationsOpen && !queryPending && loadError && loadFailure" :context="`${activeTab.label}加载失败`" :failure="loadFailure" :busy="!loaded" @retry="emit('retry')" />
           <p v-else-if="!recommendationsOpen && !queryPending && loadError" class="pgrid__empty" role="alert">商品加载失败，请重试。<button class="retry" type="button" @click="emit('retry')">重新加载</button></p>
@@ -54,6 +55,7 @@
                 <span class="pcard__stock" :title="p.stock == null ? '暂未提供库存数据' : `库存 ${p.stock}`">库存 {{ p.stock ?? '—' }}</span>
                 <span class="pcard__sales" :title="p.sales == null ? '平台暂未提供销量数据' : `销量 ${p.sales}`">销量 {{ p.sales ?? '—' }}</span>
               </div>
+              <ul v-if="recommendationsOpen && suggestionReasons[p.qcProductId]?.length" class="pcard__reasons" aria-label="组合推荐理由"><li v-for="reason in suggestionReasons[p.qcProductId]" :key="reason">{{ reason }}</li></ul>
               <p v-if="!readOnly && productUnavailableReason(p)" class="pcard__unavailable" :title="productUnavailableReason(p)">{{ productUnavailableReason(p) }}</p>
               <p v-if="p.draft" class="pcard__draft" :title="`已在草稿「${p.draft.planName}」中`">已在草稿中 · <router-link :to="{ path: '/campaigns/' + p.draft.planId + '/edit', query: { step: '1' } }" aria-disabled="false" @click.stop @keydown.stop>继续编辑</router-link></p>
             </div>
@@ -62,7 +64,7 @@
           <div v-if="!readOnly && !recommendationsOpen && cursorPaging" class="pager"><span>第 {{ page }} 页 · 本页 {{ products.length }} 款商品</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page <= 1 || !cursorHistory?.[page - 1]" aria-label="上一页" @click="page--"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m14.4 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span class="pager__num" aria-current="page">{{ page }}</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || !pagination?.hasMore || !pagination?.nextCursor" aria-label="下一页" @click="page++"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.6 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button></div>
           <div v-if="!readOnly && !recommendationsOpen && !cursorPaging" class="pager"><span class="tnum">共 {{ total }} 条记录</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page <= 1" aria-label="上一页" @click="page--"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m14.4 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span class="pager__num" aria-current="page">{{ page }}</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page >= pages" aria-label="下一页" @click="page++"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.6 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span>跳转</span><input v-model="jump" class="pager__jump" type="text" inputmode="numeric" aria-label="跳转到第几页" @change="jumpTo" @keydown.enter="jumpTo" /><select v-model.number="size" class="pager__size" aria-label="每页条数"><option :value="10">10条/页</option><option :value="30">30条/页</option><option :value="50">50条/页</option></select></div>
         </div>
-        <div v-if="!readOnly" class="selbar"><span class="selbar__count">已选 <b>{{ selected.length }}</b>/10：</span><div class="selbar__list"><span v-if="!selected.length" class="selbar__hint">请选择要投放广告的商品，最多可选10款</span><span v-for="p in selected" :key="p.productId" class="sthumb"><button class="sthumb__box" type="button" :title="`查看${p.name}的推荐商品`" :aria-label="`查看${p.name}的推荐商品`" :aria-pressed="recommendationSource === p.qcProductId" :disabled="saving" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></button><button class="sthumb__remove" type="button" :disabled="saving || selectionLocked" :aria-label="`移除${p.name}`" @click.stop="emit('remove', p.productId)"><svg class="h-[9px] w-[9px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button></span></div></div>
+        <div v-if="!readOnly" class="selbar"><span class="selbar__count">已选 <b>{{ selected.length }}</b>/10：</span><div class="selbar__list"><span v-if="!selected.length" class="selbar__hint">请选择要投放广告的商品，最多可选10款</span><span v-for="p in selected" :key="p.productId" class="sthumb"><button class="sthumb__box" type="button" :title="`查看${p.name}的组合推荐`" :aria-label="`查看${p.name}的组合推荐`" :aria-pressed="recommendationSource === p.qcProductId" :disabled="saving" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></button><button class="sthumb__remove" type="button" :disabled="saving || selectionLocked" :aria-label="`移除${p.name}`" @click.stop="emit('remove', p.productId)"><svg class="h-[9px] w-[9px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button></span></div></div>
       </section>
       <section v-if="analysisOpen" ref="analysisPanel" class="panel analysis" aria-labelledby="panel-analysis">
         <div class="analysis-heading"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
@@ -72,7 +74,7 @@
             <div class="analysis-selection__thumbs">
               <el-popover v-for="p in selected" :key="p.productId" placement="bottom-start" width="min(320px, calc(100vw - 32px))" :trigger="['hover', 'focus']" :show-after="150" :hide-after="100" popper-class="selected-product-popover">
                 <template #reference>
-                  <button class="sthumb__box" type="button" :aria-label="readOnly ? `查看${p.name}的商品信息` : `查看${p.name}的推荐商品`" :aria-pressed="readOnly ? undefined : recommendationSource === p.qcProductId" :disabled="saving" @click="!readOnly && showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button>
+                  <button class="sthumb__box" type="button" :aria-label="readOnly ? `查看${p.name}的商品信息` : `查看${p.name}的组合推荐`" :aria-pressed="readOnly ? undefined : recommendationSource === p.qcProductId" :disabled="saving" @click="!readOnly && showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button>
                 </template>
                 <div class="selected-product-info" :aria-label="`${p.name}的商品信息`">
                   <strong class="selected-product-info__name">{{ p.name }}</strong>
@@ -146,12 +148,13 @@ watch(() => props.selected.map(p => p.qcProductId), ids => {
 const analysisOpen = ref(false), adjusting = ref(false);
 const adjustmentConfirming = ref(false);
 const analysisPanel = ref<HTMLElement>();
-const { sourceProduct: suggestionSource, products: suggestedProducts, failure: suggestionsFailure, loading: suggestionsLoading, load: loadSuggestions } = useProductSuggestions({
+const { sourceProduct: suggestionSource, products: suggestedProducts, result: suggestionResult, failure: suggestionsFailure, loading: suggestionsLoading, load: loadSuggestions } = useProductSuggestions({
   account: () => props.readOnly ? undefined : props.account,
   selected: () => props.selected,
   draftId: () => props.draftId,
   sourceProductId: () => recommendationsOpen.value ? recommendationSource.value : undefined,
 });
+const suggestionReasons = computed(() => Object.fromEntries(suggestionResult.value?.items.map(item => [item.product.qcProductId, item.reasons]) || []));
 const filtered = computed(() => recommendationsOpen.value ? suggestedProducts.value : props.products);
 const pages = computed(() => Math.max(1, Math.ceil(props.total / size.value)));
 const visible = computed(() => filtered.value);

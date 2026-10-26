@@ -121,7 +121,7 @@ export const creationRestoreProducts = (accountId: string, awemeId: string, prod
 });
 export const creationProducts = (accountId: string, awemeId: string, query: ProductQuery, refreshPrices = false, signal?: AbortSignal, draftId?: string) => apiGet<ProductPage>(`${root}/products`, { ...quiet, signal, timeout: 60000, params: { accountId, awemeId, ...query, refreshPrices, draftId } });
 export const creationProductSuggestions = (accountId: string, awemeId: string, productIds: string[], draftId?: string, refresh = false, signal?: AbortSignal, excludeProductIds?: string[]) => apiGet<ProductSuggestions>(`${root}/products/suggestions`, {
-  ...quiet, timeout: 60000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), excludeProductIds:excludeProductIds?.join(','), draftId, refresh },
+  ...quiet, timeout: 90000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), excludeProductIds:excludeProductIds?.join(','), draftId, refresh },
 });
 export const creationGet = (id: string, signal?: AbortSignal) => apiGet<CreationState>(`${root}/${id}`, {...quiet,signal});
 export const beginContentEdit = (id:string) => apiPost<CreationState>(`${root}/${id}/content-edit`,{},slow);

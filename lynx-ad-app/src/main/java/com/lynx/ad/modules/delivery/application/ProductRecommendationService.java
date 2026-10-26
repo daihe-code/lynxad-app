@@ -8,6 +8,7 @@ import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.domain.service.ProductRecommendationPolicy;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 public class ProductRecommendationService {
     private static final int PAGE_SIZE=100,MAX_PAGES=3,MAX_SCOPES=128;
     private final CreationQianchuanGateway qc;private final DraftProductStore drafts;private final AdPlanRepository plans;
+    private final ProductCombinationService combinations; private final CreationStore creations;
     private Clock clock=Clock.systemUTC();
     private record Scope(String tenant,String account,String aweme) {}
     private record Pool(List<Product> products,long total,boolean partial,String warning,Instant fetchedAt) {}
@@ -26,7 +28,7 @@ public class ProductRecommendationService {
     public record Result(String accountId,String awemeId,List<String> sourceProductIds,
                          List<ProductRecommendationPolicy.Suggestion> items,int scannedCount,long catalogTotal,
                          boolean partial,boolean cached,String fetchedAt,String method,String message) {}
-    public ProductRecommendationService(CreationQianchuanGateway qc,DraftProductStore drafts,AdPlanRepository plans){this.qc=qc;this.drafts=drafts;this.plans=plans;}
+    public ProductRecommendationService(CreationQianchuanGateway qc,DraftProductStore drafts,AdPlanRepository plans,ProductCombinationService combinations,CreationStore creations){this.qc=qc;this.drafts=drafts;this.plans=plans;this.combinations=combinations;this.creations=creations;}
 
     public Result recommend(TenantId tenant,String account,String aweme,List<String> ids,String draft,boolean refresh) {
         return recommend(tenant,account,aweme,ids,ids,draft,refresh);
@@ -41,9 +43,14 @@ public class ProductRecommendationService {
             excluded.addAll(excludeIds);
         }
         if(draft!=null&&!draft.isBlank()){
-            var plan=plans.findById(tenant,new PlanId(draft)).orElseThrow(()->new BizException(1403,"当前草稿不存在或不属于当前企业"));
-            if(!plan.accountId().value().equals(account)||!plan.awemeId().value().equals(aweme)||plan.status()!=PlanStatus.DRAFT||plan.qcPlanId().isPresent())
-                throw new BizException(1403,"当前草稿与所选账户或抖音号不匹配");
+            var plan=plans.findById(tenant,new PlanId(draft)).orElse(null);
+            if(plan!=null){
+                if(!plan.accountId().value().equals(account)||!plan.awemeId().value().equals(aweme)||plan.status()!=PlanStatus.DRAFT||plan.qcPlanId().isPresent())throw new BizException(1403,"当前草稿与所选账户或抖音号不匹配");
+            }else{
+                var work=creations.get(tenant.value(),draft);
+                if(work==null||work.publishedEdit==null||!account.equals(work.accountId)||!aweme.equals(work.awemeId)||!"DRAFT".equals(work.publishedEdit.status))throw new BizException(1403,"当前草稿不存在或不属于当前账户");
+                if(plans.findById(tenant,new PlanId(work.publishedEdit.targetPlanId)).isEmpty())throw new BizException(1403,"原投放计划不存在或无权查看");
+            }
         }
         // Authorization and selected facts are fresh even when the candidate catalog is cached.
         var selected=qc.selected(tenant,account,aweme,ids);
@@ -60,13 +67,13 @@ public class ProductRecommendationService {
             if(!hit&&pool.warning()==null)bucket.pool=pool;
         }
         // Never cache draft occupancy: another API/user can reserve a product between requests.
-        var available=drafts.decorate(tenant.value(),account,draft,pool.products()).stream().filter(product->!excluded.contains(product.qcProductId())).toList();
-        var suggestions=ProductRecommendationPolicy.recommend(selected,available,6);
-        String message="按商品类目、名称关键词及参考价格匹配，相似商品需由你确认后加入。";
+        var available=drafts.decorate(tenant.value(),account,draft,pool.products()).stream().filter(product->!excluded.contains(product.qcProductId())&&ProductRecommendationPolicy.eligible(product)).toList();
+        var suggestions=combinations.recommend(tenant,account,aweme,selected,available,refresh);
+        String message="AI根据组合售卖、用途互补和共同场景推荐；ROI接近仅依据既有计划目标，缺少数据不推断ROI。是否适合组合投放需实际测试。";
         if(pool.partial())message+=" 本次仅评估已取得的 "+pool.products().size()+" 个候选商品。";
         if(pool.warning()!=null)message+=" "+pool.warning();
         return new Result(account,aweme,List.copyOf(ids),suggestions,pool.products().size(),pool.total(),pool.partial(),hit,
-                pool.fetchedAt().toString(),"PRODUCT_FACTS_V1",message);
+                pool.fetchedAt().toString(),"AI_COMBINATION_V1",message);
     }
     private Pool scan(TenantId tenant,String account,String aweme){
         var products=new LinkedHashMap<String,Product>();long total=0;boolean partial=false;String warning=null;

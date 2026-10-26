@@ -28,7 +28,7 @@ class ProductSuggestionApiTest {
         var workflow=mock(CreationWorkflowService.class);var qc=mock(CreationQianchuanGateway.class);var suggestions=mock(ProductRecommendationService.class);
         var controller=new CreationController(workflow,qc);controller.productSuggestions(suggestions);
         when(suggestions.recommend(tenant,"account","aweme",List.of("9007199254740995","100"),"draft",true)).thenReturn(
-                new ProductRecommendationService.Result("account","aweme",List.of("9007199254740995","100"),List.of(),20,20,false,false,"2026-10-21T00:00:00Z","PRODUCT_FACTS_V1","商品信息匹配"));
+                new ProductRecommendationService.Result("account","aweme",List.of("9007199254740995","100"),List.of(),20,20,false,false,"2026-10-21T00:00:00Z","AI_COMBINATION_V1","AI商品组合推荐"));
         var mvc=MockMvcBuilders.standaloneSetup(controller).build();
         mvc.perform(get("/api/v1/delivery/creation/products/suggestions").param("accountId","account").param("awemeId","aweme")
                 .param("productIds","9007199254740995,100").param("draftId","draft").param("refresh","true"))

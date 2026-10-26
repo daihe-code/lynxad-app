@@ -15,7 +15,7 @@ export function useProductSuggestions(input: {
   const scope = computed(() => {
     const account = input.account();
     return account?.accountId && account.awemeId && sourceProduct.value
-      ? JSON.stringify([account.accountId, account.awemeId, input.draftId() || '', sourceProduct.value.qcProductId]) : '';
+      ? JSON.stringify([account.accountId, account.awemeId, input.draftId() || '', sourceProduct.value.qcProductId, input.selected().map(p => p.qcProductId).sort()]) : '';
   });
   const products = computed(() => result.value?.items.map(item => item.product) || []);
   let request: AbortController | undefined, sequence = 0, disposed = false;
@@ -52,5 +52,5 @@ export function useProductSuggestions(input: {
     if (scope.value) void load();
   }, { immediate: true });
   onUnmounted(() => { disposed = true; sequence++; request?.abort(); });
-  return { sourceProduct, products, failure, loading, load };
+  return { sourceProduct, products, result, failure, loading, load };
 }

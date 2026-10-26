@@ -3,6 +3,9 @@ package com.lynx.ad.modules.delivery;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.delivery.application.ProductRecommendationService;
+import com.lynx.ad.modules.delivery.application.ProductCombinationService;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore;
+import com.lynx.ad.modules.delivery.domain.service.ProductRecommendationPolicy.Suggestion;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.model.CreationState.*;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
@@ -27,9 +30,11 @@ class ProductRecommendationServiceTest {
     }
     TenantId tenant=new TenantId("tenant");CreationQianchuanGateway qc=mock(CreationQianchuanGateway.class);
     DraftProductStore drafts=mock(DraftProductStore.class);AdPlanRepository plans=mock(AdPlanRepository.class);
-    ProductRecommendationService service=new ProductRecommendationService(qc,drafts,plans);
+    ProductCombinationService combinations=mock(ProductCombinationService.class);CreationStore creations=mock(CreationStore.class);
+    ProductRecommendationService service=new ProductRecommendationService(qc,drafts,plans,combinations,creations);
     Product product(String id){return new Product(id,id,"折叠自行车 "+id,new BigDecimal("800"),null,"https://example.test/p","自行车",10L,List.of(),List.of());}
     @BeforeEach void setup(){
+        when(combinations.recommend(any(),anyString(),anyString(),anyList(),anyList(),anyBoolean())).thenAnswer(call->{List<Product> seeds=call.getArgument(3);List<Product> candidates=call.getArgument(4);return candidates.stream().limit(6).map(p->new Suggestion(p,List.of("AI组合建议：用途互补，可共同测试"),List.of(seeds.getFirst().qcProductId()))).toList();});
         when(qc.selected(any(),anyString(),anyString(),anyList())).thenAnswer(call->((List<String>)call.getArgument(3)).stream().map(this::product).toList());
         when(drafts.decorate(anyString(),anyString(),nullable(String.class),anyList())).thenAnswer(call->call.getArgument(3));
         when(qc.recommendationCandidates(any(),anyString(),anyString(),eq(1),eq(100))).thenReturn(new CreationQianchuanGateway.Page(List.of(product("100"),product("101")),2,1,100));
@@ -74,5 +79,13 @@ class ProductRecommendationServiceTest {
     @Test void invalidAndDuplicateSelectionNeverStartsCatalogScanning(){
         for(var ids:List.of(List.<String>of(),List.of("100","100"),List.of("bad"))){assertThrows(BizException.class,()->service.recommend(tenant,"a","w",ids,null,false));}
         verifyNoInteractions(qc);
+    }
+    @Test void recommendationsAcceptTheCurrentPublishedCompositionWorkingDraft(){
+        var work=new CreationState();work.accountId="account";work.awemeId="aweme";work.publishedEdit=new CreationState.PublishedEdit();work.publishedEdit.targetPlanId="original";
+        when(creations.get("tenant","working")).thenReturn(work);
+        when(plans.findById(tenant,new PlanId("original"))).thenReturn(Optional.of(mock(AdPlan.class)));
+        assertEquals("AI_COMBINATION_V1",service.recommend(tenant,"account","aweme",List.of("100"),"working",false).method());
+        clearInvocations(qc);work.publishedEdit.status="SAVING";
+        assertThrows(BizException.class,()->service.recommend(tenant,"account","aweme",List.of("100"),"working",false));verifyNoInteractions(qc);
     }
 }

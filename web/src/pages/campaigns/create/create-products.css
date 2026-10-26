@@ -1020,7 +1020,7 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   text-align: center;
   font-size: 14px;
 }
-.similar-toolbar {
+.combination-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1028,14 +1028,17 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   gap: 12px;
   margin-top: 15px;
 }
-.similar-toolbar p { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 100%; font-size: 14px; }
-.similar-toolbar p span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: rgb(var(--c-text-3)); font-size: 12px; }
+.combination-toolbar p { display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 100%; font-size: 14px; }
+.combination-toolbar p span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: rgb(var(--c-text-3)); font-size: 12px; }
+.combination-explanation { margin: 12px 0 20px; font-size: 12px; line-height: 1.8; color: rgb(var(--c-text-3)); }
+.pcard__reasons { list-style: none; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid rgb(var(--c-border)); font-size: 12px; line-height: 1.8; color: rgb(var(--c-text-2)); overflow-wrap: anywhere; }
+.pcard__reasons li + li { margin-top: 6px; }
 .catalog-return { border: 1px solid rgb(var(--c-primary)); border-radius: 8px; padding: 9px 14px; background: white; color: rgb(var(--c-primary)); font: inherit; font-size: 13px; cursor: pointer; }
 .catalog-return:hover { background: rgb(var(--c-primary-soft)); }
 .catalog-return:focus-visible { outline: 2px solid rgb(var(--c-primary)); outline-offset: 3px; }
-.similar-empty { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
-.similar-empty h3 { color: rgb(var(--c-text-1)); font-size: 16px; font-weight: 600; }
-.similar-empty__actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+.combination-empty { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.combination-empty h3 { color: rgb(var(--c-text-1)); font-size: 16px; font-weight: 600; }
+.combination-empty__actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
 #panel-goods { scroll-margin-top: 100px; }
 #panel-goods:focus { outline: none; }
 .pager {
