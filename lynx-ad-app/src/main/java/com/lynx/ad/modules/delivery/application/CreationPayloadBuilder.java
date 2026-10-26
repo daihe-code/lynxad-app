@@ -24,6 +24,7 @@ public class CreationPayloadBuilder {
     private final CreationQianchuanGateway gateway;
     public CreationPayloadBuilder(ObjectMapper json,AssetUploadService assets,CarouselPlatformService carousels,CreationQianchuanGateway gateway){this.json=json;this.assets=assets;this.carousels=carousels;this.gateway=gateway;}
     public static void settings(CreationState s) {
+        if(s.publishedEdit!=null)return;
         var mode=DeliveryInputPolicy.mode(s.smartBidType);
         DeliveryInputPolicy.budget(s.budget,mode,DeliveryInputPolicy.RULES.creation());
         if(mode==SmartBidType.CUSTOM)DeliveryInputPolicy.roi(s.roi2Goal,DeliveryInputPolicy.RULES.creation());
@@ -82,7 +83,13 @@ public class CreationPayloadBuilder {
         }
         setting.put("video_schedule_type","DATE_RANGE".equals(s.scheduleType)?"SCHEDULE_START_END":"SCHEDULE_FROM_NOW");
         if("DATE_RANGE".equals(s.scheduleType)){setting.put("start_time",s.startDate);setting.put("end_time",s.endDate);}
-        var list=root.putArray("multi_product_creative_list");
+        root.set("multi_product_creative_list",creatives(s));
+        return root;
+    }
+    /** Build creative bindings independently of creation-only budget and future-date validation. */
+    public ArrayNode creatives(CreationState s) {
+        var list=json.createArrayNode();
+        var tenant=new TenantId(s.tenantId);
         for(var product:s.products) {
             var materials=s.materials.stream().filter(m->product.qcProductId().equals(m.productId)).toList();
             if(materials.isEmpty())throw new BizException(1503,"商品尚无投放素材："+product.name());
@@ -133,7 +140,7 @@ public class CreationPayloadBuilder {
             String sellingPoint=titles.stream().filter(t->platformLength(t)>=11&&platformLength(t)<=18).findFirst().orElse("查看商品详细信息");
             card.putArray("promotion_card_selling_points").add(sellingPoint);
         }
-        return root;
+        return list;
     }
     private static boolean recommendationMatches(CreationState s) {
         if(s.recommendations==null)return false;

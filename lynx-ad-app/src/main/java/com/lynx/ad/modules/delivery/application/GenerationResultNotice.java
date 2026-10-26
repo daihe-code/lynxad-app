@@ -23,7 +23,7 @@ public class GenerationResultNotice {
         String title=complete?"素材生成阶段已完成":"部分素材生成未完成";
         String body="计划「"+state.name+"」生成阶段已结束，已产出 "+produced+" 条素材。"+(complete?"":"成功结果已保留，可重试失败项。")+"素材登记、检查和千川同步状态请返回本计划查看。";
         String key=eventKey("creation-generated:"+state.planId+":"+state.engineJobId+":"+operation+":"+state.engineTerminalStatus);
-        outbox.enqueue(new TenantId(state.tenantId),key,title,body,new BizRef("CREATION_GENERATED",state.planId),Instant.now());
+        outbox.enqueue(new TenantId(state.tenantId),key,title,body,new BizRef(state.publishedEdit==null?"CREATION_GENERATED":"CREATION_EDIT_GENERATED",state.publishedEdit==null?state.planId:state.publishedEdit.targetPlanId),Instant.now());
     }
     private static String eventKey(String identity) {
         // Keep the complete outcome identity for deduplication within event_key VARCHAR(64).

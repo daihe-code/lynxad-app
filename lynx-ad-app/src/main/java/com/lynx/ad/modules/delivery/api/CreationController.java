@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 public class CreationController {
     private final CreationWorkflowService service;
     private final CreationQianchuanGateway qc;
+    private com.lynx.ad.modules.delivery.application.PublishedCompositionService compositions;
+    @org.springframework.beans.factory.annotation.Autowired public void compositions(com.lynx.ad.modules.delivery.application.PublishedCompositionService value){compositions=value;}
     private com.lynx.ad.modules.delivery.application.ProductRecommendationService productSuggestions;
     @org.springframework.beans.factory.annotation.Autowired public void productSuggestions(com.lynx.ad.modules.delivery.application.ProductRecommendationService value){productSuggestions=value;}
     private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftProductStore draftProducts;
@@ -38,6 +40,9 @@ public class CreationController {
     }
     @RequiresActiveTrial @PostMapping public ApiResponse<CreationView> select(@RequestBody CreationWorkflowService.Selection req){return view(service.select(TenantContext.requireTenantId(),req));}
     @GetMapping("/{id}") public ApiResponse<CreationView> get(@PathVariable String id){return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(),id)));}
+    @RequiresActiveTrial @PostMapping("/{id}/content-edit") public ApiResponse<CreationView> beginContentEdit(@PathVariable String id){return view(compositions.begin(TenantContext.requireTenantId(),id));}
+    @RequiresActiveTrial @PostMapping("/{id}/content-edit/save") public ApiResponse<CreationView> saveContentEdit(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(compositions.save(TenantContext.requireTenantId(),id,req.revision()));}
+    @PostMapping("/{id}/content-edit/verify") public ApiResponse<CreationView> verifyContentEdit(@PathVariable String id){return view(compositions.verify(TenantContext.requireTenantId(),id));}
     @RequiresActiveTrial @PostMapping("/{id}/analysis") public ApiResponse<CreationView> analysis(@PathVariable String id,@RequestBody CreationWorkflowService.Analysis req){return view(service.analyze(TenantContext.requireTenantId(),id,req));}
     @GetMapping("/{id}/recommendations") public ApiResponse<CreationView> recommendations(@PathVariable String id,@RequestParam(defaultValue="false") boolean refresh){return view(service.recommendations(TenantContext.requireTenantId(),id,refresh));}
     @RequiresActiveTrial @PutMapping("/{id}/goal") public ApiResponse<CreationView> goal(@PathVariable String id,@RequestBody CreationWorkflowService.Goal req){return view(service.goal(TenantContext.requireTenantId(),id,req));}

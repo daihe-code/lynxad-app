@@ -93,12 +93,16 @@ export interface CreationState {
   recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
   generationSelection?: string[] | null;
+  generationPendingProductIds?: string[];
+  selectionChange?: { addedNames: string[]; removedNames: string[]; retainedMaterials: number; removedMaterials: number };
   regenerationRetryAt?: number;
   materialEdit?: { status: string; message: string } | null;
   generationStage?: string;
   generationResultStatus?: string;
   generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null; failed?: number }[];
   generationIssues?: { productId: string; productName: string; message: string; type?: 'VIDEO' | 'IMAGE' | 'CAROUSEL' | 'TITLE' | null; materialId?: string | null; title?: string | null; slotId?: string | null }[];
+  canAdjustProductsDuringGeneration?:boolean;
+  contentEdit?: {targetPlanId:string;status:string;message?:string;planStatus?:string}; contentEditDraftId?:string;
   materials: CreationMaterial[]; publishStatus: string; publishKey?: string; qcPlanId?: string; publishError?: string;
   generationAdditions?: { id: string; productId: string; type: string; description: string; status: string; createdAt: string; materialId?: string; error?: string }[];
 }
@@ -116,6 +120,9 @@ export const creationProductSuggestions = (accountId: string, awemeId: string, p
   ...quiet, timeout: 60000, readRetry: false, signal, params: { accountId, awemeId, productIds: productIds.join(','), excludeProductIds:excludeProductIds?.join(','), draftId, refresh },
 });
 export const creationGet = (id: string, signal?: AbortSignal) => apiGet<CreationState>(`${root}/${id}`, {...quiet,signal});
+export const beginContentEdit = (id:string) => apiPost<CreationState>(`${root}/${id}/content-edit`,{},slow);
+export const saveContentEdit = (s:CreationState) => apiPost<CreationState>(`${root}/${s.planId}/content-edit/save`,{revision:s.revision},slow);
+export const verifyContentEdit = (s:CreationState) => apiPost<CreationState>(`${root}/${s.planId}/content-edit/verify`,{},slow);
 export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }) => apiPost<CreationState>(root, body, slow);
 export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh });
 export const creationKeepGroup = (s:CreationState) => apiPut<CreationState>(`${root}/${s.planId}/groups/keep`, {revision:s.revision});

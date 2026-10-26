@@ -67,9 +67,10 @@ public class CreationStore {
     public List<Attempt> receipts() { return jdbc.query("SELECT tenant_id,request_key FROM delivery_publish_attempt WHERE status='CREATED' AND applied=0 LIMIT 20",(r,n)->attempt(r.getString(1),r.getString(2)).orElseThrow()); }
     public void applied(Attempt a) { jdbc.update("UPDATE delivery_publish_attempt SET applied=1 WHERE tenant_id=? AND request_key=? AND status='CREATED'",a.tenant,a.key); }
     private static int work(CreationState s) {
+        if(s.publishedEdit!=null&&"SUCCEEDED".equals(s.publishedEdit.status))return 0;
         boolean missingRevisionReceipt=s.regeneration!=null&&"UNCERTAIN".equals(s.regeneration.status)
                 &&(s.regeneration.revisionId==null||s.regeneration.executionJobId==null);
-        return s.materialEditPending()||Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!missingRevisionReceipt&&Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
+        return s.publishedEditPending()||s.materialEditPending()||Set.of("QUEUED","RUNNING").contains(s.analysisStatus)||!missingRevisionReceipt&&Set.of("QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN").contains(s.generationStatus)
                 ||s.needsGenerationReconciliation()||s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status)) ? 1 : 0;
     }
     public Set<String> usedMedia(String tenant) {

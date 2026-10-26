@@ -81,6 +81,7 @@
 </template><main class="ad-main">
   <div class="container-page">
 
+    <ProductSelectionNotice :message="selectionNotice" />
     <section class="panel panel--goal" aria-labelledby="panel-goal">
       <div class="panel__pad">
         <div class="panel__head">
@@ -283,8 +284,8 @@
 
   </div>
 </main>
-<CreationFooter v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly || settingsOnly" @back="emit('cancel')" @save="emit('saveDraft')">
-  <template #previous><button class="btn-prev" type="button" :disabled="saving || readOnly || settingsOnly" @click="emit('prev')">
+<CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || !contentEditing && (readOnly || settingsOnly)" @back="emit('cancel')" @save="emit('saveDraft')">
+  <template #previous><button class="btn-prev" type="button" :disabled="saving || !contentEditing && (readOnly || settingsOnly)" @click="emit('prev')">
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步
     </button></template>
@@ -300,13 +301,14 @@
 <script setup lang="ts">
 import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import CreationFooter from './CreationFooter.vue';
+import ProductSelectionNotice from './ProductSelectionNotice.vue';
 import { nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });

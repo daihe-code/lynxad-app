@@ -33,8 +33,9 @@ public final class GenerationIssueMapper {
             int index;
             try {index=Integer.parseInt(group.path("group_id").asText().replace("group-",""))-1;}
             catch(NumberFormatException ignored){continue;}
-            if(index<0||index>=state.products.size())continue;
-            var product=state.products.get(index);
+            String bound=state.generationGroupProducts.isEmpty()?(index<0||index>=state.products.size()?null:state.products.get(index).qcProductId()):state.generationGroupProducts.get(group.path("group_id").asText());
+            var product=state.products.stream().filter(p->p.qcProductId().equals(bound)).findFirst().orElse(null);
+            if(product==null)continue;
             String groupId=group.path("group_id").asText();
             var slots=new LinkedHashMap<String,CreationState.GenerationIssue>();
             var completed=new HashMap<String,Set<String>>();

@@ -9,6 +9,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class GenerationIssueMapperTest {
     private final ObjectMapper json=new ObjectMapper();
+    @Test void changedSelectionKeepsOriginalGroupOwnershipAndDropsRemovedProductFailures() throws Exception {
+        var s=state();s.generationGroupProducts.put("group-1","123");s.generationGroupProducts.put("group-2","456");s.products.removeFirst();
+        var job=json.readTree("{\"status\":\"failed\",\"groups\":[{\"group_id\":\"group-1\",\"status\":\"failed\",\"error\":\"移出商品失败\"},{\"group_id\":\"group-2\",\"status\":\"failed\",\"error\":\"保留商品失败\"}]}");
+        var issues=GenerationIssueMapper.from(s,job);assertEquals(1,issues.size());assertEquals("456",issues.getFirst().productId());assertEquals("保留商品失败",issues.getFirst().message());
+    }
     private CreationState state() {
         var s=new CreationState();s.generationProductIds=List.of("123","456");
         for(String id:s.generationProductIds)s.products.add(new CreationState.Product(id,id,"商品"+id,null,null,null,null,null,List.of(),List.of()));

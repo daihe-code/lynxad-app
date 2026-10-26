@@ -17,6 +17,7 @@
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i > 0 && i + 1 <= (reachedStep ?? 1) }" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
     </template><main class="ad-main"><div class="container-page">
+      <ProductSelectionNotice :message="selectionNotice" /><p v-if="selectionLocked" class="analysis-stale" role="status">素材任务正在处理，已有商品与素材会保留；生成完成后可调整商品，无需重复生成原商品素材。</p>
       <section v-if="!analysisOpen" class="panel" aria-labelledby="panel-goods">
         <div class="panel__pad">
           <div class="panel__head"><div class="min-w-0"><h2 class="panel__title" id="panel-goods" tabindex="-1">{{ readOnly ? '投放商品' : '选择要投放广告的商品' }}</h2><p class="panel__sub">{{ readOnly ? `当前计划已选择 ${selected.length} 款商品` : '确认商品组合，为下一步准备投放素材' }}</p></div></div>
@@ -61,12 +62,12 @@
           <div v-if="!readOnly && !recommendationsOpen && cursorPaging" class="pager"><span>第 {{ page }} 页 · 本页 {{ products.length }} 款商品</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page <= 1 || !cursorHistory?.[page - 1]" aria-label="上一页" @click="page--"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m14.4 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span class="pager__num" aria-current="page">{{ page }}</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || !pagination?.hasMore || !pagination?.nextCursor" aria-label="下一页" @click="page++"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.6 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button></div>
           <div v-if="!readOnly && !recommendationsOpen && !cursorPaging" class="pager"><span class="tnum">共 {{ total }} 条记录</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page <= 1" aria-label="上一页" @click="page--"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m14.4 6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span class="pager__num" aria-current="page">{{ page }}</span><button class="pager__btn" type="button" :disabled="queryPending || !loaded || loadError || page >= pages" aria-label="下一页" @click="page++"><svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.6 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg></button><span>跳转</span><input v-model="jump" class="pager__jump" type="text" inputmode="numeric" aria-label="跳转到第几页" @change="jumpTo" @keydown.enter="jumpTo" /><select v-model.number="size" class="pager__size" aria-label="每页条数"><option :value="10">10条/页</option><option :value="30">30条/页</option><option :value="50">50条/页</option></select></div>
         </div>
-        <div v-if="!readOnly" class="selbar"><span class="selbar__count">已选 <b>{{ selected.length }}</b>/10：</span><div class="selbar__list"><span v-if="!selected.length" class="selbar__hint">请选择要投放广告的商品，最多可选10款</span><span v-for="p in selected" :key="p.productId" class="sthumb"><button class="sthumb__box" type="button" :title="`查看${p.name}的推荐商品`" :aria-label="`查看${p.name}的推荐商品`" :aria-pressed="recommendationSource === p.qcProductId" :disabled="saving" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></button><button class="sthumb__remove" type="button" :disabled="saving" :aria-label="`移除${p.name}`" @click.stop="emit('remove', p.productId)"><svg class="h-[9px] w-[9px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button></span></div></div>
+        <div v-if="!readOnly" class="selbar"><span class="selbar__count">已选 <b>{{ selected.length }}</b>/10：</span><div class="selbar__list"><span v-if="!selected.length" class="selbar__hint">请选择要投放广告的商品，最多可选10款</span><span v-for="p in selected" :key="p.productId" class="sthumb"><button class="sthumb__box" type="button" :title="`查看${p.name}的推荐商品`" :aria-label="`查看${p.name}的推荐商品`" :aria-pressed="recommendationSource === p.qcProductId" :disabled="saving" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></button><button class="sthumb__remove" type="button" :disabled="saving || selectionLocked" :aria-label="`移除${p.name}`" @click.stop="emit('remove', p.productId)"><svg class="h-[9px] w-[9px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-close" /></svg></button></span></div></div>
       </section>
       <section v-if="analysisOpen" ref="analysisPanel" class="panel analysis" aria-labelledby="panel-analysis">
         <div class="analysis-heading"><h2 class="analysis__title" id="panel-analysis">商品智能分析</h2></div>
         <div class="analysis-content" aria-live="polite">
-          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button><button v-else class="analysis-adjust" type="button" :aria-expanded="selectedExpanded" @click="selectedExpanded = !selectedExpanded">{{ selectedExpanded ? '收起商品' : '查看已选商品' }}</button></div>
+          <div class="analysis-selection" aria-label="已选商品摘要"><span>已选 <b>{{ selected.length }}</b> 款商品</span><div class="analysis-selection__thumbs"><button v-for="p in selected" :key="p.productId" class="sthumb__box" type="button" :title="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-label="readOnly ? p.name : `查看${p.name}的推荐商品`" :aria-pressed="!readOnly && recommendationSource === p.qcProductId" :disabled="saving || readOnly" @click="showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button></div><button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button><button v-else class="analysis-adjust" type="button" :aria-expanded="selectedExpanded" @click="selectedExpanded = !selectedExpanded">{{ selectedExpanded ? '收起商品' : '查看已选商品' }}</button></div>
           <ul v-if="readOnly && selectedExpanded" class="analysis-selected-names"><li v-for="p in selected" :key="p.productId">{{ p.name }}</li></ul>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
@@ -84,7 +85,7 @@
         </div>
       </section>
     </div></main>
-    <CreationFooter v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '下一步' : '分析所选商品' }}<svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12h15.2M13.4 5.8 19.6 12l-6.2 6.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" /></svg></button></CreationFooter>
+    <CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '下一步' : '分析所选商品' }}<svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12h15.2M13.4 5.8 19.6 12l-6.2 6.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" /></svg></button></CreationFooter>
   </div>
 </template>
 
@@ -96,14 +97,14 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
 import { canContinueProductAnalysis, productAnalysisInput, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
-import { ElMessageBox } from 'element-plus';
+import ProductSelectionNotice from './ProductSelectionNotice.vue';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
 import { useProductSuggestions } from '@/features/delivery/useProductSuggestions';
 import ProductPrice from '@/components/ProductPrice.vue';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; selectionLocked?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {
@@ -166,7 +167,7 @@ watch(page, n => { jump.value = String(n); });
 function jumpTo() { const n = Number(jump.value); page.value = Number.isInteger(n) && n > 0 ? Math.min(n, pages.value) : 1; jump.value = String(page.value); }
 function isSelected(id: string) { return props.selected.some(p => p.productId === id); }
 function productDisabled(p: ProductVo) {
-  return !!(props.readOnly || props.saving || p.draft && !isSelected(p.productId)
+  return !!(props.readOnly || props.saving || props.selectionLocked || p.draft && !isSelected(p.productId)
     || recommendationsOpen.value && (analyzing.value || props.selected.length >= 10 && !isSelected(p.productId)));
 }
 function choose(p: ProductVo) {
@@ -192,14 +193,13 @@ async function showAllProducts() {
   await nextTick(); revealCatalog();
 }
 async function adjustProducts() {
-  if (props.readOnly || props.saving) return;
-  try { await ElMessageBox.confirm('调整商品后需更新分析，相关目标和素材也可能需要重新准备。当前草稿会保留。', '调整商品', { confirmButtonText: '调整商品', cancelButtonText: '保留当前商品', type: 'warning' }); } catch { return; }
+  if (props.readOnly || props.saving || props.selectionLocked) return;
   adjusting.value = true; analysisOpen.value = false; emit('retry');
   await nextTick(); filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
 async function confirm() {
   if (props.readOnly || props.saving || !props.selected.length) return;
-  adjusting.value = false; closeRecommendations(); analysisOpen.value = true; emit('analyze');
+  adjusting.value = false; closeRecommendations(); emit('analyze');
   await nextTick(); analysisPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 </script>

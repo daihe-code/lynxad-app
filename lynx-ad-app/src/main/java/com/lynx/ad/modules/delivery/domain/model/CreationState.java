@@ -7,6 +7,27 @@ import java.util.*;
 /** Durable wizard state. Media bytes and account-specific platform IDs remain in creative assets. */
 public class CreationState {
     public String planId, tenantId, userId, accountId, awemeId, name;
+    public String publishedEditDraftId;
+    /** A private working copy; no ad_plan is created and live content changes only on save. */
+    public PublishedEdit publishedEdit;
+    public static class PublishedEdit {
+        public String sourcePlanId,targetPlanId,planStatus,status="DRAFT",message;
+        public int sourceRevision;
+        public long nextCheckAt;
+        public JsonNode original;
+        public List<ContentMember> members=new ArrayList<>();
+        public List<ContentOperation> operations=new ArrayList<>();
+    }
+    public static class ContentMember {
+        public String planId,qcPlanId;
+        public JsonNode before,after;
+    }
+    public static class ContentOperation {
+        public String planId,qcPlanId,action,productId,phase="READY";
+        public List<String> materialIds=new ArrayList<>();
+        public JsonNode before,after;
+    }
+    public boolean publishedEditPending(){return publishedEdit!=null&&Set.of("SAVING","UNCERTAIN").contains(publishedEdit.status);}
     public int revision = 1, step = 1, packageVersion = 1;
     /** Furthest valid visited page, independent of the page currently being viewed. */
     public Integer reachedStep;
@@ -64,8 +85,12 @@ public class CreationState {
         public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
     }
     public List<String> generationProductIds = new ArrayList<>();
+    public Map<String,String> generationGroupProducts = new LinkedHashMap<>();
     /** Null means undecided; an empty list records the explicit choice to use existing/uploaded materials. */
     public List<String> generationSelection;
+    public List<String> generationPendingProductIds = new ArrayList<>();
+    public SelectionChange selectionChange;
+    public record SelectionChange(List<String> addedNames,List<String> removedNames,int retainedMaterials,int removedMaterials) {}
     public String pendingAdditionId;
     public List<GenerationAddition> generationAdditions = new ArrayList<>();
     public static class GenerationAddition {
@@ -119,7 +144,7 @@ public class CreationState {
         }
     }
     public static class Material {
-        public String id, productId, groupId, type, title, text, engineMaterialId, engineJobId;
+        public String id, productId, groupId, type, title, text, engineMaterialId, engineJobId, enginePlanId;
         public String generationRequestId,generationDescription;
         public JsonNode creativeProfile;
         public String creativeProfileStatus;

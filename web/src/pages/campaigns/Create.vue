@@ -7,13 +7,14 @@
     </aside>
     <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
-    <CreateProductsStep :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
-    <CreateGoalStep @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || draftRestoring || draftUnresolved" :account="account" :accounts="accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
+    <aside v-if="contentEditing" class="draft-save-note" role="status"><p>{{ state?.contentEdit?.message || '当前正在调整原投放计划的商品与素材；暂存修改只保存编辑内容，点击“保存修改”并同步成功后更新原计划。' }}</p><button v-if="contentLocked" type="button" :disabled="busy" @click="verifyContent">核查保存结果</button></aside>
+    <CreateProductsStep :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
+    <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在提交当前投放方案，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED' && state.publishRecovery === 'REFRESH_ESTIMATE'" class="btn-brand" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
     <RequestFailureNotice :failure="initialFailure" :busy="initializing" @retry="initialize" />
-    <CreationActionDialog v-if="action" :action="action.kind" :retry-at="state?.regenerationRetryAt" :busy="busy || draftRestoring || draftUnresolved" @close="action = null" @save="saveAndLeave" @discard="discardAndLeave" @confirm="feedback" />
+    <CreationActionDialog v-if="action" :action="action.kind" :retry-at="state?.regenerationRetryAt" :busy="busy || contentLocked || draftRestoring || draftUnresolved" @close="action = null" @save="saveAndLeave" @discard="discardAndLeave" @confirm="feedback" />
   </div>
 </template>
 <script setup lang="ts">
@@ -29,6 +30,7 @@ import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
 import { recommendedRoiDefault } from '@/features/delivery/creationRoiDefault';
 import { creationReachedStep, creationGoalChanged, validReachedStep } from '@/features/delivery/creationProgress';
+import { selectionImpact, selectionImpactText } from '@/features/delivery/selectionImpact';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
@@ -47,9 +49,11 @@ import CreationFrame from './reference/CreationFrame.vue';
 import PlanResult from './reference/PlanResult.vue';
 import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
-const props = defineProps<{ initialPlanId?: string; initialStep?: number }>();
+const props = defineProps<{ initialPlanId?: string; initialStep?: number; publishedEditTarget?: string }>();
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
 const resumingMaterials = ref(false);
+const contentEditing=computed(()=>!!props.publishedEditTarget || !!state.value?.contentEdit);
+const contentLocked=computed(()=>!!state.value?.contentEdit && state.value.contentEdit.status !== 'DRAFT');
 const catalogLoading = ref(false);
 const initialFailure = ref<ApiRequestError>(), productFailure = ref<ApiRequestError>(), operationFailure = ref<ApiRequestError>(), pollFailure = ref<ApiRequestError>();
 const initializing = ref(false), recovering = ref(false), polling = ref(false);
@@ -62,11 +66,21 @@ const accountOptions = computed(() => accounts.value.filter(a => a.platform === 
 const account = computed(() => accountOptions.value.find(a => a.key === accountKey.value));
 const accountChips = computed(() => awemeLabels(account.value));
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
+const pendingSelectionImpact = computed(() => state.value ? selectionImpact(state.value.products,selected.value,state.value.materials) : undefined);
+const selectionNotice = computed(() => {
+  if (pendingSelectionImpact.value?.changed) return selectionImpactText(pendingSelectionImpact.value,!!props.publishedEditTarget);
+  const change=state.value?.selectionChange;if(!change)return '';
+  return [change.retainedMaterials ? `已保留 ${change.retainedMaterials} 条原商品素材，原有预览继续保留，无需重复生成。` : '',
+    change.addedNames.length ? `新增商品：${change.addedNames.join('、')}。可仅为新增商品生成素材，也可从素材库选择或本地上传。` : '',
+    change.removedNames.length ? `已移出商品：${change.removedNames.join('、')}，对应 ${change.removedMaterials} 条素材已从本计划预览和待投放内容中移出；素材中心文件保留。` : '',
+    '生成用量提醒：已发生的生成用量不会因调整商品而撤销；再次生成将产生新的生成用量。'].filter(Boolean).join('\n');
+});
 const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
 const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
   && canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus, state.value.analysis, selected.value));
 const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
+const selectionLocked=computed(()=>contentLocked.value || working.value && !state.value?.canAdjustProductsDuringGeneration);
 const reconcileId = ref(''), reviewedQuote=ref('');
 const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
@@ -124,13 +138,13 @@ function acceptRead(updated: api.CreationState) {
   if (refreshInputs) { selected.value = updated.products; fillDraft(serverDraftInputs(updated,today())); autosave.acknowledge(DRAFT_INPUT_FIELDS); }
   if (updated.publishStatus === 'CREATED') autosave.discard();
 }
-const budgetError = computed(() => creationBudgetError(budget.value, mode.value));
-const roiError = computed(() => roiInputError(roi.value, mode.value));
-const dateError = computed(() => scheduleInputError(duration.value,start.value,end.value,today()));
+const budgetError = computed(() => contentEditing.value ? '' : creationBudgetError(budget.value, mode.value));
+const roiError = computed(() => contentEditing.value ? '' : roiInputError(roi.value, mode.value));
+const dateError = computed(() => contentEditing.value ? '' : scheduleInputError(duration.value,start.value,end.value,today()));
 const goalChanged = computed(() => creationGoalChanged(state.value, { mode:mode.value,budget:budget.value,roi:roi.value,duration:duration.value,start:start.value,end:end.value }));
 const reachedStep = computed(() => validReachedStep(creationReachedStep(state.value,step.value),!sameAnalysisInput.value,goalChanged.value));
 const draftHasGoal = computed(() => step.value >= 2 || sameSelection.value && state.value?.budget != null);
-const canSaveDraft = computed(() => !!account.value && !!selected.value.length && !working.value
+const canSaveDraft = computed(() => !!account.value && !!selected.value.length && !selectionLocked.value
   && (!draftHasGoal.value || !!name.value.trim() && !budgetError.value && !roiError.value && !dateError.value));
 const budgetOptions = computed(() => recommendations.budgetOptions(state.value?.recommendations));
 const estimate = computed(() => recommendations.budgetEstimateHints(state.value?.recommendations, budget.value));
@@ -202,8 +216,8 @@ function changeQuery(q: api.ProductQuery) {
   }
   query.value = q; void loadProducts();
 }
-function toggle(p: api.CreationProduct) { if (busy.value || working.value || draftRestoring.value || draftUnresolved.value) return; if (selected.value.some(x => x.productId === p.productId)) { remove(p.productId); return; } if (p.draft) { ElMessage.warning(`商品已在草稿「${p.draft.planName}」中，请继续编辑原草稿或先移除商品`); return; } if (p.unavailableReasons?.length) { ElMessage.warning(p.unavailableReasons.join('；')); return; } if (selected.value.length < 10) selected.value = [...selected.value, p]; else ElMessage.warning('最多选择 10 个商品'); }
-function remove(id: string) { if (busy.value || draftRestoring.value || draftUnresolved.value) return; selected.value = selected.value.filter(p => p.productId !== id); }
+function toggle(p: api.CreationProduct) { if (busy.value || selectionLocked.value || draftRestoring.value || draftUnresolved.value) return; if (selected.value.some(x => x.productId === p.productId)) { remove(p.productId); return; } if (p.draft) { ElMessage.warning(`商品已在草稿「${p.draft.planName}」中，请继续编辑原草稿或先移除商品`); return; } if (p.unavailableReasons?.length) { ElMessage.warning(p.unavailableReasons.join('；')); return; } if (selected.value.length < 10) selected.value = [...selected.value, p]; else ElMessage.warning('最多选择 10 个商品'); }
+function remove(id: string) { if (busy.value || selectionLocked.value || draftRestoring.value || draftUnresolved.value) return; selected.value = selected.value.filter(p => p.productId !== id); }
 async function chooseAccount(key: string) {
   if (working.value || busy.value || draftRestoring.value || key === accountKey.value || !accountOptions.value.some(option => option.key === key)) return;
   if (!autosave.flush()) { ElMessage.warning('当前内容尚未可靠保存，请先处理草稿提示'); return; }
@@ -217,23 +231,28 @@ async function chooseAccount(key: string) {
 async function ensureSelection() {
   if (!account.value || !selected.value.length) throw new Error('请先选择授权账号和商品');
   const fresh = !state.value, emptyName = !name.value, selectionChanged=!!state.value && !sameSelection.value;
+  const impact=pendingSelectionImpact.value;
+  if (selectionChanged && impact?.changed) {
+    try { await ElMessageBox.confirm(selectionImpactText(impact,contentEditing.value)+(working.value ? '\n\n当前生成任务会继续处理；保留商品的结果将回填预览，移出商品的结果不会重新加入本计划，已发生的生成用量不会撤销。' : ''),'确认商品与素材调整',{confirmButtonText:'确认调整商品',cancelButtonText:'返回继续核对',type:'warning',customClass:'selection-impact-confirm'}); }
+    catch { return false; }
+  }
   const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
   if (fresh) autosave.suspend();
   state.value = saved;
   if (fresh || selectionChanged) resumingMaterials.value = false;
-  if(selectionChanged){budget.value='';restoreRoi('');reviewedQuote.value='';}
+  if(selectionChanged && !contentEditing.value){budget.value='';restoreRoi('');reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
   if (fresh) { await autosave.activate(true); }
   else autosave.acknowledge(['productIds',...(selectionChanged ? draftGoalFields : emptyName ? ['name' as const] : [])]);
   if (!props.initialPlanId) await router.replace({ path: '/campaigns/create', query: { draftId: state.value.planId } });
+  return true;
 }
 async function keepGroup(){ await run(async()=>{acceptWrite(await api.creationKeepGroup(state.value!));}); }
 async function applyGroup(ids: string[]) {
-  if(busy.value || working.value || !ids.length)return;
-  try { await ElMessageBox.confirm('仅将这组商品保留在当前计划中，其他商品不会自动创建新草稿。已有目标和素材会受影响，是否继续？','采用商品组合',{confirmButtonText:'使用这组商品',cancelButtonText:'保留当前组合'}); } catch { return; }
+  if(busy.value || selectionLocked.value || !ids.length)return;
   selected.value=selected.value.filter(p=>ids.includes(p.qcProductId));await analyze();
 }
-async function analyze(refresh = false) { await run(async () => { await ensureSelection(); acceptWrite(await api.creationAnalyze(state.value!, refresh)); schedulePoll(); }); }
+async function analyze(refresh = false) { await run(async () => { if(!await ensureSelection())return; acceptWrite(await api.creationAnalyze(state.value!, refresh)); schedulePoll(); }); }
 async function persistStep(target: number) {
   if (state.value && (state.value.step !== target || creationReachedStep(state.value) < target)) acceptWrite(await api.creationStep(state.value, target));
   if (state.value) autosave.acknowledge(['step'],state.value.revision,{ ...captureDraft(),step: target });
@@ -249,6 +268,7 @@ async function nextGoal() {
   await goToStep(2);
 }
 async function refreshRecommendations() {
+  if(contentEditing.value)return;
   if (!state.value) return;
   if (!recommendations.recommendationsNeedRefresh(state.value)) { applyRecommendedInputs(); return; }
   await run(async () => {
@@ -277,6 +297,7 @@ async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') 
   await refreshRecommendations();
 }
 async function persistGoal() {
+  if(contentEditing.value)return;
   if (!state.value || budgetError.value || roiError.value || dateError.value || !name.value.trim()) throw new Error('请检查计划名称、预算、ROI 和日期');
   const goal = { name: name.value.trim(), smartBidType: mode.value, budget: Number(budget.value), roi2Goal: mode.value === 'CUSTOM' ? Number(roi.value) : null, scheduleType: duration.value === 'custom' ? 'DATE_RANGE' : 'FROM_NOW', startDate: duration.value === 'custom' ? start.value : null, endDate: duration.value === 'custom' ? end.value : null };
   const saved = state.value;
@@ -324,25 +345,34 @@ async function reviewPublishEstimate() {
     catch { step.value=2; }
   });
 }
+async function verifyContent(){await run(async()=>{if(!state.value)return;acceptRead(await api.verifyContentEdit(state.value));await contentSaved();});}
+async function contentSaved(){const s=state.value;if(s?.contentEdit?.status==='SUCCEEDED'){autosave.discard();ElMessage.success('修改已保存到原投放计划');await router.replace({path:`/campaigns/${s.contentEdit.targetPlanId}`,query:{step:'3'}});}}
 async function publish() {
+  if(contentEditing.value){
+    try{await ElMessageBox.confirm('将当前商品、标题与素材保存到原投放计划。保留商品的现有素材继续使用，移出的商品及其素材将停止在本计划中展示和投放；素材中心文件保留。已发生的生成用量不会撤销。','保存商品与素材修改',{confirmButtonText:'保存修改',cancelButtonText:'返回核对',type:'warning'});}catch{return;}
+    await run(async()=>{acceptWrite(await api.saveContentEdit(state.value!));await contentSaved();schedulePoll();});return;
+  }
   if(state.value && (quoteNeedsReview({...state.value,smartBidType:mode.value},budget.value) || state.value.publishRecovery === 'REFRESH_ESTIMATE') && reviewedQuote.value !== quoteReviewKey(state.value,budget.value)){await reviewPublishEstimate();return;}
   await run(async () => { if(name.value.trim() !== state.value!.name)await persistGoal(); const s = state.value!; const key = s.publishStatus === 'FAILED' ? crypto.randomUUID() : sessionStorage.getItem(`creation:${s.planId}:${s.revision}`) || crypto.randomUUID(); sessionStorage.setItem(`creation:${s.planId}:${s.revision}`, key); acceptWrite(await api.creationPublish(s, key)); autosave.discard(); step.value = 4; schedulePoll(); }); }
-function cancel() { if (!busy.value) action.value = { kind: 'cancel' }; }
+function cancel() { if(contentEditing.value){
+  if(!contentLocked.value)void ElMessageBox.confirm('是否暂存本次商品与素材调整？暂存后可从原计划“修改”入口继续编辑，原投放内容保持不变。若丢弃修改，已生成素材仍保留在素材中心，生成用量不会撤销。','离开商品与素材调整',{confirmButtonText:'暂存并离开',cancelButtonText:'丢弃本次修改',distinguishCancelAndClose:true,type:'warning'}).then(saveAndLeave).catch(reason=>{if(reason==='cancel')void discardAndLeave();});
+  else void router.push('/campaigns');return;
+} if (!busy.value) action.value = { kind: 'cancel' }; }
 async function saveDraft() {
   if (!canSaveDraft.value) return;
   await run(async () => {
-    if (!state.value || !sameSelection.value) await ensureSelection();
+    if ((!state.value || !sameSelection.value) && !await ensureSelection()) return;
     if (draftHasGoal.value) await persistGoal();
     await persistStep(step.value);
-    ElMessage.success('草稿已保存');
+    ElMessage.success(contentEditing.value ? '修改已暂存，尚未同步原投放计划' : '草稿已保存');
   });
 }
 async function saveAndLeave() {
   await run(async () => {
-    if (!state.value || !sameSelection.value) await ensureSelection();
+    if ((!state.value || !sameSelection.value) && !await ensureSelection()) return;
     if (step.value >= 2 && !working.value && !budgetError.value && !roiError.value && !dateError.value) await persistGoal();
     await persistStep(step.value);
-    ElMessage.success('草稿已保存，可在投放列表继续编辑');
+    ElMessage.success(contentEditing.value ? '修改已暂存，可通过原计划的修改入口继续编辑' : '草稿已保存，可在投放列表继续编辑');
     await router.push('/campaigns');
   });
 }
@@ -356,7 +386,7 @@ async function poll() {
   try {
     const updated = await api.creationGet(planId,pollRequest.signal);
     if (!disposed && !busy.value && !draftRestoring.value && accountKey.value === selectedAccount && isCurrentCreationPoll(state.value, updated, planId)) {
-      acceptRead(updated); pollFailure.value = undefined; pollFailures = 0;
+      acceptRead(updated); if(contentEditing.value)await contentSaved(); pollFailure.value = undefined; pollFailures = 0;
       if (['QUEUED','SENDING','UNCERTAIN','CREATED'].includes(updated.publishStatus)) step.value = 4;
     }
   } catch (error) {
