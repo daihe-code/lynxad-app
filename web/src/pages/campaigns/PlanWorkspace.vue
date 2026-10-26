@@ -1,5 +1,5 @@
 <template>
-  <div class="campaign-reference creative-workspace wizard plan-workspace">
+  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing }">
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
@@ -27,7 +27,7 @@
       <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
       <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
-        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
+        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
@@ -35,8 +35,9 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
+        <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
-        <CreationFooter :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+        <CreationFooter v-if="step !== 4 || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
             <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
@@ -76,6 +77,8 @@ import CreationFrame from './reference/CreationFrame.vue';
 import CreationFooter from './create/CreationFooter.vue';
 import ReferenceIcon from './reference/ReferenceIcon.vue';
 import PlanKpis from './reference/PlanKpis.vue';
+import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
+import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import PlanReviewNotice from './components/PlanReviewNotice.vue';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
@@ -92,6 +95,8 @@ const route = useRoute(), router = useRouter(), user = useUserStore();
 const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
 async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
+const submissionPhase = computed(() => planSubmissionPhase(plan.value || {}));
+const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
 const loading = ref(true), saving = ref(false), loadError = ref('');
 const materialBusy=ref(false), materialAction=ref<{kind:'regenerate'|'delete';id:string}>();
 const materialPending=computed(()=>!!creation.value?.materialEdit&&!['SUCCEEDED','FAILED'].includes(creation.value.materialEdit.status));
@@ -140,7 +145,8 @@ const transferMessage = ref(''), pendingSubmission = ref(false);
 let submission: PlanTransferRequest | undefined;
 const transferAllowed = computed(() => canEdit.value && !!plan.value?.qcPlanId && transferContext.value?.available && !pendingSubmission.value);
 const transferPending = computed(() => pendingSubmission.value || !!transferContext.value?.pendingKey);
-const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : 1; });
+const initialViewStep = ref(1);
+const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : !editing.value ? initialViewStep.value : 1; });
 const draftInitialStep = computed(() => route.query.step == null ? undefined : step.value);
 const boundAccount = computed(() => accounts.value.find(a => a.accountId === plan.value?.accountId));
 const account = computed(() => {
@@ -178,7 +184,7 @@ const changedRoi = computed(() => isCost.value && plan.value != null && Number(r
 const changedSchedule = computed(() => !!plan.value && (duration.value !== publishedSchedule(plan.value).duration || duration.value === 'custom' && end.value !== (plan.value.endDate || '')));
 const dateError = computed(() => editing.value && !transferring.value && changedSchedule.value ? publishedScheduleError(duration.value,start.value,end.value) : '');
 const reachedStep = computed(() => {
-  const reached = plan.value?.qcPlanId ? 4 : creationReachedStep(creation.value,step.value);
+  const reached = plan.value?.qcPlanId || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value);
   if (!editing.value) return reached;
   const valid = validReachedStep(reached,false,changedBudget.value || changedRoi.value || changedSchedule.value || transferring.value && bidType.value !== plan.value?.smartBidType);
   return materialBusy.value || materialPending.value || name.value.trim() !== plan.value?.name ? Math.min(valid,3) : valid;
@@ -217,7 +223,7 @@ async function load() {
       catch(error) { if(request === loadNumber) { if(missingAweme)contextFailure.value=requestFailure(error,{method:'GET'}); else settingsFailure.value=requestFailure(error,{method:'GET'}); } }
       if(request !== loadNumber)return;
     }
-    plan.value = current; accounts.value = a.status === 'fulfilled' ? a.value : [];
+    plan.value = current; initialViewStep.value = planSubmissionPhase(current) ? 4 : 1; accounts.value = a.status === 'fulfilled' ? a.value : [];
     creation.value = c.status === 'fulfilled' ? c.value : undefined;
     if(editing.value&&!transferring.value&&current.qcPlanId&&creation.value?.contentEditDraftId)contentDraftId.value=creation.value.contentEditDraftId;
     transferContext.value = t.status === 'fulfilled' ? t.value : undefined;
@@ -359,11 +365,31 @@ async function acceptCurrentSettings() {
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
 watch(materialPending, scheduleMaterialPoll);
+watch(() => !editing.value && step.value === 4 && submissionPhase.value ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
+  if (!id) return;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const controller = new AbortController();
+  const version = loadNumber;
+  const schedule = () => { if (!stopped) timer = setTimeout(readStatus, submissionPhase.value === 'SUBMITTING' ? 2500 : 60000); };
+  async function readStatus() {
+    try {
+      if (document.visibilityState !== 'visible') return;
+      const current = await getPlan(id!, { quiet: true, signal: controller.signal });
+      if (!stopped && version === loadNumber && plan.value?.planId === id) plan.value = current;
+    } catch { /* Keep the last confirmed status and retry on the next read. */ }
+    finally { schedule(); }
+  }
+  schedule();
+  onCleanup(() => { stopped = true; clearTimeout(timer); controller.abort(); });
+});
 onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 </script>
 
 <style scoped>
 .plan-workspace { padding-bottom: 132px; }
+.plan-workspace.plan-workspace--submission { padding-bottom: 0; }
+.plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
 .workspace-plan-settings{padding-top:0}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}

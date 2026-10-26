@@ -12,7 +12,23 @@
     <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
     <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
-    <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在提交当前投放方案，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED' && state.publishRecovery === 'REFRESH_ESTIMATE'" class="btn-brand" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
+    <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4">
+      <CreationFrame :step="4" :account="account" :account-chips="accountChips" />
+      <main class="ad-main"><div class="container-page">
+        <PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="state.publishError" @back="router.push('/campaigns')">
+          <template v-if="['UNCERTAIN', 'FAILED'].includes(state.publishStatus)" #recovery>
+            <div v-if="state.publishStatus === 'UNCERTAIN'" class="submit-recovery">
+              <input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" />
+              <button type="button" :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button>
+            </div>
+            <div v-else class="submit-recovery">
+              <button v-if="state.publishRecovery === 'REFRESH_ESTIMATE'" type="button" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button>
+              <button type="button" :disabled="busy" @click="step = 3">返回修改</button>
+            </div>
+          </template>
+        </PlanSubmissionCard>
+      </div></main>
+    </div>
     <RequestFailureNotice :failure="initialFailure" :busy="initializing" @retry="initialize" />
     <CreationActionDialog v-if="action" :action="action.kind" :error="operationFailure?.message" :material="state?.materials.find(m => m.id === action?.id)" :retry-at="state?.regenerationRetryAt" :busy="busy || contentLocked || draftRestoring || draftUnresolved" @close="action = null" @save="saveAndLeave" @discard="discardAndLeave" @confirm="feedback" />
   </div>
@@ -35,6 +51,8 @@ import { productSelectionLocked } from '@/features/delivery/generationSelection'
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
 import { awemeLabels } from '@/features/identity/awemeLabels';
+import { getPlan } from '@/features/delivery/deliveryApi';
+import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { creationScheduleDefaults } from '@/features/delivery/creationSchedule';
 import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
@@ -48,6 +66,7 @@ import LiveMaterialsStep from './create/CreateMaterialsStep.vue';
 import CreationActionDialog from './create/CreationActionDialog.vue';
 import CreationFrame from './reference/CreationFrame.vue';
 import PlanResult from './reference/PlanResult.vue';
+import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const props = defineProps<{ initialPlanId?: string; initialStep?: number; publishedEditTarget?: string; adjustProductsOnOpen?: boolean }>();
@@ -68,6 +87,19 @@ const productCursors = ref<Record<number, string>>({ 1: '0' });
 const accountOptions = computed(() => accounts.value.filter(a => a.platform === 'QIANCHUAN' && a.status === 'ACTIVE' && a.credentialSource !== 'MOCK').flatMap(a => a.awemes.map(w => ({ key: `${a.accountId}:${w.awemeId}`, accountId: a.accountId, awemeId: w.awemeId, awemeName: w.name, avatar: w.avatar, type: w.type, authTypes: w.authTypes, isAllowMall: w.isAllowMall }))));
 const account = computed(() => accountOptions.value.find(a => a.key === accountKey.value));
 const accountChips = computed(() => awemeLabels(account.value));
+const submissionCreatedAt = ref<string | null>();
+const submissionPhase = computed(() => planSubmissionPhase(state.value || {}) || 'SUBMITTING');
+const submissionSummary = computed(() => planSubmissionSummary({ ...state.value, createdAt: submissionCreatedAt.value }, account.value?.awemeName));
+watch(() => step.value === 4 && state.value?.publishStatus !== 'CREATED' ? state.value?.planId : undefined, async (id, _previous, onCleanup) => {
+  submissionCreatedAt.value = undefined;
+  if (!id) return;
+  const controller = new AbortController();
+  onCleanup(() => controller.abort());
+  try {
+    const plan = await getPlan(id, { quiet: true, signal: controller.signal });
+    if (!controller.signal.aborted) submissionCreatedAt.value = plan.createdAt;
+  } catch { /* An unavailable creation time stays unknown; submission polling continues independently. */ }
+});
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
 const pendingSelectionImpact = computed(() => state.value ? selectionImpact(state.value.products,selected.value,state.value.materials) : undefined);
 const adjustmentMessage = computed(() => productAdjustmentText({
@@ -417,7 +449,8 @@ async function initialize() {
       resumingMaterials.value = creationReachedStep(s) >= 3;
       accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3' && creationReachedStep(s) >= 3;
-      const restoredStep = Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
+      const restoredStep = ['QUEUED', 'SENDING', 'UNCERTAIN', 'CREATED'].includes(s.publishStatus) ? 4
+        : Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
       step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget);
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
@@ -460,7 +493,8 @@ watch(() => route.query.notice, () => {
 });
 </script>
 <style scoped>
-.creation-error{padding:24px;color:#db515b;text-align:center}.creation-error button{margin-left:15px}.submit-result{background:#f7f7ff;min-height:85vh}.submit-result section{max-width:900px;margin:30px auto;padding:60px;background:white;border-radius:24px;text-align:center}.submit-result h2{font-size:26px;font-weight:700}.submit-result p{margin:22px;color:#8588a5}.submit-result button{margin:10px;padding:12px 24px;background:#575cf6;color:white;border-radius:10px}
+.creation-error{padding:24px;color:#db515b;text-align:center}.creation-error button{margin-left:15px}.submit-result{background:#f7f7ff;min-height:85vh}
+.submit-result .ad-main{padding:24px 0 32px}.submit-recovery{display:flex;justify-content:center;flex-wrap:wrap;gap:12px}.submit-recovery input{min-width:0;max-width:100%;padding:10px 12px;border:1px solid #dcddeb;border-radius:8px;font:inherit}.submit-recovery button{padding:10px 16px;border:1px solid #dcddeb;border-radius:8px;background:white;color:#575cf6;font:inherit;cursor:pointer}.submit-recovery button:disabled{opacity:.5;cursor:not-allowed}
 .draft-save-note{max-width:1200px;margin:12px auto;padding:10px 16px;border:1px solid var(--color-primary-soft);border-radius:10px;background:white;color:var(--color-muted);font-size:13px;line-height:1.6;overflow-wrap:anywhere}.draft-save-note--warning{border-color:#f4cc91;background:#fff9ef}.draft-save-note p{margin:0}.draft-save-note button{margin:8px 16px 0 0;border:0;background:transparent;color:var(--color-primary);font:inherit;text-decoration:underline;cursor:pointer}.draft-save-note button:disabled{opacity:.5;cursor:wait}
 .wizard > .request-failure{max-width:1200px;margin:12px auto}
 .wizard--creating :deep(.ad-main){padding-bottom:132px}

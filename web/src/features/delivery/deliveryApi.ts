@@ -187,8 +187,11 @@ export function createControlTask(id: string, body: { kind: string; name: string
   return apiPost<{ taskId: string; status: string }>(`/api/v1/delivery/plans/${id}/control-tasks`, body, { timeout: 60000 });
 }
 
-export function getPlan(id: string) {
-  return apiGet<PlanVo>(`/api/v1/delivery/plans/${id}`);
+export function getPlan(id: string, options?: { quiet?: boolean; signal?: AbortSignal }) {
+  return apiGet<PlanVo>(`/api/v1/delivery/plans/${id}`, {
+    signal: options?.signal,
+    ...(options?.quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}),
+  });
 }
 
 export function publishPlan(id: string, idempotencyKey: string) {

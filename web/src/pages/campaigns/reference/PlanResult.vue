@@ -1,6 +1,6 @@
 <template>
-  <div class="campaign-result ad-step3 ad-step4">
-    <CreationFrame :step="4" :account="frameAccount" />
+  <div class="campaign-result ad-step3 ad-step4" :class="{ 'campaign-result--submission': submissionPhase }">
+    <CreationFrame :step="4" :account="frameAccount" :account-chips="frameAccountChips" />
     <main class="ad-main">
       <div class="container-page">
         <div v-if="loading && !plan" class="result-loading">
@@ -10,6 +10,7 @@
           <p>计划状态加载失败</p>
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
+        <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" @back="router.push('/campaigns')" />
         <section v-else-if="plan" class="st" :data-st="tone">
           <div class="reshead">
             <span class="reshead__ico" :class="`ico-tone--${tone}`"
@@ -315,7 +316,7 @@
         </section>
       </div>
     </main>
-    <div v-if="plan && !terminal" class="actionbar">
+    <div v-if="plan && !terminal && !submissionPhase" class="actionbar">
       <div class="container-page actionbar__inner">
         <router-link class="btn-res" to="/campaigns">返回投放管理</router-link
         ><template v-if="canAct"
@@ -386,7 +387,7 @@
 </template>
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { actPlan } from "@/features/delivery/deliveryApi";
 import { ruleLabel } from "@/features/agentops/agentopsApi";
@@ -401,9 +402,12 @@ import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
 import PlanReviewNotice from '../components/PlanReviewNotice.vue';
+import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
+import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
+import { awemeLabels } from '@/features/identity/awemeLabels';
 import "./campaign-result.css";
 const props = defineProps<{ planId?: string }>(),
-  route = useRoute();
+  route = useRoute(), router = useRouter();
 const { plan, account: boundAccount, shop, actions, report, metrics, hasData, loading, failed, load } =
   usePlanPresentation(() => props.planId || String(route.params.id || ""));
 const user = useUserStore(),
@@ -414,6 +418,8 @@ const user = useUserStore(),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
+const submissionPhase = computed(() => planSubmissionPhase(plan.value || {}));
+const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, shop.value));
 const info = computed(() => statusInfo(plan.value?.status));
 const tone = computed(() =>
   info.value[1] === "bad" ? "rejected" : info.value[1] || "pending",
@@ -466,6 +472,7 @@ const frameAccount = computed(() =>
     ? { awemeName: shop.value, awemeId: plan.value.awemeId || "—", avatar: boundAccount.value?.awemes.find(aweme => aweme.awemeId === plan.value?.awemeId)?.avatar }
     : null,
 );
+const frameAccountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(aweme => aweme.awemeId === plan.value?.awemeId)));
 const summary = computed(() => {
   const p = plan.value;
   return p
@@ -596,19 +603,23 @@ async function act() {
   }
 }
 onMounted(() => {
+  let lastReadAt = Date.now();
   timer = window.setInterval(() => {
     now.value = Date.now();
     if (
       document.visibilityState === "visible" &&
       ["pending", "reviewing", "passed", "running"].includes(tone.value) &&
-      !loading.value
-    )
+      !loading.value && now.value - lastReadAt >= (plan.value?.status === 'SUBMITTING' ? 2500 : 60000)
+    ) {
+      lastReadAt = now.value;
       void load();
-  }, 60000);
+    }
+  }, 2500);
 });
 onUnmounted(() => clearInterval(timer));
 </script>
 <style scoped>
+.campaign-result--submission .ad-main { padding: 24px 0 32px; }
 .result-loading {
   padding: 80px 24px;
   text-align: center;
