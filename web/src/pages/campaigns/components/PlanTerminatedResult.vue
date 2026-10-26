@@ -1,7 +1,6 @@
 <template>
   <section :key="plan.planId" class="terminated-result" aria-label="已终止计划的投放结果">
     <header class="terminated-heading"><span class="terminated-icon" aria-hidden="true"><ReferenceIcon name="stop" /></span><h2>已终止</h2><p>广告计划已终止，不再继续投放，历史数据可继续查看。</p><span class="terminated-badge"><ReferenceIcon name="stop" />终态 · 不可恢复</span></header>
-    <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <details class="terminated-fold" open>
       <summary><h3>终止信息</h3><span class="terminated-brief">千川状态：已终止</span><ReferenceIcon class="terminated-caret" name="caret" /></summary>
       <div class="terminated-body">
@@ -24,6 +23,7 @@
       <summary><h3>状态流转记录</h3><span class="terminated-brief">{{ history.length + (createdAtKnown ? 1 : 0) }} 条已记录事件</span><ReferenceIcon class="terminated-caret" name="caret" /></summary>
       <div class="terminated-body"><ol class="terminated-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ action.type === 'MANUAL_FINISH' ? '终止计划' : pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!createdAtKnown && !history.length" class="terminated-muted">暂无已记录的状态流转事件。</p><p v-if="recordsError" class="terminated-error" role="status">{{ recordsError }}</p><p class="terminated-current">当前状态：已终止，无法恢复投放。</p></div>
     </details>
+    <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <div class="terminated-links"><router-link to="/campaigns">返回投放列表 →</router-link></div>
   </section>
 </template>

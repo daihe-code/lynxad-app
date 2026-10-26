@@ -10,6 +10,12 @@
       <p>{{ message.description }}</p>
     </header>
 
+    <div v-if="error || $slots.recovery" class="submission-card__recovery">
+      <p v-if="error" class="submission-card__error" role="alert">{{ error }}</p>
+      <slot name="recovery" />
+    </div>
+    <p class="submission-card__hint"><ReferenceIcon name="info" />{{ message.hint }}</p>
+
     <div class="submission-card__summary">
       <h3>投放计划摘要</h3>
       <div class="submission-card__columns">
@@ -24,11 +30,6 @@
       </div>
     </div>
 
-    <div v-if="error || $slots.recovery" class="submission-card__recovery">
-      <p v-if="error" class="submission-card__error" role="alert">{{ error }}</p>
-      <slot name="recovery" />
-    </div>
-    <p class="submission-card__hint"><ReferenceIcon name="info" />{{ message.hint }}</p>
     <button type="button" class="submission-card__back" @click="emit('back')">返回投放列表<ReferenceIcon name="forward" /></button>
     <p v-if="message.note" class="submission-card__note">{{ message.note }}</p>
   </section>
@@ -61,7 +62,7 @@ const message = computed(() => planSubmissionMessage(props.phase));
 .submission-card__icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: #5755f8; background: #efedff; }
 .submission-card__icon svg { width: 24px; height: 24px; }
 .submission-card--uncertain .submission-card__icon { color: #bd7c18; background: #fff6e5; }
-.submission-card__summary { padding: 22px 12px 12px; background: #f7f7fd; border-radius: 14px; text-align: left; }
+.submission-card__summary { margin-bottom: 16px; padding: 22px 12px 12px; background: #f7f7fd; border-radius: 14px; text-align: left; }
 .submission-card__summary h3 { margin: 0 18px 12px; padding-left: 12px; border-left: 4px solid #5b55f9; font-size: 18px; font-weight: 700; line-height: 1.3; }
 .submission-card__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
 .submission-card__column { min-width: 0; }

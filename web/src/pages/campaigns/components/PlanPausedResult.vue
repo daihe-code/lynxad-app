@@ -1,7 +1,6 @@
 <template>
   <section :key="plan.planId" class="paused-result" aria-label="已暂停计划的投放结果">
     <header class="paused-result__heading"><span class="paused-result__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span><h2>已暂停</h2><p>广告计划已暂停投放，恢复前请核对暂停原因与投放设置。</p><span v-if="elapsed" class="paused-result__elapsed"><ReferenceIcon name="pause" />{{ elapsed }}</span></header>
-    <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <details class="paused-fold paused-reason" open>
       <summary><h3>暂停原因</h3><span class="paused-fold__brief">{{ pauseRecord?.automatic ? '系统自动暂停 · 无需选择原因' : pauseRecord?.manual ? pauseRecord.reason || '历史记录未填写具体原因' : pauseRecord ? '平台异常暂停' : '暂停原因待核对' }}</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>
       <div class="paused-fold__body">
@@ -31,6 +30,7 @@
       <summary><h3>状态流转记录</h3><span class="paused-fold__brief">{{ history.length + (createdAtKnown ? 1 : 0) }} 条已记录事件</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>
       <div class="paused-fold__body"><ol class="paused-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!history.length && !createdAtKnown" class="paused-muted">暂无已记录的状态流转事件。</p><p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p><p class="paused-current">当前状态：已暂停</p></div>
     </details>
+    <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <footer class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__finish" disabled title="当前千川计划暂不支持终止操作，请保持暂停或返回列表管理。" aria-describedby="finish-unavailable">终止计划</button><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="busy || loading" @click="restoreOpen = true; actionError = ''"><ReferenceIcon name="play" />恢复投放</button><router-link to="/campaigns">查看所有投放计划</router-link></div><p v-if="canRestore" id="finish-unavailable">当前千川计划暂不支持终止操作，可继续保持暂停。</p></footer>
     <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
   </section>

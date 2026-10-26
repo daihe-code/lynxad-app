@@ -38,29 +38,6 @@
               <ReferenceIcon name="refresh" />以平台返回状态为准，页面每60秒读取后台状态；审核等待较久时后台每3分钟查询
             </p>
           </div>
-          <details
-            class="fold"
-            :open="['pending', 'reviewing', 'passed'].includes(tone)"
-          >
-            <summary>
-              <span class="fold__t">投放计划摘要</span
-              ><span class="fold__r"
-                ><span class="fold__meta">{{ plan.name }}</span
-                ><ReferenceIcon class="fold__caret" name="caret"
-              /></span>
-            </summary>
-            <div class="fold__body">
-              <div class="sumgrid">
-                <div v-for="row in summary" :key="row[0]" class="sumkv">
-                  <span>{{ row[0] }}</span
-                  ><b>{{ row[1] }}</b>
-                </div>
-              </div>
-              <router-link class="result-link" :to="`/campaigns/${plan.planId}`"
-                >查看计划完整信息</router-link
-              >
-            </div>
-          </details>
           <div
             v-if="['pending', 'reviewing'].includes(tone)"
             class="panel pcard"
@@ -258,6 +235,29 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </details>
+          <details
+            class="fold"
+            :open="['pending', 'reviewing', 'passed'].includes(tone)"
+          >
+            <summary>
+              <span class="fold__t">投放计划摘要</span
+              ><span class="fold__r"
+                ><span class="fold__meta">{{ plan.name }}</span
+                ><ReferenceIcon class="fold__caret" name="caret"
+              /></span>
+            </summary>
+            <div class="fold__body">
+              <div class="sumgrid">
+                <div v-for="row in summary" :key="row[0]" class="sumkv">
+                  <span>{{ row[0] }}</span
+                  ><b>{{ row[1] }}</b>
+                </div>
+              </div>
+              <router-link class="result-link" :to="`/campaigns/${plan.planId}`"
+                >查看计划完整信息</router-link
+              >
             </div>
           </details>
           <div class="result-links">

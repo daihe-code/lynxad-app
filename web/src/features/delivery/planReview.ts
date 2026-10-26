@@ -48,7 +48,7 @@ export function reviewTimeline(plan: ReviewPlan) {
   if (!isPlanUnderReview(plan)) return [];
   return [
     { title: '提交至平台审核', state: 'done', time: reviewTime(plan.review?.pendingSince, '提交时间待同步'),
-      description: '计划已进入巨量千川审核队列，投放信息见上方摘要。' },
+      description: '计划已进入巨量千川审核队列，投放信息见下方计划摘要。' },
     { title: '平台审核中', state: 'current', time: '进行中',
       description: '平台正在审核素材创意、商品及投放资质，等待期间你可以正常进行其他操作。' },
     { title: '审核结果', state: 'waiting', time: '待开始',

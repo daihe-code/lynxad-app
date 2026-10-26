@@ -7,20 +7,6 @@
       <template v-else><p>广告计划已提交至平台审核，审核通过后将按投放设置开始投放。</p><p>审核结果以千川返回为准，等待期间你可以正常进行其他操作。</p></template>
     </header>
 
-    <details :key="plan.planId" class="audit-summary">
-      <summary>
-        <h3>投放计划摘要</h3>
-        <span class="audit-summary__brief">{{ brief }}</span>
-        <ReferenceIcon class="audit-summary__caret" name="caret" />
-      </summary>
-      <div class="audit-summary__columns">
-        <section v-for="column in summary" :key="column.title">
-          <h4>{{ column.title }}</h4>
-          <dl><div v-for="[label, value] in column.rows" :key="label"><dt>{{ label }}</dt><dd>{{ value }}</dd></div></dl>
-        </section>
-      </div>
-    </details>
-
     <PlanAuditRejection v-if="rejected" :plan="plan" />
     <details v-else-if="notice" :key="plan.planId" class="audit-progress" open aria-label="审批进度">
       <summary>
@@ -42,6 +28,20 @@
         <p v-if="notice.delayed || notice.unavailable" class="audit-progress__notice" role="status"><strong>{{ notice.title }}</strong>：{{ notice.message }}</p>
         <p class="audit-progress__note">{{ notice.waiting }}。时间从系统首次记录本轮审核起计算。</p>
         <p v-if="feedback" class="audit-progress__feedback" role="status">{{ feedback }}</p>
+      </div>
+    </details>
+
+    <details :key="plan.planId" class="audit-summary">
+      <summary>
+        <h3>投放计划摘要</h3>
+        <span class="audit-summary__brief">{{ brief }}</span>
+        <ReferenceIcon class="audit-summary__caret" name="caret" />
+      </summary>
+      <div class="audit-summary__columns">
+        <section v-for="column in summary" :key="column.title">
+          <h4>{{ column.title }}</h4>
+          <dl><div v-for="[label, value] in column.rows" :key="label"><dt>{{ label }}</dt><dd>{{ value }}</dd></div></dl>
+        </section>
       </div>
     </details>
 
@@ -96,7 +96,7 @@ function createAnother() {
 .audit-result__heading h2 { margin: 0 0 8px; font-size: 22px; line-height: 1.5; font-weight: 700; }
 .audit-result__heading p { margin: 3px 0; color: #81849f; font-size: 14px; line-height: 1.7; }
 .audit-summary,.audit-progress { border: 1px solid #e9eaf4; border-radius: 22px; background: #fff; box-shadow: 0 4px 16px #262c6b05; }
-.audit-summary { margin-bottom: 30px; }
+.audit-summary { margin-top: 30px; }
 .audit-summary summary,.audit-progress summary { display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 16px 32px; box-sizing: border-box; cursor: pointer; list-style: none; }
 .audit-summary summary::-webkit-details-marker,.audit-progress summary::-webkit-details-marker { display: none; }
 .audit-summary summary:focus-visible,.audit-progress summary:focus-visible { outline: 2px solid #575cf6; outline-offset: 3px; border-radius: 22px; }
