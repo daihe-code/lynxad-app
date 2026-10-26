@@ -24,7 +24,8 @@ public record CreationView(
         ProductBasicAnalysis basicAnalysis, long analysisStartedAt, String generationResultStatus, long regenerationRetryAt,
         java.util.Map<String,TitlePoolView> titlePools,String publishRecovery,String groupingDecision,MaterialEditView materialEdit,
         List<String> generationSelection,int reachedStep,List<String> generationPendingProductIds,CreationState.SelectionChange selectionChange,
-        ContentEditView contentEdit,String contentEditDraftId,boolean productSelectionLocked) {
+        ContentEditView contentEdit,String contentEditDraftId,boolean productSelectionLocked,
+        List<MaterialVersionView> materialVersions,RevisionView materialRevision) {
 
     public static CreationView of(CreationState s) {
         var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
@@ -35,14 +36,18 @@ public record CreationView(
                 failedAnalysis?"FAILED":s.analysisStatus, failedAnalysis?ProductAnalysisOutcome.failureMessage(s.analysis):s.analysisError, s.analysis, s.recommendations,
                 s.generationStatus, s.generationMessage, s.progress,
                 List.copyOf(s.generationProductIds), s.generationStage, List.copyOf(s.generationCounts),
-                List.copyOf(s.generationIssues), s.materials.stream().map(material->MaterialView.of(material,names.get(material.id))).toList(),
+                List.copyOf(s.generationIssues), s.activeMaterials().stream().map(material->MaterialView.of(material,names.get(material.id))).toList(),
                 s.publishStatus, s.publishKey, s.qcPlanId, s.publishError,
                 s.generationAdditions.stream().map(AdditionView::of).toList(),
                 ProductBasicAnalysisService.analyze(s.products), s.analysisStartedAt, MaterialProcessing.generationResult(s),s.regenerationRetryAt,s.titlePools.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(java.util.Map.Entry::getKey,e->new TitlePoolView(List.copyOf(e.getValue().customTitles),List.copyOf(e.getValue().cardTitles)))),s.publishRecovery,s.groupingDecision,s.materialEdit==null?null:new MaterialEditView(s.materialEdit.status,s.materialEdit.message),
                 s.generationSelection==null?null:List.copyOf(s.generationSelection),s.reachedStep(),List.copyOf(s.generationPendingProductIds),s.selectionChange,
                 s.publishedEdit==null?null:new ContentEditView(s.publishedEdit.targetPlanId,s.publishedEdit.status,s.publishedEdit.message,s.publishedEdit.planStatus),s.publishedEditDraftId,
-                com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s));
+                com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s),
+                s.materials.stream().filter(CreationState.Material::pendingVersion).map(m->new MaterialVersionView(m.reviewSourceId,MaterialView.of(m,names.get(m.id)),m.versionDecision)).toList(),
+                s.regeneration==null?null:new RevisionView(s.regeneration.requestId,s.regeneration.sourceId,s.regeneration.resultMaterialId,s.regeneration.status));
     }
+    public record MaterialVersionView(String sourceId,MaterialView material,String decision) {}
+    public record RevisionView(String requestId,String sourceId,String materialId,String status) {}
     public record ContentEditView(String targetPlanId,String status,String message,String planStatus) {}
     public record MaterialEditView(String status,String message) {}
     public record TitlePoolView(List<String> customTitles,List<String> cardTitles) {}

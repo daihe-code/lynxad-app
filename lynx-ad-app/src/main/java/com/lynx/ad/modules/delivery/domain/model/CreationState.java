@@ -110,7 +110,7 @@ public class CreationState {
     public MaterialEdit materialEdit;
     /** Durable intent for one published-plan material operation, including readback after a timeout. */
     public static class MaterialEdit {
-        public String key, action, sourceId, status, message;
+        public String key, action, sourceId, status, message, versionId;
         public long nextCheckAt;
         public List<MaterialEditMember> members = new ArrayList<>();
     }
@@ -161,17 +161,21 @@ public class CreationState {
         public String imageMode;
         public List<String> titles = new ArrayList<>();
         public String replacesId;
+        /** A generated alternative stays outside the plan until an explicit version decision. */
+        public String reviewSourceId, versionDecision;
+        @com.fasterxml.jackson.annotation.JsonIgnore public boolean pendingVersion() { return reviewSourceId!=null&&!Set.of("REPLACE","KEEP_BOTH").contains(Objects.toString(versionDecision,"")); }
         public Map<String,String> sourceUrls = new LinkedHashMap<>();
         public Map<String,String> importedAssets = new LinkedHashMap<>();
     }
     public void changed() { revision++; confirmedVersion = null; }
     public void mediaChanged() { packageVersion++; changed(); }
+    @com.fasterxml.jackson.annotation.JsonIgnore public List<Material> activeMaterials() { return materials.stream().filter(m->!m.pendingVersion()).toList(); }
 
     /** Retire old photo alternatives only after their generated sibling is usable. */
     public boolean retireReferenceAlternatives() {
         if(!Set.of("NONE","FAILED").contains(publishStatus)||qcPlanId!=null)return false;
         var families=new HashSet<List<String>>();
-        for(var m:materials)if("IMAGE".equals(m.type)&&"READY".equals(m.status)
+        for(var m:activeMaterials())if("IMAGE".equals(m.type)&&"READY".equals(m.status)
                 &&"ai_generated".equals(m.deliverySource)&&m.deliveryFamilyId!=null&&!m.deliveryFamilyId.isBlank()
                 &&m.engineJobId!=null&&!m.imageAssetIds.isEmpty())
             families.add(Arrays.asList(m.engineJobId,m.productId,m.deliveryFamilyId));

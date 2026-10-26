@@ -54,6 +54,11 @@ class CreationPayloadTest {
         var c=body.path("multi_product_creative_list").get(0);assertEquals("real-video-id",c.path("video_material").get(0).path("video_id").asText());assertTrue(c.path("hide_in_aweme").asBoolean());
         assertFalse(body.has("access_token"));assertFalse(body.has("budget"));
     }
+    @Test void unconfirmedGeneratedVersionNeverEntersThePublishOrContentEditPayload() {
+        var candidate=new CreationState.Material();candidate.id="new-version";candidate.reviewSourceId="material";candidate.versionDecision="PENDING";candidate.productId=s.products.getFirst().qcProductId();candidate.type="VIDEO";candidate.videoAssetId="unconfirmed-video";s.materials.add(candidate);
+        var groups=builder.creatives(s);assertEquals(1,groups.get(0).path("video_material").size());assertEquals("real-video-id",groups.get(0).path("video_material").get(0).path("video_id").asText());verify(assets,never()).detail(any(),eq("unconfirmed-video"));
+        assertEquals(1,builder.build(s).path("multi_product_creative_list").get(0).path("video_material").size());
+    }
     @ParameterizedTest @ValueSource(strings={"0","50","99.99","100","100.01","299.99"})
     void costBudgetBelow300CannotReachMediaOrPublish(String amount) {
         s.budget=new BigDecimal(amount);

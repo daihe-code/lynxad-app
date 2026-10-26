@@ -128,8 +128,12 @@ public class PublishedMaterialService {
             var edit=s.materialEdit;var source=s.materials.stream().filter(m->edit.sourceId.equals(m.id)).findFirst().orElseThrow(()->new BizException(1404,"原素材记录缺失，请核查"));
             if("GENERATING".equals(edit.status)) {
                 if(!Set.of("SUCCEEDED","FAILED").contains(s.generationStatus))return s;
-                var replacement=s.materials.stream().filter(m->edit.sourceId.equals(m.replacesId)&&"READY".equals(m.status)).findFirst();
+                var replacement=s.materials.stream().filter(m->(edit.sourceId.equals(m.replacesId)||edit.sourceId.equals(m.reviewSourceId))&&"READY".equals(m.status)).findFirst();
                 if(replacement.isEmpty()) {finish(s,false,"重新生成未完成，原投放素材已保留");return store.get(s.tenantId,s.planId);}
+                if(replacement.get().pendingVersion()) {
+                    tx.executeWithoutResult(status->update(s,current->{current.materialEdit.status="SUCCEEDED";current.materialEdit.message="新版本已保存，确认处理方式前原投放素材保持不变";transfers.finishProductChange(new TenantId(s.tenantId),s.planId,current.materialEdit.key);}));
+                    return store.get(s.tenantId,s.planId);
+                }
                 var single=payloads.optimizationMaterial(s,replacement.get());
                 update(s,current->{for(var m:current.materialEdit.members)m.added=with(m.before,single);current.materialEdit.status="SYNCING";current.materialEdit.message="新素材已就绪，正在替换计划中的原素材";});
                 return store.get(s.tenantId,s.planId);
@@ -141,7 +145,7 @@ public class PublishedMaterialService {
             for(int index=0;index<edit.members.size();index++) {
                 final int n=index;var m=edit.members.get(n);if("DONE".equals(m.phase))continue;
                 var p=member(tenant,m.planId,s);if(!m.qcPlanId.equals(p.qcPlanId().orElseThrow().value()))throw new BizException(1404,"平台计划绑定已变化");
-                var current=detail(c,m.qcPlanId);boolean addition=m.added!=null&&!m.added.isNull();var beforeRemoval=addition?m.added:m.before;var expected=without(beforeRemoval,source.productId,oldKeys);
+                var current=detail(c,m.qcPlanId);boolean addition=m.added!=null&&!m.added.isNull();var beforeRemoval=addition?m.added:m.before;var expected="keep".equals(edit.action)?beforeRemoval:without(beforeRemoval,source.productId,oldKeys);
                 if(same(current,expected)){update(s,state->state.materialEdit.members.get(n).phase="DONE");continue;}
                 if("READY".equals(m.phase)&&addition) {
                     if(!same(current,m.before))throw new BizException(1404,"平台素材已被修改，请核查后处理");
@@ -154,6 +158,7 @@ public class PublishedMaterialService {
                     if(!same(current,m.added))throw new BizException(1406,"新素材提交结果待确认，不会重复提交");
                     update(s,state->state.materialEdit.members.get(n).phase="ADDED");m.phase="ADDED";
                 }
+                if("keep".equals(edit.action)&&same(current,expected)){update(s,state->state.materialEdit.members.get(n).phase="DONE");continue;}
                 if("REMOVING".equals(m.phase))throw new BizException(1406,"删除结果待平台确认，不会重复提交");
                 if(!same(current,beforeRemoval))throw new BizException(1404,"平台素材绑定已变化，请核查后处理");
                 if(!claim(s,n,addition?"ADDED":"READY","REMOVING"))return store.get(s.tenantId,s.planId);
@@ -165,7 +170,8 @@ public class PublishedMaterialService {
             var confirmed=new LinkedHashMap<String,JsonNode>();
             for(var m:edit.members) {
                 var full=ads.detail(c,m.qcPlanId);
-                if(!m.qcPlanId.equals(full.path("ad_id").asText())||!same(QianchuanCreativeBindings.groups(full),without(m.added!=null&&!m.added.isNull()?m.added:m.before,source.productId,oldKeys)))throw new BizException(1406,"平台素材最终结果待核查");
+                var expected=m.added!=null&&!m.added.isNull()?m.added:m.before;if(!"keep".equals(edit.action))expected=without(expected,source.productId,oldKeys);
+                if(!m.qcPlanId.equals(full.path("ad_id").asText())||!same(QianchuanCreativeBindings.groups(full),expected))throw new BizException(1406,"平台素材最终结果待核查");
                 confirmed.put(m.planId,full);
             }
             finish(s,true,"素材修改已同步千川",confirmed);
@@ -183,8 +189,14 @@ public class PublishedMaterialService {
         tx.executeWithoutResult(status->update(s,current->{
             if(success&&current.materialEdit.members.stream().anyMatch(m->!"DONE".equals(m.phase)))return;
             if(!success&&current.materialEdit.members.stream().anyMatch(m->!"READY".equals(m.phase)))return;
-            if(success){current.materials.removeIf(m->current.materialEdit.sourceId.equals(m.id));current.removedMaterialIds.add(current.materialEdit.sourceId);current.mediaChanged();}
-            else {current.materials.removeIf(m->{if(current.materialEdit.sourceId.equals(m.replacesId)){current.removedMaterialIds.add(m.id);return true;}return false;});}
+            if(success){
+                if(!"keep".equals(current.materialEdit.action)){current.materials.removeIf(m->current.materialEdit.sourceId.equals(m.id));current.removedMaterialIds.add(current.materialEdit.sourceId);}
+                if(current.materialEdit.versionId!=null)current.materials.stream().filter(m->current.materialEdit.versionId.equals(m.id)).forEach(m->m.versionDecision="keep".equals(current.materialEdit.action)?"KEEP_BOTH":"REPLACE");
+                current.mediaChanged();
+            } else {
+                current.materials.stream().filter(m->Objects.equals(current.materialEdit.versionId,m.id)).forEach(m->m.versionDecision="PENDING");
+                current.materials.removeIf(m->{if(current.materialEdit.sourceId.equals(m.replacesId)){current.removedMaterialIds.add(m.id);return true;}return false;});
+            }
             current.materialEdit.status=success?"SUCCEEDED":"FAILED";current.materialEdit.message=message;
             if(success&&remote!=null)confirmed.forEach((id,detail)->remote.verifiedContent(new TenantId(s.tenantId),id,detail,current.products));
             transfers.finishProductChange(new TenantId(s.tenantId),s.planId,s.materialEdit.key);

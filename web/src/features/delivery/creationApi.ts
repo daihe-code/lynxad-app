@@ -81,6 +81,8 @@ export interface ProductBasicAnalysis {
   issues: ProductBasicIssue[];
 }
 export interface CreationState {
+  materialVersions?: { sourceId: string; material: CreationMaterial; decision?: string }[];
+  materialRevision?: { requestId: string; sourceId: string; materialId?: string; status: string } | null;
   engineJobId?: string;
   regeneration?: { requestId?: string; resultMaterialId?: string };
   generationRetry?: { requestId?: string };
@@ -142,6 +144,7 @@ export const creationAdd = (s: CreationState, body: { productId: string; type: s
 export const creationFeedback = (s: CreationState, id: string, action: string, body: { reasons: string[]; description: string }) => action === 'delete'
   ? apiDelete<CreationState>(`${root}/${s.planId}/materials/${id}`, { data: { revision: s.revision, ...body } })
   : apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/regenerate`, { revision: s.revision, ...body }, slow);
+export const creationResolveVersion = (s: CreationState, id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD') => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/version-decision`, { revision: s.revision, decision }, slow);
 export const creationConfirm = (s: CreationState) => apiPost<CreationState>(`${root}/${s.planId}/confirm`, { revision: s.revision }, slow);
 export const creationPublish = (s: CreationState, requestKey: string) => apiPost<CreationState>(`${root}/${s.planId}/publish`, { revision: s.revision, packageVersion: s.packageVersion, requestKey }, slow);
 export const creationDiscard = (id: string) => apiDelete(`${root}/${id}`);

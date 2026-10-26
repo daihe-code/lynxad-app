@@ -132,14 +132,41 @@ class CreationRegenerationTest {
         second.process(state());assertEquals("RUNNING",state().generationStatus);assertEquals(1,state().materials.size());assertTrue(state().generationMessage.contains("不采用旧任务"));verifyNoInteractions(importer);
     }
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
-    void onlyTheVerifiedNewMaterialReplacesTheOriginalAfterImportAndSync(String mode)throws Exception {
+    void verifiedNewMaterialWaitsForAnExplicitDecisionAfterImportAndSync(String mode)throws Exception {
         database(mode);first.regenerate(tenant,"plan","source",feedback(1));when(engine.get(contains("/revisions?"))).thenReturn(list(row("revision","succeeded","new")));
         when(engine.get(contains("/generation/jobs/"))).thenReturn(json.readTree("""
             {"job_id":"job","store_id":"tenant","ai_plan_task_id":"apt","status":"succeeded","groups":[{"group_id":"group-1","expected":{"product_cards":1},"materials":[{"material_id":"new","material_type":"product_card","version":"v1","status":"succeeded","content":{"title":"新的商品展示标题"},"urls":{"image_urls":["https://assets.test/new.png"]},"detail":{"parent_material_id":"parent"}}]}]}
             """));
         when(importer.reference(any(),any(),any(),any(),any(),any(),any(),any(),anyBoolean())).thenAnswer(c->c.getArgument(2));
         when(assets.detail(any(),any())).thenReturn(CreationPayloadTest.asset("image","IMAGE","NOT_REQUIRED",null,null,null));
-        second.process(state());assertEquals("SUCCEEDED",state().generationStatus);assertEquals(1,state().materials.size());assertEquals("new",state().materials.getFirst().id);assertEquals("READY",state().materials.getFirst().status);assertEquals("source",state().materials.getFirst().replacesId);assertTrue(state().removedMaterialIds.contains("source"));verify(engine,times(1)).post(any(),any());
+        second.process(state());assertEquals("SUCCEEDED",state().generationStatus);assertEquals(2,state().materials.size());assertEquals("source",state().activeMaterials().getFirst().id);assertEquals("source",state().materials.getLast().reviewSourceId);assertTrue(state().materials.getLast().pendingVersion());assertFalse(state().removedMaterialIds.contains("source"));
+        var view=CreationView.of(state());assertEquals(1,view.materials().size());assertEquals("new",view.materialVersions().getFirst().material().id());
+        second.process(state());assertEquals(2,state().materials.size());
+        second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(state().revision,"REPLACE"));
+        assertEquals(List.of("new"),state().activeMaterials().stream().map(m->m.id).toList());assertTrue(state().removedMaterialIds.contains("source"));
+        second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(1,"REPLACE"));assertEquals(1,state().materials.size());verify(engine,times(1)).post(any(),any());
+    }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void keepBothUsesNoNewGenerationAndSurvivesReload(String mode)throws Exception {
+        database(mode);var s=store.mutate("tenant","plan",null,v->{var next=json.convertValue(v.materials.getFirst(),CreationState.Material.class);next.id="new";next.engineMaterialId="new-engine";next.reviewSourceId="source";next.versionDecision="PENDING";v.materials.add(next);v.changed();});
+        assertThrows(BizException.class,()->second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(s.revision-1,"KEEP_BOTH")));
+        assertThrows(BizException.class,()->second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(s.revision,"invalid")));
+        var kept=second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(s.revision,"KEEP_BOTH"));
+        assertEquals(2,kept.activeMaterials().size());assertTrue(CreationView.of(otherStore.get("tenant","plan")).materialVersions().isEmpty());assertFalse(kept.removedMaterialIds.contains("source"));verifyNoInteractions(engine);
+    }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void failedAlternativeCanBeAbandonedWithoutDeletingTheOriginalOrCallingAModel(String mode)throws Exception {
+        database(mode);var snapshot=store.mutate("tenant","plan",null,s->{var m=json.convertValue(s.materials.getFirst(),CreationState.Material.class);m.id="failed";m.reviewSourceId="source";m.versionDecision="PENDING";m.status="FAILED";s.materials.add(m);s.changed();});
+        var resolved=second.resolveMaterialVersion(tenant,"plan","failed",new CreationWorkflowService.VersionDecision(snapshot.revision,"DISCARD"));
+        assertEquals(List.of("source"),resolved.activeMaterials().stream().map(m->m.id).toList());assertTrue(resolved.removedMaterialIds.contains("failed"));verifyNoInteractions(engine);
+    }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void unreadyAndFullPackageCannotKeepBothAndPendingVersionCannotBeRegenerated(String mode)throws Exception {
+        database(mode);var s=store.mutate("tenant","plan",null,v->{var next=json.convertValue(v.materials.getFirst(),CreationState.Material.class);next.id="new";next.reviewSourceId="source";next.versionDecision="PENDING";next.status="PROCESSING";v.materials.add(next);v.changed();});
+        assertThrows(BizException.class,()->second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(s.revision,"REPLACE")));
+        assertThrows(BizException.class,()->second.regenerate(tenant,"plan","source",feedback(s.revision)));
+        var full=store.mutate("tenant","plan",null,v->{v.materials.getLast().status="READY";for(int i=1;i<100;i++){var m=json.convertValue(v.materials.getFirst(),CreationState.Material.class);m.id="keep-"+i;v.materials.add(m);}v.changed();});
+        assertThrows(BizException.class,()->second.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(full.revision,"KEEP_BOTH")));assertEquals(100,state().activeMaterials().size());verifyNoInteractions(engine);
     }
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void knownRejectionRetainsCooldownAcrossRestartWithoutBlockingOtherPlans(String mode)throws Exception {

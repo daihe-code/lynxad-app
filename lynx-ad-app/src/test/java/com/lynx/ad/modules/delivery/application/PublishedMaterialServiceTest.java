@@ -28,10 +28,10 @@ class PublishedMaterialServiceTest {
     final CreationPayloadBuilder payloads=mock(CreationPayloadBuilder.class);
     final PlanRemoteStore metadata=mock(PlanRemoteStore.class);
     final Map<String,JsonNode> remote=new ConcurrentHashMap<>();
-    CreationStore store;PublishedMaterialService service;String lock;boolean linked;
+    CreationStore store;PublishedMaterialService service;String lock;boolean linked;DataSourceTransactionManager manager;
     @BeforeEach void setup() throws Exception {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:published_material_"+UUID.randomUUID()+";MODE=PostgreSQL;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=5000","sa","");
-        var manager=new DataSourceTransactionManager(ds);try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration/V18__creation_workflow.sql"));}
+        manager=new DataSourceTransactionManager(ds);try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration/V18__creation_workflow.sql"));}
         store=new CreationStore(new JdbcTemplate(ds),json,manager);service=new PublishedMaterialService(store,plans,transfers,gateway,ads,payloads,json,manager);
         service.remoteMetadata(metadata);
         var s=new CreationState();s.tenantId="tenant";s.planId="plan";s.accountId="account";s.awemeId="111";s.publishStatus="CREATED";s.generationStatus="SUCCEEDED";
@@ -67,6 +67,23 @@ class PublishedMaterialServiceTest {
     @Test void timeoutIsReconciledWithoutReplayingDeletion(){doThrow(new BizException(1406,"timeout")).when(ads).deleteMaterials(any(),any(),any());service.process(begin("delete"));assertEquals("REMOVING",read().materialEdit.members.getFirst().phase);cooldown();service.process(read());verify(ads,times(1)).deleteMaterials(any(),any(),any());assertEquals(2,read().materials.size());remote.put("qc-plan",detail("qc-plan","keep"));cooldown();var result=service.process(read());assertEquals("SUCCEEDED",result.materialEdit.status);verify(ads,times(1)).deleteMaterials(any(),any(),any());assertNull(lock);}
     @Test void uncertainAdditionNeverRemovesOriginalAndNeverRepeatsModelOrPlatformWrite(){doThrow(new BizException(1406,"timeout")).when(ads).automaticContent(any(),any(),any(),any());begin("regenerate");service.process(readyReplacement());service.process(read());cooldown();service.process(read());verify(ads,times(1)).automaticContent(any(),any(),any(),any());verify(ads,never()).deleteMaterials(any(),any(),any());assertTrue(read().materials.stream().anyMatch(m->m.id.equals("old")));remote.put("qc-plan",wrap("qc-plan",read().materialEdit.members.getFirst().added));cooldown();assertEquals("SUCCEEDED",service.process(read()).materialEdit.status);}
     @Test void generationFailureUnlocksAndKeepsOriginal(){begin("regenerate");store.mutate("tenant","plan",null,s->s.generationStatus="FAILED");var result=service.process(read());assertEquals("FAILED",result.materialEdit.status);assertNull(lock);assertEquals(2,result.materials.size());verify(ads,never()).deleteMaterials(any(),any(),any());}
+    @Test void generatedAlternativeUnlocksWithoutChangingPublishedBindings(){
+        begin("regenerate");var ready=store.mutate("tenant","plan",null,s->{var m=material("new");m.reviewSourceId="old";m.versionDecision="PENDING";s.materials.add(m);s.generationStatus="SUCCEEDED";});
+        var result=service.process(ready);assertEquals("SUCCEEDED",result.materialEdit.status);assertNull(lock);assertEquals(2,result.activeMaterials().size());assertEquals(3,result.materials.size());
+        service.process(result);verify(ads,never()).automaticContent(any(),any(),any(),any());verify(ads,never()).deleteMaterials(any(),any(),any());
+    }
+    @Test void confirmedKeepBothAddsOnlyAndNeverDeletesOriginal(){
+        var s=store.mutate("tenant","plan",null,v->{var next=material("new");next.reviewSourceId="old";next.versionDecision="APPLYING_KEEP_BOTH";v.materials.add(next);service.reserve(tenant,"plan",v,v.materials.getFirst(),"keep");v.materialEdit.versionId="new";for(var member:v.materialEdit.members)member.added=PublishedMaterialService.with(member.before,payloads.optimizationMaterial(v,next));});
+        var result=service.process(s);assertEquals("SUCCEEDED",result.materialEdit.status);assertEquals(3,result.activeMaterials().size());assertEquals("KEEP_BOTH",result.materials.getLast().versionDecision);assertNull(lock);verify(ads,times(1)).automaticContent(any(),any(),eq("MATERIAL_ADD"),any());verify(ads,never()).deleteMaterials(any(),any(),any());
+    }
+    @Test void applicationVersionDecisionReplacesOnlyAfterExplicitConfirmationAndCanBeReplayed(){
+        var s=store.mutate("tenant","plan",null,v->{var next=material("new");next.reviewSourceId="old";next.versionDecision="PENDING";v.materials.add(next);v.changed();});
+        var workflow=new CreationWorkflowService(store,plans,null,gateway,mock(com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient.class),json,mock(com.lynx.ad.modules.creative.application.CreationAssetImporter.class),mock(com.lynx.ad.modules.creative.application.AssetUploadService.class),null,payloads,mock(com.lynx.ad.modules.billing.application.BillingTrialService.class),manager);
+        workflow.publishedMaterials(service);
+        var result=workflow.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(s.revision,"REPLACE"));
+        assertEquals("REPLACE",result.materials.getLast().versionDecision);assertEquals(List.of("keep","new"),result.activeMaterials().stream().map(m->m.id).toList());
+        workflow.resolveMaterialVersion(tenant,"plan","new",new CreationWorkflowService.VersionDecision(1,"REPLACE"));verify(ads,times(1)).automaticContent(any(),any(),any(),any());verify(ads,times(1)).deleteMaterials(any(),any(),any());
+    }
     @Test void anotherOperationCannotStartWhileCurrentIntentIsPending(){begin("delete");assertThrows(BizException.class,()->begin("delete"));verify(ads,never()).deleteMaterials(any(),any(),any());}
     @Test void workerRestartUsesPersistedIntentAndAlreadyAppliedPlatformResult(){var s=begin("delete");remote.put("qc-plan",detail("qc-plan","keep"));var result=service.process(store.get("tenant","plan"));assertEquals("SUCCEEDED",result.materialEdit.status);verify(ads,never()).deleteMaterials(any(),any(),any());}
     @Test void concurrentForegroundAndWorkerCannotSubmitTwice()throws Exception{var s=begin("delete");var pool=Executors.newFixedThreadPool(2);try{var a=pool.submit(()->service.process(s));var b=pool.submit(()->service.process(s));a.get(10,TimeUnit.SECONDS);b.get(10,TimeUnit.SECONDS);assertEquals("SUCCEEDED",read().materialEdit.status);verify(ads,times(1)).deleteMaterials(any(),any(),any());}finally{pool.shutdownNow();}}

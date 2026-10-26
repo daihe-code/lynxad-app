@@ -87,6 +87,7 @@ public class CreationWorkflowService {
     public record Addition(int revision,String productId,String type,String description,String requestId) {}
     public record MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles) {}
     public record Feedback(int revision,List<String> reasons,String description) {}
+    public record VersionDecision(int revision,String decision) {}
     public record Publish(int revision,int packageVersion,String requestKey) {}
     public record Titles(int revision,List<String> titles) {}
     public record Reconcile(String qcPlanId) {}
@@ -353,7 +354,7 @@ public class CreationWorkflowService {
             requireBasicAnalysis(s);
             var product=s.products.stream().filter(p->Objects.equals(p.qcProductId(),request.productId)).findFirst().orElseThrow(()->new BizException(1503,"商品不属于当前计划"));
             if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材");
-            if(s.materials.size()>=100)throw new BizException(1503,"每个计划最多使用100个素材");
+            if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用100个素材");
             var body=new LinkedHashMap<String,Object>();body.put("store_id",s.tenantId);body.put("ai_plan_task_id",s.enginePlanId);body.put("request_id",request.requestId);
             body.put("product_id",request.productId);body.put("target",additionTarget(request.type));body.put("instruction",description);
             body.put("budget",s.budget);if(s.roi2Goal!=null)body.put("roi",s.roi2Goal);
@@ -418,13 +419,14 @@ public class CreationWorkflowService {
         else throw new BizException(1503,"不支持的素材类型");
         for(String a:targetAssets)assets.ensureTarget(tenant,a,initial.accountId);
         m.textAssetId=importer.ingest(tenant,new UserId(initial.userId),id+":"+m.id+":text",String.join("\n",m.titles),"TEXT",null,false);
-        return store.mutate(tenant.value(),id,request.revision,s->{editable(s);if(s.materials.size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
+        return store.mutate(tenant.value(),id,request.revision,s->{editable(s);if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
     }
     public CreationState remove(TenantId tenant,String requestedId,String material,Feedback feedback) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         var result=store.mutate(tenant.value(),id,feedback.revision,s->{
             var m=find(s,material);
+            if(m.pendingVersion()||s.materials.stream().anyMatch(v->m.id.equals(v.reviewSourceId)&&v.pendingVersion()))throw new BizException(1503,"请先处理该素材的新版本，再删除素材");
             if("CREATED".equals(s.publishStatus)&&publishedMaterials!=null) {
                 publishedMaterials.reserve(tenant,requestedId,s,m,"delete");recordFeedback(s,material,"delete",feedback);s.changed();
             } else {editable(s);recordFeedback(s,material,"delete",feedback);if(creativeContexts!=null)creativeContexts.removed(s,m);s.removedMaterialIds.add(m.id);s.materials.remove(m);s.mediaChanged();}
@@ -521,7 +523,7 @@ public class CreationWorkflowService {
         String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
         var initial=store.get(tenant.value(),id);
         if(initial.revision!=version.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
-        editable(initial);
+        if("CREATED".equals(initial.publishStatus)&&find(initial,material).pendingVersion()&&publishedMaterials!=null)publishedMaterials.requireEditor(tenant,requestedId,initial);else editable(initial);
         if(!store.claim(initial))throw new BizException(1403,"素材正在处理，请稍后核查状态");
         CreationState reserved=null;
         try {
@@ -529,7 +531,9 @@ public class CreationWorkflowService {
             if("UNCERTAIN".equals(inspected.progress().syncStatus()))throw new BizException(1523,"千川上传结果待确认，请先核对平台上传记录，不会重复上传");
             if(!inspected.progress().canRetrySync())throw new BizException(1503,inspected.progress().message()==null?"当前素材没有可重试的失败同步项":inspected.progress().message());
             reserved=store.mutate(tenant.value(),id,version.revision,state->{
-                editable(state);var m=find(state,material);m.status="PROCESSING";m.error=null;m.failureStage=null;
+                var m=find(state,material);
+                if("CREATED".equals(state.publishStatus)&&m.pendingVersion()&&publishedMaterials!=null)publishedMaterials.requireEditor(tenant,requestedId,state);else editable(state);
+                m.status="PROCESSING";m.error=null;m.failureStage=null;
                 if(m.generationRequestId!=null)state.generationAdditions.stream().filter(r->r.id.equals(m.generationRequestId)&&"FAILED".equals(r.status)).findFirst().ifPresent(r->{r.status="IMPORTING";r.error=null;state.pendingAdditionId=r.id;});
                 if(m.engineJobId!=null&&m.engineJobId.equals(state.engineJobId)) {
                     state.generationStatus="IMPORTING";state.generationStage="syncing";state.generationMessage="产物已保留，正在重新同步失败组件";
@@ -593,6 +597,7 @@ public class CreationWorkflowService {
             boolean published="CREATED".equals(state.publishStatus)&&publishedMaterials!=null;
             if(published)publishedMaterials.requireEditor(tenant,requestedId,state);else editable(state);
             var m=find(state,material);
+            if(m.pendingVersion()||state.materials.stream().anyMatch(v->m.id.equals(v.reviewSourceId)&&v.pendingVersion()))throw new BizException(1503,"该素材已有待处理的新版本，请先查看新版本");
             if(m.engineMaterialId==null||m.engineJobId==null)throw new BizException(1503,"该素材为本地上传，请重新上传替换；AI 素材可重新生成");
             String materialPlan=m.enginePlanId==null?state.enginePlanId:m.enginePlanId;
             if(materialPlan==null||m.groupId==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(m.type,"")))throw new BizException(1503,"素材生成归属信息不完整，请先核查原任务");
@@ -607,11 +612,47 @@ public class CreationWorkflowService {
         });
         return regeneration.submit(reserved);
     }
+    public CreationState resolveMaterialVersion(TenantId tenant,String requestedId,String material,VersionDecision request) {
+        if(!Set.of("REPLACE","KEEP_BOTH","DISCARD").contains(Objects.toString(request.decision,"")))throw new BizException(1503,"请选择有效的新版本处理方式");
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        var snapshot=store.get(tenant.value(),id);var candidate=find(snapshot,material);
+        if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,snapshot.accountId);
+        if(candidate.reviewSourceId==null)throw new BizException(1503,"该素材不是待确认的新版本");
+        if(request.decision.equals(candidate.versionDecision))return snapshot;
+        if("DISCARD".equals(request.decision))return store.mutate(tenant.value(),id,request.revision,s->{
+            var failed=find(s,material);
+            if(!failed.pendingVersion()||!"FAILED".equals(failed.status)||!"PENDING".equals(failed.versionDecision))throw new BizException(1503,"仅可放弃处理失败的新版本");
+            if("CREATED".equals(s.publishStatus)&&publishedMaterials!=null)publishedMaterials.requireEditor(tenant,requestedId,s);else editable(s);
+            s.materials.remove(failed);s.removedMaterialIds.add(failed.id);s.changed();
+        });
+        if(PublishedMaterialService.pending(snapshot)&&material.equals(snapshot.materialEdit.versionId)){
+            if(!("APPLYING_"+request.decision).equals(candidate.versionDecision))throw new BizException(1404,"新版本处理方式已提交，请先核查结果");
+            return publishedMaterials.process(snapshot);
+        }
+        if(!candidate.pendingVersion()||!"READY".equals(candidate.status))throw new BizException(1503,"新版本尚未就绪或已处理，请刷新后核对");
+        payloads.materialReady(snapshot,candidate);
+        var result=store.mutate(tenant.value(),id,request.revision,s->{
+            var next=find(s,material);var source=find(s,next.reviewSourceId);
+            if(!next.pendingVersion()||!"PENDING".equals(next.versionDecision)||!"READY".equals(next.status)||!source.productId.equals(next.productId)||!source.type.equals(next.type))throw new BizException(1404,"素材版本已变化，请刷新后核对");
+            if("KEEP_BOTH".equals(request.decision)&&s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用100个素材，可选择替换原素材");
+            if("CREATED".equals(s.publishStatus)&&publishedMaterials!=null){
+                publishedMaterials.reserve(tenant,requestedId,s,source,"KEEP_BOTH".equals(request.decision)?"keep":"replace");
+                s.materialEdit.versionId=next.id;var single=payloads.optimizationMaterial(s,next);
+                for(var member:s.materialEdit.members)member.added=PublishedMaterialService.with(member.before,single);
+                next.versionDecision="APPLYING_"+request.decision;s.materialEdit.message="正在将已确认的新版本保存到投放计划";s.changed();
+            }else{
+                editable(s);
+                if("REPLACE".equals(request.decision)){s.materials.remove(source);s.removedMaterialIds.add(source.id);}
+                next.versionDecision=request.decision;s.mediaChanged();
+            }
+        });
+        return PublishedMaterialService.pending(result)&&publishedMaterials!=null?publishedMaterials.process(result):result;
+    }
     public CreationState confirm(TenantId tenant,String requestedId,Version v) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var s=store.get(tenant.value(),id);editable(s);
-        for(var p:s.products)if(s.materials.stream().noneMatch(m->p.qcProductId().equals(m.productId)))throw new BizException(1503,"请为所有商品补齐素材");
-        for(var m:s.materials)payloads.materialReady(s,m);
+        for(var p:s.products)if(s.activeMaterials().stream().noneMatch(m->p.qcProductId().equals(m.productId)))throw new BizException(1503,"请为所有商品补齐素材");
+        for(var m:s.activeMaterials())payloads.materialReady(s,m);
         return store.mutate(tenant.value(),id,v.revision,state->{editable(state);state.confirmedVersion=state.packageVersion;});
     }
     public CreationState publish(TenantId tenant,String requestedId,Publish request) {
@@ -745,14 +786,14 @@ public class CreationWorkflowService {
                     else {int n=0;for(var url:urls.path("image_urls"))m.sourceUrls.put("IMAGE_"+n++,url.asText());}
                     if("CAROUSEL".equals(m.type))m.sourceUrls.put("AUDIO",urls.path("voice_url").asText());
                     String parent=item.path("detail").path("parent_material_id").asText(null);m.replacesId=parent;
-                    if(current.regeneration!=null&&mid.equals(current.regeneration.resultMaterialId)&&Objects.equals(parent,current.regeneration.parentId))m.replacesId=current.regeneration.sourceId;
+                    if(current.regeneration!=null&&mid.equals(current.regeneration.resultMaterialId)&&Objects.equals(parent,current.regeneration.parentId)){m.replacesId=null;m.reviewSourceId=current.regeneration.sourceId;m.versionDecision="PENDING";}
                     ready.add(m);
                 }
             }
             String status=job.path("status").asText();
             store.mutate(current.tenantId,id,null,s->{
                 if(!Objects.equals(s.engineJobId,polledJobId)||!Set.of("RUNNING","IMPORTING","FAILED").contains(s.generationStatus))return;
-                for(var m:ready)if(!s.removedMaterialIds.contains(m.id)&&s.materials.stream().noneMatch(x->x.id.equals(m.id))&&s.materials.size()<100){s.materials.add(m);s.mediaChanged();}
+                for(var m:ready)if(!s.removedMaterialIds.contains(m.id)&&s.materials.stream().noneMatch(x->x.id.equals(m.id))&&(m.pendingVersion()?s.materials.size()<200:s.activeMaterials().size()<100)){s.materials.add(m);if(m.pendingVersion())s.changed();else s.mediaChanged();}
                 s.progress=Math.min(80,job.path("progress").path("percent").asInt(80));s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
                 updateGenerationSummary(s,job);
                 s.generationStage=job.path("progress").path("stage").asText("generation");
@@ -768,7 +809,7 @@ public class CreationWorkflowService {
             long finished=s.materials.stream().filter(m->Set.of("READY","FAILED").contains(m.status)).count();
             if(finished<s.materials.size()){s.progress=80+(int)(19*finished/s.materials.size());return;}
             boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
-            boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->s.pendingRegenerationId.equals(m.replacesId)&&"READY".equals(m.status));
+            boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->(s.pendingRegenerationId.equals(m.replacesId)||s.pendingRegenerationId.equals(m.reviewSourceId))&&"READY".equals(m.status));
             boolean completeCounts=s.generationCounts.stream().allMatch(c->c.total()==null||c.completed()>=c.total());
             boolean succeeded=all&&replacement&&completeCounts&&!s.materials.isEmpty()&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
             s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:80;
@@ -837,7 +878,7 @@ public class CreationWorkflowService {
             if(!outputs.isEmpty()) {
                 var m=outputs.getFirst();r.materialId=m.id;
                 if(s.materials.stream().noneMatch(old->old.id.equals(m.id))&&!s.removedMaterialIds.contains(m.id)){
-                    if(s.materials.size()>=100)throw new BizException(1503,"素材数量已达上限");s.materials.add(m);s.mediaChanged();
+                    if(s.activeMaterials().size()>=100)throw new BizException(1503,"素材数量已达上限");s.materials.add(m);s.mediaChanged();
                 }
                 r.status="IMPORTING";s.generationStatus="IMPORTING";s.generationStage="syncing";
                 s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,1,1)));

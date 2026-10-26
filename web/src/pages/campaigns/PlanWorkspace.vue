@@ -31,7 +31,7 @@
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
@@ -47,7 +47,7 @@
           <button v-else-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
         </CreationFooter>
       </template>
-      <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
+      <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :error="mediaFailure?.message" :material="creation?.materials.find(m => m.id === materialAction?.id)" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
     </template>
   </div>
 </template>
@@ -60,7 +60,7 @@ import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
-import { beginContentEdit, creationGet, creationFeedback, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
+import { beginContentEdit, creationGet, creationFeedback, creationResolveVersion, creationRetrySync, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
@@ -99,6 +99,14 @@ const selectionLocked=computed(()=>productSelectionLocked(creation.value));
 let materialTimer:ReturnType<typeof setTimeout>|undefined;
 function openMaterialAction(kind:'regenerate'|'delete',id:string) {
   if(editing.value&&!transferring.value&&canEdit.value&&!saving.value&&!materialBusy.value&&!materialPending.value)materialAction.value={kind,id};
+}
+async function retryVersionSync(id:string) { const s=creation.value,p=plan.value;if(!s||!p||!editing.value||!canEdit.value||materialBusy.value||saving.value)return;const version=loadNumber;materialBusy.value=true;mediaFailure.value=undefined;try{const updated=await creationRetrySync({...s,planId:p.planId},id);if(version===loadNumber)creation.value=updated;}catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'POST'});}finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}} }
+async function resolveMaterialVersion(id:string,decision:'REPLACE'|'KEEP_BOTH'|'DISCARD') {
+  const s=creation.value,p=plan.value;if(!s||!p||!editing.value||!canEdit.value||materialBusy.value||saving.value||materialPending.value)return;
+  const version=loadNumber;materialBusy.value=true;mediaFailure.value=undefined;
+  try {const updated=await creationResolveVersion({...s,planId:p.planId},id,decision);if(version===loadNumber)creation.value=updated;}
+  catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'POST'});}
+  finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}}
 }
 async function submitMaterialAction(feedback:MaterialFeedback) {
   const action=materialAction.value,s=creation.value,p=plan.value;

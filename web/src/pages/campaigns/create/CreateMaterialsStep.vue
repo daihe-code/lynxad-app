@@ -34,6 +34,7 @@
                 </button>
                 <p v-if="materialFailed(m) || activeGenerationIssues(state).some(issue => issue.materialId === m.id)" class="material-failure-reason" role="alert"><span class="material-failure-badge" aria-hidden="true">!</span><span>失败原因：{{ materialFailureReason(m, state) }}</span></p>
                 <div class="material-actions">
+                <button v-if="(pendingVersion(m.id) || state.materialRevision?.sourceId === m.id && running) && (!readOnly || materialActions)" class="sync-retry" type="button" :disabled="busy" @click="reviewSourceId = m.id">{{ pendingVersion(m.id)?.material.status === 'READY' ? '新版本待处理' : pendingVersion(m.id) ? '查看新版本' : '查看生成进度' }}</button>
                 <span v-if="!readOnly || materialActions" class="matrow__ops">
                   <template v-if="!readOnly">
                   <button v-if="m.processing?.canRetrySync" class="sync-retry" type="button" :disabled="busy || running" @click="emit('retrySync', m.id)">{{ m.processing.syncStatus === 'PENDING' ? '开始同步千川' : '重新同步失败项' }}</button>
@@ -43,8 +44,8 @@
                   <router-link v-if="m.processing?.syncStatus === 'WAITING_AUTH'" class="sync-retry" to="/accounts">恢复千川授权</router-link>
                   <button v-if="m.status === 'FAILED' && !m.processing?.canRetrySync && !['UNCERTAIN','WAITING_AUTH'].includes(m.processing?.syncStatus || '')" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
                   </template>
-                  <el-tooltip content="重新生成" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending || !m.engineMaterialId || regenerationWaitSeconds > 0" aria-label="重新生成素材" @click="emit('action', 'regenerate', m.id)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
-                  <el-tooltip content="删除" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action material-action--delete" type="button" :disabled="busy || running || materialEditPending" aria-label="删除素材" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button></span></el-tooltip>
+                  <el-tooltip content="重新生成" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending || !m.engineMaterialId || regenerationWaitSeconds > 0" aria-label="重新生成素材" @click="pendingVersion(m.id) ? reviewSourceId = m.id : emit('action', 'regenerate', m.id)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
+                  <el-tooltip :content="pendingVersion(m.id) ? '请先处理新版本' : '删除'" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action material-action--delete" type="button" :disabled="busy || running || materialEditPending || !!pendingVersion(m.id)" aria-label="删除素材" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button></span></el-tooltip>
                 </span>
                 </div>
                 <details v-if="m.processing?.components.length && !materialIsReady(m)" class="material-pipeline"><summary>组件处理进度与原因</summary><ul><li v-for="component in m.processing.components" :key="component.component"><b>{{ componentLabel(component.component) }}</b><span>登记：{{ processingLabel(component.storageStatus) }}</span><span>质检：{{ processingLabel(component.reviewStatus) }}</span><span>千川同步：{{ processingLabel(component.syncStatus) }}</span><p v-if="component.message">{{ component.message }}</p></li></ul></details>
@@ -71,6 +72,7 @@
       <p class="generation-help">未勾选的商品仍保留在投放计划中，需从素材库补充素材。<br />所有商品配齐素材后，才能{{ contentEditing ? '保存修改' : '发布投放' }}。</p>
       <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
     </ReferenceModal>
+    <MaterialVersionDialog v-if="reviewSource && (!readOnly || materialActions)" :key="reviewSource.id" :source="reviewSource" :version="pendingVersion(reviewSource.id)" :busy="busy" :material-count="state.materials.length" :failed="pendingVersion(reviewSource.id)?.material.status === 'FAILED' || state.materialRevision?.sourceId === reviewSource.id && state.materialRevision.status === 'FAILED'" :message="state.generationMessage" @close="reviewSourceId = ''" @confirm="(id, decision) => emit('resolveVersion', id, decision)" @retry="id => emit('retrySync', id)"><p v-if="versionError" class="version-error" role="alert">{{ versionError }}</p></MaterialVersionDialog>
     <AddMaterialDialog v-if="!readOnly && addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" />
   </div>
 </template>
@@ -86,6 +88,7 @@ import type { generationNoticeTarget } from '@/features/delivery/generationNotic
 import MaterialPreview from './MaterialPreview.vue';
 import MaterialTitleList from './ProductTitleList.vue';
 import AddMaterialDialog from './AddMaterialDialog.vue';
+import MaterialVersionDialog from './MaterialVersionDialog.vue';
 import '../reference/creative-workspace.css';
 import type { CreationState, CreationMaterial, CreationAdditionBody, creationAdd } from '@/features/delivery/creationApi';
 import { regenerationWait } from '@/features/delivery/regenerationPolicy';
@@ -93,11 +96,11 @@ import { materialIsReady, materialHasPreview, materialProcessingLabel, component
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
 import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
-const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ state: CreationState; busy: boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]] }>();
+const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });
@@ -107,8 +110,13 @@ const productId = ref(props.state.products[0]?.qcProductId || ''), tab = ref<key
 function focusNotice(target: NonNullable<ReturnType<typeof generationNoticeTarget>>) {
   if (target.productId && props.state.products.some(p => p.qcProductId === target.productId)) productId.value = target.productId;
   if (target.type && target.type in tabs) tab.value = target.type as keyof typeof tabs;
-  if (target.materialId) selectedId.value = target.materialId;
+  if (target.materialId) { selectedId.value = target.materialId; const version = props.state.materialVersions?.find(v => v.material.id === target.materialId); if (version) reviewSourceId.value = version.sourceId; }
 }
+const reviewSourceId = ref('');
+const pendingVersion = (id: string) => props.state.materialVersions?.find(v => v.sourceId === id);
+const reviewSource = computed(() => props.state.materials.find(m => m.id === reviewSourceId.value));
+watch(() => props.state.materialRevision?.requestId, (id, previous) => { if (id && id !== previous && (!props.readOnly || props.materialActions)) reviewSourceId.value = props.state.materialRevision?.sourceId || ''; });
+watch(() => [props.state.materialVersions?.map(v => v.material.id).join(','), props.busy], () => { if (!props.busy && reviewSourceId.value && !pendingVersion(reviewSourceId.value) && !running.value) reviewSourceId.value = ''; });
 const materials = computed(() => props.state.materials.filter(m => m.productId === productId.value));
 const visible = computed(() => materials.value.filter(m => m.type === tab.value));
 const failureRows = computed(() => generationFailureRows(props.state, productId.value, tab.value));

@@ -6,7 +6,8 @@ export function generationNoticeTarget(state: CreationState, message: InboxMessa
   if (result ? result.creationPlanId !== state.planId : ![state.planId, state.contentEdit?.targetPlanId].includes(message.bizId)) return null;
   const operation = state.generationRetry?.requestId || state.regeneration?.requestId || 'batch';
   const current = !!result?.jobId && result.jobId === state.engineJobId && (!result.operationId || result.operationId === operation);
-  const material = result?.materialId ? state.materials.find(m => m.id === result.materialId) : current ? state.materials.find(m => m.engineJobId === result.jobId) : undefined;
+  const allMaterials = [...state.materials, ...(state.materialVersions || []).map(v => v.material)];
+  const material = result?.materialId ? allMaterials.find(m => m.id === result.materialId) : current ? allMaterials.find(m => m.engineJobId === result.jobId) : undefined;
   const issue = current ? state.generationIssues?.[0] : undefined;
   const reasons = current ? [...new Set([...(state.generationIssues || []).map(i => i.message), ...state.materials.filter(m => m.status === 'FAILED' && m.engineJobId === result?.jobId).map(m => m.error).filter((value): value is string => !!value)])] : [];
   const exactMaterial = !!result?.materialId && !!material;

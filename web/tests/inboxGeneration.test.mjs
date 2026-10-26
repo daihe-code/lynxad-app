@@ -20,3 +20,8 @@ test('任务入口定位新版本及失败商品，旧任务不冒充当前任�
   assert.equal(generationNoticeTarget(state,{...current,result:{...current.result,creationPlanId:'other'}}),null);
   assert.match(generationNoticeTarget(state,legacy(4)).note,/历史消息未记录具体任务/);
 });
+test('查看新版本可定位尚未加入投放计划的候选素材',()=>{
+  const state={planId:'plan',materials:[{id:'old',productId:'product',type:'VIDEO'}],materialVersions:[{sourceId:'old',material:{id:'new',productId:'product',type:'VIDEO',status:'READY'}}]};
+  const message={...legacy(1),result:{outcome:'NEW_VERSION',creationPlanId:'plan',materialId:'new',jobId:'past-job'}};
+  assert.equal(generationNoticeTarget(state,message).materialId,'new');assert.equal(state.materials.length,1);
+});

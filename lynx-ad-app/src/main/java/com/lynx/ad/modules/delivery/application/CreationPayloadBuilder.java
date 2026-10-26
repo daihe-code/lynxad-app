@@ -91,7 +91,7 @@ public class CreationPayloadBuilder {
         var list=json.createArrayNode();
         var tenant=new TenantId(s.tenantId);
         for(var product:s.products) {
-            var materials=s.materials.stream().filter(m->product.qcProductId().equals(m.productId)).toList();
+            var materials=s.activeMaterials().stream().filter(m->product.qcProductId().equals(m.productId)).toList();
             if(materials.isEmpty())throw new BizException(1503,"商品尚无投放素材："+product.name());
             var creative=list.addObject();creative.put("product_id",CreationQianchuanGateway.numericId(product.qcProductId()));creative.put("hide_in_aweme",s.hideInAweme);
             var titles=new LinkedHashSet<String>();String cardImageId=null,cardTitle=null;
