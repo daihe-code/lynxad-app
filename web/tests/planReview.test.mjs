@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reviewNotice } from '../src/features/delivery/planReview.ts';
+import { reviewNotice, reviewTimeline, reviewTime, isPlanUnderReview } from '../src/features/delivery/planReview.ts';
 const now=Date.parse('2026-10-17T10:30:00Z');
 const plan={status:'PENDING_AUDIT',qcPlanId:'456',createdAt:'2025-01-01T00:00:00Z'};
 test('历史草稿创建时间不冒充审核开始时间，也不推断审核失败',()=>{
@@ -21,4 +21,34 @@ test('手动刷新遵循共享冷却时间，未来时间不显示负等待',()=
   const review={state:'WAITING',checking:false,message:'等待',pendingSince:'2026-10-17T11:00:00Z',manualRefreshAt:'2026-10-17T10:30:20Z'};
   assert.equal(reviewNotice({...plan,review},now).cooldown,20);
   assert.match(reviewNotice({...plan,review},now).waiting,/不足1分钟/);
+});
+
+test('审批进度使用本轮审核记录，不把早期草稿创建时间当作提交审核时间',()=>{
+  const nodes=reviewTimeline({...plan,review:{state:'WAITING',pendingSince:'2026-10-26T23:00:12Z'}});
+  assert.deepEqual(nodes.map(node=>node.state),['done','current','waiting']);
+  assert.deepEqual(nodes.map(node=>node.title),['提交至平台审核','平台审核中','审核结果']);
+  assert.equal(nodes[0].time,'2026-10-27 07:00:12');
+  assert.equal(reviewTimeline(plan)[0].time,'提交时间待同步');
+  assert.equal(reviewTimeline({...plan,review:{pendingSince:'invalid'}})[0].time,'提交时间待同步');
+});
+
+test('仅已提交平台的审核中计划显示审批模块，查询失败和等待较久仍保持审核中',()=>{
+  for(const state of ['WAITING','DELAYED','CHECK_UNAVAILABLE']) {
+    const current={...plan,review:{state}};
+    assert.equal(isPlanUnderReview(current),true);
+    assert.equal(reviewTimeline(current)[2].state,'waiting');
+  }
+  for(const status of ['SUBMITTING','REJECTED','DELIVERING','SCHEDULED','DRAFT']) {
+    assert.equal(isPlanUnderReview({...plan,status}),false);
+    assert.deepEqual(reviewTimeline({...plan,status}),[]);
+  }
+  assert.equal(isPlanUnderReview({...plan,qcPlanId:undefined}),false);
+});
+
+test('审批时间统一用北京时间，缺失和无效时间保留未知',()=>{
+  for(const value of ['2026-10-27T07:00:12','2026-10-27 07:00:12','2026-10-26T23:00:12Z','2026-10-27T07:00:12+08:00']) {
+    assert.equal(reviewTime(value),'2026-10-27 07:00:12');
+  }
+  for(const value of [null,undefined,'','bad'])assert.equal(reviewTime(value,'尚未查询'),'尚未查询');
+  assert.match(reviewNotice({...plan,review:{pendingSince:'2026-10-27 07:00:12'}},Date.parse('2026-10-26T23:05:12Z')).waiting,/5 分钟/);
 });

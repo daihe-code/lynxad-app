@@ -11,6 +11,7 @@
           <button class="btn-refresh" @click="load">重新加载</button>
         </div>
         <PlanSubmissionCard v-else-if="plan && submissionPhase" :phase="submissionPhase" :summary="submissionSummary" :error="failedPublication?.publishError" :recovery="failedPublication?.publishRecovery" @recover="recoverFailedPlan" @back="router.push('/campaigns')" />
+        <PlanAuditResult v-else-if="plan && underReview" :plan="plan" :aweme-name="shop" @updated="plan = $event" />
         <section v-else-if="plan" class="st" :data-st="tone">
           <div class="reshead">
             <span class="reshead__ico" :class="`ico-tone--${tone}`"
@@ -33,7 +34,6 @@
               <ReferenceIcon name="refresh" />以平台返回状态为准，页面每60秒读取后台状态；审核等待较久时后台每3分钟查询
             </p>
           </div>
-          <PlanReviewNotice :plan="plan" @updated="plan = $event" />
           <details
             class="fold"
             :open="['pending', 'reviewing', 'passed'].includes(tone)"
@@ -298,7 +298,7 @@
         </section>
       </div>
     </main>
-    <div v-if="plan && !terminal && !submissionPhase" class="actionbar">
+    <div v-if="plan && !terminal && !submissionPhase && !underReview" class="actionbar">
       <div class="container-page actionbar__inner">
         <router-link class="btn-res" to="/campaigns">返回投放管理</router-link
         ><template v-if="canAct"
@@ -382,7 +382,8 @@ import {
 import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceModal from "./ReferenceModal.vue";
 import CreationFrame from "./CreationFrame.vue";
-import PlanReviewNotice from '../components/PlanReviewNotice.vue';
+import PlanAuditResult from '../components/PlanAuditResult.vue';
+import { isPlanUnderReview } from '@/features/delivery/planReview';
 import PlanSubmissionCard from '../components/PlanSubmissionCard.vue';
 import CampaignPlanActionDialog from '../components/CampaignPlanActionDialog.vue';
 import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
@@ -400,6 +401,7 @@ const user = useUserStore(),
   now = ref(Date.now()),
   refreshedAt = ref("—"),
   pendingAction = ref<"ENABLE" | "DISABLE" | "FINISH" | null>(null);
+const underReview = computed(() => isPlanUnderReview(plan.value));
 let timer: number | undefined;
 const overview = computed(() => route.path.endsWith("/overview"));
 const failedPublication = ref<CreationState>();
@@ -600,6 +602,7 @@ onMounted(() => {
     now.value = Date.now();
     if (
       document.visibilityState === "visible" &&
+      !underReview.value &&
       ["pending", "reviewing", "passed", "running"].includes(tone.value) &&
       !loading.value && now.value - lastReadAt >= (plan.value?.status === 'SUBMITTING' ? 2500 : 60000)
     ) {

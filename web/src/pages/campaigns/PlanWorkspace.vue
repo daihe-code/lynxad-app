@@ -1,5 +1,5 @@
 <template>
-  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing }">
+  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing, 'plan-workspace--audit': step === 4 && underReview }">
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
@@ -19,7 +19,7 @@
             <div class="settings-actions"><button type="button" :disabled="settingsChecking || latestSettings.settingsEdit?.status !== 'IDLE' || !latestSettings.settingsEdit?.version" @click="applyLatestSettings(false)">采用最新值</button><button v-if="canKeepSettings" type="button" :disabled="settingsChecking" @click="applyLatestSettings(true)">保留我的修改，采用最新版本</button><button v-if="canAcceptCurrent" type="button" :disabled="settingsChecking" @click="acceptCurrentSettings">接受千川当前设置，结束本次核查</button></div>
           </template>
         </section>
-        <PlanReviewNotice v-if="!editing" :plan="plan" auto-read @updated="plan = $event" />
+        <PlanReviewNotice v-if="!editing && !(step === 4 && underReview)" :plan="plan" auto-read @updated="plan = $event" />
         <RequestFailureNotice :failure="contextFailure" context="历史计划的抖音号与商品信息暂未补全。" :busy="loading" @retry="load" />
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
@@ -35,9 +35,10 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
+        <main v-else-if="underReview" class="ad-main workspace-audit"><div class="container-page"><PlanAuditResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="recoverFailedPlan" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
-        <CreationFooter v-if="step !== 4 || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+        <CreationFooter v-if="!(underReview && step === 4) && (step !== 4 || !submissionPhase || editing)" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
             <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">{{ transferring ? transferPending ? '返回详情' : '取消转投' : '取消修改' }}</button>
@@ -81,6 +82,8 @@ import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { publishFailureLocation, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import PlanReviewNotice from './components/PlanReviewNotice.vue';
+import PlanAuditResult from './components/PlanAuditResult.vue';
+import { isPlanUnderReview } from '@/features/delivery/planReview';
 import CreateProductsStep from './create/CreateProductsStep.vue';
 import CreateGoalStep from './create/CreateGoalStep.vue';
 import { budgetInputError, roiInputError, planNameError, budgetMinimum as minimumBudget, deliveryInputRules } from '@/features/delivery/inputValidation';
@@ -96,6 +99,7 @@ const route = useRoute(), router = useRouter(), user = useUserStore();
 const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
 async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
+const underReview = computed(() => isPlanUnderReview(plan.value));
 const submissionPhase = computed(() => planSubmissionPhase({ ...plan.value, publishStatus: !plan.value?.qcPlanId && creation.value?.publishStatus === 'FAILED' ? 'FAILED' : undefined }));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
 function recoverFailedPlan(choice: PublishFailureTarget) {
@@ -231,7 +235,7 @@ async function load() {
     }
     plan.value = current; accounts.value = a.status === 'fulfilled' ? a.value : [];
     creation.value = c.status === 'fulfilled' ? c.value : undefined;
-    initialViewStep.value = submissionPhase.value ? 4 : 1;
+    initialViewStep.value = submissionPhase.value || underReview.value ? 4 : 1;
     if(editing.value&&!transferring.value&&current.qcPlanId&&creation.value?.contentEditDraftId)contentDraftId.value=creation.value.contentEditDraftId;
     transferContext.value = t.status === 'fulfilled' ? t.value : undefined;
     if (transferring.value && t.status === 'rejected') transferMessage.value = '转投配置加载失败，请重新加载。';
@@ -400,6 +404,7 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 <style scoped>
 .plan-workspace { padding-bottom: 132px; }
 .plan-workspace.plan-workspace--submission { padding-bottom: 0; }
+.plan-workspace.plan-workspace--audit { padding-bottom: 0; }
 .plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
