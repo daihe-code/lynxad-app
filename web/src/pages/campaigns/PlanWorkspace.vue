@@ -20,6 +20,7 @@
           </template>
         </section>
         <PlanReviewNotice v-if="!editing" :plan="plan" auto-read @updated="plan = $event" />
+        <RequestFailureNotice :failure="contextFailure" context="历史计划的抖音号与商品信息暂未补全。" :busy="loading" @retry="load" />
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
@@ -112,6 +113,7 @@ function scheduleMaterialPoll() {
   materialTimer=setTimeout(async()=>{try{const current=await creationGet(id);if(version===loadNumber){creation.value=current;mediaFailure.value=undefined;}}catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'GET'});}finally{if(version===loadNumber)scheduleMaterialPoll();}},3000);
 }
 const loadFailure = ref<ApiRequestError>(), mediaFailure = ref<ApiRequestError>(), mediaLoading = ref(false);
+const contextFailure = ref<ApiRequestError>();
 const settingsFailure = ref<ApiRequestError>(), latestSettings = ref<PlanVo>();
 const settingsChecking = ref(false), settingsConflict = ref(false), settingsUnknown = ref(false), canAcceptCurrent = ref(false), settingsMessage = ref('');
 const settingsPending = computed(() => settingsUnknown.value || !!(latestSettings.value || plan.value)?.settingsEdit && (latestSettings.value || plan.value)!.settingsEdit!.status !== 'IDLE');
@@ -135,7 +137,8 @@ const boundAccount = computed(() => accounts.value.find(a => a.accountId === pla
 const account = computed(() => {
   const p = plan.value; if (!p?.awemeId) return undefined;
   const aweme = boundAccount.value?.awemes.find(w => w.awemeId === p.awemeId);
-  return { key: `${p.accountId}:${p.awemeId}`, awemeName: aweme?.name || p.awemeId, awemeId: p.awemeId, avatar: aweme?.avatar };
+  const known = /^[1-9][0-9]{0,18}$/.test(p.awemeId);
+  return { key: `${p.accountId}:${p.awemeId}`, awemeName: aweme?.name || (known ? p.awemeId : '暂未获取抖音号'), awemeId: known ? p.awemeId : '—', avatar: aweme?.avatar };
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
 const canEdit = computed(() => user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
@@ -150,7 +153,7 @@ const bidType = computed(() => transferring.value ? transferMode.value : plan.va
 const isCost = computed(() => bidType.value === 'SMART_BID_CUSTOM');
 const products = computed<CreationProduct[]>(() => (plan.value?.products || []).map(p => {
   const original = creation.value?.products.find(x => x.qcProductId === p.id);
-  return { ...original, productId: p.id, qcProductId: p.id, name: p.name, imageUrl: p.imageUrl || original?.imageUrl, price: p.priceInfo?.minPrice ?? original?.price ?? null, priceInfo: p.priceInfo || original?.priceInfo, userPrice: original?.userPrice ?? null, tags: original?.tags || [], unavailableReasons: original?.unavailableReasons || [] };
+  return { ...original, productId: p.id, qcProductId: p.id, name: p.name, imageUrl: p.imageUrl || original?.imageUrl, price: p.priceInfo?.minPrice ?? original?.price ?? null, priceInfo: p.priceInfo || original?.priceInfo, stock: p.stock ?? original?.stock, sales: p.sales ?? original?.sales, userPrice: original?.userPrice ?? null, tags: original?.tags || [], unavailableReasons: original?.unavailableReasons || [] };
 }));
 const materialState = computed<CreationState | undefined>(() => creation.value && plan.value ? { ...creation.value, name: name.value, products: products.value, budget: plan.value.budget, roi2Goal: plan.value.roi2Goal ?? undefined } : undefined);
 const estimates = computed(() => budgetEstimateHints(creation.value?.recommendations, budget.value));
@@ -183,17 +186,19 @@ function resetForm() {
 }
 async function load() {
   clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;contentDraftId.value='';
-  const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined;
+  const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined; contextFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
   const [p, a, c, t] = results;
   if (p.status === 'rejected') { plan.value = undefined; loadFailure.value = requestFailure(p.reason,{method:'GET'}); loadError.value = loadFailure.value.message; }
   else {
     let current=p.value;
-    // Older local snapshots did not preserve schedule type. Read current platform settings before editing.
-    if (props.mode === 'edit' && current.qcPlanId && (!current.settingsEdit || current.settingsEdit.status === 'IDLE')) {
+    // Historical list imports omit the aweme ID; full detail restores it without guessing an account.
+    // Editing also reads current platform settings before accepting changes.
+    const missingAweme = !/^[1-9][0-9]{0,18}$/.test(current.awemeId || '');
+    if (current.qcPlanId && (props.mode === 'edit' || missingAweme) && (!current.settingsEdit || current.settingsEdit.status === 'IDLE')) {
       try { current=await refreshPlanSettings(id); }
-      catch(error) { if(request === loadNumber) settingsFailure.value=requestFailure(error,{method:'GET'}); }
+      catch(error) { if(request === loadNumber) { if(missingAweme)contextFailure.value=requestFailure(error,{method:'GET'}); else settingsFailure.value=requestFailure(error,{method:'GET'}); } }
       if(request !== loadNumber)return;
     }
     plan.value = current; accounts.value = a.status === 'fulfilled' ? a.value : [];

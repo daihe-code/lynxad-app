@@ -30,6 +30,8 @@ public class PlanQueryService {
     private final QianchuanCredentialFacade credentials;
     private com.lynx.ad.modules.catalog.application.ProductPriceService prices;
     @Autowired public void productPrices(com.lynx.ad.modules.catalog.application.ProductPriceService value) { prices=value; }
+    private com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway catalog;
+    @Autowired public void productCatalog(com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway value) { catalog=value; }
     private PlanStatisticsService statisticsService;
     @Autowired public void statisticsService(PlanStatisticsService value) { statisticsService=value; }
     private CreationStore creation;
@@ -162,12 +164,24 @@ public class PlanQueryService {
         String aweme=plan.awemeId().value();
         if(r!=null && r.detail()!=null && r.detail().hasNonNull("aweme_id")) aweme=r.detail().path("aweme_id").asText();
         var goods=row.products();
-        if(live && prices!=null && !goods.isEmpty())try {
+        if(live && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
+            // Imported history has no local creation snapshot. Read existing products without
+            // applying new-plan eligibility checks, or dropping products no longer in the catalog.
+            if(catalog!=null)try {
+                var current=new HashMap<String,CreationState.Product>();
+                for(int offset=0;offset<goods.size();offset+=10) {
+                    var ids=goods.subList(offset,Math.min(offset+10,goods.size())).stream().map(PlanListVo.ProductSummary::id).distinct().toList();
+                    for(var product:catalog.restorable(tenant,plan.accountId().value(),aweme,ids))current.put(product.qcProductId(),product);
+                }
+                goods=goods.stream().map(p->{var product=current.get(p.id());return product==null?p:new PlanListVo.ProductSummary(p.id(),p.name(),p.imageUrl(),product.priceInfo()==null?p.priceInfo():product.priceInfo(),product.stock(),product.sales());}).toList();
+            }catch(BizException unavailable){/* Historical products stay visible even if unavailable now. */}
+            if(prices!=null)try {
             var c=credentials.getUsableCredential(tenant,plan.accountId());
             var refs=goods.stream().map(p->new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(p.id(),null)).toList();
             var quotes=prices.prices(tenant,c,aweme,refs,false);
-            goods=goods.stream().map(p->new PlanListVo.ProductSummary(p.id(),p.name(),p.imageUrl(),quotes.get(p.id()))).toList();
-        }catch(BizException unavailable){/* Saved plan details remain readable. */}
+            goods=goods.stream().map(p->new PlanListVo.ProductSummary(p.id(),p.name(),p.imageUrl(),quotes.getOrDefault(p.id(),p.priceInfo()),p.stock(),p.sales())).toList();
+            }catch(BizException unavailable){/* Saved plan details remain readable. */}
+        }
         return new PlanVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.smartBidType(),row.budget(),aweme,
                 plan.rejectReason(),row.lingtou(),row.guarantee(),row.coverUrl(),row.costYuan(),row.gmvYuan(),row.roi(),
                 plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),goods,row.comparison(),

@@ -73,7 +73,7 @@ export interface PlanListVo {
   snapshotTs?: string | null;
   createdAt?: string | null;
   deliveryPlatform?: 'ALL' | 'STANDARD' | null;
-  products?: { id: string; name: string; imageUrl?: string | null; priceInfo?: PlatformProductPrice | null }[];
+  products?: { id: string; name: string; imageUrl?: string | null; priceInfo?: PlatformProductPrice | null; stock?: number | null; sales?: number | null }[];
   comparison?: {
     costChangePct?: number | null;
     convertChangePct?: number | null;

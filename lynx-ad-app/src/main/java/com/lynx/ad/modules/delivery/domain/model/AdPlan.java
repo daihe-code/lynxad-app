@@ -20,7 +20,7 @@ public class AdPlan {
     private final PlanId id;
     private final TenantId tenantId;
     private final AccountId accountId;
-    private final AwemeId awemeId;
+    private AwemeId awemeId;
     private PlanName name;
     private PlanStatus status;
     private PlanSource source;
@@ -194,6 +194,12 @@ public class AdPlan {
 
     public AwemeId awemeId() {
         return awemeId;
+    }
+
+    /** Historical list imports may omit this immutable binding; only restore a missing ID. */
+    public void restorePlatformAweme(String value) {
+        if ("unknown".equals(awemeId.value()) && value != null && value.matches("[1-9][0-9]{0,18}"))
+            awemeId = new AwemeId(value);
     }
 
     public PlanName name() {

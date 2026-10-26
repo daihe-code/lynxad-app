@@ -71,8 +71,9 @@ public record PlanListVo(
                 roi2Goal,startDate,endDate,convert,snapshotTs,products,comparison,createdAt,deliveryPlatform,
                 null,null,false,false,null,false,null,false);
     }
-    public record ProductSummary(String id, String name, String imageUrl,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo) {
-        public ProductSummary(String id,String name,String imageUrl) { this(id,name,imageUrl,null); }
+    public record ProductSummary(String id, String name, String imageUrl,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,Long stock,Long sales) {
+        public ProductSummary(String id,String name,String imageUrl) { this(id,name,imageUrl,null,null,null); }
+        public ProductSummary(String id,String name,String imageUrl,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo) { this(id,name,imageUrl,priceInfo,null,null); }
     }
     public record RoiEstimate(BigDecimal value,BigDecimal min,BigDecimal max) {}
     public record MetricValues(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders,BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {

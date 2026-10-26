@@ -75,6 +75,24 @@ class PlanManagementBoundaryTest {
         }catch(Exception e){throw new IllegalArgumentException(e);}
     }
     @AfterEach void clear() { TenantContext.clear(); }
+    @Test void historicalDetailRestoresOnlyTheMissingAwemeWithinTheRequestedTenant() {
+        plan=new AdPlan(id,tenant,account,new AwemeId("unknown"),new PlanName("历史计划"),PlanStatus.PAUSED,PlanSource.EXTERNAL,
+                plan.setting(),List.of(),new QcPlanId("456"),"DISABLE",null,0,null,List.of());
+        when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));
+        when(port.detail(credential,"456")).thenReturn(facts("{\"aweme_id\":4034544334551504}"));
+        service.detail(tenant,id);
+        assertEquals("4034544334551504",plan.awemeId().value());
+        verify(plans).save(plan);verify(store).detail(eq(tenant),eq(id.value()),any());
+        assertThrows(BizException.class,()->service.detail(new TenantId("other-tenant"),id));
+        verify(port,times(1)).detail(any(),any());verifyNoInteractions(billing,audit);
+        verify(port,never()).settings(any(),any(),any(),any(),any());
+        verify(port,never()).schedule(any(),any(),any(),any());
+    }
+    @Test void detailDoesNotReplaceAKnownAwemeWithAnotherId() {
+        when(port.detail(credential,"456")).thenReturn(facts("{\"aweme_id\":4034544334551504}"));
+        service.detail(tenant,id);
+        assertEquals("aweme",plan.awemeId().value());
+    }
     private void taskWithStatus(String status) {
         when(port.controls(credential,"456","SMART_BOOST")).thenReturn(List.of(json.createObjectNode().put("id","1878743575303385").put("name","起量任务").put("task_status",status)));
         when(port.detail(credential,"456")).thenReturn(json.createObjectNode().put("status","DELIVERY_OK"));

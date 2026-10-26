@@ -49,6 +49,24 @@ class PlanListDisplayTest {
             """))));
     }
     PlanListVo row() {return query.list(tenant,1,20).records().getFirst();}
+    @Test void importedHistoryReadsCatalogFactsWithoutNewPlanEligibilityAndKeepsUnavailableProducts() throws Exception {
+        var properties=new com.lynx.ad.common.config.LynxAdProperties();properties.getMock().setQianchuan(false);properties.getOauth().getQianchuan().setMode("mock");query.configuration(properties);
+        when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));
+        var payload=json.readTree("{\"product_info\":[{\"product_id\":123,\"product_name\":\"历史商品\"},{\"product_id\":124,\"product_name\":\"下架商品\"}]}");
+        var detail=json.readTree("{\"aweme_id\":4034544334551504}");
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),new PlanRemoteStore.Remote(id.value(),payload,detail,null,Instant.now(),null,null,null,null)));
+        var catalog=mock(com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway.class);query.productCatalog(catalog);
+        var price=new com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice(new BigDecimal("61.80"),new BigDecimal("61.80"),null,"QIANCHUAN_AVAILABLE",Instant.now(),false);
+        var product=new CreationState.Product("123","123","历史商品",price.minPrice(),null,"https://shop.test/product.jpg","功能包",8000L,List.of(),List.of("已在投放"),price,null,null,0L);
+        when(catalog.restorable(tenant,"account-a","4034544334551504",List.of("123","124"))).thenReturn(List.of(product));
+        var result=query.get(tenant,id);assertEquals(2,result.products().size());
+        assertEquals("4034544334551504",result.awemeId());assertEquals(price,result.products().getFirst().priceInfo());
+        assertEquals(8000L,result.products().getFirst().stock());assertEquals(0L,result.products().getFirst().sales());
+        assertEquals("下架商品",result.products().get(1).name());assertNull(result.products().get(1).stock());
+        when(catalog.restorable(any(),any(),any(),any())).thenThrow(new com.lynx.ad.common.exception.BizException(1306,"暂无法读取"));
+        assertEquals(2,query.get(tenant,id).products().size());
+        verify(catalog,never()).selected(any(),any(),any(),any());
+    }
     @Test void listSeparatesProductCoverFromStoredMaterialCoverAndExposesExactAweme() {
         var assets=mock(com.lynx.ad.modules.creative.application.AssetUploadService.class);query.previewAssets(assets);
         var product=new CreationState.Product("p","123","商品",BigDecimal.ONE,null,"https://shop.test/product.jpg","类目",1L,List.of(),List.of());

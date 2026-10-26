@@ -171,6 +171,7 @@ public class PlanManagementService {
     private void cacheDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
         // Read-only sync may also see old mock responses without business settings.
         if(!detail.has("delivery_setting"))return;
+        plan.restorePlatformAweme(QianchuanPlanMapping.text(detail,"aweme_id"));
         var setting=detail.path("delivery_setting");
         if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(detail.path("name").asText()));
         if(detail.hasNonNull("status")){plan.syncPlatformStatus(detail.path("status").asText());plan.apply(PlanEditVersion.platformStatus(detail));}
