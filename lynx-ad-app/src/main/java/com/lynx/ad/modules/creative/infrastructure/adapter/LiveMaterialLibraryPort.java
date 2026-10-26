@@ -9,6 +9,10 @@ import com.lynx.ad.common.http.RequestSpec;
 import com.lynx.ad.modules.creative.domain.model.MaterialType;
 import com.lynx.ad.modules.creative.domain.port.MaterialLibraryPort;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -80,9 +84,7 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
 
     private static PlatformMaterial map(JsonNode n, MaterialType type) {
         String id = n.path("material_id").asText(n.path("id").asText(""));
-        Instant created = n.has("create_time")
-                ? Instant.ofEpochSecond(n.path("create_time").asLong(Instant.now().getEpochSecond()))
-                : Instant.now();
+        Instant created = createdAt(n.path("create_time"));
         return new PlatformMaterial(
                 n.path("object_id").asText(n.path(type==MaterialType.VIDEO ? "video_id" : "image_id").asText(n.path("id").asText(id))),
                 id,
@@ -98,5 +100,19 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 n.path("poster_url").asText(n.path("url").asText("")),
                 n.path("is_ai_create").asBoolean(false),
                 n.path("review_badge").asText("NONE"));
+    }
+
+    private static Instant createdAt(JsonNode value) {
+        if (!value.isNumber() && !value.isTextual()) return null;
+        String raw = value.asText().trim();
+        if (raw.matches("[0-9]{10}|[0-9]{13}")) {
+            long epoch = Long.parseLong(raw);
+            return epoch == 0 ? null : raw.length() == 13 ? Instant.ofEpochMilli(epoch) : Instant.ofEpochSecond(epoch);
+        }
+        try { return OffsetDateTime.parse(raw).toInstant(); }
+        catch (DateTimeParseException ignored) { }
+        // Qianchuan video/image create_time is local China time, e.g. 2026-10-19 20:31:36.
+        try { return LocalDateTime.parse(raw.replace(' ', 'T')).atZone(ZoneId.of("Asia/Shanghai")).toInstant(); }
+        catch (DateTimeParseException ignored) { return null; }
     }
 }

@@ -1,5 +1,6 @@
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import { reviewLabel } from '@/features/creative/assetUploads';
+export { assetDay, assetDateTime } from '@/features/creative/assetDates';
 
 export function assetUrl(url: string) {
   if (!url || /^(https?:|blob:|data:)/i.test(url)) return url;
@@ -14,10 +15,6 @@ export function fileSize(bytes: number) {
   if (!bytes) return "—";
   if (bytes < 1024) return `${bytes}B`;
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
-export function assetDay(iso: string) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 export function sourceLabel(item: LibraryItemVo) {
   return item.source === "UPLOAD" ? "本地上传" : item.source === "LYNX" ? "灵投原创" : "千川素材";

@@ -53,7 +53,7 @@ import { getUploadedAsset, reconcileAssetSync, retryAssetSync, retryAssetReview,
 import { syncLabel, reviewPending } from "@/features/creative/assetUploads";
 import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
 const reviewRetrying = ref(false);
-import { assetUrl, duration, fileSize, sourceLabel, assetStatus, assetRatio, assetDimensions } from "./assetFormat";
+import { assetUrl, duration, fileSize, sourceLabel, assetStatus, assetRatio, assetDimensions, assetDateTime } from "./assetFormat";
 const props = withDefaults(defineProps<{ kind: "upload" | "detail" | "preview"; item: LibraryItemVo | null; libraryType?: LibraryItemVo['type'] }>(), { libraryType: 'VIDEO' });
 const emit = defineEmits<{ close: []; switch: [kind: "detail" | "preview"]; changed: [] }>();
 const uploadCloseBlocked = ref(false);
@@ -114,7 +114,7 @@ const specs = computed(() => {
   const a = props.item; if (!a) return [];
   const values = [["素材规格", dimensions.value], ["画幅比例", assetRatio(a)], ["文件大小", fileSize(a.sizeBytes)]];
   if (a.type === "VIDEO") values.push(["视频时长", duration(a.durationSec)]);
-  return [...values, ["所属类目", a.category || "—"], ["上传时间", a.createdAt ? new Date(a.createdAt).toLocaleString("zh-CN") : "—"], ["素材来源", sourceLabel(a)], ["入库状态", assetStatus(a).label]];
+  return [...values, ["所属类目", a.category || "—"], [a.source === 'EXTERNAL' ? '千川上传时间' : '上传时间', assetDateTime(a.createdAt)], ["素材来源", sourceLabel(a)], ["入库状态", assetStatus(a).label]];
 });
 function readDimensions(event: Event) { const target = event.target as HTMLImageElement | HTMLVideoElement; const w = target instanceof HTMLVideoElement ? target.videoWidth : target.naturalWidth; const h = target instanceof HTMLVideoElement ? target.videoHeight : target.naturalHeight; if (w && h) dimensions.value = `${w}×${h}`; }
 function onKey(event: KeyboardEvent) {

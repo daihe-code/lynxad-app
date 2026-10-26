@@ -40,7 +40,7 @@ export interface LibraryItemVo {
   imageMode?: string;
   durationSec?: number | null;
   category: string;
-  createdAt: string;
+  createdAt: string | null;
   used: boolean;
   reviewBadge: "NONE" | "REVIEWING" | "REJECTED";
   materialId?: string | null;

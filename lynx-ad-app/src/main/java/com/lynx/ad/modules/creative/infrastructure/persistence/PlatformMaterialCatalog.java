@@ -81,7 +81,7 @@ public class PlatformMaterialCatalog {
                 ps.setString(7, m.materialId()); ps.setString(8, m.filename() == null ? "" : m.filename());
                 ps.setLong(9, m.sizeBytes()); ps.setObject(10, m.width()); ps.setObject(11, m.height());
                 ps.setObject(12, m.durationSec()); ps.setString(13, m.imageMode()); ps.setString(14, m.reviewBadge());
-                ps.setTimestamp(15, Timestamp.from(m.createdAt() == null ? Instant.EPOCH : m.createdAt()));
+                ps.setTimestamp(15, m.createdAt() == null ? null : Timestamp.from(m.createdAt()));
             }
         });
     }
@@ -102,7 +102,8 @@ public class PlatformMaterialCatalog {
             MaterialType.valueOf(r.getString("material_type")), r.getString("entry_key"), r.getString("object_id"),
             r.getString("material_id"), r.getString("filename"), r.getLong("size_bytes"),
             (Integer) r.getObject("width"), (Integer) r.getObject("height"), (Integer) r.getObject("duration_sec"),
-            r.getString("image_mode"), r.getString("review_badge"), r.getTimestamp("created_at").toInstant());
+            r.getString("image_mode"), r.getString("review_badge"),
+            r.getTimestamp("created_at") == null ? null : r.getTimestamp("created_at").toInstant());
 
     public List<Material> list(String tenant) {
         return jdbc.query("SELECT c.* FROM platform_material_catalog c JOIN oauth_account a ON a.id=c.account_id "
@@ -113,7 +114,7 @@ public class PlatformMaterialCatalog {
     public List<Material> list(String tenant, Instant from, Instant untilExclusive) {
         return jdbc.query("SELECT c.* FROM platform_material_catalog c JOIN oauth_account a ON a.id=c.account_id "
                 + "WHERE c.tenant_id=? AND a.tenant_id=? AND a.platform='QIANCHUAN' AND a.status='ACTIVE' "
-                + "AND c.created_at>=? AND c.created_at<?",
+                + "AND (c.created_at IS NULL OR (c.created_at>=? AND c.created_at<?))",
                 mapper, tenant, tenant, Timestamp.from(from), Timestamp.from(untilExclusive));
     }
 

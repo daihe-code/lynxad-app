@@ -28,6 +28,7 @@ import AssetThumbnail from '@/pages/creatives/AssetThumbnail.vue';
 import { assetUrl } from '@/pages/creatives/assetFormat';
 import { assetPreview, clearAssetPreviews, resolveAssetPreview } from '@/features/creative/assetPreviews';
 import { materialMeta } from '@/features/creative/materialSources';
+import { assetDate } from '@/features/creative/assetDates';
 import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
 type Format = CreationAdditionBody['type'];
@@ -52,7 +53,7 @@ const previewItem = ref<LibraryItemVo>(), previewError = ref(''), previewVersion
 const previewUrls = computed(() => previewItem.value ? assetPreview(previewItem.value) : undefined);
 async function preview(item: LibraryItemVo) { previewError.value = ''; previewItem.value = item; if (!assetPreview(item).posterUrl && !assetPreview(item).playUrl) await resolveAssetPreview(item); }
 async function previewFailed() { const item = previewItem.value; if (item && assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item) && assetPreview(item).playUrl) return; previewError.value = '素材暂不可预览，请刷新后重试。'; }
-function createdDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '日期未知' : date.toLocaleDateString('zh-CN'); }
+function createdDate(value: string | null) { return assetDate(value); }
 let loadNumber = 0, previousIds = new Set<string>(), submissionSource: Source = 'AI', submissionKey = '';
 async function loadLibrary(keepSelection = false) {
   const number = ++loadNumber; loading.value = true; loadError.value = '';

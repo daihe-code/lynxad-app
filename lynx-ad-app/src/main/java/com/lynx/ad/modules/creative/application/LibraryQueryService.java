@@ -155,7 +155,8 @@ public class LibraryQueryService {
                 new LibraryResponse.StatusCounts(searched.size(), usedCount, unusedCount, reviewingCount, rejectedCount);
         List<Item> filtered = searched.stream()
                 .filter(i -> "ALL".equals(st) || st.equals(statusOf(i)))
-                .sorted(Comparator.comparing((Item i) -> i.createdAt).reversed().thenComparing(i -> i.objectId, Comparator.reverseOrder()))
+                .sorted(Comparator.comparing((Item i) -> i.createdAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(i -> i.objectId, Comparator.reverseOrder()))
                 .toList();
         int fromIdx = Math.min((pg - 1) * size, filtered.size());
         int toIdx = Math.min(fromIdx + size, filtered.size());
@@ -465,7 +466,7 @@ public class LibraryQueryService {
                 item.imageMode,
                 item.durationSec,
                 item.category,
-                item.createdAt == null ? Instant.now().toString() : item.createdAt.toString(),
+                item.createdAt == null ? null : item.createdAt.toString(),
                 item.used,
                 item.reviewBadge,
                 item.materialId,
