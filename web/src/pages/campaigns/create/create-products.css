@@ -2045,6 +2045,10 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .basic-analysis__error { color: var(--color-danger); }
 
 .pcard--occupied{cursor:default}.pcard--occupied .pcard__thumb{opacity:.65}.pcard__draft{margin:8px 0 0;font-size:12px;line-height:1.5;color:#8a6a20}.pcard__draft a{color:#5b57ff;text-decoration:none}.pcard__draft a:hover{text-decoration:underline}
+.pcard--unavailable,.pcard--unavailable:hover{cursor:not-allowed;border-color:#e1e3ec;background:#f6f7fa;box-shadow:none}
+.pcard--unavailable .pcard__thumb{filter:grayscale(1);opacity:.5}
+.pcard--unavailable .pcard__title,.pcard--unavailable .pcard__row,.pcard--unavailable .pcard__stats{opacity:.55}
+.pcard__unavailable{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:8px 0 0;font-size:12px;line-height:1.5;color:#747990;overflow-wrap:anywhere}
 
 @media(min-width:1280px){.pgrid{grid-template-columns:repeat(5,minmax(0,1fr))}}
 

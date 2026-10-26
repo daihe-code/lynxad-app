@@ -47,7 +47,7 @@
           <p v-else-if="!recommendationsOpen && !queryPending && loadError" class="pgrid__empty" role="alert">商品加载失败，请重试。<button class="retry" type="button" @click="emit('retry')">重新加载</button></p>
           <p v-else-if="!recommendationsOpen && (queryPending || !loaded)" class="pgrid__empty" role="status">正在加载商品…</p>
           <div v-else-if="filtered.length" class="pgrid" role="listbox" aria-multiselectable="true" aria-label="可投放商品列表">
-            <div v-for="p in visible" :key="p.productId" class="pcard" role="option" :tabindex="productDisabled(p) ? -1 : 0" :aria-disabled="productDisabled(p)" :class="{ 'pcard--occupied': !!p.draft }" :aria-selected="isSelected(p.productId)" :aria-checked="isSelected(p.productId)" :aria-label="p.name" @click="choose(p)" @keydown.enter.prevent="choose(p)" @keydown.space.prevent="choose(p)">
+            <div v-for="p in visible" :key="p.productId" class="pcard" role="option" :tabindex="productDisabled(p) ? -1 : 0" :aria-disabled="productDisabled(p)" :class="{ 'pcard--occupied': !!p.draft, 'pcard--unavailable': !readOnly && !isSelected(p.productId) && !!productUnavailableReason(p) }" :aria-selected="isSelected(p.productId)" :aria-checked="isSelected(p.productId)" :aria-label="p.name" @click="choose(p)" @keydown.enter.prevent="choose(p)" @keydown.space.prevent="choose(p)">
               <span class="pcard__thumb"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><svg v-else class="product-placeholder" viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="7" width="34" height="34" rx="5" /><circle cx="18" cy="18" r="3" /><path d="m8 34 10-10 8 8 6-6 9 9" /></svg></span><span class="pcard__check" aria-hidden="true" />
               <p class="pcard__title" :title="p.name">{{ p.name }}</p>
               <div class="pcard__row"><span class="pcard__price"><ProductPrice :price-info="p.priceInfo" :price="p.price" :user-price="p.userPrice" /></span></div>
@@ -55,6 +55,7 @@
                 <span class="pcard__stock" :title="p.stock == null ? '暂未提供库存数据' : `库存 ${p.stock}`">库存 {{ p.stock ?? '—' }}</span>
                 <span class="pcard__sales" :title="p.sales == null ? '平台暂未提供销量数据' : `销量 ${p.sales}`">销量 {{ p.sales ?? '—' }}</span>
               </div>
+              <p v-if="!readOnly && productUnavailableReason(p)" class="pcard__unavailable" :title="productUnavailableReason(p)">{{ productUnavailableReason(p) }}</p>
               <p v-if="p.draft" class="pcard__draft" :title="`已在草稿「${p.draft.planName}」中`">已在草稿中 · <router-link :to="{ path: '/campaigns/' + p.draft.planId + '/edit', query: { step: '1' } }" aria-disabled="false" @click.stop @keydown.stop>继续编辑</router-link></p>
             </div>
           </div>
@@ -184,8 +185,11 @@ watch(pages, n => { if (!cursorPaging.value) page.value = Math.min(page.value, n
 watch(page, n => { jump.value = String(n); });
 function jumpTo() { const n = Number(jump.value); page.value = Number.isInteger(n) && n > 0 ? Math.min(n, pages.value) : 1; jump.value = String(page.value); }
 function isSelected(id: string) { return props.selected.some(p => p.productId === id); }
+function productUnavailableReason(p: ProductVo) {
+  return p.unavailableReasons?.filter(Boolean).join('；') || (p.stock != null && p.stock <= 0 ? '库存不足，暂不可投放' : '');
+}
 function productDisabled(p: ProductVo) {
-  return !!(props.readOnly || props.saving || props.selectionLocked || p.draft && !isSelected(p.productId)
+  return !!(props.readOnly || props.saving || props.selectionLocked || (p.draft || productUnavailableReason(p)) && !isSelected(p.productId)
     || recommendationsOpen.value && (analyzing.value || props.selected.length >= 10 && !isSelected(p.productId)));
 }
 function choose(p: ProductVo) {
