@@ -3,7 +3,7 @@
     <Teleport to="#campaign-header-actions" defer>
       <el-tooltip content="广告账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom">
         <span class="campaign-account-trigger">
-          <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end">
+          <el-select v-model="accountId" class="campaign-account-select" placeholder="全部广告账户" aria-label="广告账户" popper-class="campaign-dropdown campaign-account-dropdown" :fit-input-width="false" placement="bottom-end" @change="rememberAccount">
             <template v-if="selectedAccount" #prefix><span class="campaign-account-avatar campaign-account-avatar--selected" aria-hidden="true">{{ selectedAccount.accountName.slice(0, 1) }}</span></template>
             <el-option label="全部广告账户" value="" />
             <el-option v-for="account in accounts" :key="account.accountId" :label="account.accountName" :value="account.accountId">
@@ -151,6 +151,7 @@ import ControlTaskReport from './components/ControlTaskReport.vue';
 import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
 import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
+import { campaignAccountPreferenceKey, resolveCampaignAccount } from '@/features/delivery/campaignAccountPreference';
 import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey, type MetricField } from '@/features/delivery/campaignMetricTemplates';
 import { listActions, ruleLabel } from '@/features/agentops/agentopsApi';
 import { useUserStore } from '@/stores/user';
@@ -179,6 +180,10 @@ const loading = ref(false), summaryLoading = ref(false), loadFailed = ref(false)
 const syncing = ref(false), syncWarning = ref(''), total = ref(0), accountId = ref('');
 const accounts = ref<AccountVo[]>([]);
 const selectedAccount = computed(() => accounts.value.find(account => account.accountId === accountId.value));
+const accountStorageKey = computed(() => campaignAccountPreferenceKey(user.me?.tenantId, user.me?.userId));
+function rememberAccount(value: string) {
+  try { if (accountStorageKey.value) localStorage.setItem(accountStorageKey.value, value); } catch { /* Keep filtering usable when storage is unavailable. */ }
+}
 const keyword = ref(''), status = ref(''), bidType = ref('');
 const statusPicker = ref<CascaderInstance>();
 function closeStatusFilter() { statusPicker.value?.togglePopperVisible(false); }
@@ -449,8 +454,9 @@ async function exportRows() {
 }
 onMounted(async () => {
   accounts.value = (await listAccounts().catch(() => [])).filter(a => a.platform === 'QIANCHUAN' && a.credentialSource !== 'MOCK');
-  const activeAccounts = accounts.value.filter(a => a.status === 'ACTIVE');
-  accountId.value = (activeAccounts.find(a => a.authorizedByUserId === user.me?.userId) || activeAccounts[0] || accounts.value[0])?.accountId || '';
+  let remembered: string | null = null;
+  try { if (accountStorageKey.value) remembered = localStorage.getItem(accountStorageKey.value); } catch { /* Use the default account if storage is unavailable. */ }
+  accountId.value = resolveCampaignAccount(accounts.value, user.me?.userId, remembered);
   await nextTick();
   clearTimeout(loadTimer);
   await load();
