@@ -1,7 +1,7 @@
 <template>
   <div class="live-materials creative-workspace ad-step3">
     <CreationFrame v-if="!embedded" :step="3" navigable :navigation-disabled="busy" :reached-step="reachedStep" :max-step="maxStep ?? 3" @navigate="step => emit('navigate',step)" :account="account" :accounts="readOnly ? [] : accounts" :account-switch-disabled="busy || running || readOnly" :account-chips="accountChips" @account="emit('account', $event)" />
-    <main class="ad-main"><div class="container-page"><ProductSelectionNotice :message="selectionNotice" /><section class="panel"><div class="panel__pad">
+    <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
       <h2 class="panel__title">{{ batchRunning ? '生成投放素材' : published ? '已投放素材' : '确定投放素材' }}</h2><p class="panel__sub">{{ batchRunning ? `我正在为你选中的 ${state.generationProductIds.length || state.products.length} 款商品准备素材，生成后由你预览确认` : published ? '当前计划使用的素材，点击素材或标题可查看投放效果预览' : '我已整理好素材，请预览并确认用于本次投放的内容' }}</p>
       <MaterialGenerationProgress v-if="batchRunning" ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
       <template v-else>
@@ -76,7 +76,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import CreationFrame from '../reference/CreationFrame.vue';
-import ProductSelectionNotice from './ProductSelectionNotice.vue';
 import CreationFooter from './CreationFooter.vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
@@ -91,7 +90,7 @@ import { materialIsReady, materialHasPreview, materialProcessingLabel, component
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
 import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
-const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ state: CreationState; busy: boolean; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });

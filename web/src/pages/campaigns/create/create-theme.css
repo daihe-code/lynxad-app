@@ -39,3 +39,6 @@
 
 .selection-impact-confirm .el-message-box__message p{white-space:pre-line;line-height:1.8;overflow-wrap:anywhere}
 .selection-impact-confirm.el-message-box{width:600px;max-width:calc(100vw - 32px)}
+.product-adjustment-confirm.el-message-box{display:inline-flex;flex-direction:column;max-height:calc(100dvh - 32px)}
+.product-adjustment-confirm .el-message-box__content{min-height:0;overflow-y:auto}
+.product-adjustment-confirm .el-message-box__header,.product-adjustment-confirm .el-message-box__btns{flex-shrink:0}

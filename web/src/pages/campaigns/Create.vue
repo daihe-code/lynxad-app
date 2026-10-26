@@ -8,9 +8,9 @@
     <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
     <aside v-if="contentEditing" class="draft-save-note" role="status"><p>{{ state?.contentEdit?.message || '当前正在调整原投放计划的商品与素材；暂存修改只保存编辑内容，点击“保存修改”并同步成功后更新原计划。' }}</p><button v-if="contentLocked" type="button" :disabled="busy" @click="verifyContent">核查保存结果</button></aside>
-    <CreateProductsStep ref="productStep" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
-    <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :selection-notice="selectionNotice" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
+    <CreateProductsStep ref="productStep" :adjustment-message="adjustmentMessage" @adjust-confirmed="adjustmentAcknowledged = true" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
+    <LiveMaterialsStep :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @action="openAction" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @retry-generation="retryGeneration" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4"><CreationFrame :step="4" :account="account" :account-chips="accountChips" /><section><h2>{{ state.publishStatus === 'UNCERTAIN' ? '平台创建结果待确认' : state.publishStatus === 'FAILED' ? '发布失败' : '正在提交投放计划' }}</h2><p>{{ state.publishError || '正在提交当前投放方案，请稍候…' }}</p><p v-if="state.publishStatus === 'UNCERTAIN'">请核对千川平台计划后处理，当前请求不会自动重复创建。</p><div v-if="state.publishStatus === 'UNCERTAIN'" class="reconcile"><input v-model="reconcileId" inputmode="numeric" placeholder="填写已核对的千川计划ID" aria-label="千川计划ID" /><button :disabled="busy || !reconcileId.trim()" @click="reconcile">核验并关联平台计划</button></div><button v-if="state.publishStatus === 'FAILED' && state.publishRecovery === 'REFRESH_ESTIMATE'" class="btn-brand" :disabled="busy" @click="reviewPublishEstimate">刷新预估并核对</button><button v-if="state.publishStatus === 'FAILED'" class="btn-brand" @click="step = 3">返回修改</button><button class="btn-cancel" @click="router.push('/campaigns')">返回投放列表</button></section></div>
     <RequestFailureNotice :failure="initialFailure" :busy="initializing" @retry="initialize" />
@@ -30,7 +30,7 @@ import * as api from '@/features/delivery/creationApi';
 import * as recommendations from '@/features/delivery/creationRecommendations';
 import { recommendedRoiDefault } from '@/features/delivery/creationRoiDefault';
 import { creationReachedStep, creationGoalChanged, validReachedStep } from '@/features/delivery/creationProgress';
-import { selectionImpact, selectionImpactText } from '@/features/delivery/selectionImpact';
+import { productAdjustmentText, selectionImpact, selectionImpactText } from '@/features/delivery/selectionImpact';
 import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
@@ -54,6 +54,7 @@ const props = defineProps<{ initialPlanId?: string; initialStep?: number; publis
 const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
 const resumingMaterials = ref(false);
 const productStep = ref<InstanceType<typeof CreateProductsStep>>();
+const adjustmentAcknowledged = ref(!!props.adjustProductsOnOpen);
 const contentEditing=computed(()=>!!props.publishedEditTarget || !!state.value?.contentEdit);
 const contentLocked=computed(()=>!!state.value?.contentEdit && state.value.contentEdit.status !== 'DRAFT');
 const catalogLoading = ref(false);
@@ -69,14 +70,11 @@ const account = computed(() => accountOptions.value.find(a => a.key === accountK
 const accountChips = computed(() => awemeLabels(account.value));
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
 const pendingSelectionImpact = computed(() => state.value ? selectionImpact(state.value.products,selected.value,state.value.materials) : undefined);
-const selectionNotice = computed(() => {
-  if (pendingSelectionImpact.value?.changed) return selectionImpactText(pendingSelectionImpact.value,!!props.publishedEditTarget);
-  const change=state.value?.selectionChange;if(!change)return '';
-  return [change.retainedMaterials ? `已保留 ${change.retainedMaterials} 条原商品素材，原有预览继续保留，无需重复生成。` : '',
-    change.addedNames.length ? `新增商品：${change.addedNames.join('、')}。可仅为新增商品生成素材，也可从素材库选择或本地上传。` : '',
-    change.removedNames.length ? `已移出商品：${change.removedNames.join('、')}，对应 ${change.removedMaterials} 条素材已从本计划预览和待投放内容中移出；素材中心文件保留。` : '',
-    '生成用量提醒：已发生的生成用量不会因调整商品而撤销；再次生成将产生新的生成用量。'].filter(Boolean).join('\n');
-});
+const adjustmentMessage = computed(() => productAdjustmentText({
+  materialCount: state.value?.materials.filter(material => material.status === 'READY').length ?? 0,
+  hasAnalysis: !!state.value?.analysis || state.value?.analysisStatus === 'SUCCEEDED',
+  hasGoal: !!budget.value.trim() || !!roi.value.trim(), published: contentEditing.value,
+}));
 const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
 const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
   && canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus, state.value.analysis, selected.value));
@@ -235,7 +233,7 @@ async function ensureSelection() {
   if (!account.value || !selected.value.length) throw new Error('请先选择授权账号和商品');
   const fresh = !state.value, emptyName = !name.value, selectionChanged=!!state.value && !sameSelection.value;
   const impact=pendingSelectionImpact.value;
-  if (selectionChanged && impact?.changed) {
+  if (selectionChanged && impact?.changed && !adjustmentAcknowledged.value) {
     try { await ElMessageBox.confirm(selectionImpactText(impact,contentEditing.value),'确认商品与素材调整',{confirmButtonText:'确认调整商品',cancelButtonText:'返回继续核对',type:'warning',customClass:'selection-impact-confirm'}); }
     catch { return false; }
   }
@@ -249,6 +247,7 @@ async function ensureSelection() {
   if (fresh) { await autosave.activate(true); }
   else autosave.acknowledge(['productIds',...(selectionChanged ? draftGoalFields : emptyName ? ['name' as const] : [])]);
   if (!props.initialPlanId) await router.replace({ path: '/campaigns/create', query: { draftId: state.value.planId } });
+  adjustmentAcknowledged.value = false;
   return true;
 }
 async function keepGroup(){ await run(async()=>{acceptWrite(await api.creationKeepGroup(state.value!));}); }
@@ -440,7 +439,7 @@ async function initialize() {
       }
       if (props.adjustProductsOnOpen && step.value === 1 && !initialFailure.value) {
         await nextTick();
-        await productStep.value?.adjustProducts();
+        await productStep.value?.openProductAdjustment();
       }
     }
   } catch (error) { if (!disposed) { const failure=requestFailure(error,{method:'GET'}); if (failure.kind !== 'CANCELLED') initialFailure.value = failure; } }

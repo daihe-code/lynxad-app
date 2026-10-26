@@ -17,11 +17,10 @@
     </section>
     <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i > 0 && i + 1 <= (reachedStep ?? 1) }" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
     </template><main class="ad-main"><div class="container-page">
-      <ProductSelectionNotice :message="selectionNotice" /><p v-if="selectionLocked" class="analysis-stale" role="status">素材正在生成或处理中，暂不能新增、删除或替换商品，请完成后再调整。</p>
+      <p v-if="selectionLocked" class="analysis-stale" role="status">素材正在生成或处理中，暂不能新增、删除或替换商品，请完成后再调整。</p>
       <section v-if="!analysisOpen" class="panel" aria-labelledby="panel-goods">
         <div class="panel__pad">
           <div class="panel__head"><div class="min-w-0"><h2 class="panel__title" id="panel-goods" tabindex="-1">{{ readOnly ? '投放商品' : '选择要投放广告的商品' }}</h2><p class="panel__sub">{{ readOnly ? `当前计划已选择 ${selected.length} 款商品` : '确认商品组合，为下一步准备投放素材' }}</p></div></div>
-          <p v-if="selectionStale" class="analysis-stale" role="status">商品已调整，需更新分析。原草稿已保留，旧分析不会用于后续素材与预算准备。</p>
           <p v-if="!readOnly && !recommendationsOpen && !tipDismissed" class="tip" role="note" aria-label="商品投放建议">
             <svg class="tip__icon h-[17px] w-[17px]" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor" /><path d="M12 6.4v7.2M12 17.1h.01" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" /></svg>
             <span class="tip__text">建议相似ROI目标的商品集中在一条计划下投放，效果会更好。<span class="tip__accent">灵投将为您推荐最佳投放组合</span></span>
@@ -85,7 +84,7 @@
                 </div>
               </el-popover>
             </div>
-            <button v-if="!readOnly || allowAdjustment" class="analysis-adjust" type="button" :disabled="saving || selectionLocked || !!adjustmentBlockedReason" :title="adjustmentBlockedReason" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button>
+            <button v-if="!readOnly || allowAdjustment" class="analysis-adjust" type="button" :disabled="saving || selectionLocked || !!adjustmentBlockedReason || adjustmentConfirming" :title="adjustmentBlockedReason" @click="adjustProducts"><PreparationIcon name="refresh"/>调整商品</button>
           </div>
           <aside v-if="basicAnalysis && (!basicAnalysis.canContinue || basicAnalysis.issues.length)" class="basic-analysis" :class="{ 'basic-analysis--blocked': !basicAnalysis.canContinue }" aria-label="商品基础检查">
             <strong>{{ basicAnalysis.canContinue ? '商品基础检查已通过' : '商品基础检查未通过' }}</strong>
@@ -113,9 +112,10 @@ import CreationFooter from './CreationFooter.vue';
 import PreparationIcon from '@/components/PreparationIcon.vue';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
-import { canContinueProductAnalysis, productAnalysisInput, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
+import { canContinueProductAnalysis, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
-import ProductSelectionNotice from './ProductSelectionNotice.vue';
+import { ElMessageBox } from 'element-plus';
+import { productAdjustmentText } from '@/features/delivery/selectionImpact';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
 import { useProductSuggestions } from '@/features/delivery/useProductSuggestions';
 import ProductPrice from '@/components/ProductPrice.vue';
@@ -123,7 +123,7 @@ import { productPriceText } from '@/features/catalog/productPrice';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; adjustmentMessage?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {
@@ -131,7 +131,7 @@ async function dismissTip() {
   await nextTick();
   filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
-const emit = defineEmits<{ adjust: []; keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
+const emit = defineEmits<{ adjustConfirmed: []; adjust: []; keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 10), jump = ref(String(page.value));
@@ -144,8 +144,7 @@ watch(() => props.selected.map(p => p.qcProductId), ids => {
   if (recommendationSource.value && !ids.includes(recommendationSource.value)) closeRecommendations();
 });
 const analysisOpen = ref(false), adjusting = ref(false);
-const analyzedInput = ref<string>();
-const selectionStale = computed(() => adjusting.value && analyzedInput.value !== productAnalysisInput(props.selected));
+const adjustmentConfirming = ref(false);
 const analysisPanel = ref<HTMLElement>();
 const { sourceProduct: suggestionSource, products: suggestedProducts, failure: suggestionsFailure, loading: suggestionsLoading, load: loadSuggestions } = useProductSuggestions({
   account: () => props.readOnly ? undefined : props.account,
@@ -171,7 +170,7 @@ const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisSta
 const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus, props.analysis, props.selected));
 watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
-  if (!adjusting.value && (status !== 'NONE' || analysis)) { analysisOpen.value = true; analyzedInput.value = productAnalysisInput(props.selected); }
+  if (!adjusting.value && (status !== 'NONE' || analysis)) analysisOpen.value = true;
 }, { immediate: true });
 watch([analysisOpen, recommendationsOpen, () => props.account?.key], ([analysis, recommendations, key]) => {
   if (!props.readOnly && key && !analysis && !recommendations) emit('catalog');
@@ -215,6 +214,19 @@ async function showAllProducts() {
   await nextTick(); revealCatalog();
 }
 async function adjustProducts() {
+  if (props.saving || props.selectionLocked || props.adjustmentBlockedReason || adjustmentConfirming.value) return;
+  adjustmentConfirming.value = true;
+  try {
+    await ElMessageBox.confirm(props.adjustmentMessage || productAdjustmentText({ materialCount: 0, hasAnalysis: !!props.analysis, hasGoal: false }), '调整商品前请确认', {
+      confirmButtonText: '确定，调整商品', cancelButtonText: '取消', type: 'warning', customClass: 'selection-impact-confirm product-adjustment-confirm', closeOnClickModal: false,
+    });
+  } catch { return; }
+  finally { adjustmentConfirming.value = false; }
+  if (props.saving || props.selectionLocked || props.adjustmentBlockedReason) return;
+  emit('adjustConfirmed');
+  await openProductAdjustment();
+}
+async function openProductAdjustment() {
   if (props.saving || props.selectionLocked || props.adjustmentBlockedReason) return;
   if (props.readOnly) { if (props.allowAdjustment) emit('adjust'); return; }
   adjusting.value = true; analysisOpen.value = false; emit('retry');
@@ -225,7 +237,7 @@ async function confirm() {
   adjusting.value = false; closeRecommendations(); emit('analyze');
   await nextTick(); analysisPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-defineExpose({ adjustProducts });
+defineExpose({ openProductAdjustment });
 </script>
 
 <style scoped src="./create-products.css"></style>

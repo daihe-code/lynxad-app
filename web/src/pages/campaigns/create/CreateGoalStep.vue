@@ -81,7 +81,7 @@
 </template><main class="ad-main">
   <div class="container-page">
 
-    <ProductSelectionNotice :message="selectionNotice" />
+
     <section class="panel panel--goal" aria-labelledby="panel-goal">
       <div class="panel__pad">
         <div class="panel__head">
@@ -301,14 +301,13 @@
 <script setup lang="ts">
 import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import CreationFooter from './CreationFooter.vue';
-import ProductSelectionNotice from './ProductSelectionNotice.vue';
 import { nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
 import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; selectionNotice?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
