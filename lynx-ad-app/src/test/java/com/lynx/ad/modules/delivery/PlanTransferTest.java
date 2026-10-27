@@ -105,6 +105,13 @@ class PlanTransferTest {
         assertFalse(payload.path("delivery_setting").has("estimate_roi_goal"));assertFalse(payload.path("delivery_setting").has("estimate_convert"));assertEquals(new BigDecimal("4.18"),payload.path("delivery_setting").path("roi2_goal").decimalValue());
         assertTrue(payload.path("name").asText().getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=100);
     }
+    @Test void planCreatedByLingtouTransferHasPlatformOriginEvenWhenTheSourceWasExternal() {
+        var p=physical.get(root.value());physical.put(root.value(),new AdPlan(p.id(),p.tenantId(),p.accountId(),p.awemeId(),p.name(),p.status(),PlanSource.EXTERNAL,
+            p.setting(),p.productIds(),p.qcPlanId().orElseThrow(),p.qcStatus(),null,0,null,p.bindings()));
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("external-source")).status());
+        assertEquals(PlanSource.EXTERNAL,physical.get(root.value()).source());
+        assertEquals(PlanSource.LINGTOU,physical.get(group.custom()).source());
+    }
     @Test void recreatedModeDoesNotRestoreGoodsRemovedFromSharedState() throws Exception {
         var published=(com.fasterxml.jackson.databind.node.ObjectNode)creations.publishedPayload(tenant.value(),root.value()).orElseThrow().deepCopy();
         published.withArray("product_ids").add(202);published.withArray("multi_product_creative_list").addObject().put("product_id",202).putArray("video_material").addObject().put("video_id","removed-video");

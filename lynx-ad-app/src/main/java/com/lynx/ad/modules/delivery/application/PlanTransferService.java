@@ -214,18 +214,23 @@ public class PlanTransferService {
     }
     private AdPlan register(TenantId t,Attempt a,AdPlan source,PlanTransferRequest req) {
         var existing=plans.findById(t,new PlanId(a.target()));
-        if(existing.isPresent()) {store.member(t,a.root(),SmartBidType.fromOcean(req.smartBidType()),a.target());return existing.get();}
+        if(existing.isPresent()) {restoreCreatedOrigin(existing.get(),a);store.member(t,a.root(),SmartBidType.fromOcean(req.smartBidType()),a.target());return existing.get();}
         var payload=parse(a.payload());
         String targetId=remote.findId(t,source.accountId(),a.qcId()).orElse(a.target());
         if(!targetId.equals(a.target())) {
             var adopted=require(t,targetId);
             if(!source.accountId().equals(adopted.accountId()) || adopted.setting().bidType()!=SmartBidType.fromOcean(req.smartBidType()))throw new BizException(1523,"平台计划关联不一致，请核查转投记录");
-            store.adoptTarget(t,a.key(),targetId);store.member(t,a.root(),adopted.setting().bidType(),targetId);return adopted;
+            restoreCreatedOrigin(adopted,a);store.adoptTarget(t,a.key(),targetId);store.member(t,a.root(),adopted.setting().bidType(),targetId);return adopted;
         }
         var target=new AdPlan(new PlanId(a.target()),t,source.accountId(),source.awemeId(),PlanName.fromPlatform(payload.path("name").asText(source.name().text())),
-                PlanStatus.PENDING_AUDIT,source.source(),setting(source,req),source.productIds(),new QcPlanId(a.qcId()),"PENDING_AUDIT",null,1,null,source.bindings());
+                PlanStatus.PENDING_AUDIT,PlanSource.LINGTOU,setting(source,req),source.productIds(),new QcPlanId(a.qcId()),"PENDING_AUDIT",null,1,null,source.bindings());
         tx.executeWithoutResult(s->{plans.save(target);remote.save(t,target.accountId(),a.qcId(),target.id().value(),payload);store.member(t,a.root(),target.setting().bidType(),target.id().value());});
         return target;
+    }
+    private void restoreCreatedOrigin(AdPlan plan,Attempt attempt) {
+        var groups=parse(attempt.payload()).path("multi_product_creative_list");
+        if(plan.source()==PlanSource.EXTERNAL && plan.qcPlanId().map(q->q.value().equals(attempt.qcId())).orElse(false)
+                && groups.isArray() && !groups.isEmpty()) {plan.restoreLingtouSource();plans.save(plan);}
     }
     private ObjectNode payload(TenantId tenant,String root,AdPlan source,PlanTransferRequest request) {
         var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，请在千川后台转投"));

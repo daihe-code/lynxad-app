@@ -118,6 +118,8 @@ public class MpAdPlanRepository implements AdPlanRepository {
     @org.springframework.beans.factory.annotation.Autowired public void reviewStore(PlanReviewStore value){reviews=value;}
     private PlanAuditNoticeStore auditNotices;
     @org.springframework.beans.factory.annotation.Autowired public void auditNoticeStore(PlanAuditNoticeStore value){auditNotices=value;}
+    private PlanOriginStore origins;
+    @org.springframework.beans.factory.annotation.Autowired public void originStore(PlanOriginStore value){origins=value;}
 
     public MpAdPlanRepository(AdPlanMapper mapper, AdPlanCreativeBindingStore bindingStore) {
         this.mapper = mapper;
@@ -174,14 +176,14 @@ public class MpAdPlanRepository implements AdPlanRepository {
         if (po == null || !tenantId.value().equals(po.getTenantId())) {
             return Optional.empty();
         }
-        return Optional.of(toDomain(po));
+        return Optional.of(withOrigin(toDomain(po)));
     }
 
     @Override
     public Optional<AdPlan> findByIdForUpdate(TenantId tenantId, PlanId id) {
         return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>()
                 .eq(AdPlanPo::getId, id.value()).eq(AdPlanPo::getTenantId, tenantId.value()).last("FOR UPDATE")))
-                .map(this::toDomain);
+                .map(this::toDomain).map(this::withOrigin);
     }
 
     @Override
@@ -200,14 +202,14 @@ public class MpAdPlanRepository implements AdPlanRepository {
         AdPlanPo po = mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>()
                 .eq(AdPlanPo::getTenantId, tenantId.value())
                 .eq(AdPlanPo::getQcPlanId, qcPlanId.value()));
-        return Optional.ofNullable(po).map(this::toDomain);
+        return Optional.ofNullable(po).map(this::toDomain).map(this::withOrigin);
     }
 
     @Override
     public List<AdPlan> findByTenant(TenantId tenantId) {
-        return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getTenantId, tenantId.value())).stream()
+        return withOrigins(mapper.selectList(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getTenantId, tenantId.value())).stream()
                 .map(this::toDomain)
-                .toList();
+                .toList());
     }
 
     @Override
@@ -221,7 +223,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
 
     @Override
     public Optional<AdPlan> findByIdOnly(PlanId id) {
-        return Optional.ofNullable(mapper.selectById(id.value())).map(this::toDomain);
+        return Optional.ofNullable(mapper.selectById(id.value())).map(this::toDomain).map(this::withOrigin);
     }
 
     @Override
@@ -229,6 +231,20 @@ public class MpAdPlanRepository implements AdPlanRepository {
         return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getStatus, "PENDING_AUDIT")).stream()
                 .map(this::toDomain)
                 .toList();
+    }
+
+    private AdPlan withOrigin(AdPlan plan) { withOrigins(List.of(plan));return plan; }
+
+    private List<AdPlan> withOrigins(List<AdPlan> values) {
+        if(origins==null)return values;
+        record Scope(TenantId tenant,AccountId account) {}
+        values.stream().filter(p->p.source()==PlanSource.EXTERNAL && p.qcPlanId().isPresent())
+            .collect(Collectors.groupingBy(p->new Scope(p.tenantId(),p.accountId())))
+            .forEach((scope,rows)->{
+                var published=origins.publishedIds(scope.tenant(),scope.account(),rows.stream().map(p->p.qcPlanId().orElseThrow().value()).toList());
+                rows.stream().filter(p->published.contains(p.qcPlanId().orElseThrow().value())).forEach(AdPlan::restoreLingtouSource);
+            });
+        return values;
     }
 
     private AdPlan toDomain(AdPlanPo po) {

@@ -172,6 +172,11 @@ public class AdPlan {
         return source;
     }
 
+    /** Call only after a platform publication receipt has been verified. */
+    public void restoreLingtouSource() {
+        if (qcPlanId != null) source = PlanSource.LINGTOU;
+    }
+
     public int publishVersion() {
         return publishVersion;
     }

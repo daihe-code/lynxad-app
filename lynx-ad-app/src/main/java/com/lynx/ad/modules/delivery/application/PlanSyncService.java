@@ -27,6 +27,8 @@ public class PlanSyncService {
     private final PlanRemoteStore store;
     private final TransactionTemplate transaction;
     private boolean live;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanOriginStore origins;
+    @org.springframework.beans.factory.annotation.Autowired public void originStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanOriginStore value) { origins=value; }
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     @org.springframework.beans.factory.annotation.Autowired
@@ -53,6 +55,7 @@ public class PlanSyncService {
             try {
                 var credential=credentials.getUsableCredential(tenant,account.id());
                 List<OceanPlanRow> rows=list.listIncludingDeleted(credential,null);
+                var published=origins==null?Set.<String>of():origins.publishedIds(tenant,account.id(),rows.stream().map(OceanPlanRow::qcPlanId).toList());
                 Map<String,AdPlan> local=new HashMap<>();
                 for(var plan:plans.findByTenant(tenant)) if(plan.accountId().equals(account.id())) plan.qcPlanId().ifPresent(q->local.put(q.value(),plan));
                 var pending=transfers==null?List.<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.Attempt>of():transfers.pending(tenant);
@@ -82,6 +85,7 @@ public class PlanSyncService {
                         existing.apply(QianchuanPlanMapping.status(row.status())); existing.syncPlatformStatus(row.status());
                         existing.rename(PlanName.fromPlatform(row.name())); existing.updateSetting(delivery);
                     }
+                    if(published.contains(row.qcPlanId()))existing.restoreLingtouSource();
                     AdPlan plan=existing;
                     transaction.executeWithoutResult(s->{
                         plans.save(plan); store.save(tenant,account.id(),row.qcPlanId(),physicalId,row.payload());
