@@ -126,7 +126,7 @@ public class PlanQueryService {
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
                     row.canEdit(),row.canControl(),row.roiEstimate(),row.canTransfer(),null,false,row.review(),row.awemeId(),row.materialCoverUrl(),
-                    m==null?null:m.netGmv(),m==null?null:m.netRoi(),m==null?null:m.refundRate()));
+                    m==null?null:m.netGmv(),m==null?null:m.netRoi(),m==null?null:m.refundRate(),row.awemeName(),row.awemeAvatarUrl()));
         }
         return result;
     }
@@ -162,8 +162,9 @@ public class PlanQueryService {
         if(visible.isEmpty()) throw new BizException(1405,"计划不存在或不属于真实千川授权账户");
         var row=visible.getFirst();
         var r=remote==null?null:remote.list(tenant).get(id.value());
-        String aweme=plan.awemeId().value();
-        if(r!=null && r.detail()!=null && r.detail().hasNonNull("aweme_id")) aweme=r.detail().path("aweme_id").asText();
+        String aweme=row.awemeId();
+        String detailAweme=r==null?null:QianchuanPlanMapping.awemeId(r.detail());
+        if(detailAweme!=null)aweme=detailAweme;
         var goods=row.products();
         if(live && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
             // Imported history has no local creation snapshot. Read existing products without
@@ -218,6 +219,14 @@ public class PlanQueryService {
             if(liveAuthorization && !realAccounts.contains(plan.accountId().value())) continue;
             var metadata=meta.get(plan.id().value()); var pair=latest.get(plan.id().value()); var snap=pair==null?null:pair.current();
             var r=cached.get(plan.id().value()); JsonNode info=r==null?null:QianchuanPlanMapping.info(r.payload());
+            String aweme=plan.awemeId().value();
+            if(r!=null && "unknown".equals(aweme)) {
+                String confirmed=QianchuanPlanMapping.awemeId(r.detail());
+                if(confirmed==null)confirmed=QianchuanPlanMapping.awemeId(r.payload());
+                if(confirmed!=null)aweme=confirmed;
+            }
+            String awemeName=r==null?null:QianchuanPlanMapping.anchorText(r.payload(),"anchor_name");
+            String awemeAvatar=r==null?null:QianchuanPlanMapping.anchorText(r.payload(),"anchor_avatar");
             var creationSummary=creationSummaries.get(logicalId);
             if(live && r==null) snap=null;
             JsonNode setting=r==null?null:QianchuanPlanMapping.setting(r.detail()!=null?r.detail():r.payload());
@@ -265,7 +274,7 @@ public class PlanQueryService {
                     canEdit && plan.status()==PlanStatus.DELIVERING,
                     plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
                     canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
-                    plan.awemeId().value(),materialCover));
+                    aweme,materialCover,null,null,null,awemeName,awemeAvatar));
         }
         return result;
     }

@@ -40,6 +40,8 @@ export interface PlanVo {
 
 export interface PlanListVo {
   awemeId?: string | null;
+  awemeName?: string | null;
+  awemeAvatarUrl?: string | null;
   materialCoverUrl?: string | null;
   review?: PlanReviewProgress | null;
   statisticsDate?: string | null;

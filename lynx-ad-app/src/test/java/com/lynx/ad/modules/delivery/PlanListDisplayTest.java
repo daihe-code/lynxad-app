@@ -49,6 +49,24 @@ class PlanListDisplayTest {
             """))));
     }
     PlanListVo row() {return query.list(tenant,1,20).records().getFirst();}
+    @Test void historyListUsesConfirmedAwemeAndNativeAvatarWithoutDependingOnLoginAccountProfile() throws Exception {
+        plan=new AdPlan(id,tenant,plan.accountId(),new AwemeId("unknown"),plan.name(),plan.status(),plan.source(),plan.setting(),
+                List.of(),new QcPlanId("123"),plan.qcStatus(),null,0,null,List.of());
+        when(plans.findByTenant(tenant)).thenReturn(List.of(plan));
+        var payload=json.readTree("{\"room_info\":[{\"anchor_id\":62134167826,\"anchor_name\":\"SherrySherry\",\"anchor_avatar\":\"https://avatar.test/sherry.webp\"}]}");
+        var detail=json.readTree("{\"ad_id\":123,\"aweme_id\":4034544334551504}");
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),new PlanRemoteStore.Remote(id.value(),payload,detail,null,Instant.now(),null,null,null,null)));
+        var result=row();assertEquals("4034544334551504",result.awemeId());
+        assertEquals("SherrySherry",result.awemeName());assertEquals("https://avatar.test/sherry.webp",result.awemeAvatarUrl());
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        when(statistics.report(eq(tenant),eq("account-a"),any(),eq(false))).thenReturn(new PlanStatisticsService.Snapshot(Map.of(),Instant.now()));
+        var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        var ranged=query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,new PlanStatisticsRange(today,today),false)).records().getFirst();
+        assertEquals(result.awemeId(),ranged.awemeId());assertEquals(result.awemeAvatarUrl(),ranged.awemeAvatarUrl());
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),new PlanRemoteStore.Remote(id.value(),payload,null,null,Instant.now(),null,null,null,null)));
+        assertEquals("unknown",row().awemeId()); // anchor_id must never become an OAuth aweme_id.
+        assertEquals("https://avatar.test/sherry.webp",row().awemeAvatarUrl());
+    }
     @Test void importedHistoryReadsCatalogFactsWithoutNewPlanEligibilityAndKeepsUnavailableProducts() throws Exception {
         var properties=new com.lynx.ad.common.config.LynxAdProperties();properties.getMock().setQianchuan(false);properties.getOauth().getQianchuan().setMode("mock");query.configuration(properties);
         when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));

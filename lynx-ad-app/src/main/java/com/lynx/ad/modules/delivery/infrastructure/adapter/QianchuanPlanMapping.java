@@ -11,6 +11,24 @@ public final class QianchuanPlanMapping {
     public static JsonNode info(JsonNode row) { return row.has("ad_info") ? row.path("ad_info") : row; }
     public static JsonNode setting(JsonNode row) { return row.has("delivery_setting") ? row.path("delivery_setting") : info(row); }
     public static String text(JsonNode node, String key) { return node.path(key).isNull() || node.path(key).isMissingNode() ? null : node.path(key).asText(); }
+    /** anchor_id in the list response is a different identifier; never use it as aweme_id. */
+    public static String awemeId(JsonNode row) {
+        if(row==null) return null;
+        String id=text(row,"aweme_id");
+        if(id==null) id=text(info(row),"aweme_id");
+        if(id!=null && id.matches("[1-9][0-9]{0,18}")) return id;
+        var ids=new java.util.HashSet<String>();
+        for(var room:row.path("room_info")) {
+            String value=text(room,"aweme_id");
+            if(value!=null && value.matches("[1-9][0-9]{0,18}")) ids.add(value);
+        }
+        return ids.size()==1?ids.iterator().next():null;
+    }
+    public static String anchorText(JsonNode row,String field) {
+        if(row==null || !row.path("room_info").isArray() || row.path("room_info").size()!=1) return null;
+        String value=text(row.path("room_info").get(0),field);
+        return value==null || value.isBlank()?null:value;
+    }
     public static BigDecimal number(JsonNode node, String key) {
         JsonNode value = node.path(key);
         if (value.isObject()) value = value.has("Value") ? value.path("Value") : value.path("value");

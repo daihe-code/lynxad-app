@@ -63,7 +63,7 @@
             <tr v-for="row in pagedRows" :key="row.planId" >
               <td class="plan-info-cell">
                   <span v-if="isDeleted(row)" class="plan-name" :title="row.name">{{ row.name }}</span>
-                  <router-link v-else class="plan-name" :to="isDraft(row) ? `/campaigns/${row.planId}/edit` : `/campaigns/${row.planId}`" :title="row.name">{{ row.name }}</router-link>
+                  <router-link v-else class="plan-name" :to="insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
                 <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>

@@ -75,9 +75,7 @@ public class PlanSyncService {
                             com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,
                                     new Schedule(ScheduleType.FROM_NOW,QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")),QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")))),AudienceJson.empty());
                     if(existing==null) {
-                        String aweme=QianchuanPlanMapping.text(row.payload(),"aweme_id");
-                        if(aweme==null && row.payload().path("room_info").isArray() && !row.payload().path("room_info").isEmpty())
-                            aweme=QianchuanPlanMapping.text(row.payload().path("room_info").get(0),"aweme_id");
+                        String aweme=QianchuanPlanMapping.awemeId(row.payload());
                         existing=new AdPlan(new PlanId(id),tenant,account.id(),new AwemeId(aweme==null?"unknown":aweme),
                                 PlanName.fromPlatform(row.name()),QianchuanPlanMapping.status(row.status()),PlanSource.EXTERNAL,delivery,List.of(),
                                 new QcPlanId(row.qcPlanId()),row.status(),null,0,null,List.of());
@@ -85,10 +83,23 @@ public class PlanSyncService {
                         existing.apply(QianchuanPlanMapping.status(row.status())); existing.syncPlatformStatus(row.status());
                         existing.rename(PlanName.fromPlatform(row.name())); existing.updateSetting(delivery);
                     }
+                    existing.restorePlatformAweme(QianchuanPlanMapping.awemeId(row.payload()));
+                    JsonNode identityDetail=null;
+                    if("unknown".equals(existing.awemeId().value()) && existing.status()!=PlanStatus.DELETED) {
+                        try {
+                            var detail=management.detail(credential,row.qcPlanId());
+                            // Read with this tenant/account's credential and confirm the native plan ID.
+                            if(detail!=null && row.qcPlanId().equals(QianchuanPlanMapping.id(detail)) && QianchuanPlanMapping.awemeId(detail)!=null) {
+                                existing.restorePlatformAweme(QianchuanPlanMapping.awemeId(detail));identityDetail=detail;
+                            } else warnings.add("计划 "+row.qcPlanId()+"：平台暂未提供可确认的抖音号信息");
+                        } catch(RuntimeException ex) { warnings.add("计划 "+row.qcPlanId()+" 抖音号信息："+failure(ex)); }
+                    }
                     if(published.contains(row.qcPlanId()))existing.restoreLingtouSource();
                     AdPlan plan=existing;
+                    JsonNode confirmedDetail=identityDetail;
                     transaction.executeWithoutResult(s->{
                         plans.save(plan); store.save(tenant,account.id(),row.qcPlanId(),physicalId,row.payload());
+                        if(confirmedDetail!=null) store.detail(tenant,physicalId,confirmedDetail);
                         if(transfers!=null && plan.status()==PlanStatus.DELETED) transfers.detachDeleted(tenant,plan.id());
                     });
                     ids.put(row.qcPlanId(),id); count++;

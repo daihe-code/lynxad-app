@@ -1,8 +1,8 @@
 <template>
   <div class="plan-content-summary">
     <el-popover placement="bottom-start" :width="260" :trigger="['hover', 'focus', 'click']" :show-after="150" popper-class="campaign-popover">
-      <template #reference><button class="aweme-trigger" type="button" :aria-label="`查看抖音号：${aweme?.name || plan.awemeId || '暂未提供'}`"><span class="content-thumb aweme-avatar"><el-image v-if="aweme?.avatar" :src="aweme.avatar" fit="cover"><template #error><el-icon><User /></el-icon></template></el-image><el-icon v-else><User /></el-icon></span></button></template>
-      <div class="aweme-details"><strong>{{ aweme?.name || '抖音号' }}</strong><span>抖音号 ID：{{ plan.awemeId || '暂未提供' }}</span><small v-if="account?.accountName">广告账户：{{ account.accountName }}</small></div>
+      <template #reference><button class="aweme-trigger" type="button" :aria-label="`查看抖音号：${aweme?.name || plan.awemeName || awemeId || '暂未获取'}`"><span class="content-thumb aweme-avatar"><el-image v-if="avatar" :src="avatar" fit="cover"><template #error><el-icon><User /></el-icon></template></el-image><el-icon v-else><User /></el-icon></span></button></template>
+      <div class="aweme-details"><strong>{{ aweme?.name || plan.awemeName || '抖音号' }}</strong><span>抖音号 ID：{{ awemeId || '暂未获取' }}</span><small v-if="account?.accountName">广告账户：{{ account.accountName }}</small></div>
     </el-popover>
     <span class="content-divider" aria-hidden="true" />
     <el-popover placement="bottom-start" :width="340" :trigger="['hover', 'focus']" :show-after="150" :hide-after="100" popper-class="campaign-popover plan-content-popover">
@@ -30,6 +30,8 @@ import type { PlanListVo } from '@/features/delivery/deliveryApi';
 import type { AccountVo } from '@/features/identity/oauthApi';
 const props=defineProps<{plan:PlanListVo;account?:AccountVo;productsLink:RouteLocationRaw;materialsLink:RouteLocationRaw;disabled?:boolean}>();
 const aweme=computed(()=>props.account?.awemes.find(item=>item.awemeId===props.plan.awemeId));
+const awemeId=computed(()=>/^[1-9][0-9]{0,18}$/.test(props.plan.awemeId || '')?props.plan.awemeId:null);
+const avatar=computed(()=>aweme.value?.avatar || props.plan.awemeAvatarUrl);
 const products=computed(()=>[...new Map((props.plan.products||[]).map(product=>[product.id,product])).values()]);
 const productCover=computed(()=>products.value.find(product=>product.imageUrl)?.imageUrl);
 const materialCover=computed(()=>props.plan.materialCoverUrl?.trim());
