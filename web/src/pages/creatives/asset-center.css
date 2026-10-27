@@ -1381,7 +1381,7 @@ to {
   margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  align-items: stretch;
+  align-items: start;
   -moz-column-gap: 18px;
   column-gap: 18px;
   row-gap: 18px

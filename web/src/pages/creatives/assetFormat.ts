@@ -1,5 +1,6 @@
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import { reviewLabel } from '@/features/creative/assetUploads';
+import { assetGeometry } from '@/features/creative/assetGeometry';
 export { assetDay, assetDateTime } from '@/features/creative/assetDates';
 
 export function assetUrl(url: string) {
@@ -42,14 +43,9 @@ export function assetStatus(item: LibraryItemVo) {
   return item.used ? { cls: "ac-use--on", label: "使用中" } : { cls: "ac-use--off", label: "未使用" };
 }
 export function assetRatio(item: LibraryItemVo) {
-  if (item.width && item.height) {
-    const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
-    const divisor = gcd(item.width, item.height);
-    return `${item.width / divisor}:${item.height / divisor}`;
-  }
-  const mode = item.imageMode || "";
-  return mode.includes("VERTICAL") ? "9:16" : mode.includes("HORIZONTAL") ? "16:9" : mode.includes("SQUARE") ? "1:1" : "—";
+  return assetGeometry(item).ratioLabel || '—';
 }
 export function assetDimensions(item: LibraryItemVo) {
-  return item.width && item.height ? `${item.width}×${item.height}` : "—";
+  const {width,height} = assetGeometry(item);
+  return width && height ? `${width}×${height}` : "—";
 }

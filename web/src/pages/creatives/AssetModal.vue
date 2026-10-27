@@ -16,12 +16,12 @@
         <template v-else>
         <template v-if="kind === 'preview'">
           <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
-          <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT' }"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && previewUrls?.playUrl" :key="item.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="previewFailed"></video><img v-else-if="previewUrls?.playUrl || previewUrls?.posterUrl" :src="assetUrl(previewUrls.playUrl || previewUrls.posterUrl)" :alt="item.filename" @load="readDimensions" @error="previewFailed" /><span v-else class="asset-media-error">{{ previewUrls?.message || '暂无可预览的文件' }}</span><span v-if="mediaError" class="asset-media-error" role="status">{{ previewUrls?.message || '素材文件暂不可播放或预览' }}</span></div>
-          <div class="ac-pinfo"><span>规格 <b>{{ dimensions }} · {{ assetRatio(item) }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>—</b></span><span>状态 <b>{{ assetStatus(item).label }}</b></span></div>
+          <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT', 'asset-media-frame': geometry.ratio }" :style="mediaStyle"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && previewUrls?.playUrl" :key="item.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="previewFailed"></video><img v-else-if="previewUrls?.playUrl || previewUrls?.posterUrl" :src="assetUrl(previewUrls.playUrl || previewUrls.posterUrl)" :alt="item.filename" @load="readDimensions" @error="previewFailed" /><span v-else class="asset-media-error">{{ previewUrls?.message || '暂无可预览的文件' }}</span><span v-if="mediaError" class="asset-media-error" role="status">{{ previewUrls?.message || '素材文件暂不可播放或预览' }}</span></div>
+          <div class="ac-pinfo"><span v-if="geometry.label">画面 <b>{{ geometry.label }}</b></span><span>规格 <b>{{ dimensions }} · {{ displayItem ? assetRatio(displayItem) : '—' }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>—</b></span><span>状态 <b>{{ assetStatus(item).label }}</b></span></div>
           <div class="modal__foot"><button v-if="item.type === 'TEXT' && uploaded?.textContent" class="btn-modal-ghost" type="button" @click="copyText">复制文本</button><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
         </template>
         <template v-else>
-          <div class="ac-dmedia ac-t0"><AssetThumbnail :item="item" /><span class="ac-src" :class="{ 'ac-src--plat': item.source === 'EXTERNAL' }">{{ sourceLabel(item) }}</span><button class="ac-hbtn asset-detail-play" type="button" aria-label="预览该素材" @click="emit('switch', 'preview')"><AssetIcon name="play" />{{ item.type === 'VIDEO' ? '试播' : '预览' }}</button></div>
+          <div class="ac-dmedia ac-t0" :class="{ 'asset-media-frame': geometry.ratio }" :style="mediaStyle"><AssetThumbnail :item="item" fit="contain" :read-metadata="item.type === 'VIDEO' && !geometry.width" @metadata="observed = $event" /><span class="ac-src" :class="{ 'ac-src--plat': item.source === 'EXTERNAL' }">{{ sourceLabel(item) }}</span><button class="ac-hbtn asset-detail-play" type="button" aria-label="预览该素材" @click="emit('switch', 'preview')"><AssetIcon name="play" />{{ item.type === 'VIDEO' ? '试播' : '预览' }}</button></div>
           <div class="ac-dbody">
             <div class="modal__head"><h2 id="asset-detail-title" class="ac-dtitle">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
             <div class="ac-dmeta"><span>{{ item.materialId || item.objectId || item.id }}</span><span>{{ { VIDEO: '视频库', IMAGE: '图片库', CAROUSEL: '图文库', AUDIO: '音频库', TEXT: '文本库' }[item.type] }}</span><span class="ac-use" :class="assetStatus(item).cls"><i></i>{{ assetStatus(item).label }}</span></div>
@@ -42,6 +42,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
+import { assetGeometry } from '@/features/creative/assetGeometry';
 import AssetIcon from "./AssetIcon.vue";
 import AssetThumbnail from "./AssetThumbnail.vue";
 import AssetUploadPanel from "./AssetUploadPanel.vue";
@@ -61,7 +62,12 @@ const closeBlocked = computed(() => props.kind === 'upload' && uploadCloseBlocke
 function requestClose() { if (!closeBlocked.value) emit('close'); }
 const box = ref<HTMLElement>();
 const uploaded = ref<UploadedAsset>(), detailError = ref(""), retrying = ref("");
-const mediaError = ref(false), dimensions = ref(props.item ? assetDimensions(props.item) : "—");
+const mediaError = ref(false), observed = ref<{width:number;height:number}>();
+const geometry = computed(() => props.item ? assetGeometry(props.item, observed.value) : {orientation:'unknown',label:''} as ReturnType<typeof assetGeometry>);
+const displayItem = computed(() => props.item && geometry.value.width ? {...props.item,width:geometry.value.width,height:geometry.value.height} : props.item);
+const dimensions = computed(() => displayItem.value ? assetDimensions(displayItem.value) : '—');
+const mediaStyle = computed(() => geometry.value.ratio ? {aspectRatio:geometry.value.ratio,'--asset-ratio':geometry.value.ratioValue} : undefined);
+watch(() => props.item?.id, () => { observed.value = undefined; });
 const previewUrls = computed(() => props.item ? assetPreview(props.item) : undefined);
 async function previewFailed() {
   const item = props.item; if (!item) return;
@@ -111,12 +117,19 @@ async function verifySync(sync: AssetSync) {
 }
 watch(() => props.item?.assetId, () => { ++syncRequestNo; retrying.value = ''; uploaded.value = undefined; detailError.value = ''; void loadDetail(); });
 const specs = computed(() => {
-  const a = props.item; if (!a) return [];
+  const a = displayItem.value; if (!a) return [];
   const values = [["素材规格", dimensions.value], ["画幅比例", assetRatio(a)], ["文件大小", fileSize(a.sizeBytes)]];
+  if (geometry.value.label) values.unshift(['画面方向',geometry.value.label]);
   if (a.type === "VIDEO") values.push(["视频时长", duration(a.durationSec)]);
   return [...values, ["所属类目", a.category || "—"], [a.source === 'EXTERNAL' ? '千川上传时间' : '上传时间', assetDateTime(a.createdAt)], ["素材来源", sourceLabel(a)], ["入库状态", assetStatus(a).label]];
 });
-function readDimensions(event: Event) { const target = event.target as HTMLImageElement | HTMLVideoElement; const w = target instanceof HTMLVideoElement ? target.videoWidth : target.naturalWidth; const h = target instanceof HTMLVideoElement ? target.videoHeight : target.naturalHeight; if (w && h) dimensions.value = `${w}×${h}`; }
+function readDimensions(event: Event) {
+  const target = event.target as HTMLImageElement | HTMLVideoElement;
+  if (props.item?.type === 'VIDEO' && !(target instanceof HTMLVideoElement)) return;
+  const width = target instanceof HTMLVideoElement ? target.videoWidth : target.naturalWidth;
+  const height = target instanceof HTMLVideoElement ? target.videoHeight : target.naturalHeight;
+  if (width > 0 && height > 0) observed.value = {width,height};
+}
 function onKey(event: KeyboardEvent) {
   if (event.key === "Escape") { event.preventDefault(); requestClose(); return; }
   if (event.key !== "Tab") return;
@@ -137,6 +150,8 @@ onUnmounted(() => { disposed = true; ++detailRequestNo; ++syncRequestNo; documen
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .ac-file__ic svg { width: 18px; height: 18px; }
 .ac-pmedia video, .ac-pmedia > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.ac-pmedia.asset-media-frame, .ac-dmedia.asset-media-frame { height:auto; width:min(100%,calc(60dvh * var(--asset-ratio))); margin-inline:auto; }
+.ac-dmedia.asset-media-frame { width:min(100%,calc(40dvh * var(--asset-ratio))); }
 .asset-detail-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .asset-media-error { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-size: 13px; color: #4e5069; background: rgba(255,255,255,.9); padding: 8px; }
 .ac-dmeta span:first-child, .ac-dl__v, .ac-dtitle, .modal__title { overflow-wrap: anywhere; }

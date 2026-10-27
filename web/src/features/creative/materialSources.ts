@@ -1,4 +1,5 @@
 import type { AssetSync, CarouselDetail, LibraryItemVo, UploadedAsset } from './creativeApi';
+import { assetGeometry } from './assetGeometry.ts';
 
 const approved = (value?: string) => value === 'APPROVED' || value === 'NOT_REQUIRED';
 const accepted = (sync: AssetSync) => sync.status === 'UPLOADED' && sync.reviewStatus !== 'REJECTED';
@@ -38,6 +39,5 @@ export function carouselItem(value: CarouselDetail): LibraryItemVo {
 export function materialMeta(item: LibraryItemVo) {
   if (item.type !== 'VIDEO') return item.type === 'CAROUSEL' ? item.category || '图文' : item.width && item.height ? `${item.width} × ${item.height}` : '图片';
   const duration = item.durationSec && item.durationSec > 0 ? `${Math.round(item.durationSec * 10) / 10} 秒` : '时长待获取';
-  const orientation = item.width && item.height ? item.width > item.height ? '横屏' : item.width < item.height ? '竖屏' : '方形' : /HORIZONTAL/.test(item.imageMode || '') ? '横屏' : /VERTICAL/.test(item.imageMode || '') ? '竖屏' : '画幅待获取';
-  return `${duration} · ${orientation}`;
+  return `${duration} · ${assetGeometry(item).label}`;
 }
