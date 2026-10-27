@@ -101,8 +101,18 @@ public class CreationState {
     public Map<String,TitlePool> titlePools = new LinkedHashMap<>();
     public static class TitlePool {
         public List<String> customTitles=new ArrayList<>(), cardTitles=new ArrayList<>();
+        public List<String> customGeneratedTitles=new ArrayList<>(),cardGeneratedTitles=new ArrayList<>();
+        public boolean provenanceRecorded;
         public String customTextAssetId,cardTextAssetId;
     }
+    public TitleGeneration titleGeneration;
+    public static class TitleGeneration {
+        public String requestId,productId,kind,original,status="SENDING",message;
+        public int index;
+        public long sentAt;
+        public List<String> before=new ArrayList<>();
+    }
+    public boolean titleGenerationPending(){return titleGeneration!=null&&Set.of("SENDING","PROCESSING").contains(titleGeneration.status);}
     public List<String> removedMaterialIds = new ArrayList<>();
     public List<FeedbackEvent> feedback = new ArrayList<>();
     public record FeedbackEvent(String materialId,String action,List<String> reasons,String description,String userId,String at) {}

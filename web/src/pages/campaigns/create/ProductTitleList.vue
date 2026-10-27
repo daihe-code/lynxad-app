@@ -1,49 +1,58 @@
 <template>
-  <div>
-    <section v-for="group in groups" :key="group.kind" class="tgroup">
-      <div class="tgroup__head"><span class="tgroup__name">{{ group.label }}</span><span class="tgroup__added">已添加：{{ values(group.kind).length }}</span></div>
-      <p class="tgroup__sub">{{ group.description }}</p>
-      <div class="trows"><div v-for="(text,index) in values(group.kind)" :key="`${group.kind}:${index}`" class="trow">
-        <input v-if="editing?.kind === group.kind && editing.index === index" v-model="draft" class="trow__box" maxlength="55" :disabled="busy" :aria-label="`编辑${group.label}`" @keydown.enter="save()" @keydown.esc="editing = undefined" />
-        <span v-else class="trow__text title-text">{{ text }}</span>
-        <span class="trow__count">{{ (editing?.kind === group.kind && editing.index === index ? draft : text).length }}/55</span>
-        <span v-if="!readOnly" class="trow__ops"><button v-if="editing?.kind === group.kind && editing.index === index" type="button" class="iconbtn" :disabled="busy || !!titlesInputError([draft])" aria-label="保存标题" title="保存标题" @click="save"><ReferenceIcon name="check" /></button><button v-else type="button" class="iconbtn" :disabled="busy" aria-label="编辑标题" title="编辑标题" @click="editing = {kind:group.kind,index}; draft=text; error='' "><ReferenceIcon name="edit" /></button><button type="button" class="iconbtn" :disabled="busy || values(group.kind).length <= 1" aria-label="删除标题" :title="values(group.kind).length <= 1 ? '当前类型至少保留一条投放标题' : '删除标题'" @click="remove(group.kind,index)"><ReferenceIcon name="trash" /></button></span>
-      </div></div>
-      <p v-if="!values(group.kind).length" class="title-help">当前商品暂无{{ group.label }}</p>
+  <div class="product-titles">
+    <section v-for="group in groups" :key="group.kind" class="copy-group">
+      <div class="copy-heading"><h3>{{ group.label }}</h3><span>已添加 {{ values(group.kind).length }} 条</span></div>
+      <p class="copy-description">{{ group.description }}</p>
+      <div class="copy-rows">
+        <div v-for="(text,index) in values(group.kind)" :key="`${group.kind}:${index}`" class="copy-row">
+          <div class="copy-field">
+            <input :value="isEditing(group.kind,index) ? draft : text" :maxlength="titleLimit(group.kind)" :readonly="readOnly" :disabled="busy"
+              :aria-label="`${group.label} ${index+1}`" @focus="edit(group.kind,index,text)" @input="draft=($event.target as HTMLInputElement).value"
+              @blur="save" @keydown.enter="save" @keydown.esc="editing=undefined" />
+            <span v-if="isGeneratedTitle(materials,pool,group.kind,text)" class="copy-ai"><ReferenceIcon name="sparkle" />智能生成</span>
+            <span class="copy-count">{{ (isEditing(group.kind,index) ? draft : text).length }}/{{ titleLimit(group.kind) }}</span>
+          </div>
+          <div v-if="!readOnly" class="copy-actions">
+            <button type="button" :disabled="busy" :aria-label="`重新生成${group.label} ${index+1}`" title="重新生成" @mousedown.prevent @click="regenerate(group.kind,index,text)"><ReferenceIcon name="refresh" /></button>
+            <button type="button" :disabled="busy || values(group.kind).length <= 1" :aria-label="`删除${group.label} ${index+1}`" :title="values(group.kind).length <= 1 ? '当前类型至少保留一条投放标题' : '删除'" @mousedown.prevent @click="remove(group.kind,index)"><ReferenceIcon name="trash" /></button>
+          </div>
+        </div>
+      </div>
+      <p v-if="!values(group.kind).length" class="copy-description">当前商品暂无{{ group.label }}</p>
     </section>
-    <p v-if="error || editing && titlesInputError([draft])" class="title-error" role="alert">{{ error || titlesInputError([draft]) }}</p>
-    <p class="title-help">标题按商品管理，由平台按支持的类型组合使用。修改标题不会重新生成或上传图片、视频；发布前会校验文案。</p>
+    <p v-if="error || validationError" class="copy-error" role="alert">{{ error || validationError }}</p>
+    <p v-if="generation?.message" class="copy-status" :class="{'copy-error':generation.status==='FAILED'}" role="status">{{ generation.message }}</p>
   </div>
 </template>
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import type { CreationMaterial } from '@/features/delivery/creationApi';
-import { titlesInputError } from '@/features/delivery/inputValidation';
+import { computed, ref, watch } from 'vue';
+import type { CreationMaterial, ProductTitlesPool } from '@/features/delivery/creationApi';
+import { productTitleValues, isGeneratedTitle, productTitleError, titleLimit, type TitleKind } from '@/features/delivery/productTitles';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
-type Kind='CUSTOM'|'CARD';
-const props=defineProps<{materials:CreationMaterial[];pool?:{customTitles:string[];cardTitles:string[]};busy:boolean;readOnly?:boolean}>();
-const emit=defineEmits<{save:[kind:Kind,titles:string[]]}>();
-const groups: {kind:Kind;label:string;description:string}[]=[{kind:'CUSTOM',label:'标题',description:'用于当前商品的视频、图文投放，不固定绑定某一条素材。'},{kind:'CARD',label:'商品卡标题',description:'用于当前商品的商品卡投放，实际组合以平台支持为准。'}];
-const editing=ref<{kind:Kind;index:number}>(), draft=ref(''),error=ref('');
-const pending=ref(false);
-function values(kind:Kind) {
-  const saved=kind==='CARD'?props.pool?.cardTitles:props.pool?.customTitles;
-  return saved?.length ? saved : [...new Set(props.materials.filter(m=>kind==='CARD'?m.type==='IMAGE':m.type!=='IMAGE').flatMap(m=>m.titles))];
-}
-function save() {
-  if(!editing.value || props.readOnly || props.busy || titlesInputError([draft.value]))return;
-  const {kind,index}=editing.value, titles=[...values(kind)],text=draft.value.trim();
+
+const props=defineProps<{materials:CreationMaterial[];pool?:ProductTitlesPool;busy:boolean;readOnly?:boolean;generation?:{status:string;message?:string}}>();
+const emit=defineEmits<{save:[kind:TitleKind,titles:string[]];regenerate:[kind:TitleKind,index:number,original:string]}>();
+const groups: {kind:TitleKind;label:string;description:string}[]=[
+  {kind:'CUSTOM',label:'标题',description:'配视频素材，在短视频信息流场景展示'},
+  {kind:'CARD',label:'商品卡标题',description:'配图片、图文素材，在抖音商城、搜索等场景展示'},
+];
+const editing=ref<{kind:TitleKind;index:number}>(),draft=ref(''),error=ref(''),pending=ref(false);
+const validationError=computed(()=>editing.value?productTitleError(editing.value.kind,draft.value):'');
+const values=(kind:TitleKind)=>productTitleValues(props.materials,props.pool,kind);
+const isEditing=(kind:TitleKind,index:number)=>editing.value?.kind===kind&&editing.value.index===index;
+function edit(kind:TitleKind,index:number,text:string){if(props.readOnly||props.busy)return;editing.value={kind,index};draft.value=text;error.value='';}
+function save(){
+  if(!editing.value||props.readOnly||props.busy||validationError.value)return;
+  const {kind,index}=editing.value,titles=[...values(kind)],text=draft.value.trim();
   if(titles[index]===text){editing.value=undefined;return;}
-  if(titles.some((t,i)=>i!==index && t===text)){error.value='当前类型已存在相同标题';return;}
+  if(titles.some((t,i)=>i!==index&&t===text)){error.value='当前类型已存在相同标题';return;}
   titles[index]=text;pending.value=true;emit('save',kind,titles);error.value='';
 }
-function remove(kind:Kind,index:number) {
-  if(props.readOnly||props.busy||values(kind).length<=1)return;
-  emit('save',kind,values(kind).filter((_,i)=>i!==index));editing.value=undefined;error.value='';
-}
+function remove(kind:TitleKind,index:number){if(props.readOnly||props.busy||values(kind).length<=1)return;editing.value=undefined;error.value='';emit('save',kind,values(kind).filter((_,i)=>i!==index));}
+function regenerate(kind:TitleKind,index:number,text:string){if(props.readOnly||props.busy)return;editing.value=undefined;error.value='';emit('regenerate',kind,index,text);}
 watch(()=>props.materials[0]?.productId,()=>{editing.value=undefined;error.value='';});
-watch(()=>props.busy,busy=>{if(!busy && pending.value){pending.value=false;if(editing.value && values(editing.value.kind)[editing.value.index]===draft.value.trim())editing.value=undefined;else error.value='标题暂未保存，输入内容已保留，可继续修改或重试。';}});
+watch(()=>props.busy,busy=>{if(!busy&&pending.value){pending.value=false;if(editing.value&&values(editing.value.kind)[editing.value.index]===draft.value.trim())editing.value=undefined;else error.value='标题暂未保存，输入内容已保留，可重试。';}});
 </script>
 <style scoped>
-.title-text{white-space:normal;overflow-wrap:anywhere;text-align:left}.title-help{font-size:12px;line-height:1.8;color:#8588a5;margin-top:14px}.title-error{font-size:12px;color:#d54650;margin-top:12px}.trow__box{outline:none!important;border:0!important;box-shadow:none!important}.trow:focus-within{outline:2px solid #b7b4fa;outline-offset:2px}.iconbtn:disabled{opacity:.4;cursor:default}
+.copy-group+.copy-group{border-top:1px solid #ececf5;margin-top:24px;padding-top:24px}.copy-heading{display:flex;align-items:center;gap:20px}.copy-heading h3{font-size:17px;font-weight:650;margin:0;color:#202137}.copy-heading>span,.copy-description{font-size:13px;color:#8588a5}.copy-description{margin:7px 0 14px}.copy-rows{display:grid;gap:12px}.copy-row{display:flex;gap:14px;align-items:start}.copy-field{min-width:0;flex:1;display:flex;align-items:center;gap:12px;min-height:46px;padding:5px 14px;border:1px solid #d8d5fa;border-radius:9px;background:#fff}.copy-field:focus-within{border-color:#6258ff;box-shadow:0 0 0 1px #c2bdff}.copy-field input{min-width:0;flex:1;width:100%;border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important;color:#34364d;padding:4px 0;font-size:14px}.copy-ai{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;border-radius:8px;background:#f0eeff;color:#6156f6;padding:6px 12px;font-size:12px;font-weight:600}.copy-ai svg{width:14px;height:14px}.copy-count{flex-shrink:0;min-width:42px;color:#9495ad;font-size:12px;text-align:right}.copy-actions{display:flex;gap:12px}.copy-actions button{display:flex;align-items:center;justify-content:center;width:52px;height:46px;border:1px solid #e6e6f1;border-radius:9px;color:#51546d;background:#fff;cursor:pointer}.copy-actions svg{width:18px;height:18px}.copy-actions button:hover:not(:disabled){color:#6258ff;border-color:#a5a0ff;background:#f8f7ff}.copy-actions button:disabled{opacity:.4;cursor:default}.copy-error{font-size:12px;color:#d54650;margin-top:12px}.copy-status{font-size:13px;margin-top:16px;color:#777b9b}.copy-status.copy-error{color:#d54650}@media(max-width:640px){.copy-row{gap:8px;flex-wrap:wrap}.copy-field{flex-basis:100%;flex-wrap:wrap;gap:6px}.copy-field input{flex-basis:100%}.copy-ai{margin-right:auto}.copy-actions{margin-left:auto}.copy-actions button{height:38px;width:44px}}
 </style>

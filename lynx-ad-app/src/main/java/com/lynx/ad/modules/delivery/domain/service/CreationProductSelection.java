@@ -8,7 +8,7 @@ public final class CreationProductSelection {
     private CreationProductSelection() {}
     private static final Set<String> ACTIVE=Set.of("QUEUED","SUBMITTING","SENDING","RUNNING","IMPORTING","REVISING","UNCERTAIN");
     public static boolean locked(CreationState s){
-        return ACTIVE.contains(Objects.toString(s.generationStatus,"")) || s.materialEditPending() || s.publishedEditPending()
+        return s.titleGenerationPending() || ACTIVE.contains(Objects.toString(s.generationStatus,"")) || s.materialEditPending() || s.publishedEditPending()
                 || s.materials.stream().anyMatch(m->"PROCESSING".equals(m.status))
                 || s.generationAdditions.stream().anyMatch(a->ACTIVE.contains(Objects.toString(a.status,"")))
                 || s.regeneration!=null&&!Set.of("SUCCEEDED","FAILED").contains(Objects.toString(s.regeneration.status,""))

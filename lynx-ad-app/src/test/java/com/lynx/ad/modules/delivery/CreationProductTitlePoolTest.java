@@ -44,4 +44,23 @@ class CreationProductTitlePoolTest {
         for(var titles:List.of(List.<String>of(),List.of("重复商品标题","重复商品标题")))assertThrows(BizException.class,()->service.productTitles(new TenantId("tenant"),"plan","123",new CreationWorkflowService.ProductTitles(7,"CUSTOM",titles)));
         assertThrows(BizException.class,()->service.productTitles(new TenantId("tenant"),"plan","123",new CreationWorkflowService.ProductTitles(6,"CUSTOM",List.of("原商品视频标题"))));verifyNoInteractions(importer);
     }
+    @Test void deletingAndManuallyEditingTitlesPersistAuthoritativePoolAndProvenance(){
+        s.materials.forEach(m->m.engineMaterialId="engine-"+m.id);
+        service.productTitles(new TenantId("tenant"),"plan","123",new CreationWorkflowService.ProductTitles(7,"CUSTOM",List.of("原商品视频标题")));
+        assertEquals(List.of("原商品视频标题"),com.lynx.ad.modules.delivery.api.dto.CreationView.of(s).titlePools().get("123").customTitles());
+        assertEquals(List.of("原商品视频标题"),s.titlePools.get("123").customGeneratedTitles);
+        service.productTitles(new TenantId("tenant"),"plan","123",new CreationWorkflowService.ProductTitles(s.revision,"CUSTOM",List.of("自己修改后的商品文案")));
+        assertTrue(s.titlePools.get("123").customGeneratedTitles.isEmpty());
+        assertEquals(2,s.materials.size());
+    }
+    @Test void regeneratingTitlesChecksRevisionAndPublishStateBeforeCallingEngine(){
+        var generator=mock(com.lynx.ad.modules.delivery.application.CreationTitleRegeneration.class);service.titleRegeneration(generator);
+        assertThrows(BizException.class,()->service.regenerateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.RegenerateTitle(6,"CUSTOM",0,"原商品视频标题")));
+        s.publishStatus="CREATED";
+        assertThrows(BizException.class,()->service.regenerateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.RegenerateTitle(7,"CUSTOM",0,"原商品视频标题")));
+        verifyNoInteractions(generator);
+        s.publishStatus="NONE";s.publishedEdit=new CreationState.PublishedEdit();
+        service.regenerateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.RegenerateTitle(7,"CUSTOM",0,"原商品视频标题"));
+        verify(generator).submit(s,"123","CUSTOM",0,"原商品视频标题");
+    }
 }

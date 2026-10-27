@@ -88,7 +88,8 @@ export interface CreationState {
   generationRetry?: { requestId?: string };
   groupingDecision?: 'KEEP_CURRENT';
   publishRecovery?: 'REFRESH_ESTIMATE' | 'PRODUCTS' | 'GOAL' | 'MATERIALS' | 'ACCOUNTS' | 'UNKNOWN';
-  titlePools?: Record<string,{customTitles:string[];cardTitles:string[]}>;
+  titlePools?: Record<string,ProductTitlesPool>;
+  titleGeneration?: {status:string;message?:string};
   planId: string; accountId: string; awemeId: string; name: string; revision: number; step: number;
   reachedStep?: number;
   packageVersion: number; confirmedVersion?: number; smartBidType: 'CUSTOM' | 'CONSERVATIVE';
@@ -151,6 +152,8 @@ export const creationDiscard = (id: string) => apiDelete(`${root}/${id}`);
 
 export const creationTitles = (s: CreationState, id: string, titles: string[]) => apiPut<CreationState>(`${root}/${s.planId}/materials/${id}/titles`, { revision: s.revision, titles }, slow);
 export const creationProductTitles = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', titles: string[]) => apiPut<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles`, { revision:s.revision,kind,titles }, slow);
+export interface ProductTitlesPool {customTitles:string[];cardTitles:string[];customGeneratedTitles?:string[];cardGeneratedTitles?:string[]}
+export const creationRegenerateTitle = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', index:number, original:string) => apiPost<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles/regenerate`, {revision:s.revision,kind,index,original},slow);
 export const creationRecheck = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/recheck`, { revision: s.revision });
 export const creationRetrySync = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/sync/retry`, { revision:s.revision });
 export interface MaterialSyncVerification { materialId: string; revision: number; state: string; message: string; processing: MaterialProcessing }

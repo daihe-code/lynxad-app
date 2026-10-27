@@ -82,4 +82,11 @@ class PublishedCompositionServiceTest {
         assertEquals("SUCCEEDED",service.save(tenant,work.planId,work.revision).publishedEdit.status);assertEquals(List.of("second"),read("plan").materials.stream().map(m->m.id).toList());verify(ads).deleteMaterials(credential,"1001",List.of("501"));verify(ads,never()).deleteProduct(any(),any(),any());
     }
     @Test void wrongTenantCannotResumeOrSaveOriginalPlan(){var work=service.begin(tenant,"plan");assertThrows(BizException.class,()->service.save(new TenantId("other"),work.planId,work.revision));verify(ads,never()).automaticContent(any(),any(),any(),any());}
+    @Test void editedAndDeletedTitlesReplaceOnlyKnownCopiesAndKeepExternalTitles(){
+        var old=creatives(read("plan"));var before=old.deepCopy();((ObjectNode)before.get(0)).withArray("title_material").addObject().put("title","平台另外添加的标题").put("title_type","CUSTOM");
+        var wanted=old.deepCopy();var titles=((ObjectNode)wanted.get(0)).putArray("title_material");titles.addObject().put("title","重新生成后的商品标题").put("title_type","CUSTOM");
+        var finalGroup=PublishedCompositionService.merge(before,old,wanted).finalGroups().get(0);
+        assertEquals(List.of("重新生成后的商品标题","平台另外添加的标题"),java.util.stream.StreamSupport.stream(finalGroup.path("title_material").spliterator(),false).map(t->t.path("title").asText()).toList());
+        assertEquals(before.get(0).path("video_material"),finalGroup.path("video_material"));
+    }
 }

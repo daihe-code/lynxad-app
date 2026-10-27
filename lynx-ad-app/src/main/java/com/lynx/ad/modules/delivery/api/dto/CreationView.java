@@ -25,7 +25,7 @@ public record CreationView(
         java.util.Map<String,TitlePoolView> titlePools,String publishRecovery,String groupingDecision,MaterialEditView materialEdit,
         List<String> generationSelection,int reachedStep,List<String> generationPendingProductIds,CreationState.SelectionChange selectionChange,
         ContentEditView contentEdit,String contentEditDraftId,boolean productSelectionLocked,
-        List<MaterialVersionView> materialVersions,RevisionView materialRevision) {
+        List<MaterialVersionView> materialVersions,RevisionView materialRevision,TitleGenerationView titleGeneration) {
 
     public static CreationView of(CreationState s) {
         var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
@@ -39,18 +39,25 @@ public record CreationView(
                 List.copyOf(s.generationIssues), s.activeMaterials().stream().map(material->MaterialView.of(material,names.get(material.id))).toList(),
                 s.publishStatus, s.publishKey, s.qcPlanId, s.publishError,
                 s.generationAdditions.stream().map(AdditionView::of).toList(),
-                ProductBasicAnalysisService.analyze(s.products), s.analysisStartedAt, MaterialProcessing.generationResult(s),s.regenerationRetryAt,s.titlePools.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(java.util.Map.Entry::getKey,e->new TitlePoolView(List.copyOf(e.getValue().customTitles),List.copyOf(e.getValue().cardTitles)))),s.publishRecovery,s.groupingDecision,s.materialEdit==null?null:new MaterialEditView(s.materialEdit.status,s.materialEdit.message),
+                ProductBasicAnalysisService.analyze(s.products), s.analysisStartedAt, MaterialProcessing.generationResult(s),s.regenerationRetryAt,titlePools(s),s.publishRecovery,s.groupingDecision,s.materialEdit==null?null:new MaterialEditView(s.materialEdit.status,s.materialEdit.message),
                 s.generationSelection==null?null:List.copyOf(s.generationSelection),s.reachedStep(),List.copyOf(s.generationPendingProductIds),s.selectionChange,
                 s.publishedEdit==null?null:new ContentEditView(s.publishedEdit.targetPlanId,s.publishedEdit.status,s.publishedEdit.message,s.publishedEdit.planStatus),s.publishedEditDraftId,
                 com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s),
                 s.materials.stream().filter(CreationState.Material::pendingVersion).map(m->new MaterialVersionView(m.reviewSourceId,MaterialView.of(m,names.get(m.id)),m.versionDecision)).toList(),
-                s.regeneration==null?null:new RevisionView(s.regeneration.requestId,s.regeneration.sourceId,s.regeneration.resultMaterialId,s.regeneration.status));
+                s.regeneration==null?null:new RevisionView(s.regeneration.requestId,s.regeneration.sourceId,s.regeneration.resultMaterialId,s.regeneration.status),
+                s.titleGeneration==null?null:new TitleGenerationView(s.titleGeneration.status,s.titleGeneration.message));
     }
     public record MaterialVersionView(String sourceId,MaterialView material,String decision) {}
     public record RevisionView(String requestId,String sourceId,String materialId,String status) {}
     public record ContentEditView(String targetPlanId,String status,String message,String planStatus) {}
     public record MaterialEditView(String status,String message) {}
-    public record TitlePoolView(List<String> customTitles,List<String> cardTitles) {}
+    public record TitlePoolView(List<String> customTitles,List<String> cardTitles,List<String> customGeneratedTitles,List<String> cardGeneratedTitles) {}
+    public record TitleGenerationView(String status,String message) {}
+    private static java.util.Map<String,TitlePoolView> titlePools(CreationState s) {
+        var result=new java.util.LinkedHashMap<String,TitlePoolView>();
+        for(var product:s.products){var pool=com.lynx.ad.modules.delivery.domain.service.ProductTitlePool.of(s,product.qcProductId());result.put(product.qcProductId(),new TitlePoolView(List.copyOf(pool.customTitles),List.copyOf(pool.cardTitles),List.copyOf(pool.customGeneratedTitles),List.copyOf(pool.cardGeneratedTitles)));}
+        return java.util.Map.copyOf(result);
+    }
     public record AdditionView(String id,String productId,String type,String description,String status,
                                String createdAt,String materialId,String error) {
         static AdditionView of(CreationState.GenerationAddition r){return new AdditionView(r.id,r.productId,r.type,r.description,r.status,r.createdAt,r.materialId,r.error);}

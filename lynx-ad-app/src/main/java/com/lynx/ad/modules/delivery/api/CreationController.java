@@ -69,5 +69,6 @@ public class CreationController {
     @PutMapping("/{id}/groups/keep") public ApiResponse<CreationView> keepGroup(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(service.keepProductGroup(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PostMapping("/{id}/generation/retry") public ApiResponse<CreationView> retryGeneration(@PathVariable String id,@RequestBody CreationWorkflowService.RetryGeneration req){return view(service.retryGeneration(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PutMapping("/{id}/products/{product}/titles") public ApiResponse<CreationView> productTitles(@PathVariable String id,@PathVariable String product,@RequestBody CreationWorkflowService.ProductTitles req){return view(service.productTitles(TenantContext.requireTenantId(),id,product,req));}
+    @RequiresActiveTrial @PostMapping("/{id}/products/{product}/titles/regenerate") public ApiResponse<CreationView> regenerateTitle(@PathVariable String id,@PathVariable String product,@RequestBody CreationWorkflowService.RegenerateTitle req){return view(service.regenerateTitle(TenantContext.requireTenantId(),id,product,req));}
     @DeleteMapping("/{id}") public ApiResponse<Void> discard(@PathVariable String id){service.discard(TenantContext.requireTenantId(),id);return ApiResponse.ok(null);}
 }

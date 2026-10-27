@@ -24,14 +24,14 @@
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
-      <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
+      <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : contentTitleEditing ? 3 : undefined" :initial-material-product="contentTitleProduct" :initial-material-tab="contentTitleEditing ? 'TITLE' : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
       <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else>
         <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
@@ -67,7 +67,7 @@ import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
-import { beginContentEdit, creationGet, creationFeedback, creationResolveVersion, creationRetrySync, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
+import { beginContentEdit, creationGet, creationProductTitles, creationRegenerateTitle, creationFeedback, creationResolveVersion, creationRetrySync, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetOptions } from '@/features/delivery/creationRecommendations';
@@ -110,8 +110,18 @@ import './create/create-theme.css';
 
 const props = defineProps<{ mode: 'view' | 'edit' | 'transfer' }>();
 const route = useRoute(), router = useRouter(), user = useUserStore();
+const contentTitleEditing=ref(false), contentTitleProduct=ref('');
 const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
 async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
+async function editProductCopy(product:string,change:(state:CreationState)=>Promise<CreationState>) {
+  if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;
+  materialBusy.value=true;mediaFailure.value=undefined;let draft:CreationState|undefined;
+  try{draft=await beginContentEdit(plan.value.planId);await change(draft);}
+  catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}
+  finally{if(draft){contentTitleEditing.value=true;contentTitleProduct.value=product;adjustProductsOnOpen.value=false;contentDraftId.value=draft.planId;}materialBusy.value=false;}
+}
+function saveProductTitles(product:string,kind:'CUSTOM'|'CARD',titles:string[]){return editProductCopy(product,s=>creationProductTitles(s,product,kind,titles));}
+function regenerateProductTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string){return editProductCopy(product,s=>creationRegenerateTitle(s,product,kind,index,original));}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
 const auditResult = computed(() => hasPlanAuditResult(plan.value));
 const deliveryResult = computed(() => props.mode === 'view' && hasPlanDeliveryResult(plan.value));
@@ -235,7 +245,7 @@ function resetForm() {
   }
 }
 async function load() {
-  clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
+  clearTimeout(materialTimer);materialAction.value=undefined;materialBusy.value=false;contentTitleEditing.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
   const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined; contextFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;

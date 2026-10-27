@@ -23,8 +23,8 @@
         <p v-if="!readOnly && regenerationWaitSeconds" class="material-processing-message" role="status">本计划重新生成操作间隔为30秒，{{ regenerationWaitSeconds }} 秒后可再次操作。</p>
         <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' }}</p>
         <div class="tabs" role="tablist" aria-label="素材类型"><button v-for="(label, key) in tabs" :key="key" class="tabs__item" type="button" role="tab" :aria-selected="tab === key" @click="tab = key">{{ label }}<span class="tabs__count">{{ key === 'TITLE' ? titleCount : materials.filter(m => m.type === key).length }}</span><span v-if="productHasFailure(state, productId, key)" class="material-failure-badge" role="img" :aria-label="`${label}有失败项`" :title="`${label}有失败项，点击查看原因`">!</span></button></div>
-        <div class="work"><div class="work__main">
-          <MaterialTitleList v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running" :read-only="readOnly" @save="(kind, values) => emit('productTitles', productId, kind, values)" />
+        <div class="work" :class="{'work--titles':tab==='TITLE'}"><div class="work__main">
+          <MaterialTitleList v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" />
           <template v-else>
             <div class="matlist" role="list">
               <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
@@ -55,7 +55,7 @@
           </template>
           <div v-if="failureRows.length" class="material-failure-list"><article v-for="(issue, index) in failureRows" :key="issue.slotId || issue.materialId || index" class="material-generation-failure" :aria-label="`${tabs[tab]}生成失败`"><div class="material-failure-heading"><span class="material-failure-badge" aria-hidden="true">!</span><strong>{{ issue.title || `${tabs[tab]}生成失败` }}</strong><span>生成失败</span></div><p class="material-failure-reason" role="alert">失败原因：{{ issue.message }}</p><button v-if="!readOnly && canRetryFailureType" class="sync-retry" type="button" :disabled="busy || running" title="重试本次任务中该类型的全部失败项，已有素材保留" @click="retryFailureType">重试同类型失败项</button></article></div>
           <button v-if="!readOnly && tab !== 'TITLE'" class="addrow" :disabled="busy || running" @click="openAddition()"><ReferenceIcon name="plus" />新增素材（智能生成或上传）</button>
-        </div><aside class="work__side" aria-label="投放效果预览"><MaterialPreview :material="active" :product="previewProduct" :account="account"  @metadata="(id, data) => mediaMetadata[id] = data" /></aside></div>
+        </div><aside v-if="tab!=='TITLE'" class="work__side" aria-label="投放效果预览"><MaterialPreview :material="active" :product="previewProduct" :account="account"  @metadata="(id, data) => mediaMetadata[id] = data" /></aside></div>
       </div>
       </template>
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || contentEditing || busy || running" /><p class="plan__hint">{{ contentEditing ? '本次调整商品与素材，沿用原计划名称和投放目标；保存修改后更新原计划。' : '自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。' }}</p></div></div></div></section></div></main>
@@ -96,17 +96,18 @@ import { materialIsReady, materialHasPreview, materialProcessingLabel, component
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
 import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
-const props = defineProps<{ state: CreationState; busy: boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ state: CreationState; busy: boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; titleActions?:boolean; initialProductId?:string; initialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
+const titlePending=computed(()=>!!props.state.titleGeneration && ['SENDING','PROCESSING'].includes(props.state.titleGeneration.status));
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]] }>();
+const emit = defineEmits<{ account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; regenerateTitle: [productId:string,kind:'CUSTOM'|'CARD',index:number,original:string]; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });
 const regenerationWaitSeconds = computed(() => regenerationWait(props.state.regenerationRetryAt, now.value));
 const tabs = { VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文', TITLE: '标题' };
-const productId = ref(props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>('VIDEO'), selectedId = ref('');
+const productId = ref(props.initialProductId || props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>(props.initialTab || 'VIDEO'), selectedId = ref('');
 function focusNotice(target: NonNullable<ReturnType<typeof generationNoticeTarget>>) {
   if (target.productId && props.state.products.some(p => p.qcProductId === target.productId)) productId.value = target.productId;
   if (target.type && target.type in tabs) tab.value = target.type as keyof typeof tabs;
@@ -167,7 +168,7 @@ function metadataLabel(m: CreationMaterial) {
   return videoMetadataLabel(m,data,metadataUnavailable.value[m.id]===m.previewUrl || !m.previewUrl);
 }
 const missing = computed(() => props.state.products.filter(p => !props.state.materials.some(m => m.productId === p.qcProductId && materialIsReady(m))));
-const ready = computed(() => !!props.state.materials.length && !missing.value.length && props.state.materials.every(materialIsReady));
+const ready = computed(() => !titlePending.value && !!props.state.materials.length && !missing.value.length && props.state.materials.every(materialIsReady));
 const running = computed(() => generationSubmitting.value || ['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(props.state.generationStatus));
 const batchRunning = computed(() => running.value && !props.state.materials.length && props.state.generationStatus !== 'REVISING' && !props.state.generationAdditions?.some(r=>['QUEUED','SUBMITTING','RUNNING','IMPORTING','UNCERTAIN'].includes(r.status)) && !(props.state.generationCounts?.length === 1 && props.state.materials.length));
 const showStatusNotice=computed(()=>props.reconnecting || typographyPendingCount.value>0 || props.state.publishStatus === 'FAILED');
@@ -238,12 +239,14 @@ watch(() => props.state.materials, (next, previous) => {
   if (!previous?.length && next.length) {
     if (!next.some(m => m.productId === productId.value)) productId.value = next[0]!.productId;
     const first = next.find(m => m.productId === productId.value && m.type === 'VIDEO') || next.find(m => m.productId === productId.value);
-    if (first) tab.value = first.type;
+    if (first && tab.value !== 'TITLE') tab.value = first.type;
   }
 }, { immediate: true });
 watch(productId, () => { selectedId.value = ''; const first = materials.value[0]; if (first && tab.value !== 'TITLE' && !visible.value.length && !failureRows.value.length) tab.value = first.type; });
 </script>
 <style scoped>
+.live-materials .work--titles{display:block}.work--titles .work__main{width:100%;max-width:none}
+
 .material-failure-list{display:grid;gap:12px;margin-top:12px}
 .material-processing-message{display:block;color:#8588a5;font-size:12px;line-height:1.5;overflow-wrap:anywhere;margin-top:4px}.sync-retry{font-size:12px;color:#575cf6;padding:7px 9px;border:1px solid #deddfc;border-radius:7px;white-space:nowrap}.sync-retry:disabled{opacity:.5;cursor:wait}.matrow{flex-wrap:wrap}.material-pipeline{flex:1 1 100%;min-width:0;margin-top:8px;font-size:12px;color:#737793}.material-pipeline summary{cursor:pointer}.material-pipeline ul{list-style:none;margin:8px 0 0;padding:0}.material-pipeline li{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:7px}.material-pipeline li p{flex:1 1 100%;margin:0;color:#9b692c;overflow-wrap:anywhere}
 

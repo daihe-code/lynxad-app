@@ -60,6 +60,8 @@ public class CreationWorkflowService {
     private PublishedCompositionService compositions;
     @org.springframework.beans.factory.annotation.Autowired public void compositions(PublishedCompositionService value){compositions=value;}
     private PublishedMaterialService publishedMaterials;
+    private CreationTitleRegeneration titleRegeneration;
+    @org.springframework.beans.factory.annotation.Autowired public void titleRegeneration(CreationTitleRegeneration value){titleRegeneration=value;}
     @org.springframework.beans.factory.annotation.Autowired public void publishedMaterials(PublishedMaterialService value){publishedMaterials=value;}
     @org.springframework.beans.factory.annotation.Autowired public void carouselPlatform(CarouselPlatformService value){materialProcessing.carouselPlatform(value);}
     /** Products, titles and media have one canonical state for both physical mode plans. */
@@ -95,6 +97,7 @@ public class CreationWorkflowService {
     public CreationState get(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,false);
         var s=store.get(tenant.value(),id);
+        if(titleRegeneration!=null)s=titleRegeneration.refresh(s);
         // This changes only an unpublished draft's selection. Engine history,
         // OSS objects and already uploaded platform assets remain available.
         if(s.materials.stream().anyMatch(m->"product_reference".equals(m.deliverySource))) {
@@ -450,6 +453,14 @@ public class CreationWorkflowService {
         return store.mutate(tenant.value(),id,request.revision,state->{editable(state);var m=find(state,material);m.titles=new ArrayList<>(titles);m.title=titles.getFirst();m.textAssetId=text;m.status="PROCESSING";m.error=null;state.mediaChanged();});
     }
     public record ProductTitles(int revision,String kind,List<String> titles) {}
+    public record RegenerateTitle(int revision,String kind,int index,String original) {}
+    public CreationState regenerateTitle(TenantId tenant,String requestedId,String product,RegenerateTitle request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        var s=store.get(tenant.value(),id);editable(s);
+        if(s.revision!=request.revision)throw new BizException(1404,"草稿版本已变化，请刷新后修改标题");
+        if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
+        return titleRegeneration.submit(s,product,request.kind,request.index,request.original);
+    }
     /** Ad copy belongs to a product pool; editing it never reuploads or regenerates visual files. */
     public CreationState productTitles(TenantId tenant,String requestedId,String product,ProductTitles request) {
         String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
@@ -458,17 +469,9 @@ public class CreationWorkflowService {
         if(s.products.stream().noneMatch(p->p.qcProductId().equals(product)))throw new BizException(1503,"商品不属于当前草稿");
         if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
         var titles=request.titles==null?List.<String>of():request.titles.stream().map(DeliveryInputPolicy::text).toList();
-        DeliveryInputPolicy.titles(titles,true);
-        if(new HashSet<>(titles).size()!=titles.size())throw new BizException(1503,"同一标题集合不能包含重复文案");
-        var pool=s.titlePools.get(product);
-        if(pool==null) {
-            pool=new CreationState.TitlePool();
-            for(var m:s.materials)if(product.equals(m.productId)) {
-                var target="IMAGE".equals(m.type)?pool.cardTitles:pool.customTitles;
-                for(String title:m.titles)if(!target.contains(title))target.add(title);
-            }
-        }
         boolean card="CARD".equals(request.kind);
+        com.lynx.ad.modules.delivery.domain.service.ProductTitlePool.validate(titles,card);
+        var pool=com.lynx.ad.modules.delivery.domain.service.ProductTitlePool.of(s,product);
         if((card?pool.cardTitles:pool.customTitles).equals(titles))return s;
         var all=new HashSet<>(card?pool.customTitles:pool.cardTitles);all.addAll(titles);
         if(all.size()>30)throw new BizException(1503,"每个商品最多使用30条不同标题");
@@ -476,6 +479,7 @@ public class CreationWorkflowService {
         var updated=pool;
         return store.mutate(tenant.value(),id,request.revision,state->{
             editable(state);
+            com.lynx.ad.modules.delivery.domain.service.ProductTitlePool.generated(updated,card).retainAll(titles);
             if(card){updated.cardTitles=new ArrayList<>(titles);updated.cardTextAssetId=text;}
             else{updated.customTitles=new ArrayList<>(titles);updated.customTextAssetId=text;}
             state.titlePools.put(product,updated);state.mediaChanged();
@@ -1036,6 +1040,7 @@ public class CreationWorkflowService {
     private void requireKind(TenantId t,String id,String kind){if(id==null||!kind.equals(assets.detail(t,id).kind()))throw new BizException(1503,"素材类型不匹配");}
     private static CreationState.Material find(CreationState s,String id){return s.materials.stream().filter(m->m.id.equals(id)).findFirst().orElseThrow(()->new BizException(1503,"素材不属于该计划"));}
     private static void editable(CreationState s){
+        if(s.titleGenerationPending())throw new BizException(1403,"标题正在生成，请等待本次结果后修改");
         if(s.publishedEdit!=null&&!"DRAFT".equals(s.publishedEdit.status))throw new BizException(1403,"保存结果待核查或已完成，请先核查原计划");
         if(!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
         if(Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
