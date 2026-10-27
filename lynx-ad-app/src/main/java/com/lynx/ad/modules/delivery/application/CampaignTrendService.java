@@ -36,16 +36,24 @@ public class CampaignTrendService {
         var warnings=new LinkedHashSet<String>();
         reports.values().stream().map(PlanStatisticsService.TrendSnapshot::warning).filter(Objects::nonNull).forEach(warnings::add);
         boolean available=reports.values().stream().allMatch(r->r.timeDimension()!=null);
-        Map<String,List<PlanStatisticsService.Metrics>> buckets=new TreeMap<>();
+        Map<String,Map<String,List<PlanStatisticsService.Metrics>>> buckets=new LinkedHashMap<>();
         if(available)for(var entry:reports.entrySet())for(var point:entry.getValue().points())
-            if(scope.get(entry.getKey()).contains(point.planId()))buckets.computeIfAbsent(point.time(),key->new ArrayList<>()).add(point.metrics());
+            if(scope.get(entry.getKey()).contains(point.planId()))buckets.computeIfAbsent(entry.getKey(),key->new TreeMap<>())
+                    .computeIfAbsent(point.time(),key->new ArrayList<>()).add(point.metrics());
         List<PlanInsightsService.Point> points=new ArrayList<>();
         var now=ZonedDateTime.now(ZoneId.of("Asia/Shanghai"));
         for(LocalDate date=range.startDate();!date.isAfter(range.endDate());date=date.plusDays(1)) {
             int count=daily?1:date.equals(now.toLocalDate())?now.getHour()+1:24;
             for(int hour=0;hour<count;hour++) {
                 String time=daily?date.toString():date+String.format(" %02d:00:00",hour);
-                points.add(new PlanInsightsService.Point(time,aggregate(buckets.getOrDefault(time,List.of()))));
+                List<PlanStatisticsService.Metrics> values=new ArrayList<>();
+                if(available)for(var entry:reports.entrySet()) {
+                    var rows=buckets.getOrDefault(entry.getKey(),Map.of()).getOrDefault(time,List.of());
+                    // Completed sparse reports omit inactive buckets. Unsupported/missing metrics remain null.
+                    if(rows.isEmpty())values.add(PlanStatisticsService.noActivity(entry.getValue().metricFields()));
+                    else values.addAll(rows);
+                }
+                points.add(new PlanInsightsService.Point(time,aggregate(values)));
             }
         }
         Instant fetchedAt=reports.values().stream().map(PlanStatisticsService.TrendSnapshot::fetchedAt).min(Comparator.naturalOrder()).orElse(Instant.now());

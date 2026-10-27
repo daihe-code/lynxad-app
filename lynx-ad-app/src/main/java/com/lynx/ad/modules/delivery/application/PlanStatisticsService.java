@@ -21,9 +21,30 @@ public class PlanStatisticsService {
                           BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {
         public Metrics(BigDecimal cost,BigDecimal gmv,BigDecimal roi,Long orders) {this(cost,gmv,roi,orders,null,null,null);}
     }
-    public record Snapshot(Map<String,Metrics> plans,Instant fetchedAt) {}
+    private static final Set<String> PAYMENT_FIELDS=Set.of("cost","gmv","roi","orders");
+    public record Snapshot(Map<String,Metrics> plans,Instant fetchedAt,Set<String> metricFields) {
+        public Snapshot(Map<String,Metrics> plans,Instant fetchedAt) {this(plans,fetchedAt,knownFields(plans.values()));}
+        /** A complete successful report omits plans with no activity; a present row may still lack a metric. */
+        public Metrics forPlan(String id) {return plans.getOrDefault(id,noActivity(metricFields));}
+    }
     public record TrendPoint(String planId,String time,Metrics metrics) {}
-    public record TrendSnapshot(List<TrendPoint> points,String timeDimension,Instant fetchedAt,String warning) {}
+    public record TrendSnapshot(List<TrendPoint> points,String timeDimension,Instant fetchedAt,String warning,Set<String> metricFields) {
+        public TrendSnapshot(List<TrendPoint> points,String timeDimension,Instant fetchedAt,String warning) {
+            this(points,timeDimension,fetchedAt,warning,knownFields(points.stream().map(TrendPoint::metrics).toList()));
+        }
+    }
+    static Metrics noActivity(Set<String> fields) {
+        return new Metrics(zero(fields,"cost"),zero(fields,"gmv"),zero(fields,"roi"),fields.contains("orders")?0L:null,
+                zero(fields,"netGmv"),zero(fields,"netRoi"),zero(fields,"refundRate"));
+    }
+    private static BigDecimal zero(Set<String> fields,String field) {return fields.contains(field)?BigDecimal.ZERO:null;}
+    private static Set<String> knownFields(Collection<Metrics> rows) {
+        var fields=new HashSet<>(PAYMENT_FIELDS);
+        if(rows.stream().anyMatch(m->m.netGmv()!=null))fields.add("netGmv");
+        if(rows.stream().anyMatch(m->m.netRoi()!=null))fields.add("netRoi");
+        if(rows.stream().anyMatch(m->m.refundRate()!=null))fields.add("refundRate");
+        return Set.copyOf(fields);
+    }
     private record Key(String tenant,String account,String advertiser,PlanStatisticsRange range,PlanMetricTemplate template) {}
     private record TrendKey(Key scope,boolean daily) {}
     private final Map<Key,Snapshot> cache=new LinkedHashMap<>();
@@ -54,7 +75,8 @@ public class PlanStatisticsService {
             if(values.putIfAbsent(ad,metrics(row.path("metrics"),fields))!=null)
                 throw new BizException(1406,"千川区间报表包含重复计划，请重试");
         }
-        Snapshot result=new Snapshot(Map.copyOf(values),Instant.now());
+        var availableFields=new HashSet<>(PAYMENT_FIELDS);availableFields.addAll(fields.keySet());
+        Snapshot result=new Snapshot(Map.copyOf(values),Instant.now(),Set.copyOf(availableFields));
         if(cache.size()>=256)cache.remove(cache.keySet().iterator().next());
         cache.put(key,result);return result;
     }
@@ -87,7 +109,7 @@ public class PlanStatisticsService {
             if(!seen.add(ad+"/"+time))throw new BizException(1406,"千川趋势报表包含重复计划和时间，请重试");
             points.add(new TrendPoint(ad,time,metrics(row.path("metrics"),report.metricFields())));
         }
-        var result=new TrendSnapshot(List.copyOf(points),report.timeDimension(),Instant.now(),report.warning());
+        var result=new TrendSnapshot(List.copyOf(points),report.timeDimension(),Instant.now(),report.warning(),Set.copyOf(report.metricFields().keySet()));
         if(trendCache.size()>=32)trendCache.remove(trendCache.keySet().iterator().next());
         trendCache.put(key,result);return result;
     }

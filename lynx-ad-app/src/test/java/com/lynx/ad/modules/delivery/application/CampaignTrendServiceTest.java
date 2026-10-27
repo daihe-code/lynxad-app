@@ -30,7 +30,7 @@ class CampaignTrendServiceTest {
         var result=service.data(tenant,f);assertEquals(24,result.points().size());assertEquals("stat_time_hour",result.timeDimension());
         var hour=result.points().get(9).metrics();assertEquals(new BigDecimal("100"),hour.get("cost"));assertEquals(new BigDecimal("810"),hour.get("netGmv"));
         assertEquals(new BigDecimal("8.1000"),hour.get("netRoi"));assertEquals(new BigDecimal("19.0000"),hour.get("refundRate"));
-        assertNull(result.points().get(8).metrics().get("cost"));assertEquals(BigDecimal.ZERO,result.points().get(10).metrics().get("cost"));
+        assertEquals(BigDecimal.ZERO,result.points().get(8).metrics().get("cost"));assertEquals(BigDecimal.ZERO,result.points().get(10).metrics().get("cost"));
         assertEquals(BigDecimal.ZERO,result.points().get(10).metrics().get("netRoi"));assertEquals(BigDecimal.ZERO,result.points().get(10).metrics().get("refundRate"));
         verify(statistics,times(2)).trend(any(),any(),any(),any(),eq(false),eq(false));verify(queries).statisticsScope(tenant,f);
     }
@@ -42,12 +42,26 @@ class CampaignTrendServiceTest {
         var result=service.data(tenant,f);assertEquals("stat_time_day",result.timeDimension());assertEquals(1,result.points().size());
         assertEquals(new BigDecimal("110"),result.points().getFirst().metrics().get("cost"));verify(statistics).trend(tenant,"a",range,PlanMetricTemplate.NET,true,true);
     }
-    @Test void multiDayGapsStayUnknownAndMissingNetFieldsCannotUsePaymentFields() {
+    @Test void inactiveDatesAreZeroButMissingNetFieldsCannotUsePaymentFields() {
         var dates=new PlanStatisticsRange(day.minusDays(2),day);var f=filter(dates,false);
         when(queries.statisticsScope(tenant,f)).thenReturn(Map.of("a",Set.of("1")));
         when(statistics.trend(tenant,"a",dates,PlanMetricTemplate.NET,true,false)).thenReturn(snapshot("stat_time_day",new PlanStatisticsService.TrendPoint("1",day.toString(),m("10","100",null,null))));
-        var result=service.data(tenant,f);assertEquals(3,result.points().size());assertNull(result.points().get(1).metrics().get("cost"));
+        var result=service.data(tenant,f);assertEquals(3,result.points().size());assertEquals(BigDecimal.ZERO,result.points().get(1).metrics().get("cost"));
         assertNull(result.points().get(2).metrics().get("netGmv"));assertNull(result.points().get(2).metrics().get("netRoi"));assertNull(result.points().get(2).metrics().get("refundRate"));
+    }
+    @Test void completeEmptyTrendUsesCapabilityMetadataWhileUnsupportedMetricsRemainUnknown() {
+        var dates=new PlanStatisticsRange(day.minusDays(2),day);var f=filter(dates,false);
+        when(queries.statisticsScope(tenant,f)).thenReturn(Map.of("a",Set.of("1")));
+        when(statistics.trend(tenant,"a",dates,PlanMetricTemplate.NET,true,false)).thenReturn(new PlanStatisticsService.TrendSnapshot(
+                List.of(),"stat_time_day",Instant.now(),null,Set.of("cost","gmv","orders","netGmv","netRoi")));
+        var result=service.data(tenant,f);assertEquals(3,result.points().size());
+        for(var point:result.points()) {assertEquals(BigDecimal.ZERO,point.metrics().get("cost"));assertEquals(BigDecimal.ZERO,point.metrics().get("netGmv"));assertEquals(BigDecimal.ZERO,point.metrics().get("netRoi"));assertNull(point.metrics().get("refundRate"));}
+    }
+    @Test void unavailableTimeDimensionDoesNotBecomeAFlatZeroLine() {
+        var f=filter(range,false);when(queries.statisticsScope(tenant,f)).thenReturn(Map.of("a",Set.of("1")));
+        when(statistics.trend(tenant,"a",range,PlanMetricTemplate.NET,false,false)).thenReturn(new PlanStatisticsService.TrendSnapshot(
+                List.of(),null,Instant.now(),"平台未提供时间维度",Set.of("cost")));
+        var result=service.data(tenant,f);assertTrue(result.points().stream().allMatch(p->p.metrics().get("cost")==null));assertNotNull(result.warning());
     }
     @Test void anAccountFailureDoesNotReturnAnotherAccountsPartialTrendAsTheWholeScope() {
         var f=filter(range,false);when(queries.statisticsScope(tenant,f)).thenReturn(Map.of("a",Set.of("1")));

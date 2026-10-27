@@ -53,6 +53,13 @@ class PlanStatisticsServiceTest {
         when(port.report(credential,range.startDate(),range.endDate())).thenReturn(List.of(json.readTree("{\"dimensions\":{\"ad_id\":{\"value\":123}},\"metrics\":{\"stat_cost\":{\"Value\":0}}}")));
         var values=service.report(tenant,account.value(),range,false).plans();assertEquals(BigDecimal.ZERO,values.get("123").cost());
         assertNull(values.get("123").orders());assertNull(values.get("123").gmv());assertNull(values.get("123").roi());assertNull(values.get("456"));
+        var inactive=service.report(tenant,account.value(),range,false).forPlan("456");assertEquals(BigDecimal.ZERO,inactive.cost());assertEquals(0L,inactive.orders());assertNull(inactive.netGmv());
+    }
+    @Test void emptySuccessfulReportProvidesZeroActivityOnlyForRequestedSupportedMetrics() {
+        when(port.report(credential,range.startDate(),range.endDate())).thenReturn(List.of());
+        var paid=service.report(tenant,account.value(),range,false).forPlan("123");assertEquals(BigDecimal.ZERO,paid.cost());assertEquals(BigDecimal.ZERO,paid.roi());assertNull(paid.netGmv());
+        when(port.netReport(credential,range.startDate(),range.endDate())).thenReturn(new AdManagementPort.MetricReport(List.of(),Map.of("netGmv","net_amount")));
+        var net=service.report(tenant,account.value(),range,false,PlanMetricTemplate.NET).forPlan("123");assertEquals(BigDecimal.ZERO,net.netGmv());assertNull(net.netRoi());assertNull(net.refundRate());
     }
     @Test void tenantCannotReadAnotherTenantsCachedReports() {
         service.report(tenant,account.value(),range,false);

@@ -118,9 +118,9 @@ public class PlanQueryService {
         List<PlanListVo> result=new ArrayList<>();
         for(var row:rows) {
             var report=reports.get(row.accountId());
-            var m=report==null || row.qcPlanId()==null?null:report.plans().get(row.qcPlanId());
+            var m=report==null || row.qcPlanId()==null?null:report.forPlan(row.qcPlanId());
             var previousReport=previousReports.get(row.accountId());
-            var previous=previousReport==null || row.qcPlanId()==null?null:previousReport.plans().get(row.qcPlanId());
+            var previous=previousReport==null || row.qcPlanId()==null?null:previousReport.forPlan(row.qcPlanId());
             var comparison=row.qcPlanId()==null?null:rangeComparison(m,previous,range,previousRange,comparisonFailed.contains(row.accountId()));
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),

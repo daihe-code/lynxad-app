@@ -137,13 +137,13 @@ class PlanListDisplayTest {
         assertEquals(new BigDecimal("10"),comparison.current().cost());assertEquals(BigDecimal.ZERO,comparison.previous().cost());
         assertEquals(3L,comparison.current().orders());assertNull(comparison.unavailableReason());
     }
-    @Test void absentComparisonReportAndMissingMetricAreNotTreatedAsZero() {
+    @Test void inactiveComparisonPlanIsZeroButPresentMissingMetricStaysUnknown() {
         var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var range=new PlanStatisticsRange(today,today);
         var previousRange=new PlanStatisticsRange(today.minusDays(1),today.minusDays(1));
         var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
         when(statistics.report(tenant,plan.accountId().value(),range,false)).thenReturn(report(new PlanStatisticsService.Metrics(new BigDecimal("10"),BigDecimal.ZERO,BigDecimal.ZERO,0L)));
         when(statistics.report(tenant,plan.accountId().value(),previousRange,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of(),Instant.now()));
-        var comparison=rangeRow(range,false).comparison();assertNull(comparison.previous());assertNull(comparison.costChangePct());assertEquals("对比时段暂无报表",comparison.unavailableReason());
+        var comparison=rangeRow(range,false).comparison();assertEquals(BigDecimal.ZERO,comparison.previous().cost());assertNull(comparison.costChangePct());assertNull(comparison.unavailableReason());
         when(statistics.report(tenant,plan.accountId().value(),previousRange,false)).thenReturn(report(new PlanStatisticsService.Metrics(null,BigDecimal.ZERO,BigDecimal.ZERO,0L)));
         comparison=rangeRow(range,false).comparison();assertNull(comparison.costChangePct());assertNull(comparison.previous().cost());assertEquals(BigDecimal.ZERO,comparison.convertChangePct());
     }
@@ -209,9 +209,27 @@ class PlanListDisplayTest {
         var previous=new PlanStatisticsRange(today.minusDays(1),today.minusDays(1));var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
         var metrics=new PlanStatisticsService.Metrics(new BigDecimal("10"),new BigDecimal("100"),new BigDecimal("10"),2L);
         when(statistics.report(tenant,"account-a",range,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of("123",metrics,"456",metrics),Instant.now()));
-        when(statistics.report(tenant,"account-a",previous,false)).thenReturn(report(metrics));
+        when(statistics.report(tenant,"account-a",previous,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of(
+                "123",metrics,"456",new PlanStatisticsService.Metrics(null,new BigDecimal("100"),new BigDecimal("10"),2L)),Instant.now()));
         var page=query.list(tenant,1,1,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,range,false));
         assertEquals(new BigDecimal("20"),page.summary().cost());assertNull(page.summary().comparison().previous());assertNull(page.summary().comparison().costChangePct());
+    }
+    @Test void sparseReportsCompareTheSameFilteredCohortEvenWhenDifferentPlansSpendInEachPeriod() {
+        transferred(PlanStatus.PAUSED);var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        var range=new PlanStatisticsRange(today.minusDays(22),today);var previous=new PlanStatisticsRange(today.minusDays(45),today.minusDays(23));
+        var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);
+        when(statistics.report(tenant,"account-a",range,false)).thenReturn(report(new PlanStatisticsService.Metrics(new BigDecimal("72.62"),BigDecimal.ZERO,BigDecimal.ZERO,0L)));
+        when(statistics.report(tenant,"account-a",previous,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of(
+                "456",new PlanStatisticsService.Metrics(new BigDecimal("100"),new BigDecimal("2421.60"),new BigDecimal("24.22"),1L)),Instant.now()));
+        var filter=new PlanQueryService.Filters(null,null,null,null,null,null,null,true,range,false);
+        var page=query.list(tenant,1,1,filter);assertEquals(2,page.total());assertEquals(1,page.records().size());
+        assertEquals(new BigDecimal("72.62"),page.summary().cost());assertEquals(new BigDecimal("100"),page.summary().comparison().previous().cost());
+        assertEquals(new BigDecimal("-27.38"),page.summary().comparison().costChangePct());
+        assertEquals(new BigDecimal("-100.00"),page.summary().comparison().convertChangePct());assertEquals(new BigDecimal("-100.00"),page.summary().comparison().gmvChangePct());
+        assertEquals(new BigDecimal("-100.00"),page.summary().comparison().roiChangePct());
+        var next=query.list(tenant,2,1,filter);assertEquals(page.summary(),next.summary());
+        var selected=query.list(tenant,1,10,new PlanQueryService.Filters("123",null,null,null,null,null,null,true,range,false));
+        assertEquals(BigDecimal.ZERO,selected.summary().comparison().previous().cost());assertNull(selected.summary().comparison().costChangePct());
     }
     @Test void netTemplateSortsGenuineNetValuesAndAggregatesFilteredRowsBeforePagination() {
         transferred(PlanStatus.PAUSED);
@@ -252,13 +270,13 @@ class PlanListDisplayTest {
         assertEquals(new BigDecimal("8.0000"),page.summary().netRoi());assertEquals(new BigDecimal("20.0000"),page.summary().refundRate());assertNull(page.summary().orders());
     }
     private PlanListVo rangeRow(PlanStatisticsRange range,boolean refresh) {return query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,range,refresh)).records().getFirst();}
-    @Test void noDataInSelectedRangeDoesNotUsePausedPlansLatestHistoricalData() throws Exception {
+    @Test void inactiveSelectedRangeShowsZeroInsteadOfPausedPlansOlderSpend() throws Exception {
         plan.apply(PlanStatus.PAUSED);var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));cache(null,metrics("3.56"),today,null,null,null);
         ((com.fasterxml.jackson.databind.node.ObjectNode)remote.list(tenant).get(id.value()).payload()).putObject("delivery_setting").put("budget",100);
         var statistics=mock(PlanStatisticsService.class);query.statisticsService(statistics);var range=new PlanStatisticsRange(today,today);
         when(statistics.report(tenant,plan.accountId().value(),range,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of(),Instant.now()));
         var page=query.list(tenant,1,20,new PlanQueryService.Filters(null,null,null,null,null,null,null,true,range,false));
-        assertNull(page.records().getFirst().costYuan());assertNull(page.summary().cost());assertEquals(0,page.summary().covered());
+        assertEquals(BigDecimal.ZERO,page.records().getFirst().costYuan());assertEquals(BigDecimal.ZERO,page.summary().cost());assertEquals(1,page.summary().covered());
         assertFalse(page.records().getFirst().historicalMetrics());assertNull(page.records().getFirst().statisticsDate());
         assertEquals("PAUSED",page.records().getFirst().status());assertEquals(0,new BigDecimal("100").compareTo(page.records().getFirst().budget()));
     }
