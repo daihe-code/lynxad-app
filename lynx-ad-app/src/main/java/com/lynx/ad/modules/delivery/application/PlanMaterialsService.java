@@ -21,7 +21,7 @@ public class PlanMaterialsService {
     public record Product(String id,String name,String imageUrl) {}
     public record Material(String id,String type,String name,String text,String previewUrl,String posterUrl,List<String> imageUrls,String musicUrl,
             List<Product> products,String auditStatus,String status,boolean deleted,Boolean aigc,List<String> tags,String createTime,
-            List<String> reasons,Map<String,BigDecimal> metrics) {}
+            List<String> reasons,Map<String,BigDecimal> metrics,List<String> titles) {}
     public record Result(List<Material> records,Instant fetchedAt,String warning) {}
     private static final Set<String> TYPES=Set.of("VIDEO","AIGC","IMAGE","CAROUSEL","OTHER","TITLE");
     private static final Map<String,String> FIELDS=new LinkedHashMap<>();
@@ -39,6 +39,8 @@ public class PlanMaterialsService {
     private final QianchuanCredentialFacade credentials;
     private final AdManagementPort port;
     private final AssetUploadService assets;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore labels;
+    @org.springframework.beans.factory.annotation.Autowired public void presentationStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore value) {labels=value;}
     public PlanMaterialsService(AdPlanRepository plans,OauthAccountRepository accounts,QianchuanCredentialFacade credentials,AdManagementPort port,AssetUploadService assets) {
         this.plans=plans;this.accounts=accounts;this.credentials=credentials;this.port=port;this.assets=assets;
     }
@@ -65,6 +67,25 @@ public class PlanMaterialsService {
             catch(BizException ex){warnings.add("素材库信息暂不可用："+ex.getMessage());}
             if("VIDEO".equals(nativeType))try {for(var row:port.materialAttributes(credential,ids))attributes.put(row.path("material_id").asText(),row);}
             catch(BizException ex){warnings.add("素材标签暂不可用："+ex.getMessage());}
+            JsonNode detail=MissingNode.getInstance();
+            if(!rows.isEmpty() && !"TITLE".equals(nativeType) && !"LIVE_ROOM".equals(nativeType))try {
+                var response=port.detail(credential,qcId);
+                if(response!=null && qcId.equals(QianchuanPlanMapping.id(response)))detail=response;
+                else if(response!=null)warnings.add("素材投放配置的计划ID不匹配，已保留素材库预览信息");
+            }catch(BizException ex){warnings.add("素材投放配置暂不可用："+ex.getMessage());}
+            Map<String,Presentation> presentations=new HashMap<>();
+            for(var row:rows) {
+                var sub=subtype(row,nativeType);String mid=sub.path("material_id").asText();
+                presentations.put(mid,presentation(detail,row,sub,metadata.getOrDefault(mid,MissingNode.getInstance()),nativeType));
+            }
+            Map<String,String> covers=new HashMap<>();
+            var coverIds=presentations.values().stream().map(Presentation::coverId).filter(Objects::nonNull).distinct().toList();
+            if(!coverIds.isEmpty())try {
+                for(var image:port.materialImageMetadata(credential,coverIds)) {
+                    String coverId=text(image,"id"),url=text(image,"url");
+                    if(coverId!=null && coverIds.contains(coverId) && url!=null)covers.put(coverId,url);
+                }
+            }catch(BizException ex){warnings.add("投放封面暂不可用："+ex.getMessage());}
             var seen=new HashSet<String>();
             for(var row:rows) {
                 if(row.hasNonNull("ad_id") && !qcId.equals(row.path("ad_id").asText()))throw new BizException(1406,"素材报表的计划ID不匹配");
@@ -73,6 +94,7 @@ public class PlanMaterialsService {
                 var sub=subtype(row,nativeType);String materialId=sub.path("material_id").asText();
                 if(!seen.add(materialId))throw new BizException(1406,"素材报表含重复素材，请重新查询");
                 JsonNode meta=metadata.getOrDefault(materialId,MissingNode.getInstance()),attr=attributes.getOrDefault(materialId,MissingNode.getInstance());
+                var presentation=presentations.get(materialId);
                 Boolean aigc=flag(row,info,sub,meta);
                 if("AIGC".equals(type) && !Boolean.TRUE.equals(aigc))continue;
                 Map<String,BigDecimal> metrics=new LinkedHashMap<>();FIELDS.forEach((k,v)->metrics.put(k,QianchuanPlanMapping.number(row.path("stats_info"),v)));
@@ -82,21 +104,31 @@ public class PlanMaterialsService {
                 var images=new ArrayList<String>();
                 for(var image:meta.path("images")){String imageUrl=text(image,"url");if(imageUrl!=null)images.add(imageUrl);}
                 if(images.isEmpty())for(var image:sub.path("image")){String imageUrl=text(image,"image_url");if(imageUrl!=null)images.add(imageUrl);}
-                String poster=first(text(sub.path("cover_image"),"image_url"),text(sub.path("cover_image"),"url"),text(meta,"poster_url"),text(sub,"image_url"));
+                String poster=first(covers.get(presentation.coverId()),text(sub.path("cover_image"),"image_url"),text(sub.path("cover_image"),"url"),text(meta,"poster_url"),text(sub,"image_url"));
                 if("IMAGE".equals(nativeType)) {String image=first(text(sub,"image_url"),text(meta,"url"));if(image!=null)images.add(image);poster=first(poster,image);}
                 if(poster==null && !images.isEmpty())poster=images.getFirst();
-                String name=first(text(sub,"title"),text(meta,"filename"),text(sub,"aweme_name"),"素材 "+materialId);
+                var titles=presentation.titles();String originalName=null;
+                if(labels!=null && !titles.isEmpty()) {
+                    String objectId=first(text(sub,"video_id"),text(sub,"image_id"),text(meta,"id"));
+                    try {
+                        var label=labels.label(tenant,plan.accountId(),qcId,nativeType,objectId,productInfo.keySet(),titles);
+                        if(label.isPresent()){originalName=label.get().name();titles=label.get().titles();}
+                    }catch(org.springframework.dao.DataAccessException unavailable){warnings.add("原始素材名称暂不可用，已展示千川投放标题");}
+                }
+                String name=first(originalName,readableTitle(text(sub,"title")),titles.isEmpty()?null:titles.getFirst(),readableTitle(text(meta,"filename")),
+                        productInfo.values().stream().map(Product::name).findFirst().orElse(null),"素材 "+materialId);
                 var tags=new LinkedHashSet<String>();
                 for(var source:List.of(row,info,sub,meta)) {for(var tag:source.path("analysis_type"))tags.add(tag.asText());for(var tag:source.path("tags"))tags.add(tag.asText());for(var tag:source.path("tag"))tags.add(tag.asText());}
                 for(var entry:Map.of("is_first_publish_material","FIRST_PUBLISH_MATERIAL","is_ecp_high_quality_material","HIGH_QUALITY_MATERIAL",
                     "is_ecp_low_quality_material","LOW_QUALITY_MATERIAL","is_carry_material","CARRY_MATERIAL","is_inefficient_material","INEFFICIENT_MATERIAL","is_similar_material","SIMILAR_MATERIAL").entrySet())if(attr.path(entry.getKey()).asBoolean(false))tags.add(entry.getValue());
-                String videoUrl=first(text(sub,"url"),text(meta,"url")),musicUrl=first(text(sub,"music_url"),text(meta.path("audio"),"url"));
+                // Report music_url can retain an expired VOD address; the library renews its audio URL.
+                String videoUrl=first(text(meta,"url"),text(sub,"url")),musicUrl=first(text(meta.path("audio"),"url"),text(sub,"music_url"));
                 // Qianchuan CDN media can reject browser referrers. Exact uploaded object IDs preserve the original file version.
                 if("VIDEO".equals(nativeType))videoUrl=first(registeredUrl(tenant,plan.accountId(),"VIDEO",first(text(sub,"video_id"),text(meta,"id"))),videoUrl);
                 if("CAROUSEL".equals(nativeType))musicUrl=first(registeredUrl(tenant,plan.accountId(),"AUDIO",text(meta.path("audio"),"video_id")),musicUrl);
-                result.add(new Material(materialId,nativeType,name,first(text(sub,"description"),text(meta,"description"),text(sub,"title")),videoUrl,poster,List.copyOf(images),musicUrl,
+                result.add(new Material(materialId,nativeType,name,first(text(sub,"description"),text(meta,"description"),readableTitle(text(sub,"title"))),videoUrl,poster,List.copyOf(images),musicUrl,
                     List.copyOf(productInfo.values()),text(row,"audit_status"),text(row,"material_status"),row.path("is_delete").asBoolean(false),aigc,List.copyOf(tags),
-                    first(text(row,"create_time"),text(info,"create_time"),text(sub,"create_time"),text(meta,"create_time")),strings(row.path("delivery_not_reason")),Collections.unmodifiableMap(metrics)));
+                    first(text(row,"create_time"),text(info,"create_time"),text(sub,"create_time"),text(meta,"create_time")),strings(row.path("delivery_not_reason")),Collections.unmodifiableMap(metrics),titles));
             }
         }
         if("AIGC".equals(type))warnings.add("AIGC 分类依据千川素材库的 AI 标识；未返回标识的素材仍在视频、图片或图文分类中展示。");
@@ -104,6 +136,38 @@ public class PlanMaterialsService {
     }
     private static JsonNode subtype(JsonNode row,String type) {
         return row.path("material_info").path(switch(type){case "CAROUSEL"->"carousel_material";case "TITLE"->"title_material";case "IMAGE"->"image_material";case "LIVE_ROOM"->"room_material";default->"video_material";});
+    }
+    private record Presentation(List<String> titles,String coverId) {}
+    private static Presentation presentation(JsonNode detail,JsonNode row,JsonNode sub,JsonNode meta,String type) {
+        var titles=new LinkedHashSet<String>();String ownTitle=readableTitle(text(sub,"title"));
+        if(ownTitle!=null)titles.add(ownTitle);
+        String objectId=first(text(sub,"video_id"),text(sub,"image_id"),text(meta,"id")),cover=null;
+        var products=new HashSet<String>();
+        for(var product:row.path("product_id_list"))products.add(product.asText());
+        for(var product:row.path("product_info"))if(product.hasNonNull("product_id"))products.add(product.path("product_id").asText());
+        var matching=new ArrayList<JsonNode>();
+        for(var group:detail.path("multi_product_creative_list")) {
+            if(!products.contains(group.path("product_id").asText()))continue;
+            boolean bound=false;
+            if("VIDEO".equals(type) && objectId!=null)for(var visual:group.path("video_material"))if(objectId.equals(text(visual,"video_id"))) {
+                bound=true;String candidate=text(visual,"video_cover_id");
+                if(cover!=null && candidate!=null && !cover.equals(candidate))return new Presentation(List.copyOf(titles),null);
+                if(candidate!=null)cover=candidate;
+            }
+            if("IMAGE".equals(type) && objectId!=null)for(var visual:group.path("image_material"))for(var image:visual.path("image_ids"))if(objectId.equals(image.asText()))bound=true;
+            if("CAROUSEL".equals(type))for(var visual:group.path("carousel_material"))if(sub.path("material_id").asText().equals(visual.path("carousel_id").asText()))bound=true;
+            if(bound)matching.add(group);
+        }
+        if(ownTitle==null)for(var group:matching)for(var title:group.path("title_material")) {
+            String titleType=text(title,"title_type");
+            if(titleType!=null && !("IMAGE".equals(type)?"COMMODITY_CARD":"CUSTOM").equals(titleType))continue;
+            String value=readableTitle(text(title,"title"));if(value!=null)titles.add(value);
+        }
+        return new Presentation(List.copyOf(titles),cover);
+    }
+    private static String readableTitle(String value) {
+        if(value==null || value.matches("(?i).+\\.(mp4|mov|webm|m4v|avi|jpe?g|png|webp|gif|mp3|wav|m4a|aac)"))return null;
+        return value;
     }
     private static String text(JsonNode node,String key) {String value=node.path(key).asText(null);return value==null || value.isBlank()?null:value;}
     private static String first(String... values) {return Arrays.stream(values).filter(Objects::nonNull).findFirst().orElse(null);}

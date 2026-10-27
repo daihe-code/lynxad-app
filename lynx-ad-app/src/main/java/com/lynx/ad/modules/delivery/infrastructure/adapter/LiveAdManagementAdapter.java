@@ -232,6 +232,13 @@ public class LiveAdManagementAdapter implements AdManagementPort {
                     "filtering",Map.of("material_ids",ids.subList(start,Math.min(start+50,ids.size())).stream().map(LiveAdManagementAdapter::numericId).toList())),"materials"));
         return rows;
     }
+    @Override public List<JsonNode> materialImageMetadata(Credential c,List<String> ids) {
+        List<JsonNode> rows=new ArrayList<>();
+        var unique=ids.stream().filter(Objects::nonNull).filter(id->!id.isBlank()).distinct().toList();
+        for(int start=0;start<unique.size();start+=50)rows.addAll(paged(c,nativeUrl("/open_api/v1.0/qianchuan/image/get/"),
+                Map.of("filtering",Map.of("image_ids",unique.subList(start,Math.min(start+50,unique.size())))),"list"));
+        return List.copyOf(rows);
+    }
     @Override public List<JsonNode> products(Credential c,String adId,LocalDate start,LocalDate end) {
         new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
         return paged(c,url("ad/product/get/"),Map.of("ad_id",numericId(adId),"start_date",start.toString(),"end_date",end.toString(),

@@ -7,11 +7,11 @@
     <p v-if="current?.warning" class="published-materials__notice" role="status">{{ current.warning }}</p>
     <p v-if="loading" class="published-materials__notice" role="status">正在读取{{ labels[type] }}素材…</p>
     <div v-if="rows.length" class="published-materials__work" :aria-busy="loading">
-      <ul class="published-materials__list"><li v-for="material in rows" :key="material.id"><button type="button" class="published-materials__item" :class="{ selected: active?.id === material.id }" :aria-pressed="active?.id === material.id" :aria-label="`查看素材 ${material.name}`" @click="selectedId = material.id">
+      <ul class="published-materials__list"><li v-for="material in rows" :key="material.id"><button type="button" class="published-materials__item" :class="{ selected: active?.id === material.id }" :aria-pressed="active?.id === material.id" :aria-label="`查看素材 ${planMaterialName(material)}`" @click="selectedId = material.id">
         <span class="published-materials__thumb"><img v-if="material.posterUrl || material.imageUrls[0]" :src="material.posterUrl || material.imageUrls[0]" alt="" /><ReferenceIcon v-else :name="type === 'VIDEO' ? 'video' : type === 'IMAGE' ? 'image' : 'article'" /></span>
-        <span class="published-materials__copy"><strong>{{ material.name }}</strong><small>{{ labels[type] }} · 千川素材</small><span v-if="material.reasons.length" class="published-materials__reason">{{ material.reasons.join('；') }}</span></span>
+        <span class="published-materials__copy"><strong :title="planMaterialName(material)">{{ planMaterialName(material) }}</strong><span v-if="material.reasons.length" class="published-materials__reason">{{ material.reasons.join('；') }}</span></span>
       </button></li></ul>
-      <div class="published-materials__preview"><blockquote v-if="active?.type === 'TITLE'">{{ active.text || active.name }}</blockquote><MaterialPreview v-else :key="preview?.id" :material="preview" :product="previewProduct" :account="account" /></div>
+      <div class="published-materials__preview"><blockquote v-if="active?.type === 'TITLE'">{{ active.text || active.name }}</blockquote><MaterialPreview v-else :key="`${preview?.id}:${current?.fetchedAt}`" :material="preview" :product="previewProduct" :account="account" /></div>
     </div>
     <p v-else-if="current && !loading" class="published-materials__empty">{{ error ? '暂无法刷新此分类的素材，请重新读取。' : productId ? '此商品在当前分类下暂无素材，可切换商品或分类查看。' : '千川在所查询区间内未返回此分类的素材，可切换分类查看。' }}</p>
     <p class="published-materials__period">查询区间：{{ range[0] }} 至 {{ range[1] }}{{ current?.fetchedAt ? ` · 最近读取 ${reviewTime(current.fetchedAt)}` : '' }}</p>
@@ -23,7 +23,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { CreationProduct } from '@/features/delivery/creationApi';
 import type { PlanVo } from '@/features/delivery/deliveryApi';
 import { insightMaterials, type PlanMaterials } from '@/features/delivery/planInsightsApi';
-import { planMaterialRange, visiblePlanMaterials, planMaterialPreview, planMaterialProduct } from '@/features/delivery/planMaterialPreview';
+import { planMaterialRange, visiblePlanMaterials, planMaterialPreview, planMaterialProduct, planMaterialName } from '@/features/delivery/planMaterialPreview';
 import { reviewTime } from '@/features/delivery/planReview';
 import MaterialPreview from '../create/MaterialPreview.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';

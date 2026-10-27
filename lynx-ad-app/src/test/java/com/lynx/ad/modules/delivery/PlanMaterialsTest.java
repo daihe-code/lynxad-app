@@ -56,4 +56,57 @@ class PlanMaterialsTest {
     @Test void knownUnsupportedOtherTypeIsExplainedButUnrelatedErrorsStayFailures() {when(port.materialReport(credential,qc,range.startDate(),range.endDate(),"LIVE_ROOM")).thenThrow(new BizException(1406,"商品全域投放不支持直播间画面"));var r=service.materials(tenant,id,range,"OTHER");assertTrue(r.records().isEmpty());assertTrue(r.warning().contains("商品全域"));doThrow(new BizException(1406,"权限不足")).when(port).materialReport(credential,qc,range.startDate(),range.endDate(),"LIVE_ROOM");assertThrows(BizException.class,()->service.materials(tenant,id,range,"OTHER"));}
     @Test void browserPreviewUsesOnlyTheExactUploadedObjectIdInTheSelectedAccount() {var v=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)v.path("material_info").path("video_material")).put("video_id","native-video-id").put("url","https://example.test/qc.mp4");report("VIDEO",v);when(assets.platformPreviewUrl(tenant,account.value(),"VIDEO","native-video-id")).thenReturn(Optional.of("https://example.test/uploaded-version.mp4"));assertEquals("https://example.test/uploaded-version.mp4",service.materials(tenant,id,range,"VIDEO").records().getFirst().previewUrl());verify(assets).platformPreviewUrl(tenant,account.value(),"VIDEO","native-video-id");}
     @Test void carouselAudioUsesItsUploadedAudioIdAndKeepsNativePictures() {report("CAROUSEL",row("CAROUSEL"));var meta=json.createObjectNode().put("material_id",material);meta.putObject("audio").put("video_id","native-audio-id").put("url","https://example.test/qc.mp3");meta.putArray("images").addObject().put("url","https://example.test/native-image.jpg");when(port.materialMetadata(credential,"CAROUSEL",List.of(material))).thenReturn(List.of(meta));when(assets.platformPreviewUrl(tenant,account.value(),"AUDIO","native-audio-id")).thenReturn(Optional.of("https://example.test/uploaded.mp3"));var m=service.materials(tenant,id,range,"CAROUSEL").records().getFirst();assertEquals("https://example.test/uploaded.mp3",m.musicUrl());assertEquals(List.of("https://example.test/native-image.jpg"),m.imageUrls());}
+    JsonNode bindings(String type,String productId,String objectId,String title) {
+        var detail=json.createObjectNode().put("ad_id",qc);var group=detail.putArray("multi_product_creative_list").addObject().put("product_id",productId);
+        if(type.equals("VIDEO"))group.putArray("video_material").addObject().put("video_id",objectId).put("video_cover_id","tos/selected-cover");
+        if(type.equals("IMAGE"))group.putArray("image_material").addObject().putArray("image_ids").add(objectId);
+        if(type.equals("CAROUSEL"))group.putArray("carousel_material").addObject().put("carousel_id",objectId);
+        group.putArray("title_material").addObject().put("title",title).put("title_type",type.equals("IMAGE")?"COMMODITY_CARD":"CUSTOM");
+        return detail;
+    }
+    @Test void videoUsesPlanSelectedCoverAndBoundAdvertisingTitleInsteadOfFilenameAndVideoFrame() {
+        var video=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)video.path("material_info").path("video_material")).put("video_id","exact-video").putObject("cover_image").put("image_url","https://example.test/frame.jpg");
+        report("VIDEO",video);when(port.detail(credential,qc)).thenReturn(bindings("VIDEO",product,"exact-video","跑步背包不晃，出门更轻松"));
+        when(port.materialImageMetadata(credential,List.of("tos/selected-cover"))).thenReturn(List.of(json.createObjectNode().put("id","tos/selected-cover").put("url","https://example.test/selected-cover.jpg")));
+        var m=service.materials(tenant,id,range,"VIDEO").records().getFirst();assertEquals("https://example.test/selected-cover.jpg",m.posterUrl());
+        assertEquals("跑步背包不晃，出门更轻松",m.name());assertEquals(List.of(m.name()),m.titles());assertNull(m.text());
+    }
+    @Test void imageUsesCommodityTitleAndDoesNotPickTheCustomVideoTitle() {
+        var image=row("IMAGE");((com.fasterxml.jackson.databind.node.ObjectNode)image.path("material_info").path("image_material")).put("image_id","tos/exact-image");report("IMAGE",image);
+        var detail=(com.fasterxml.jackson.databind.node.ObjectNode)bindings("IMAGE",product,"tos/exact-image","多功能轻便双肩包");
+        ((com.fasterxml.jackson.databind.node.ArrayNode)detail.path("multi_product_creative_list").get(0).path("title_material")).addObject().put("title_type","CUSTOM").put("title","视频专用标题");
+        when(port.detail(credential,qc)).thenReturn(detail);var m=service.materials(tenant,id,range,"IMAGE").records().getFirst();
+        assertEquals("多功能轻便双肩包",m.name());assertEquals(List.of(m.name()),m.titles());
+    }
+    @Test void unrelatedProductOrObjectOrPlanCannotSupplyCoverOrTitle() {
+        var video=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)video.path("material_info").path("video_material")).put("video_id","exact-video");report("VIDEO",video);
+        for(var detail:List.of(bindings("VIDEO","other-product","exact-video","错误标题"),bindings("VIDEO",product,"other-video","错误标题"),
+                ((com.fasterxml.jackson.databind.node.ObjectNode)bindings("VIDEO",product,"exact-video","错误标题")).put("ad_id","999"))) {
+            when(port.detail(credential,qc)).thenReturn(detail);var m=service.materials(tenant,id,range,"VIDEO").records().getFirst();
+            assertTrue(m.titles().isEmpty());assertEquals("棉鞋",m.name());assertNull(m.posterUrl());
+        }
+        verify(port,never()).materialImageMetadata(any(),any());
+    }
+    @Test void failedCoverLookupRetainsNativeThumbnailAndWarnsWithoutLosingTheMaterial() {
+        var video=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)video.path("material_info").path("video_material")).put("video_id","exact-video").putObject("cover_image").put("image_url","https://example.test/frame.jpg");report("VIDEO",video);
+        when(port.detail(credential,qc)).thenReturn(bindings("VIDEO",product,"exact-video","实际标题"));
+        when(port.materialImageMetadata(any(),any())).thenThrow(new BizException(1406,"封面读取失败"));
+        var result=service.materials(tenant,id,range,"VIDEO");assertEquals(1,result.records().size());assertEquals("https://example.test/frame.jpg",result.records().getFirst().posterUrl());assertTrue(result.warning().contains("封面"));
+    }
+    @Test void carouselPrefersRenewedLibraryAudioOverExpiredReportVodAndPreservesItsOwnTitle() {
+        var carousel=row("CAROUSEL");((com.fasterxml.jackson.databind.node.ObjectNode)carousel.path("material_info").path("carousel_material")).put("title","运动出门，随身小物不乱放").put("music_url","https://example.test/expired-vod.mp3");report("CAROUSEL",carousel);
+        var meta=json.createObjectNode().put("material_id",material);meta.putObject("audio").put("url","https://example.test/renewed-audio.mp3");meta.putArray("images").addObject().put("url","https://example.test/carousel.jpg");
+        when(port.materialMetadata(credential,"CAROUSEL",List.of(material))).thenReturn(List.of(meta));when(port.detail(credential,qc)).thenReturn(bindings("CAROUSEL",product,material,"其他组合标题"));
+        var m=service.materials(tenant,id,range,"CAROUSEL").records().getFirst();assertEquals("https://example.test/renewed-audio.mp3",m.musicUrl());
+        assertEquals("运动出门，随身小物不乱放",m.name());assertEquals(List.of(m.name()),m.titles());assertEquals(List.of("https://example.test/carousel.jpg"),m.imageUrls());
+    }
+    @Test void exactPublishedLabelRestoresOriginalNameAndOrdersOnlyActualNativeCopy() {
+        var video=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)video.path("material_info").path("video_material")).put("video_id","exact-video");report("VIDEO",video);
+        when(port.detail(credential,qc)).thenReturn(bindings("VIDEO",product,"exact-video","实际投放文案"));
+        var labels=mock(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore.class);service.presentationStore(labels);
+        when(labels.label(eq(tenant),eq(account),eq(qc),eq("VIDEO"),eq("exact-video"),eq(Set.of(product)),eq(List.of("实际投放文案"))))
+                .thenReturn(Optional.of(new com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore.Label("原始生成素材名称",List.of("实际投放文案"))));
+        var result=service.materials(tenant,id,range,"VIDEO").records().getFirst();
+        assertEquals("原始生成素材名称",result.name());assertEquals(List.of("实际投放文案"),result.titles());
+    }
 }

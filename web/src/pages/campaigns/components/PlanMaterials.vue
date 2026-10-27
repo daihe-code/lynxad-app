@@ -31,6 +31,7 @@ import type { TableInstance } from 'element-plus';
 import { insightMaterials, type MaterialMetrics, type PlanMaterial, type PlanMaterials } from '@/features/delivery/planInsightsApi';
 import type { StatisticsRange } from '@/features/delivery/statisticsRange';
 import type { CreationMaterial, CreationProduct } from '@/features/delivery/creationApi';
+import { planMaterialPreview } from '@/features/delivery/planMaterialPreview';
 import MaterialPreview from '../create/MaterialPreview.vue';
 const props = defineProps<{ planId: string; range: StatisticsRange; refreshToken: number; account?: { awemeName: string; avatar?: string } }>();
 const types = [{ id: 'VIDEO', label: '视频' }, { id: 'AIGC', label: 'AIGC' }, { id: 'IMAGE', label: '图片' }, { id: 'CAROUSEL', label: '图文' }, { id: 'OTHER', label: '其他素材' }, { id: 'TITLE', label: '标题' }];
@@ -73,7 +74,7 @@ function clearFilters() { product.value = status.value = tag.value = keyword.val
 function sortChange(e: { prop: string; order: string }) { sort.value = { key: e.prop, order: e.order }; }
 const safeUrl = (v?: string) => !!v && /^https?:\/\//i.test(v);
 function canPreview(row: PlanMaterial) { return row.type === 'TITLE' || safeUrl(row.previewUrl) || safeUrl(row.posterUrl) || row.imageUrls.some(safeUrl); }
-const previewMaterial = computed<CreationMaterial | undefined>(() => preview.value ? { id: preview.value.id, productId: preview.value.products[0]?.id || '', type: preview.value.type as CreationMaterial['type'], title: preview.value.name, text: preview.value.text, status: 'READY', previewUrl: preview.value.type === 'CAROUSEL' ? preview.value.musicUrl : preview.value.previewUrl, posterUrl: preview.value.posterUrl, imageUrls: preview.value.imageUrls, titles: [] } : undefined);
+const previewMaterial = computed<CreationMaterial | undefined>(() => planMaterialPreview(preview.value));
 const previewProduct = computed<CreationProduct | undefined>(() => { const p = preview.value?.products[0]; return p ? { productId: p.id, qcProductId: p.id, name: p.name, imageUrl: p.imageUrl, price: null, userPrice: null, tags: [], unavailableReasons: [] } : undefined; });
 function download() {
   const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`, textCell = (v: string) => cell(`\t${v}`);

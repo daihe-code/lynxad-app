@@ -33,6 +33,8 @@ public interface AdManagementPort {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供素材报表");
     }
     default List<JsonNode> materialMetadata(Credential credential,String type,List<String> materialIds) { return List.of(); }
+    /** Image object IDs (including a plan's selected video cover), distinct from numeric material IDs. */
+    default List<JsonNode> materialImageMetadata(Credential credential,List<String> imageIds) { return List.of(); }
     default List<JsonNode> materialAttributes(Credential credential,List<String> materialIds) { return List.of(); }
     default List<JsonNode> products(Credential credential,String adId,LocalDate start,LocalDate end) {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供商品报表");

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planMaterialRange, visiblePlanMaterials, planMaterialPreview, planMaterialProduct } from '../src/features/delivery/planMaterialPreview.ts';
+import { planMaterialRange, visiblePlanMaterials, planMaterialPreview, planMaterialProduct, planMaterialName } from '../src/features/delivery/planMaterialPreview.ts';
 
 const material = (overrides={}) => ({id:'9007199254740995123',type:'VIDEO',name:'历史投放视频',text:'投放文案',previewUrl:'https://media.example/video.mp4',posterUrl:'https://media.example/cover.jpg',imageUrls:[],products:[{id:'p1',name:'商品一'}],deleted:false,tags:[],reasons:[],metrics:{},...overrides});
 
@@ -44,4 +44,25 @@ test('预览只使用对应商品价格，未知关联不回退到第一个商�
   assert.equal(planMaterialProduct(material({products:[{id:'p3',name:'历史商品'}]}),products).price,null);
   assert.equal(planMaterialProduct(material({products:[]}),products),undefined);
   assert.equal(planMaterialProduct(material({products:[{id:'p1',name:'一'},{id:'p2',name:'二'}]}),products,'p2').price,30);
+});
+
+test('历史视频按实际投放标题展示，不把默认文件名当作广告文案',()=>{
+  const item=material({name:'generated.mp4',text:'generated.mp4',titles:['跑步背包不晃，出门更轻松','通勤骑行一包搞定']});
+  const preview=planMaterialPreview(item);
+  assert.equal(planMaterialName(item),'跑步背包不晃，出门更轻松');assert.equal(preview.displayName,'跑步背包不晃，出门更轻松');
+  assert.deepEqual(preview.titles,item.titles);assert.equal(preview.posterUrl,item.posterUrl);
+});
+test('旧接口缺少标题时显示已关联商品，不展示 generated 图片和视频文件名',()=>{
+  for(const name of ['generated.mp4','generated.jpg','generated.png']){
+    const item=material({name,text:name});assert.equal(planMaterialName(item),'商品一');assert.deepEqual(planMaterialPreview(item).titles,[]);
+  }
+});
+test('图文保留自己的标题、完整图片顺序和已续期配音地址',()=>{
+  const item=material({type:'CAROUSEL',name:'运动出门小物不乱放',titles:['运动出门小物不乱放'],text:'图文正文',imageUrls:['a','b','c'],musicUrl:'https://media.example/renewed.mp3'});
+  const preview=planMaterialPreview(item);assert.equal(preview.previewUrl,item.musicUrl);assert.deepEqual(preview.imageUrls,['a','b','c']);assert.deepEqual(preview.titles,item.titles);
+});
+test('素材原始名称与平台投放文案分别保留，商品卡名称不被通用文案覆盖',()=>{
+  const item=material({type:'IMAGE',name:'原始生成商品图标题',titles:['商品卡实际投放文案']});
+  assert.equal(planMaterialName(item),'原始生成商品图标题');
+  const preview=planMaterialPreview(item);assert.equal(preview.displayName,item.name);assert.deepEqual(preview.titles,item.titles);
 });

@@ -29,10 +29,19 @@ export function visiblePlanMaterials(materials: readonly PlanMaterial[], product
 /** A preview projection only: no engine IDs, generation receipts or editable creation state. */
 export function planMaterialPreview(material?: PlanMaterial): CreationMaterial | undefined {
   if (!material || !['VIDEO','IMAGE','CAROUSEL'].includes(material.type)) return undefined;
+  const titles=(material.titles || []).filter(readableTitle);
+  if (!titles.length && readableTitle(material.text)) titles.push(material.text!);
+  const name=planMaterialName(material);
   return { id: `${material.type}:${material.id}`, productId: material.products[0]?.id || '',
-    type: material.type as CreationMaterial['type'],title: material.name,displayName:material.name,
+    type: material.type as CreationMaterial['type'],title:name,displayName:name,
     text:material.text,status:'READY',previewUrl:material.type === 'CAROUSEL' ? material.musicUrl : material.previewUrl,
-    posterUrl:material.posterUrl,imageUrls:material.imageUrls,titles:material.text ? [material.text] : [] };
+    posterUrl:material.posterUrl,imageUrls:material.imageUrls,titles };
+}
+
+const readableTitle = (text?: string): text is string => !!text?.trim() && !/\.(mp4|mov|webm|m4v|avi|jpe?g|png|webp|gif|mp3|wav|m4a|aac)$/i.test(text.trim());
+export function planMaterialName(material: PlanMaterial): string {
+  return (readableTitle(material.name) ? material.name : '') || material.titles?.find(readableTitle)
+    || (readableTitle(material.text) ? material.text.split('\n')[0] : '') || material.products[0]?.name || `素材 ${material.id}`;
 }
 
 export function planMaterialProduct(material: PlanMaterial | undefined, products: readonly CreationProduct[], selected = ''): CreationProduct | undefined {
