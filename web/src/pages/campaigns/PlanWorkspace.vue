@@ -32,7 +32,8 @@
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
           <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :material-actions="editing && !transferring && canEdit" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
-          <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">平台暂未提供此计划的素材预览信息。</p></div></section></div></main>
+          <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
+          <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
         <main v-else-if="completedResult" class="ad-main workspace-audit"><div class="container-page"><PlanCompletedResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
@@ -94,6 +95,7 @@ import { hasPlanPausedResult } from '@/features/delivery/planPausedResult';
 import PlanTerminatedResult from './components/PlanTerminatedResult.vue';
 import { hasPlanTerminatedResult } from '@/features/delivery/planTerminatedResult';
 import PlanCompletedResult from './components/PlanCompletedResult.vue';
+import PublishedPlanMaterials from './components/PublishedPlanMaterials.vue';
 import { hasPlanCompletedResult } from '@/features/delivery/planCompletedResult';
 import { hasPlanAuditResult } from '@/features/delivery/planReview';
 import CreateProductsStep from './create/CreateProductsStep.vue';
