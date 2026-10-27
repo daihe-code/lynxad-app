@@ -70,7 +70,8 @@ public class PlanQueryService {
         }
     }
     public record Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs,
-                          BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {
+                          BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate,PlanListVo.MetricComparison comparison) {
+        public Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs,BigDecimal netGmv,BigDecimal netRoi,BigDecimal refundRate) {this(cost,gmv,orders,roi,covered,plans,snapshotTs,netGmv,netRoi,refundRate,null);}
         public Summary(BigDecimal cost,BigDecimal gmv,Long orders,BigDecimal roi,int covered,int plans,Instant snapshotTs) {this(cost,gmv,orders,roi,covered,plans,snapshotTs,null,null,null);}
     }
     public record PageResult<T>(List<T> records,long total,int pageNum,int pageSize,Summary summary,PlanStatisticsRange statisticsRange,PlanMetricTemplate metricTemplate) {
@@ -101,7 +102,7 @@ public class PlanQueryService {
         sort(all,filter);
         long from=(long)(pageNum-1)*pageSize;
         return new PageResult<>(from>=all.size()?List.of():List.copyOf(all.subList((int)from,(int)Math.min(all.size(),from+pageSize))),
-                all.size(),pageNum,pageSize,summary(all,template),range,template);
+                all.size(),pageNum,pageSize,overviewSummary(all,template,range),range,template);
     }
     private List<PlanListVo> rangeRows(TenantId tenant,List<PlanListVo> rows,PlanStatisticsRange range,boolean refresh,PlanMetricTemplate template) {
         Map<String,PlanStatisticsService.Snapshot> reports=new HashMap<>();
@@ -133,7 +134,7 @@ public class PlanQueryService {
                                                                PlanStatisticsRange range,PlanStatisticsRange previousRange,boolean failed) {
         String basis=range.startDate().equals(range.endDate())
                 ?range.endDate().equals(LocalDate.now(ZoneId.of("Asia/Shanghai")))?"YESTERDAY_FULL_DAY":"PREVIOUS_DAY":"PREVIOUS_PERIOD";
-        String reason=current==null?"当前区间暂无报表":failed?"对比报表获取失败，请刷新重试":previous==null?"对比时段暂无报表":null;
+        String reason=failed?"对比报表获取失败，请刷新重试":current==null?"当前区间暂无报表":previous==null?"对比时段暂无报表":null;
         return new PlanListVo.MetricComparison(
                 current==null || previous==null?null:rangeChange(current.cost(),previous.cost()),
                 current==null || previous==null?null:rangeChange(decimal(current.orders()),decimal(previous.orders())),
@@ -346,6 +347,31 @@ public class PlanQueryService {
             comparator=Comparator.comparing(field,Comparator.nullsLast(f.descending()?Comparator.<BigDecimal>reverseOrder():Comparator.<BigDecimal>naturalOrder()));
         }
         rows.sort(comparator.thenComparing(PlanListVo::planId));
+    }
+    private static Summary overviewSummary(List<PlanListVo> rows,PlanMetricTemplate template,PlanStatisticsRange range) {
+        var current=summary(rows,template);
+        if(range==null)return current;
+        Map<String,PlanStatisticsService.Metrics> previous=new LinkedHashMap<>();Set<String> currentIds=new HashSet<>();
+        boolean failed=false;
+        for(var row:rows) {
+            if(row.costYuan()!=null && (template==PlanMetricTemplate.NET || row.gmvYuan()!=null && row.convert()!=null))currentIds.add(row.planId());
+            var comparison=row.comparison();if(comparison==null)continue;
+            if("对比报表获取失败，请刷新重试".equals(comparison.unavailableReason()))failed=true;
+            var value=comparison.previous();
+            if(value!=null && value.cost()!=null && (template==PlanMetricTemplate.NET || value.gmv()!=null && value.orders()!=null))
+                previous.put(row.planId(),new PlanStatisticsService.Metrics(value.cost(),value.gmv(),value.roi(),value.orders(),value.netGmv(),value.netRoi(),value.refundRate()));
+        }
+        // Compare the complete filtered cohort, never one page or two differently covered subsets.
+        PlanStatisticsService.Metrics prior=null;
+        if(!failed && !previous.isEmpty() && currentIds.equals(previous.keySet())) {
+            var totals=CampaignTrendService.aggregate(List.copyOf(previous.values()));
+            prior=new PlanStatisticsService.Metrics(totals.get("cost"),totals.get("gmv"),totals.get("roi"),totals.get("orders")==null?null:totals.get("orders").longValue(),totals.get("netGmv"),totals.get("netRoi"),totals.get("refundRate"));
+        }
+        long days=java.time.temporal.ChronoUnit.DAYS.between(range.startDate(),range.endDate())+1;
+        var previousRange=new PlanStatisticsRange(range.startDate().minusDays(days),range.endDate().minusDays(days));
+        var values=current.covered()==0?null:new PlanStatisticsService.Metrics(current.cost(),current.gmv(),current.roi(),current.orders(),current.netGmv(),current.netRoi(),current.refundRate());
+        var comparison=rangeComparison(values,prior,range,previousRange,failed);
+        return new Summary(current.cost(),current.gmv(),current.orders(),current.roi(),current.covered(),current.plans(),current.snapshotTs(),current.netGmv(),current.netRoi(),current.refundRate(),comparison);
     }
     private static Summary summary(List<PlanListVo> rows,PlanMetricTemplate template) {
         if(template==PlanMetricTemplate.NET)return netSummary(rows);

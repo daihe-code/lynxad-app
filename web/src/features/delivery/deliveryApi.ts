@@ -101,7 +101,7 @@ export interface PageResult<T> {
   total: number;
   pageNum: number;
   pageSize: number;
-  summary?: PlanMetricValues & { covered: number; plans: number; snapshotTs: string | null };
+  summary?: PlanMetricValues & { covered: number; plans: number; snapshotTs: string | null; comparison?: PlanListVo['comparison'] };
 }
 
 export interface PlanDraftRequest {

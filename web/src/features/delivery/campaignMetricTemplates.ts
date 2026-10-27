@@ -22,7 +22,7 @@ export function metricText(value: number | null | undefined, kind: MetricColumn[
 export function metricRowValues(row: PlanListVo, template: PlanMetricTemplate) {
   return metricTemplates[template].columns.map(column => row[column.field] ?? null);
 }
-export function metricDelta(row: PlanListVo, column: MetricColumn) {
+export function metricDelta(row: Pick<PlanListVo, 'comparison'>, column: MetricColumn) {
   const comparison = row.comparison, key = column.key;
   const current = comparison?.current?.[key], previous = comparison?.previous?.[key];
   const legacyField = { cost: 'costChangePct', orders: 'convertChangePct', gmv: 'gmvChangePct', roi: 'roiChangePct' } as const;

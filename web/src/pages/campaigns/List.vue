@@ -19,7 +19,7 @@
         </el-dropdown>
       </div>
       <div class="metrics">
-        <CampaignMetricCard v-for="(column, index) in metricColumns" :key="`${trendVersion}:${column.field}`" :column="column" :value="summary?.[column.key]" :tone="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]!" :range="{ startDate: displayedRange[0], endDate: displayedRange[1] }" :trend="campaignTrend" :loading="trendLoading" :error="trendError" :disabled="loading || metricTemplate !== displayedMetricTemplate" @request-trend="loadCampaignTrend" />
+        <CampaignMetricCard v-for="(column, index) in metricColumns" :key="`${trendVersion}:${column.field}`" :column="column" :value="summary?.[column.key]" :comparison="summary?.comparison" :tone="['metric-cost', 'metric-orders', 'metric-gmv', 'metric-roi'][index]!" :range="{ startDate: displayedRange[0], endDate: displayedRange[1] }" :trend="campaignTrend" :loading="trendLoading" :error="trendError" :disabled="loading || metricTemplate !== displayedMetricTemplate" @request-trend="loadCampaignTrend" />
       </div>
     </section>
     <section class="panel plans-panel" aria-labelledby="plans-title">

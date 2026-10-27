@@ -7,10 +7,10 @@
       <div class="point-value" aria-live="polite"><span>{{ selected?.time || '—' }}</span><b>{{ metricText(selected?.value, column.kind) }}</b></div>
       <svg viewBox="0 0 640 250" role="img" tabindex="0" :aria-label="`${column.label}趋势，${selected?.time || ''}：${metricText(selected?.value, column.kind)}。可用左右方向键查看时间点`" @pointermove="movePoint" @pointerleave="activeIndex = null" @keydown.left.prevent="step(-1)" @keydown.right.prevent="step(1)">
         <g v-for="tick in plot.ticks" :key="tick.y"><line x1="64" x2="600" :y1="tick.y" :y2="tick.y" stroke="#eceef5" /><text x="54" :y="tick.y + 4" text-anchor="end">{{ tickText(tick.value) }}</text></g>
-        <path v-if="plot.hasData" :d="plot.path" fill="none" stroke="#575cf6" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+        <path v-if="plot.hasData" class="trend-curve" :d="plot.path" fill="none" stroke="#575cf6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
         <g v-for="(point, i) in plot.values" :key="point.time">
           <text v-if="i % labelStep === 0 || i === plot.values.length - 1" :x="point.x" y="236" :text-anchor="i === 0 ? 'start' : i === plot.values.length - 1 ? 'end' : 'middle'">{{ hourly ? point.time.slice(11, 16) : point.time.slice(5, 10) }}</text>
-          <circle v-if="point.value != null && singleValue" :cx="point.x" :cy="point.y!" r="4" fill="#575cf6" />
+          <circle v-if="point.isolated" :cx="point.x" :cy="point.y!" r="3" fill="#575cf6" />
         </g>
         <line v-if="selected && plot.hasData" :x1="selected.x" :x2="selected.x" y1="28" y2="208" stroke="#b6b4ee" stroke-dasharray="4 4" />
         <circle v-if="selected?.y != null" :cx="selected.x" :cy="selected.y" r="4" fill="#575cf6" stroke="white" stroke-width="2" />
@@ -29,7 +29,6 @@ const props = defineProps<{ column: MetricColumn; points: CampaignStatisticsTren
 defineEmits<{ retry: [] }>();
 const activeIndex = ref<number | null>(null);
 const plot = computed(() => metricPlot(props.points, props.column.key));
-const singleValue = computed(() => plot.value.values.filter(point => point.value != null).length === 1);
 const hourly = computed(() => props.timeDimension ? props.timeDimension === 'stat_time_hour' : props.range.startDate === props.range.endDate);
 const labelStep = computed(() => Math.max(1, Math.ceil((plot.value.values.length - 1) / 4)));
 const selected = computed(() => activeIndex.value == null ? plot.value.values.filter(p => p.value != null).at(-1) : plot.value.values[activeIndex.value]);
