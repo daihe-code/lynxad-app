@@ -53,7 +53,7 @@ import { carouselDraft } from '@/features/creative/carouselUploads';
 type AssetType = LibraryItemVo["type"];
 type Status = "ALL" | "USED" | "UNUSED" | "REVIEWING" | "REJECTED";
 type Modal = "upload" | "detail" | "preview";
-const tabs = [{ key: "VIDEO", label: "视频库", icon: "video", count: "video" }, { key: "IMAGE", label: "图片库", icon: "image", count: "image" }, { key: "CAROUSEL", label: "图文库", icon: "note", count: "carousel" }, { key: "AUDIO", label: "音频库", icon: "audio", count: "audio" }, { key: "TEXT", label: "文本库", icon: "note", count: "text" }] as const;
+const tabs = [{ key: "VIDEO", label: "视频库", icon: "video", count: "video" }, { key: "IMAGE", label: "图片库", icon: "image", count: "image" }, { key: "CAROUSEL", label: "图文库", icon: "note", count: "carousel" }] as const;
 const statuses = [{ key: "ALL", label: "全部", count: "all" }, { key: "USED", label: "使用中", count: "used" }, { key: "UNUSED", label: "未使用", count: "unused" }, { key: "REVIEWING", label: "审核中", count: "reviewing" }, { key: "REJECTED", label: "审核未通过", count: "rejected" }] as const;
 function defaultRange(days = 7): [string, string] {
   const end = new Date(), start = new Date(); start.setDate(end.getDate() - days + 1);
