@@ -44,7 +44,6 @@
     </template>
     <p v-if="error" class="plan-confirm-blocked" role="alert">{{ error }}</p>
     <template #footer>
-      <span v-if="action === 'restore'" class="plan-confirm-footer-note">恢复结果以千川返回状态为准。</span>
       <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
       <el-button :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
     </template>
@@ -115,7 +114,6 @@ async function copyId() {
 .plan-confirm-notice p { margin: 3px 0 0; color: #8e775c; font-size: 12px; line-height: 19px; }
 .plan-confirm-retained { margin: 8px 0 0; color: #7c7f99; font-size: 12px; line-height: 20px; }
 .plan-confirm-blocked { margin: 12px 0 0; color: #d0474f; font-size: 12px; line-height: 20px; }
-.plan-confirm-footer-note { flex: 1; color: #7c7f99; font-size: 11px; line-height: 18px; text-align: left; }
 .plan-pause-reasons { min-width: 0; margin: 16px 0 0; padding: 0; border: 0; }
 .plan-pause-reasons + .plan-confirm-impact { margin-bottom: 0; }
 .plan-pause-reasons legend { padding: 0; color: #1a1b2e; font-size: 14px; font-weight: 600; }
@@ -131,6 +129,5 @@ async function copyId() {
 :global(.campaign-plan-action.el-dialog .el-dialog__body) { padding: 0 24px 20px; max-height: calc(100dvh - 220px); }
 :global(.campaign-plan-action.el-dialog .el-dialog__footer) { margin-top: 0; padding: 16px 24px; gap: 10px; }
 :global(.campaign-plan-action.el-dialog .el-dialog__headerbtn) { top: 20px; right: 16px; }
-@media (max-width: 520px) { .plan-confirm-footer-note { flex: auto; width: 100%; } }
 @media (max-width: 420px) { .plan-pause-options { grid-template-columns: 1fr; } }
 </style>
