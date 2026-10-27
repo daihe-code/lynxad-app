@@ -6,8 +6,8 @@
           <div class="mg-title__l"><h1 class="mg-title__h">素材中心</h1><span class="mg-title__bar" aria-hidden="true"></span><span class="mg-title__tag"><AssetIcon name="mountain" />抖音·巨量千川</span></div>
           <div class="mg-title__r">
             <el-popover v-model:visible="calendarOpen" trigger="click" :width="350" placement="bottom-end">
-              <template #reference><button class="mg-range" type="button" aria-haspopup="dialog" @click="draftRange = [...range]"><AssetIcon class="mg-range__ic" name="calendar" /><span>{{ range[0] }} ~ {{ range[1] }}</span><AssetIcon class="mg-range__ic" name="caret" /></button></template>
-              <div class="asset-calendar"><label>开始日期<input v-model="draftRange[0]" type="date" aria-label="开始日期" /></label><label>结束日期<input v-model="draftRange[1]" type="date" aria-label="结束日期" /></label><p v-if="dateError" role="alert">{{ dateError }}</p><div><el-button size="small" @click="quickRange(1)">今天</el-button><el-button size="small" @click="quickRange(7)">近 7 天</el-button><el-button size="small" @click="quickRange(30)">近 30 天</el-button><el-button size="small" type="primary" @click="applyRange">确定</el-button></div></div>
+              <template #reference><button class="mg-range" type="button" aria-haspopup="dialog" aria-label="按上传日期筛选素材" @click="draftRange = range ? [...range] : defaultRange()"><AssetIcon class="mg-range__ic" name="calendar" /><span>{{ range ? `${range[0]} ~ ${range[1]}` : '全部日期' }}</span><AssetIcon class="mg-range__ic" name="caret" /></button></template>
+              <div class="asset-calendar"><label>开始日期<input v-model="draftRange[0]" type="date" aria-label="开始日期" /></label><label>结束日期<input v-model="draftRange[1]" type="date" aria-label="结束日期" /></label><p v-if="dateError" role="alert">{{ dateError }}</p><div><el-button size="small" @click="allDates">全部日期</el-button><el-button size="small" @click="quickRange(1)">今天</el-button><el-button size="small" @click="quickRange(7)">近 7 天</el-button><el-button size="small" @click="quickRange(30)">近 30 天</el-button><el-button size="small" type="primary" @click="applyRange">确定</el-button></div></div>
             </el-popover>
             <button class="mg-ibtn" type="button" aria-label="刷新素材数据" :data-busy="loading" :disabled="loading" @click="reload"><AssetIcon name="refresh" /></button>
           </div>
@@ -60,7 +60,7 @@ function defaultRange(days = 7): [string, string] {
   const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return [fmt(start), fmt(end)];
 }
-const range = ref(defaultRange()), draftRange = ref<[string, string]>([...range.value]);
+const range = ref<[string, string] | null>(null), draftRange = ref<[string, string]>(defaultRange());
 const { accountId } = storeToRefs(useAdvertisingAccountsStore());
 const calendarOpen = ref(false), dateError = ref("");
 const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
@@ -82,7 +82,7 @@ watch(() => carouselDraft.result, () => { void reload(); });
 async function reload() {
   clearTimeout(searchTimer); const id = ++requestId; loading.value = true; failMsg.value = "";
   try {
-    const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", accountId: accountId.value || undefined, from: range.value[0], to: range.value[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
+    const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", accountId: accountId.value || undefined, from: range.value?.[0], to: range.value?.[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
     if (id !== requestId) return;
     data.value = result;
     if (page.value > totalPages.value) { page.value = totalPages.value; await reload(); }
@@ -102,6 +102,7 @@ function pickOne(id: string) { if (picked.value.has(id)) picked.value.delete(id)
 function pickAll() { const remove = allPicked.value; data.value.items.forEach(i => remove ? picked.value.delete(i.id) : picked.value.add(i.id)); }
 function applyRange() { const [from, to] = draftRange.value; if (!from || !to || from > to) { dateError.value = "请选择有效日期，开始日期不能晚于结束日期"; return; } range.value = [...draftRange.value]; dateError.value = ""; calendarOpen.value = false; resetAndReload(); }
 function quickRange(days: number) { draftRange.value = defaultRange(days); applyRange(); }
+function allDates() { range.value = null; dateError.value = ""; calendarOpen.value = false; resetAndReload(); }
 async function tabKey(event: KeyboardEvent, key: AssetType) {
   const index = tabs.findIndex(t => t.key === key); let next = index;
   if (event.key === "ArrowRight") next = (index + 1) % tabs.length; else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = tabs.length - 1; else return;

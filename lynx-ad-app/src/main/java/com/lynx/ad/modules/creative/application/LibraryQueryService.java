@@ -91,10 +91,8 @@ public class LibraryQueryService {
     public LibraryResponse query(TenantId tenantId,String typeRaw,String platform,LocalDate from,LocalDate to,
             String status,String q,int page,int pageSize,boolean selectable,String accountId,String productId,String productScope) {
         String type = parseType(typeRaw);
-        LocalDate today = LocalDate.now(SHANGHAI);
-        LocalDate end = to == null ? today : to;
-        LocalDate start = from == null ? (selectable ? LocalDate.of(1970,1,1) : today.minusDays(6)) : from;
-        if (start.isAfter(end)) {
+        LocalDate start = from, end = to;
+        if (start != null && end != null && start.isAfter(end)) {
             throw new BizException(1509, "开始时间不能晚于结束时间");
         }
         int size = pageSize <= 0 ? 8 : Math.min(pageSize, 20);
@@ -432,7 +430,7 @@ public class LibraryQueryService {
             return true;
         }
         LocalDate d = createdAt.atZone(SHANGHAI).toLocalDate();
-        return !d.isBefore(start) && !d.isAfter(end);
+        return (start == null || !d.isBefore(start)) && (end == null || !d.isAfter(end));
     }
 
     private static boolean matchQ(Item item, String q) {
