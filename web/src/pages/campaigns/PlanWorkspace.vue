@@ -426,7 +426,7 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 .plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
-.workspace-plan-settings{padding-top:0}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
+.workspace-plan-settings{padding-top:0}.workspace-plan-settings .panel__pad{padding-top:20px;padding-bottom:24px}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
 @media(max-width:767px){.plan-workspace{padding-bottom:220px}}
 </style>

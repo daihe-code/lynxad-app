@@ -1,5 +1,5 @@
 <template>
-  <div class="live-materials creative-workspace ad-step3">
+  <div class="live-materials creative-workspace ad-step3" :class="{ 'live-materials--embedded': embedded }">
     <CreationFrame v-if="!embedded" :step="3" navigable :navigation-disabled="busy" :reached-step="reachedStep" :max-step="maxStep ?? 3" @navigate="step => emit('navigate',step)" :account="account" :accounts="readOnly ? [] : accounts" :account-switch-disabled="busy || running || readOnly" :account-chips="accountChips" @account="emit('account', $event)" />
     <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
       <h2 class="panel__title">{{ batchRunning ? '生成投放素材' : published ? '已投放素材' : '确定投放素材' }}</h2><p class="panel__sub">{{ batchRunning ? `我正在为你选中的 ${state.generationProductIds.length || state.products.length} 款商品准备素材，生成后由你预览确认` : published ? '当前计划使用的素材，点击素材或标题可查看投放效果预览' : '我已整理好素材，请预览并确认用于本次投放的内容' }}</p>
@@ -280,6 +280,7 @@ watch(productId, () => { selectedId.value = ''; const first = materials.value[0]
 @media (max-width:639px) { .generation-dialog :deep(.reference-modal__box) { padding: 20px 16px 16px; } .generation-products { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; } }
 /* Shared reference CSS supplies proportions, typography and colors. */
 .live-materials { background: #f7f7ff; min-height: 100vh; color: #1a1b2e; padding-bottom: 75px; }
+.live-materials--embedded { min-height: 0; padding-bottom: 0; }
 .panel__pad { padding-bottom: 40px; }
 .tip__icon { width: 16px; height: 16px; }
 .live-materials .visibility-help { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 18px; height: 18px; margin-top: -4px; padding: 0; border: 0; background: transparent; color: #a0a3bd; transition: color .15s; }
