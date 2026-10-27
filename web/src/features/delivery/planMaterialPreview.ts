@@ -8,10 +8,12 @@ const date = (value?: string | null): value is string => !!value && /^\d{4}-\d{2
   && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0,10) === value;
 
 /** Include historical delivery days, rather than querying only today for completed plans. */
-export function planMaterialRange(plan: Pick<PlanVo,'startDate'|'endDate'|'createdAt'>, today = shanghaiToday()): StatisticsRange {
+export function planMaterialRange(plan: Pick<PlanVo,'startDate'|'endDate'|'createdAt'> & {source?:string}, today = shanghaiToday()): StatisticsRange {
   const end = date(plan.endDate) && plan.endDate <= today ? plan.endDate : today;
   const earliest = shiftDay(end,-179);
-  const start = date(plan.startDate) ? plan.startDate : date(plan.createdAt?.slice(0,10)) ? plan.createdAt!.slice(0,10) : earliest;
+  // Imported rows record the import time as createdAt, not the actual delivery start.
+  const created = plan.source === 'EXTERNAL' ? undefined : plan.createdAt?.slice(0,10);
+  const start = date(plan.startDate) ? plan.startDate : date(created) ? created : earliest;
   return [start <= end ? start < earliest ? earliest : start : earliest,end];
 }
 

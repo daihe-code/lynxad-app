@@ -8,6 +8,7 @@ test('历史已完成计划按实际投放日期查询，避免只查今天导�
   assert.deepEqual(planMaterialRange({startDate:'2026-10-17',endDate:'2026-10-20'},'2026-10-27'),['2026-10-17','2026-10-20']);
   assert.deepEqual(planMaterialRange({startDate:'2026-10-17',endDate:'2026-11-20'},'2026-10-27'),['2026-10-17','2026-10-27']);
   assert.deepEqual(planMaterialRange({createdAt:'2026-10-17T02:00:00Z'},'2026-10-27'),['2026-10-17','2026-10-27']);
+  assert.deepEqual(planMaterialRange({source:'EXTERNAL',createdAt:'2026-10-26T02:00:00Z',endDate:'2026-10-24'},'2026-10-27'),['2026-04-28','2026-10-24']);
 });
 
 test('缺失、无效或过早日期仍生成合法且不超过180天的查询区间',()=>{
