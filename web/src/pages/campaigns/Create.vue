@@ -326,7 +326,6 @@ async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') 
   if (busy.value) return;
   const nextMode = value === 'SMART_BID_CUSTOM' ? 'CUSTOM' : 'CONSERVATIVE';
   if (nextMode === mode.value) return;
-  if (mode.value === 'CONSERVATIVE' && nextMode === 'CUSTOM') budget.value = '';
   mode.value = nextMode;
   await refreshRecommendations();
 }
