@@ -1,3 +1,5 @@
+import { restoreModeBudgets, type ModeBudgets } from './creationModeBudgets.ts';
+
 /** Local input recovery only. Tokens, product URLs, media and AI results are never cached. */
 export interface DraftScope {
   tenantId: string; userId: string; accountId: string; awemeId: string; planId: string | null;
@@ -5,6 +7,7 @@ export interface DraftScope {
 export interface DraftInputs {
   productIds: string[]; name: string; budget: string; roi: string;
   roiSource?: 'PLATFORM' | 'MANUAL';
+  modeBudgets?: ModeBudgets;
   mode: 'CUSTOM' | 'CONSERVATIVE'; duration: 'long' | 'custom'; start: string; end: string; step: number;
 }
 export interface DraftBaseline { revision: number | null; inputs: DraftInputs }
@@ -15,7 +18,7 @@ export type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export const DRAFT_TTL_MS = 7 * 24 * 3600 * 1000;
 const PREFIX = 'lynx.creation.inputs.v1:';
 const identifier = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
-export const DRAFT_INPUT_FIELDS: (keyof DraftInputs)[] = ['productIds','name','budget','roi','roiSource','mode','duration','start','end','step'];
+export const DRAFT_INPUT_FIELDS: (keyof DraftInputs)[] = ['productIds','name','budget','roi','roiSource','mode','duration','start','end','step','modeBudgets'];
 
 function validScope(scope: DraftScope): boolean {
   return !!scope && [scope.tenantId,scope.userId,scope.accountId,scope.awemeId].every(identifier)
@@ -37,12 +40,18 @@ function validInputs(value: unknown): value is DraftInputs {
     && typeof x.name === 'string' && x.name.length <= 200
     && typeof x.budget === 'string' && x.budget.length <= 64 && typeof x.roi === 'string' && x.roi.length <= 64
     && (x.roiSource === undefined || ['PLATFORM','MANUAL'].includes(x.roiSource))
+    && (x.modeBudgets === undefined || !!x.modeBudgets && typeof x.modeBudgets === 'object'
+      && !Array.isArray(x.modeBudgets) && ['CUSTOM','CONSERVATIVE'].every(key => {
+        const value = x.modeBudgets![key as keyof ModeBudgets];
+        return value === undefined || typeof value === 'string' && value.length <= 64;
+      }))
     && ['CUSTOM','CONSERVATIVE'].includes(x.mode) && ['long','custom'].includes(x.duration)
     && [x.start,x.end].every(date => typeof date === 'string' && (date === '' || /^\d{4}-\d{2}-\d{2}$/.test(date)))
     && Number.isInteger(x.step) && x.step >= 1 && x.step <= 3;
 }
 function cleanInputs(x: DraftInputs): DraftInputs {
-  return { productIds: [...x.productIds], name: x.name, budget: x.budget, roi: x.roi, ...(x.roiSource ? { roiSource:x.roiSource } : {}), mode: x.mode,
+  return { productIds: [...x.productIds], name: x.name, budget: x.budget, roi: x.roi, ...(x.roiSource ? { roiSource:x.roiSource } : {}),
+    ...(x.modeBudgets ? { modeBudgets:restoreModeBudgets(x.mode,x.budget,x.modeBudgets) } : {}), mode: x.mode,
     duration: x.duration, start: x.start, end: x.end, step: x.step };
 }
 function numericText(text: string): string {
@@ -51,9 +60,15 @@ function numericText(text: string): string {
   const tail = decimal.replace(/0+$/, '');
   return integer.replace(/^0+(?=\d)/, '') + (tail ? '.' + tail : '');
 }
+function budgetMemory(inputs: DraftInputs): (string | null)[] {
+  const values = restoreModeBudgets(inputs.mode,inputs.budget,inputs.modeBudgets);
+  return (['CUSTOM','CONSERVATIVE'] as const).map(mode => values[mode] === undefined ? null : numericText(values[mode]));
+}
 export function changedDraftFields(inputs: DraftInputs, baseline: DraftInputs): (keyof DraftInputs)[] {
   return DRAFT_INPUT_FIELDS.filter(field => field === 'budget' || field === 'roi'
     ? numericText(inputs[field]) !== numericText(baseline[field])
+    : field === 'modeBudgets' ? !!(inputs.modeBudgets || baseline.modeBudgets) &&
+      JSON.stringify(budgetMemory(inputs)) !== JSON.stringify(budgetMemory(baseline))
     : JSON.stringify(inputs[field]) !== JSON.stringify(baseline[field]));
 }
 

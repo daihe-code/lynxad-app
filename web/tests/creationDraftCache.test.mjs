@@ -100,3 +100,35 @@ test('记忆最近账户按用户和企业隔离，并有有效期', () => {
   assert.equal(recalledDraftAccount(disk,'other','user'),undefined);
   assert.equal(recalledDraftAccount(disk,'tenant','user',Date.now()+DRAFT_TTL_MS+1000),undefined);
 });
+
+test('当前预算保存到服务器后，另一种投放方式的本机预算仍可恢复', () => {
+  const disk=storage(),cache=new CreationDraftCache(disk,'writer');cache.open(scope,baseline);
+  const edited={...inputs,modeBudgets:{CUSTOM:'300',CONSERVATIVE:'100'}};
+  cache.acknowledge(8,edited,['budget','mode']);
+  assert.equal(cache.save(edited),'saved');
+  const reopened=new CreationDraftCache(disk,'reader').open(scope,{revision:8,inputs});
+  assert.deepEqual(reopened.inputs.modeBudgets,{CUSTOM:'300',CONSERVATIVE:'100'});
+  assert.equal(reopened.inputs.budget,'300');
+  assert.equal(reopened.baseline.revision,8);
+});
+
+test('旧草稿只恢复当前模式预算，新增预算记忆不产生虚假的输入修改', () => {
+  assert.deepEqual(changedDraftFields({...inputs,modeBudgets:{CUSTOM:'300'}},inputs),[]);
+  assert.deepEqual(changedDraftFields({...inputs,budget:'00300.00',modeBudgets:{CUSTOM:'00300.00'}},inputs),[]);
+  assert.deepEqual(changedDraftFields({...inputs,modeBudgets:{CUSTOM:'300',CONSERVATIVE:'100'}},inputs),['modeBudgets']);
+  const disk=storage(),cache=new CreationDraftCache(disk,'writer');cache.open(scope,baseline);cache.save({...inputs,budget:'400'});
+  const old=parseCachedDraft(disk.getItem(draftKey(scope)),scope);
+  assert.equal(old.inputs.modeBudgets,undefined);
+});
+
+test('预算记忆保留显式空值，拒绝异常结构并清理白名单外字段', () => {
+  const disk=storage(),cache=new CreationDraftCache(disk,'writer');cache.open(scope,baseline);
+  assert.equal(cache.save({...inputs,modeBudgets:{CUSTOM:'300',CONSERVATIVE:'',token:'SECRET'}}),'saved');
+  const raw=disk.getItem(draftKey(scope)),restored=parseCachedDraft(raw,scope);
+  assert.deepEqual(restored.inputs.modeBudgets,{CUSTOM:'300',CONSERVATIVE:''});assert.equal(raw.includes('SECRET'),false);
+  for (const modeBudgets of [null,[],{CUSTOM:300},{CONSERVATIVE:'1'.repeat(65)}]) {
+    assert.equal(cache.save({...inputs,modeBudgets}),'unavailable');
+    const record=JSON.parse(raw);record.inputs.modeBudgets=modeBudgets;
+    assert.equal(parseCachedDraft(JSON.stringify(record),scope),undefined);
+  }
+});

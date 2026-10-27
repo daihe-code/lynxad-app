@@ -11,7 +11,7 @@ test('控成本预算低于 300 元时提示，恰好 300 元可通过', () => {
 test('金额格式、两位小数和新的上限仍然有效', () => {
   for (const budget of ['', '-100', '100.001', '1e2', 'NaN', '1000000000']) assert.notEqual(creationBudgetError(budget, 'CUSTOM'), '');
 });
-test('切换到控成本时重新校验同一金额，不自动增加用户预算', () => {
+test('同一金额按当前模式分别校验，不修改输入值', () => {
   const budget = '50';
   assert.equal(creationBudgetError(budget, 'CONSERVATIVE'), '');
   assert.equal(creationBudgetError(budget, 'SMART_BID_CUSTOM'), COST_DAILY_BUDGET_HINT);

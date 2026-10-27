@@ -46,6 +46,7 @@ import { productAdjustmentText, selectionImpact, selectionImpactText } from '@/f
 import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
 import { creationBudgetError } from '@/features/delivery/budgetValidation';
+import { useCreationModeBudgets } from '@/features/delivery/creationModeBudgets';
 import { awemeLabels } from '@/features/identity/awemeLabels';
 import { getPlan } from '@/features/delivery/deliveryApi';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
@@ -113,7 +114,8 @@ const selectionLocked=computed(()=>contentLocked.value || productSelectionLocked
 const reconcileId = ref(''), reviewedQuote=ref('');
 const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
-const budget = ref(''), roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
+const roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
+const { budget, budgets: modeBudgets, restore: restoreBudgets, reset: resetBudgets, applyRecommendation: applyBudgetRecommendation } = useCreationModeBudgets(mode);
 const roiEdited = ref(false), automaticRoi = ref<string>();
 function editRoi() { roiEdited.value=true;automaticRoi.value=undefined; }
 function restoreRoi(value: string, source?: DraftInputs['roiSource']) {
@@ -126,7 +128,7 @@ const initialSchedule = creationScheduleDefaults(today());
 const start = ref(initialSchedule.start), end = ref(initialSchedule.end);
 function captureDraft(): DraftInputs {
   return { productIds: selected.value.map(p => p.qcProductId), name: name.value, budget: budget.value, roi: roi.value, roiSource:roiEdited.value?'MANUAL':'PLATFORM',
-    mode: mode.value, duration: duration.value, start: start.value, end: end.value, step: Math.min(3,step.value) };
+    mode: mode.value, modeBudgets: { ...modeBudgets.value }, duration: duration.value, start: start.value, end: end.value, step: Math.min(3,step.value) };
 }
 function draftScope(): DraftScope | undefined {
   if (!user.me?.tenantId || !user.me.userId || !account.value) return;
@@ -134,7 +136,7 @@ function draftScope(): DraftScope | undefined {
     awemeId: account.value.awemeId, planId: state.value?.planId || null };
 }
 function fillDraft(values: DraftInputs) {
-  name.value = values.name; budget.value = values.budget; restoreRoi(values.roi,values.roiSource); mode.value = values.mode;
+  name.value = values.name; mode.value = values.mode; restoreBudgets(values.budget,values.modeBudgets); restoreRoi(values.roi,values.roiSource);
   duration.value = values.duration; start.value = values.start; end.value = values.end;
   step.value = analysisReady.value ? values.step : 1;
 }
@@ -273,7 +275,7 @@ async function ensureSelection() {
   if (fresh) autosave.suspend();
   state.value = saved;
   if (fresh || selectionChanged) resumingMaterials.value = false;
-  if(selectionChanged && !contentEditing.value){budget.value='';restoreRoi('');reviewedQuote.value='';}
+  if(selectionChanged && !contentEditing.value){resetBudgets();restoreRoi('');reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
   if (fresh) { await autosave.activate(true); }
   else autosave.acknowledge(['productIds',...(selectionChanged ? draftGoalFields : emptyName ? ['name' as const] : [])]);
@@ -318,7 +320,7 @@ function acceptRecommendations(previous: api.CreationState, updated: api.Creatio
   else acceptRead(updated);
 }
 function applyRecommendedInputs() {
-  if (mode.value === 'CONSERVATIVE' && !budget.value && recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) budget.value = String(recommendedBudget());
+  if (recommendedBudget() && !creationBudgetError(String(recommendedBudget()), mode.value)) applyBudgetRecommendation(String(recommendedBudget()));
   const next=recommendedRoiDefault(roi.value,automaticRoi.value,recommendedRoi(),roiEdited.value);
   roi.value=next.value;automaticRoi.value=next.defaultValue;
 }
@@ -472,7 +474,7 @@ async function initialize() {
       const restoredStep = ['QUEUED', 'SENDING', 'UNCERTAIN', 'CREATED'].includes(s.publishStatus) || showPublishFailureResult(s.publishStatus, props.initialStep, noticeMaterials) ? 4
         : Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
       step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials ? 1 : restoredStep;
-      name.value = s.name; mode.value = s.smartBidType; budget.value = s.budget == null ? '' : String(s.budget);
+      name.value = s.name; mode.value = s.smartBidType; restoreBudgets(s.budget == null ? '' : String(s.budget));
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
       const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
       schedulePoll();
