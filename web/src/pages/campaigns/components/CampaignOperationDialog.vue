@@ -44,7 +44,7 @@ import CampaignToolsDialog from './CampaignToolsDialog.vue';
 const props = defineProps<{ modelValue: boolean; kind: string; plan: PlanListVo | null }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; saved: [] }>();
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) });
-const isTool = computed(() => ['一键起量', '素材追投', '搜索抢首屏'].includes(props.kind));
+const isTool = computed(() => ['一键起量', '素材追投'].includes(props.kind));
 const title = computed(() => props.kind === '调整 ROI 目标' ? '调整净成交ROI目标' : props.kind);
 const formRef = ref<FormInstance>();
 const saving = ref(false), loading=ref(false), blocked=ref(false), editError=ref('');
