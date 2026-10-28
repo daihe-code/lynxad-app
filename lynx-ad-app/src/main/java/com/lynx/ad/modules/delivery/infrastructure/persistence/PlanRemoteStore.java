@@ -23,6 +23,9 @@ public class PlanRemoteStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private PlanInsightsStore insights;
+    private PlanMaterialUsageStore materialUsage;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void materialUsageStore(PlanMaterialUsageStore store) { materialUsage=store; }
     @org.springframework.beans.factory.annotation.Autowired
     public void insightsStore(PlanInsightsStore value) { insights=value; }
     public PlanRemoteStore(JdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
@@ -44,14 +47,17 @@ public class PlanRemoteStore {
     }
     public void detail(TenantId tenant, String planId, JsonNode detail) {
         jdbc.update("UPDATE qc_plan_metadata SET detail=? WHERE tenant_id=? AND plan_id=?", detail.toString(), tenant.value(), planId);
+        if(materialUsage!=null)materialUsage.observe(tenant.value(),planId,detail);
     }
     /** Only after complete group membership readback. Refresh mutable display metadata, not audit attempts. */
     public void verifiedContent(TenantId tenant,String planId,JsonNode detail,List<com.lynx.ad.modules.delivery.domain.model.CreationState.Product> products){
+        if(materialUsage!=null)materialUsage.observe(tenant.value(),planId,detail);
         var rows=jdbc.query("SELECT payload FROM qc_plan_metadata WHERE tenant_id=? AND plan_id=?",(r,n)->parse(r.getString(1)),tenant.value(),planId);
         for(var saved:rows){var payload=saved!=null&&saved.isObject()?(com.fasterxml.jackson.databind.node.ObjectNode)saved.deepCopy():json.createObjectNode();payload.set("multi_product_creative_list",detail.path("multi_product_creative_list").deepCopy());var infos=payload.putArray("product_info");var ids=payload.putArray("product_ids");for(var p:products){ids.add(new java.math.BigInteger(p.qcProductId()));var info=infos.addObject().put("product_id",p.qcProductId()).put("product_name",p.name());if(p.imageUrl()!=null)info.put("product_image",p.imageUrl());}jdbc.update("UPDATE qc_plan_metadata SET payload=?,detail=?,synced_at=? WHERE tenant_id=? AND plan_id=?",payload.toString(),detail.toString(),java.sql.Timestamp.from(Instant.now()),tenant.value(),planId);}
     }
     /** Called only after native membership verification, inside the product-change transaction. */
     public void removeProduct(TenantId tenant,String planId,String productId) {
+        if(materialUsage!=null)materialUsage.invalidate(tenant.value(),planId);
         var rows=jdbc.query("SELECT payload,detail FROM qc_plan_metadata WHERE tenant_id=? AND plan_id=? FOR UPDATE",(r,n)->new JsonNode[]{parse(r.getString(1)),parse(r.getString(2))},tenant.value(),planId);
         for(var row:rows) {
             for(var node:row)if(node!=null && node.isObject())for(String field:List.of("product_info","product_infos","multi_product_creative_list","product_ids")) {

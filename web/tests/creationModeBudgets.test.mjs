@@ -3,6 +3,16 @@ import test from 'node:test';
 import { ref } from 'vue';
 import { useCreationModeBudgets } from '../src/features/delivery/creationModeBudgets.ts';
 
+test('默认预算跟随平台推荐刷新，用户编辑后即使数值相同也不再覆盖', () => {
+  const mode=ref('CONSERVATIVE'), inputs=useCreationModeBudgets(mode);
+  inputs.applyRecommendation('50');inputs.applyRecommendation('100');
+  assert.equal(inputs.budget.value,'100');
+  inputs.budget.value='100';inputs.applyRecommendation('50');
+  assert.equal(inputs.budget.value,'100');
+  inputs.budget.value='157.25';inputs.applyRecommendation('100');
+  assert.equal(inputs.budget.value,'157.25');
+});
+
 test('控成本300与放量100分别保留，切换不复制或清空另一种方式的金额', () => {
   const mode=ref('CUSTOM'), inputs=useCreationModeBudgets(mode);
   inputs.budget.value='300';

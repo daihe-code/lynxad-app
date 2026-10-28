@@ -10,7 +10,9 @@ public record LibraryResponse(
         List<LibraryItemVo> items,
         String platformWarning,
         Integer relatedCount,
-        String productScope) {
+        String productScope,
+        boolean usagePending) {
+    public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items,String warning,Integer relatedCount,String productScope) { this(bound,tabs,statuses,page,items,warning,relatedCount,productScope,false); }
     public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items,String warning) { this(bound,tabs,statuses,page,items,warning,null,null); }
     public LibraryResponse(boolean bound,TabCounts tabs,StatusCounts statuses,PageInfo page,List<LibraryItemVo> items) { this(bound,tabs,statuses,page,items,null); }
 

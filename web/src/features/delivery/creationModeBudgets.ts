@@ -15,15 +15,20 @@ export function restoreModeBudgets(mode: CreationBidMode, budget: string, rememb
 
 export function useCreationModeBudgets(mode: Ref<CreationBidMode>) {
   const budgets = ref<ModeBudgets>({});
+  const automatic = ref<string>();
   const budget = computed({
     get: () => budgets.value[mode.value] ?? '',
-    set: (value: string) => { budgets.value[mode.value] = value; },
+    set: (value: string) => { budgets.value[mode.value] = value; if (mode.value === 'CONSERVATIVE') automatic.value = undefined; },
   });
   function restore(value: string, remembered?: ModeBudgets) {
     budgets.value = restoreModeBudgets(mode.value, value, remembered);
+    automatic.value = undefined;
   }
   function applyRecommendation(value: string) {
-    if (mode.value === 'CONSERVATIVE' && budgets.value.CONSERVATIVE === undefined) budget.value = value;
+    if (mode.value === 'CONSERVATIVE' && (budgets.value.CONSERVATIVE === undefined || automatic.value !== undefined && budgets.value.CONSERVATIVE === automatic.value)) {
+      budgets.value.CONSERVATIVE = value;
+      automatic.value = value;
+    }
   }
-  return { budget, budgets, restore, applyRecommendation, reset: () => { budgets.value = {}; } };
+  return { budget, budgets, restore, applyRecommendation, reset: () => { budgets.value = {}; automatic.value = undefined; } };
 }

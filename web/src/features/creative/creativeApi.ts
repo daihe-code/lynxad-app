@@ -42,6 +42,8 @@ export interface LibraryItemVo {
   category: string;
   createdAt: string | null;
   used: boolean;
+  usageKnown?: boolean;
+  references?: { planId: string; name: string; status: string }[];
   reviewBadge: "NONE" | "REVIEWING" | "REJECTED";
   materialId?: string | null;
   objectId: string;
@@ -57,6 +59,7 @@ export interface LibraryItemVo {
 }
 
 export interface LibraryResponse {
+  usagePending?: boolean;
   qianchuanBound: boolean;
   tabCounts: { video: number; image: number; carousel: number; audio: number; text: number };
   statusCounts: { all: number; used: number; unused: number; reviewing?: number; rejected?: number };

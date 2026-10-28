@@ -29,6 +29,8 @@ export function assetStatus(item: LibraryItemVo) {
   if (item.aiReview && !['APPROVED','NOT_REQUIRED'].includes(item.aiReview.status)) return { cls: ['REJECTED', 'FAILED'].includes(item.aiReview.status) ? 'ac-use--bad' : 'ac-use--wait', label: reviewLabel(item.aiReview.status) };
   if (item.reviewBadge === "REVIEWING") return { cls: "ac-use--wait", label: "审核中" };
   if (item.reviewBadge === "REJECTED") return { cls: "ac-use--bad", label: "审核未通过" };
+  if (item.used) return { cls: "ac-use--on", label: "已使用" };
+  if (item.usageKnown === false) return { cls: "ac-use--wait", label: "使用情况待同步" };
   if (item.assetId) {
     if (item.type === 'TEXT') return { cls: 'ac-use--off', label: '已入库，可用于文案' };
     const syncs = item.syncs || [];
@@ -40,7 +42,7 @@ export function assetStatus(item: LibraryItemVo) {
     if (!syncs.length) return { cls: 'ac-use--off', label: '已入库' };
     if (!item.used) return { cls: 'ac-use--off', label: '千川已接收' };
   }
-  return item.used ? { cls: "ac-use--on", label: "使用中" } : { cls: "ac-use--off", label: "未使用" };
+  return item.used ? { cls: "ac-use--on", label: "已使用" } : { cls: "ac-use--off", label: "未使用" };
 }
 export function assetRatio(item: LibraryItemVo) {
   return assetGeometry(item).ratioLabel || '—';

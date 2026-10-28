@@ -54,7 +54,7 @@ type AssetType = LibraryItemVo["type"];
 type Status = "ALL" | "USED" | "UNUSED" | "REVIEWING" | "REJECTED";
 type Modal = "upload" | "detail" | "preview";
 const tabs = [{ key: "VIDEO", label: "视频库", icon: "video", count: "video" }, { key: "IMAGE", label: "图片库", icon: "image", count: "image" }, { key: "CAROUSEL", label: "图文库", icon: "note", count: "carousel" }] as const;
-const statuses = [{ key: "ALL", label: "全部", count: "all" }, { key: "USED", label: "使用中", count: "used" }, { key: "UNUSED", label: "未使用", count: "unused" }, { key: "REVIEWING", label: "审核中", count: "reviewing" }, { key: "REJECTED", label: "审核未通过", count: "rejected" }] as const;
+const statuses = [{ key: "ALL", label: "全部", count: "all" }, { key: "USED", label: "已使用", count: "used" }, { key: "UNUSED", label: "未使用", count: "unused" }, { key: "REVIEWING", label: "审核中", count: "reviewing" }, { key: "REJECTED", label: "审核未通过", count: "rejected" }] as const;
 function defaultRange(days = 7): [string, string] {
   const end = new Date(), start = new Date(); start.setDate(end.getDate() - days + 1);
   const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -85,6 +85,7 @@ async function reload() {
     const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", accountId: accountId.value || undefined, from: range.value?.[0], to: range.value?.[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
     if (id !== requestId) return;
     data.value = result;
+    if (current.value) current.value = result.items.find(item => item.id === current.value?.id) || current.value;
     if (page.value > totalPages.value) { page.value = totalPages.value; await reload(); }
   } catch (error) {
     if (id !== requestId) return;
@@ -111,7 +112,7 @@ async function tabKey(event: KeyboardEvent, key: AssetType) {
 function openModal(kind: Modal, item?: LibraryItemVo) { previousFocus = document.activeElement as HTMLElement; current.value = item || null; modal.value = kind; }
 function switchModal(kind: Modal) { modal.value = kind; }
 async function closeModal() { modal.value = null; current.value = null; await nextTick(); if (previousFocus?.isConnected) previousFocus.focus(); }
-onMounted(() => { void reload(); pollTimer = setInterval(() => { if (!loading.value && (uploadRows.some(r => r.busy) || data.value.items.some(i => reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status))))) void reload(); }, 5000); });
+onMounted(() => { void reload(); pollTimer = setInterval(() => { if (!loading.value && (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status))))) void reload(); }, 5000); });
 onUnmounted(() => { ++requestId; clearTimeout(searchTimer); clearInterval(pollTimer); });
 </script>
 

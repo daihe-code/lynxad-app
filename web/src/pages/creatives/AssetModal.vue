@@ -11,13 +11,14 @@
         <template v-if="item.carouselId">
           <div class="modal__head"><h2 :id="kind === 'detail' ? 'asset-detail-title' : 'asset-modal-title'" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
           <CarouselPreview :id="item.carouselId" @changed="emit('changed')" />
+          <AssetPlanReferences v-if="kind === 'detail'" :item="item" />
           <div class="modal__foot"><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button></div>
         </template>
         <template v-else>
         <template v-if="kind === 'preview'">
           <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
           <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT', 'asset-media-frame': geometry.ratio }" :style="mediaStyle"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && previewUrls?.playUrl" :key="item.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="previewFailed"></video><img v-else-if="previewUrls?.playUrl || previewUrls?.posterUrl" :src="assetUrl(previewUrls.playUrl || previewUrls.posterUrl)" :alt="item.filename" @load="readDimensions" @error="previewFailed" /><span v-else class="asset-media-error">{{ previewUrls?.message || '暂无可预览的文件' }}</span><span v-if="mediaError" class="asset-media-error" role="status">{{ previewUrls?.message || '素材文件暂不可播放或预览' }}</span></div>
-          <div class="ac-pinfo"><span v-if="geometry.label">画面 <b>{{ geometry.label }}</b></span><span>规格 <b>{{ dimensions }} · {{ displayItem ? assetRatio(displayItem) : '—' }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>—</b></span><span>状态 <b>{{ assetStatus(item).label }}</b></span></div>
+          <div class="ac-pinfo"><span v-if="geometry.label">画面 <b>{{ geometry.label }}</b></span><span>规格 <b>{{ dimensions }} · {{ displayItem ? assetRatio(displayItem) : '—' }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>{{ referenceLabel(item) }}</b></span><span>状态 <b>{{ assetStatus(item).label }}</b></span></div>
           <div class="modal__foot"><button v-if="item.type === 'TEXT' && uploaded?.textContent" class="btn-modal-ghost" type="button" @click="copyText">复制文本</button><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
         </template>
         <template v-else>
@@ -30,7 +31,7 @@
             <div v-if="item.assetId" class="ac-dsec asset-sync-detail"><div class="ac-dsec__t"><span>平台入库与千川同步</span></div><p v-if="detailError" role="alert">{{ detailError }} <button type="button" @click="loadDetail">重新加载</button></p><p>平台存储：{{ uploaded?.storageStatus === 'STORED' ? '已入库' : item.storageStatus }}</p><p v-if="item.type === 'TEXT'">{{ uploaded?.aiReview?.status === 'NOT_REQUIRED' ? '引擎文案已登记，无需上传审核。' : '文本已入库，须通过 AI 审核后使用。' }}文本不作为独立千川文件上传。</p><p v-else-if="uploaded && !uploaded.syncs.length">上传时未选择千川同步账户，仅保存在本平台。</p><div v-for="s in uploaded?.syncs || item.syncs || []" :key="s.id" class="asset-sync-row"><div><b>{{ s.advertiserId ? `广告账户 ${s.advertiserId}` : `授权记录 ${s.accountId}` }}</b><p>{{ syncLabel(s.status, s.reviewStatus) }}</p><small>{{ s.errorMessage }}</small><p v-if="s.objectId">文件 ID：{{ s.objectId }}<br>素材 ID：{{ s.materialId }}</p></div><AssetSyncAction :sync="s" :busy="retrying === s.id" :can-retry="['APPROVED','NOT_REQUIRED'].includes(uploaded?.aiReview?.status || '')" @retry="retrySync(s)" @verify="verifySync(s)" /></div></div>
             <AssetReviewStatus v-if="item.assetId" :review="uploaded?.aiReview || item.aiReview" :retrying="reviewRetrying" @retry="retryReview" />
             <div class="ac-dsec"><div class="ac-dsec__t"><span>投放效果</span><span class="ac-dsec__h">近 7 天 · 净成交口径</span></div><div class="ac-dempty">当前接口尚未返回该素材的投放效果数据。</div></div>
-            <div class="ac-dsec"><div class="ac-dsec__t"><span>被引用的投放计划</span><span class="ac-dsec__h">{{ item.used ? '引用中' : '未被引用' }}</span></div><div class="ac-refs"><div class="ac-dempty">{{ item.used ? '该素材已被投放计划引用，引用计划明细待接口提供。' : '尚未被任何投放计划引用。' }}</div></div></div>
+            <AssetPlanReferences :item="item" />
           </div>
         </template>
         </template>
@@ -43,6 +44,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import { assetGeometry } from '@/features/creative/assetGeometry';
+import AssetPlanReferences from "./AssetPlanReferences.vue";
+import { referenceLabel } from "@/features/creative/assetReferences";
 import AssetIcon from "./AssetIcon.vue";
 import AssetThumbnail from "./AssetThumbnail.vue";
 import AssetUploadPanel from "./AssetUploadPanel.vue";

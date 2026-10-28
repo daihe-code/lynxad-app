@@ -40,6 +40,15 @@ class CreationAdditionTest {
         service=new CreationWorkflowService(store,null,null,null,engine,json,importer,assets,carousels,mock(CreationPayloadBuilder.class),mock(BillingTrialService.class),mock(PlatformTransactionManager.class));
     }
     CreationWorkflowService.Addition body(String type,String description){return new CreationWorkflowService.Addition(s.revision,"123",type,description,"request");}
+    @ParameterizedTest @ValueSource(strings={"VIDEO","IMAGE","CAROUSEL"})
+    void publishedPlanWorkingCopyQueuesAdditionWithoutChangingLivePlan(String type) {
+        s.publishedEdit=new CreationState.PublishedEdit();s.publishedEdit.sourcePlanId="live-plan";s.publishedEdit.targetPlanId="live-plan";
+        s.publishedEdit.planStatus="PAUSED";
+        var updated=service.addition(new TenantId("tenant"),"plan",body(type,"新增场景"));
+        assertEquals("DRAFT",updated.publishedEdit.status);assertEquals("NONE",updated.publishStatus);
+        assertEquals(1,updated.materials.size());assertEquals(1,updated.generationAdditions.size());
+        verifyNoInteractions(engine);
+    }
     @Test void manualVideoNeedsNoCoverOrTitleInputsAndReusesProductCopy() {
         var pool=new CreationState.TitlePool();pool.customTitles.add("户外商品实拍展示标题");s.titlePools.put("123",pool);
         when(assets.videoCover(new TenantId("tenant"),new com.lynx.ad.common.domain.Ids.UserId("user"),"uploaded-video")).thenReturn("automatic-cover");

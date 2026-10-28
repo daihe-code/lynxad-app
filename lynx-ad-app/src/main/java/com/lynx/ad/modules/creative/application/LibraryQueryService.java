@@ -32,6 +32,9 @@ public class LibraryQueryService {
 
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private CarouselService carousels;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore usageStore;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void usageDependency(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore store) { usageStore=store; }
     @org.springframework.beans.factory.annotation.Autowired
     public void carouselDependencies(CarouselService service) { this.carousels=service; }
 
@@ -131,9 +134,25 @@ public class LibraryQueryService {
                     : item.syncs.isEmpty() || item.syncs.stream().anyMatch(sync -> accountId.equals(sync.accountId()))).toList();
         }
         if (selectable) merged=merged.stream().filter(LibraryQueryService::selectable).toList();
-        Set<String> usedKeys = bindingQuery.usedKeys(tenantId);
+        Set<String> usedKeys = usageStore==null ? bindingQuery.usedKeys(tenantId) : Set.of();
+        var usageIndex=usageStore==null ? null : usageStore.index(tenantId.value(),accountId);
         for (Item item : merged) {
-            item.used = used(item, usedKeys);
+            if(usageIndex==null)item.used = used(item, usedKeys);
+            else {
+                var keys=new java.util.HashSet<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore.Key>();
+                var scopedAccounts=new java.util.HashSet<String>();
+                if(!item.accountId.isBlank())scopedAccounts.add(item.accountId);
+                for(var sync:item.syncs)if((accountId==null||accountId.isBlank()||accountId.equals(sync.accountId()))&&"UPLOADED".equals(sync.status())) {
+                    scopedAccounts.add(sync.accountId());
+                    if(item.carouselId==null)for(String id:new String[]{sync.objectId(),sync.materialId()})if(id!=null)
+                        keys.add(new com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore.Key(sync.accountId(),item.type,id));
+                }
+                if(scopedAccounts.isEmpty())scopedAccounts.addAll(usageIndex.accounts());
+                for(String account:scopedAccounts)for(String id:new String[]{item.objectId,item.materialId,item.carouselId})if(id!=null)
+                    keys.add(new com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore.Key(account,item.type,id));
+                var usage=usageIndex.lookup(keys);
+                item.references=usage.references();item.usageKnown=usage.known();item.used=!usage.references().isEmpty();
+            }
         }
         LibraryResponse.TabCounts tabs = tabs(merged, start, end);
         List<Item> typed = merged.stream()
@@ -160,7 +179,8 @@ public class LibraryQueryService {
         int toIdx = Math.min(fromIdx + size, filtered.size());
         List<LibraryItemVo> pageItems = filtered.subList(fromIdx, toIdx).stream().map(i -> toVo(tenantId, i)).toList();
         return new LibraryResponse(
-                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning,relatedCount,scope);
+                bound, tabs, statuses, new LibraryResponse.PageInfo(pg, size, filtered.size()), pageItems, platformWarning,relatedCount,scope,
+                searched.stream().anyMatch(item -> !item.usageKnown));
     }
 
     private static boolean selectable(Item item) {
@@ -422,7 +442,7 @@ public class LibraryQueryService {
         if ("REVIEWING".equals(item.reviewBadge) || "REJECTED".equals(item.reviewBadge)) {
             return item.reviewBadge;
         }
-        return item.used ? "USED" : "UNUSED";
+        return item.used ? "USED" : item.usageKnown ? "UNUSED" : "PENDING_USAGE";
     }
 
     private static boolean inRange(Instant createdAt, LocalDate start, LocalDate end) {
@@ -475,7 +495,7 @@ public class LibraryQueryService {
                 item.height,
                 (item.id.startsWith("UPLOAD:")||item.id.startsWith("ENGINE:")) && item.carouselId==null ? item.objectId : null,
                 item.aiReview!=null ? "STORED" : null,
-                item.syncs,item.aiReview,item.carouselId);
+                item.syncs,item.aiReview,item.carouselId,item.references,item.usageKnown);
     }
 
     private static String productIdOf(Item item) {
@@ -519,6 +539,8 @@ public class LibraryQueryService {
         final String category;
         final Instant createdAt;
         boolean used;
+        boolean usageKnown=true;
+        List<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialUsageStore.PlanReference> references=List.of();
         String reviewBadge;
         final String materialId;
         final String objectId;
