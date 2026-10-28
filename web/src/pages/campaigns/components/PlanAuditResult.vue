@@ -45,13 +45,13 @@
       </div>
     </details>
 
-    <footer class="audit-result__footer">
+    <footer v-if="showFooter !== false" class="audit-result__footer">
       <template v-if="rejected">
         <router-link class="audit-result__secondary" to="/campaigns">返回投放管理</router-link>
-        <a v-if="plan.qcPlanId" href="https://qianchuan.jinritemai.com/" target="_blank" rel="noopener noreferrer"><ReferenceIcon name="refresh" />前往千川修改并提交</a>
-        <router-link v-else-if="user.trialActive" :to="{ path: `/campaigns/${plan.planId}/edit`, query: { step: '3' } }">修改计划并重新提交</router-link>
+        <a v-if="!readOnly && plan.qcPlanId" href="https://qianchuan.jinritemai.com/" target="_blank" rel="noopener noreferrer"><ReferenceIcon name="refresh" />前往千川修改并提交</a>
+        <router-link v-else-if="!readOnly && user.trialActive" :to="{ path: `/campaigns/${plan.planId}/edit`, query: { step: '3' } }">修改计划并重新提交</router-link>
       </template>
-      <template v-else><button type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><router-link to="/campaigns">查看所有投放计划</router-link></template>
+      <template v-else><button v-if="!readOnly" type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><router-link to="/campaigns">查看所有投放计划</router-link></template>
     </footer>
   </section>
 </template>
@@ -68,7 +68,7 @@ import { useWizardStore } from '@/stores/wizard';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import PlanAuditRejection from './PlanAuditRejection.vue';
 
-const props = defineProps<{ plan: PlanListVo & { rejectReason?: string | null }; awemeName?: string }>();
+const props = defineProps<{ plan: PlanListVo & { rejectReason?: string | null }; awemeName?: string; readOnly?: boolean; showFooter?: boolean }>();
 const emit = defineEmits<{ updated: [plan: PlanVo] }>();
 const { notice, refreshing, feedback, refresh } = usePlanReview(() => props.plan, plan => emit('updated', plan), () => true);
 const nodes = computed(() => reviewTimeline(props.plan));
@@ -82,7 +82,7 @@ const brief = computed(() => {
 });
 const router = useRouter(), wizard = useWizardStore(), user = useUserStore();
 function createAnother() {
-  if (!user.trialActive) return;
+  if (props.readOnly || !user.trialActive) return;
   wizard.reset(); void router.push('/campaigns/create');
 }
 </script>

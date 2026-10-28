@@ -49,7 +49,7 @@ class PlanListPresentationTest {
     void exposesPersistedProductsAndLatestMetricsWithinTenant() {
         var plan = draft();
         var ts = Instant.parse("2026-10-05T00:00:00Z");
-        var createdAt = Instant.parse("2026-10-01T12:00:00Z");
+        var createdAt = Instant.now().minusSeconds(3600);
         when(plans.findByTenant(tenant)).thenReturn(List.of(plan));
         when(plans.listMetadataByTenant(tenant)).thenReturn(Map.of(plan.id().value(),
                 new AdPlanRepository.ListMetadata(createdAt, "ALL")));
@@ -95,6 +95,19 @@ class PlanListPresentationTest {
         assertTrue(row.products().isEmpty());
         assertTrue(service.list(tenant, 2, 10).records().isEmpty());
         verifyNoInteractions(products);
+    }
+
+    @Test
+    void expiredDraftDoesNotAppearEvenBeforeCleanupFinishesAndCannotOccupyPagination() {
+        var plan=draft();
+        when(plans.findByTenant(tenant)).thenReturn(List.of(plan));
+        when(plans.listMetadataByTenant(tenant)).thenReturn(Map.of(plan.id().value(),
+                new AdPlanRepository.ListMetadata(Instant.now().minusSeconds(604801),"ALL")));
+        var result=service.list(tenant,1,10);
+        assertEquals(0,result.total());assertTrue(result.records().isEmpty());
+        when(plans.listMetadataByTenant(tenant)).thenReturn(Map.of(plan.id().value(),
+                new AdPlanRepository.ListMetadata(Instant.now().minusSeconds(3600),"ALL")));
+        assertEquals(1,service.list(tenant,1,10).total());
     }
 
     @Test

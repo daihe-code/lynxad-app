@@ -17,6 +17,8 @@ public class CreationStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
+    private DraftExpiryStore expiry;
+    @org.springframework.beans.factory.annotation.Autowired public void draftExpiry(DraftExpiryStore value) { expiry=value; }
     public CreationStore(JdbcTemplate jdbc,ObjectMapper json,PlatformTransactionManager manager) {
         this.jdbc=jdbc; this.json=json; tx=new TransactionTemplate(manager);
     }
@@ -30,8 +32,11 @@ public class CreationStore {
                 (r,n)->{try{return json.readTree(r.getString(1));}catch(Exception e){throw new IllegalStateException(e);}},tenant,id).stream().findFirst();
     }
     private CreationState read(String tenant,String id,boolean lock) {
-        return jdbc.query("SELECT state_json FROM delivery_creation WHERE tenant_id=? AND plan_id=?"+(lock?" FOR UPDATE":""),
+        if(expiry!=null)expiry.assertAvailable(tenant,id,Instant.now());
+        var state=jdbc.query("SELECT state_json FROM delivery_creation WHERE tenant_id=? AND plan_id=?"+(lock?" FOR UPDATE":""),
                 (r,n)->decode(r.getString(1)),tenant,id).stream().findFirst().orElseThrow(()->new BizException(1403,"创建草稿不存在或不属于当前账户"));
+        if(lock && expiry!=null)expiry.assertAvailable(tenant,id,Instant.now());
+        return state;
     }
     public CreationState mutate(String tenant,String id,Integer expected,Consumer<CreationState> change) {
         return tx.execute(status->{
@@ -45,10 +50,14 @@ public class CreationStore {
     }
     public void delete(String tenant,String id) { jdbc.update("DELETE FROM delivery_creation WHERE tenant_id=? AND plan_id=?",tenant,id); }
     public List<CreationState> due() {
-        return jdbc.query("SELECT state_json FROM delivery_creation WHERE work_pending=1 AND (lease_until IS NULL OR lease_until<?) ORDER BY updated_at LIMIT 100",
+        return jdbc.query("SELECT state_json FROM delivery_creation c WHERE work_pending=1 AND (lease_until IS NULL OR lease_until<?)"
+                        +(expiry==null?"":" AND NOT EXISTS (SELECT 1 FROM ad_plan p WHERE p.tenant_id=c.tenant_id AND p.id=c.plan_id AND p.status='DELETED')")+" ORDER BY updated_at LIMIT 100",
                 (r,n)->decode(r.getString(1)),now());
     }
-    public boolean claim(CreationState s) { return jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=? AND (lease_until IS NULL OR lease_until<?)",
+    public boolean claim(CreationState s) {
+        if(expiry!=null)try{expiry.assertAvailable(s.tenantId,s.planId,Instant.now());}catch(BizException gone){if(gone.code()==1405)return false;throw gone;}
+        return jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=? AND (lease_until IS NULL OR lease_until<?)"
+                        +(expiry==null?"":" AND NOT EXISTS (SELECT 1 FROM ad_plan p WHERE p.tenant_id=delivery_creation.tenant_id AND p.id=delivery_creation.plan_id AND p.status='DELETED')"),
             Timestamp.from(Instant.now().plusSeconds(600)),s.tenantId,s.planId,now())==1; }
     public void heartbeat(CreationState s) { jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=?", Timestamp.from(Instant.now().plusSeconds(600)),s.tenantId,s.planId); }
     public void release(CreationState s) { jdbc.update("UPDATE delivery_creation SET lease_until=? WHERE tenant_id=? AND plan_id=?",Timestamp.from(Instant.now().plusSeconds(s.needsGenerationReconciliation()?30:5)),s.tenantId,s.planId); }

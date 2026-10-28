@@ -76,6 +76,8 @@ public class PlanCommandService {
     private final AuditRecorder auditRecorder;
     private final AdPlanCreativeBindingStore bindingStore;
     private com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore creations;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftExpiryStore draftExpiry;
+    @org.springframework.beans.factory.annotation.Autowired public void draftExpiry(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftExpiryStore value){draftExpiry=value;}
     @org.springframework.beans.factory.annotation.Autowired public void creationStore(com.lynx.ad.modules.delivery.infrastructure.persistence.CreationStore value) { creations=value; }
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
@@ -354,6 +356,7 @@ public class PlanCommandService {
     }
 
     private AdPlan require(TenantId tenantId, PlanId id) {
+        if(draftExpiry!=null)draftExpiry.assertAvailable(tenantId.value(),id.value(),Instant.now());
         return planRepository.findById(tenantId, id).orElseThrow(() -> new BizException(1405, "计划不存在"));
     }
 

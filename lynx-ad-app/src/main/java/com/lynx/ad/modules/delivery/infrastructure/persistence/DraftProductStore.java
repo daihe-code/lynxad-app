@@ -11,6 +11,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Repository
 public class DraftProductStore {
     private final JdbcTemplate jdbc;
+    private DraftExpiryStore expiry;
+    @org.springframework.beans.factory.annotation.Autowired public void draftExpiry(DraftExpiryStore value) { expiry=value; }
     public DraftProductStore(JdbcTemplate jdbc) { this.jdbc=jdbc; }
 
     public record Usage(String productId,String planId,String planName) {}
@@ -40,6 +42,7 @@ public class DraftProductStore {
     }
 
     private List<Usage> usages(String tenant,String account,Collection<String> productIds,String currentPlan,boolean lock) {
+        if(expiry!=null)expiry.expireDue(tenant,java.time.Instant.now(),200);
         if(productIds==null||productIds.isEmpty())return List.of();
         var ids=productIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
         if(ids.isEmpty())return List.of();

@@ -154,9 +154,12 @@ public class PlanQueryService {
         return change(current,previous);
     }
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore settingsEdits;
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.DraftExpiryStore draftExpiry;
+    @Autowired public void draftExpiry(com.lynx.ad.modules.delivery.infrastructure.persistence.DraftExpiryStore value){draftExpiry=value;}
     @org.springframework.beans.factory.annotation.Autowired public void settingsEdits(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore value){settingsEdits=value;}
 
     public PlanVo get(TenantId tenant,PlanId id) {
+        if(draftExpiry!=null)draftExpiry.assertAvailable(tenant.value(),id.value(),Instant.now());
         var plan=plans.findById(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在"));
         var visible=rows(tenant,plan);
         if(visible.isEmpty()) throw new BizException(1405,"计划不存在或不属于真实千川授权账户");
@@ -193,10 +196,14 @@ public class PlanQueryService {
         return rows(tenant,only,false);
     }
     private List<PlanListVo> rows(TenantId tenant,AdPlan only,boolean includeDeleted) {
-        var local=(only==null?plans.findByTenant(tenant):List.of(only)).stream()
-                .filter(p -> includeDeleted || p.status()!=PlanStatus.DELETED).toList();
-        var groups=transfers==null?Map.<String,PlanTransferStore.Group>of():transfers.groups(tenant);
+        if(draftExpiry!=null)draftExpiry.expireDue(tenant.value(),Instant.now(),200);
         var meta=plans.listMetadataByTenant(tenant);
+        var now=Instant.now();
+        var local=(only==null?plans.findByTenant(tenant):List.of(only)).stream()
+                .filter(p -> includeDeleted || p.status()!=PlanStatus.DELETED)
+                .filter(p -> p.status()!=PlanStatus.DRAFT || p.qcPlanId().isPresent() || p.source()!=PlanSource.LINGTOU
+                        || !com.lynx.ad.modules.delivery.domain.service.DraftExpiryPolicy.expired(meta.containsKey(p.id().value())?meta.get(p.id().value()).createdAt():null,now)).toList();
+        var groups=transfers==null?Map.<String,PlanTransferStore.Group>of():transfers.groups(tenant);
         var latest=snapshots.listLatestPairsByTenant(tenant);
         var selected=bindings.productIdsByPlan(local.stream().map(p->p.id().value()).toList());
         var creationSummaries=creation==null?Map.<String,CreationStore.PlanSummary>of():creation.summariesByPlan(tenant.value(),local.stream().map(p->groups.containsKey(p.id().value())?groups.get(p.id().value()).root():p.id().value()).distinct().toList());

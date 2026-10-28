@@ -277,11 +277,12 @@ const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
 const pagedRows = computed(() => records.value);
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
+let draftRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
 watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
-onUnmounted(() => { clearTimeout(loadTimer); requestVersion++; trendSerial++; });
+onUnmounted(() => { clearTimeout(loadTimer); clearInterval(draftRefreshTimer); requestVersion++; trendSerial++; });
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function remainingDays(date: string) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -424,6 +425,9 @@ async function exportRows() {
   ElMessage.success(`已导出 ${rows.length} 条计划`);
 }
 onMounted(async () => {
+  draftRefreshTimer=setInterval(()=>{
+    if(document.visibilityState==='visible' && records.value.some(isDraft) && !loading.value && !actingId.value && !transferringId.value && !operationOpen.value)void load();
+  },60000);
   await nextTick();
   clearTimeout(loadTimer);
   await load();
