@@ -7,7 +7,7 @@
         <p class="creation-footer__status">计划状态：<span :class="status.group.toLowerCase()">{{ status.label }}</span></p>
       </div>
       <div class="creation-footer__actions">
-        <p v-if="footerHint" class="creation-footer__hint">{{ footerHint }}</p>
+        <div v-if="$slots.hint || footerHint" class="creation-footer__hint"><slot name="hint">{{ footerHint }}</slot></div>
         <div class="creation-footer__buttons">
           <slot name="previous" />
           <button v-if="showDraftSave" class="creation-footer__save" type="button" :disabled="busy || saveDisabled" @click="emit('save')">{{ saveLabel }}</button>
