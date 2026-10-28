@@ -49,13 +49,13 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
         JsonNode root;
         try { root=ocean.root(client.exchange(RequestSpec.post(url).json(serialize(request)).build().withoutReplay(),String.class)); }
         catch(BizException ex) {
-            boolean permanent=!exchange && (ex.code()==401 || ex.code()==40102 || ex.code()==40105);
+            boolean permanent=!exchange && (ex.code()==401 || ex.code()==40102 || ex.code()==40103 || ex.code()==40105);
             throw new RemoteFailure(permanent?1211:1205,(exchange?"千川授权换票失败":"千川令牌刷新失败")+"（平台错误码："+ex.code()+"）",permanent);
         }
         int code=root.path("code").asInt(-1);
         if(code!=0) {
             String msg=root.path("message").asText("").toLowerCase();
-            boolean permanent=!exchange && (code==40102 || code==40105 || msg.contains("refresh_token expired") || msg.contains("refresh token expired") || msg.contains("invalid refresh") || msg.contains("已撤销") || msg.contains("刷新令牌已过期"));
+            boolean permanent=!exchange && (code==40102 || code==40103 || code==40105 || msg.contains("refresh_token expired") || msg.contains("refresh token expired") || msg.contains("invalid refresh") || msg.contains("已撤销") || msg.contains("刷新令牌已过期"));
             throw new RemoteFailure(permanent?1211:1205,(exchange?"千川授权换票失败":"千川令牌刷新失败")+"（平台错误码："+code+"）",permanent);
         }
         JsonNode data=root.path("data"); String access=data.path("access_token").asText(""); long ttl=data.path("expires_in").asLong(-1);

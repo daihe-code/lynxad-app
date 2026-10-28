@@ -146,10 +146,13 @@ public class PlanMaterialUsageStore {
         if(detail==null||!expectedId.equals(detail.path("ad_id").asText())||!detail.path("multi_product_creative_list").isArray())
             throw new IllegalArgumentException("Incomplete or mismatched native plan detail");
         var keys=new LinkedHashSet<Binding>();
-        for(var group:detail.path("multi_product_creative_list")) {
+        var groups=new ArrayList<JsonNode>();detail.path("multi_product_creative_list").forEach(groups::add);
+        if(detail.path("programmatic_creative_media_list").isObject())groups.add(detail.path("programmatic_creative_media_list"));
+        for(var group:groups) {
             boolean hasMaterials=false;
             for(String field:List.of("video_material","image_material","carousel_material","title_material")) {
-                if(group.path(field).isArray())hasMaterials=true;
+                // Native ad/detail explicitly uses null for an empty material category.
+                if(group.has(field) && (group.path(field).isArray() || group.path(field).isNull()))hasMaterials=true;
                 else if(group.hasNonNull(field))throw new IllegalArgumentException("Malformed native creative group");
             }
             if(!hasMaterials)throw new IllegalArgumentException("Incomplete native creative group");

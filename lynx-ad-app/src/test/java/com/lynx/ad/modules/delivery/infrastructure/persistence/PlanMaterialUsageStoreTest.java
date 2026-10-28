@@ -35,7 +35,7 @@ class PlanMaterialUsageStoreTest {
         store=new PlanMaterialUsageStore(jdbc,json);
     }
     void account(String tenant,String id,String advertiser) {jdbc.update("INSERT INTO oauth_account VALUES(?,?,?,'QIANCHUAN','ACTIVE','real-grant')",id,tenant,advertiser);}
-    void plan(String tenant,String account,String id,String nativeId,String status) {jdbc.update("INSERT INTO ad_plan VALUES(?,?,?,?,?,?)",id,tenant,account,nativeId,"鎶曟斁璁″垝-"+id,status);}
+    void plan(String tenant,String account,String id,String nativeId,String status) {jdbc.update("INSERT INTO ad_plan VALUES(?,?,?,?,?,?)",id,tenant,account,nativeId,"plan-"+id,status);}
     PlanMaterialUsageStore.Job snapshot(String plan,String body) throws Exception {
         store.discover();dueNow(plan);
         var job=store.due(20).stream().filter(j->j.planId().equals(plan)).findFirst().orElseThrow();
@@ -116,5 +116,10 @@ class PlanMaterialUsageStoreTest {
     PlatformMaterialCatalog.Material material(String id) {return new PlatformMaterialCatalog.Material("viewer","a","advertiser",MaterialType.VIDEO,id,id,null,id+".mp4",100,720,1280,18,"VIDEO_VERTICAL","NONE",Instant.now());}
     @Test void leasePreventsDuplicateReplicaReads() {
         store.discover();dueNow("plan");var job=store.due(1).getFirst();assertTrue(store.claim(job));assertFalse(store.claim(job));assertTrue(store.due(1).isEmpty());
+    }
+    @Test void explicitNativeEmptyCategoriesAndProgrammaticBindingsAreAuthoritative() throws Exception {
+        snapshot("plan","{\"ad_id\":101,\"multi_product_creative_list\":[{\"product_id\":1,\"video_material\":null,\"image_material\":null,\"carousel_material\":null,\"title_material\":null}],\"programmatic_creative_media_list\":{\"video_material\":[{\"video_id\":\"automatic-video\"}],\"block_video_material\":[{\"video_id\":\"blocked-video\"}]}}");
+        assertTrue(lookup("a","VIDEO","automatic-video").known());assertEquals(1,lookup("a","VIDEO","automatic-video").references().size());
+        assertTrue(lookup("a","VIDEO","blocked-video").references().isEmpty());
     }
 }
