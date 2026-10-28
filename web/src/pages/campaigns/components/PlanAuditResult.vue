@@ -47,11 +47,11 @@
 
     <footer v-if="showFooter !== false" class="audit-result__footer">
       <template v-if="rejected">
-        <router-link class="audit-result__secondary" to="/campaigns">查看所有计划</router-link>
+        <PlanListButton />
         <a v-if="!readOnly && plan.qcPlanId" href="https://qianchuan.jinritemai.com/" target="_blank" rel="noopener noreferrer"><ReferenceIcon name="refresh" />前往千川修改并提交</a>
         <router-link v-else-if="!readOnly && user.trialActive" :to="{ path: `/campaigns/${plan.planId}/edit`, query: { step: '3' } }">修改计划并重新提交</router-link>
       </template>
-      <template v-else><button v-if="!readOnly" type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><router-link to="/campaigns">查看所有计划</router-link></template>
+      <template v-else><button v-if="!readOnly" type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><PlanListButton /></template>
     </footer>
   </section>
 </template>
@@ -66,6 +66,7 @@ import { usePlanReview } from '@/features/delivery/usePlanReview';
 import { useUserStore } from '@/stores/user';
 import { useWizardStore } from '@/stores/wizard';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import PlanListButton from './PlanListButton.vue';
 import PlanAuditRejection from './PlanAuditRejection.vue';
 
 const props = defineProps<{ plan: PlanListVo & { rejectReason?: string | null }; awemeName?: string; readOnly?: boolean; showFooter?: boolean }>();
@@ -135,10 +136,10 @@ function createAnother() {
 .audit-progress__feedback { margin-top: 8px; color: #5755bb; }
 .audit-progress__notice { margin: 0 0 14px 34px; padding: 10px 12px; border-radius: 8px; background: #fff8ed; color: #956320; font-size: 13px; line-height: 1.8; }
 .audit-result__footer { position: fixed; z-index: 40; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: 24px; padding: 14px 24px; border-top: 1px solid #eeeff7; background: #fffffffa; }
-.audit-result__footer button,.audit-result__footer a { box-sizing: border-box; display: inline-flex; justify-content: center; align-items: center; gap: 9px; min-width: 182px; padding: 13px 24px; border: 1px solid #e0e2f1; border-radius: 10px; background: white; color: #252842; font: inherit; font-size: 14px; font-weight: 600; line-height: 22px; text-decoration: none; cursor: pointer; }
+.audit-result__footer button,.audit-result__footer a:not(.plan-list-button) { box-sizing: border-box; display: inline-flex; justify-content: center; align-items: center; gap: 9px; min-width: 182px; padding: 13px 24px; border: 1px solid #e0e2f1; border-radius: 10px; background: white; color: #252842; font: inherit; font-size: 14px; font-weight: 600; line-height: 22px; text-decoration: none; cursor: pointer; }
 .audit-result__footer button:disabled { opacity: .5; cursor: default; }
 .audit-result__footer svg { width: 16px; height: 16px; }
-.audit-result__footer a:not(.audit-result__secondary) { background: #5b55f5; border-color: #5b55f5; box-shadow: 0 4px 14px #5755ef22; color: #fff; }
+.audit-result__footer a:not(.audit-result__secondary):not(.plan-list-button) { background: #5b55f5; border-color: #5b55f5; box-shadow: 0 4px 14px #5755ef22; color: #fff; }
 @media (max-width: 767px) {
   .audit-result { padding-top: 4px; }
   .audit-result__heading p { font-size: 13px; }
@@ -152,6 +153,6 @@ function createAnother() {
   .audit-timeline li { gap: 14px; }
   .audit-progress__note,.audit-progress__feedback,.audit-progress__notice { margin-left: 28px; }
   .audit-result__footer { gap: 10px; padding: 12px; }
-  .audit-result__footer button,.audit-result__footer a { min-width: 0; padding: 11px 12px; font-size: 13px; }
+  .audit-result__footer button,.audit-result__footer a:not(.plan-list-button) { min-width: 0; padding: 11px 12px; font-size: 13px; }
 }
 </style>

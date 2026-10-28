@@ -15,7 +15,7 @@
       <p class="delivery-data__footnote">{{ statistics ? `最近读取 ${reviewTime(statistics.fetchedAt, '时间待同步')}。` : loading ? '正在读取当日平台报表。' : '暂未取得当日报表。' }}数据可能存在延迟，未返回的指标显示 —。</p>
     </section>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><router-link to="/campaigns">查看所有计划</router-link></footer>
+    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><PlanListButton /></footer>
     <CampaignPlanActionDialog v-model="pauseOpen" :plan="plan" action="pause" :busy="busy" :error="pauseError" @confirm="pause" />
   </section>
 </template>
@@ -30,6 +30,7 @@ import { reviewTime } from '@/features/delivery/planReview';
 import { shanghaiToday } from '@/features/delivery/statisticsRange';
 import { useUserStore } from '@/stores/user';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import PlanListButton from './PlanListButton.vue';
 import PlanResultSummary from './PlanResultSummary.vue';
 import CampaignPlanActionDialog from './CampaignPlanActionDialog.vue';
 const props = defineProps<{ plan: PlanListVo; awemeName?: string; readOnly?: boolean; showFooter?: boolean }>();
@@ -94,9 +95,9 @@ onUnmounted(() => { context++; controller?.abort(); clearInterval(timer); });
 .delivery-data__footnote,.delivery-data__warning,.delivery-data__error{margin:18px 0 0;color:#81849f;font-size:12px;line-height:1.9;overflow-wrap:anywhere}
 .delivery-data__warning,.delivery-data__error{color:#a77229}
 .delivery-result__footer{position:fixed;z-index:40;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:24px;padding:14px 24px;border-top:1px solid #eeeff7;background:#fffffffa}
-.delivery-result__footer button,.delivery-result__footer a{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-width:182px;padding:13px 24px;border:1px solid #e0e2f1;border-radius:10px;background:#fff;color:#252842;font:inherit;font-size:14px;font-weight:600;line-height:22px;text-decoration:none;cursor:pointer}
-.delivery-result__footer button.delivery-result__pause{border-color:#f6cccc;color:#e5585e}.delivery-result__footer a{background:#5b55f5;border-color:#5b55f5;color:#fff;box-shadow:0 4px 14px #5755ef22}
+.delivery-result__footer button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-width:182px;padding:13px 24px;border:1px solid #e0e2f1;border-radius:10px;background:#fff;color:#252842;font:inherit;font-size:14px;font-weight:600;line-height:22px;text-decoration:none;cursor:pointer}
+.delivery-result__footer button.delivery-result__pause{border-color:#f6cccc;color:#e5585e}
 .delivery-result__footer svg{width:16px;height:16px}.delivery-result button:focus-visible,.delivery-result a:focus-visible{outline:2px solid #575cf6;outline-offset:3px}
 @media(max-width:1000px){.delivery-data__cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:767px){.delivery-result__heading p{font-size:13px}.delivery-data{padding:22px 18px}.delivery-data__tools{gap:10px}.delivery-data article{padding:16px 12px}.delivery-data__value{font-size:23px}.delivery-result__footer{gap:10px;padding:12px}.delivery-result__footer button,.delivery-result__footer a{min-width:0;padding:11px 12px;font-size:13px}}
+@media(max-width:767px){.delivery-result__heading p{font-size:13px}.delivery-data{padding:22px 18px}.delivery-data__tools{gap:10px}.delivery-data article{padding:16px 12px}.delivery-data__value{font-size:23px}.delivery-result__footer{gap:10px;padding:12px}.delivery-result__footer button{min-width:0;padding:11px 12px;font-size:13px}}
 </style>
