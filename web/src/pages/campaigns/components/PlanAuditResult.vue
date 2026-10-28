@@ -47,11 +47,11 @@
 
     <footer v-if="showFooter !== false" class="audit-result__footer">
       <template v-if="rejected">
-        <router-link class="audit-result__secondary" to="/campaigns">返回投放管理</router-link>
+        <router-link class="audit-result__secondary" to="/campaigns">查看所有计划</router-link>
         <a v-if="!readOnly && plan.qcPlanId" href="https://qianchuan.jinritemai.com/" target="_blank" rel="noopener noreferrer"><ReferenceIcon name="refresh" />前往千川修改并提交</a>
         <router-link v-else-if="!readOnly && user.trialActive" :to="{ path: `/campaigns/${plan.planId}/edit`, query: { step: '3' } }">修改计划并重新提交</router-link>
       </template>
-      <template v-else><button v-if="!readOnly" type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><router-link to="/campaigns">查看所有投放计划</router-link></template>
+      <template v-else><button v-if="!readOnly" type="button" :disabled="!user.trialActive" @click="createAnother"><ReferenceIcon name="plus" />重建一条计划</button><router-link to="/campaigns">查看所有计划</router-link></template>
     </footer>
   </section>
 </template>

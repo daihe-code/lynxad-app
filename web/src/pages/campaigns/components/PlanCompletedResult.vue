@@ -16,7 +16,7 @@
       <div class="completed-body"><div class="completed-operations"><article v-for="item in completedAutomationKinds" :key="item.kind"><p>{{ automation.counts?.[item.kind] ?? '—' }}<small v-if="automation.counts">次</small></p><h4>{{ item.label }}</h4><span>{{ item.note }}</span></article></div><p class="completed-muted">仅统计已确认生效的自动操作，未执行的建议和结果待确认的操作不计入次数。</p><p v-if="automation.timeIncomplete" class="completed-error" role="status">部分自动操作缺少有效执行时间，暂无法准确汇总本次投放期间的次数。</p><p v-if="automationError" class="completed-error" role="status">{{ automationError }}</p><router-link class="completed-history" :to="{path:'/monitoring',query:{planId:plan.planId,tab:'history'}}">查看自动调控记录 →</router-link></div>
     </details>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <div class="completed-links"><router-link to="/campaigns">返回投放列表 →</router-link></div>
+    <div class="completed-links"><router-link to="/campaigns">查看所有计划</router-link></div>
   </section>
 </template>
 

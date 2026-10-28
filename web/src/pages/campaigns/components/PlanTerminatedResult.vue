@@ -24,7 +24,7 @@
       <div class="terminated-body"><ol class="terminated-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ action.type === 'MANUAL_FINISH' ? '终止计划' : pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!createdAtKnown && !history.length" class="terminated-muted">暂无已记录的状态流转事件。</p><p v-if="recordsError" class="terminated-error" role="status">{{ recordsError }}</p><p class="terminated-current">当前状态：已终止，无法恢复投放。</p></div>
     </details>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <div class="terminated-links"><router-link to="/campaigns">返回投放列表 →</router-link></div>
+    <div class="terminated-links"><router-link to="/campaigns">查看所有计划</router-link></div>
   </section>
 </template>
 

@@ -1,5 +1,5 @@
 <template>
-  <section :key="plan.planId" class="paused-result" aria-label="已暂停计划的投放结果">
+  <section :key="plan.planId" class="paused-result" :class="{ 'paused-result--inline': inlineFooter }" aria-label="已暂停计划的投放结果">
     <header class="paused-result__heading"><span class="paused-result__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span><h2>已暂停</h2><p>广告计划已暂停投放，恢复前请核对暂停原因与投放设置。</p><span v-if="elapsed" class="paused-result__elapsed"><ReferenceIcon name="pause" />{{ elapsed }}</span></header>
     <details class="paused-fold paused-reason" open>
       <summary><h3>暂停原因</h3><span class="paused-fold__brief">{{ pauseRecord?.automatic ? '系统自动暂停 · 无需选择原因' : pauseRecord?.manual ? pauseRecord.reason || '历史记录未填写具体原因' : pauseRecord ? '平台异常暂停' : '暂停原因待核对' }}</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>
@@ -31,26 +31,29 @@
       <div class="paused-fold__body"><ol class="paused-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!history.length && !createdAtKnown" class="paused-muted">暂无已记录的状态流转事件。</p><p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p><p class="paused-current">当前状态：已暂停</p></div>
     </details>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="busy || loading" @click="restoreOpen = true; actionError = ''"><ReferenceIcon name="play" />恢复投放</button><router-link to="/campaigns">查看所有投放计划</router-link></div></footer>
-    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
+    <footer v-if="showFooter !== false" class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="busy || loading || restoreDisabled" @click="restoreOpen = true; actionError = ''"><ReferenceIcon name="play" />恢复投放</button><router-link v-if="!inlineFooter" to="/campaigns">查看所有计划</router-link></div></footer>
+    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :blocked-reason="restoreBlockedReason" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ElMessage } from 'element-plus';
 import { listActions } from '@/features/agentops/agentopsApi';
 import { getOptimizationHistory } from '@/features/delivery/optimizationApi';
 import { actPlan, syncPlanDetail, type PlanVo, type PlanListVo } from '@/features/delivery/deliveryApi';
 import { insightData, type InsightStatistics } from '@/features/delivery/planInsightsApi';
 import { currentPause, pauseElapsed, pauseHistory, pauseStatisticsRange, pauseTimestamp, pausedMetricCards, pauseActionLabel, automaticPauseActions, automaticPauseAdvice, loadPauseAutomation, type PauseAction } from '@/features/delivery/planPausedResult';
 import { PLAN_PAUSE_REASONS } from '@/features/delivery/planPause';
+import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
+import { shanghaiToday } from '@/features/delivery/statisticsRange';
 import { reviewTime } from '@/features/delivery/planReview';
 import { requestFailure } from '@/api/apiErrors';
 import { useUserStore } from '@/stores/user';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import PlanResultSummary from './PlanResultSummary.vue';
 import CampaignPlanActionDialog from './CampaignPlanActionDialog.vue';
-const props = defineProps<{ plan: PlanListVo; awemeName?: string; readOnly?: boolean; showFooter?: boolean }>();
+const props = withDefaults(defineProps<{ plan: PlanListVo; awemeName?: string; readOnly?: boolean; showFooter?: boolean; inlineFooter?: boolean; restoreDisabled?: boolean }>(),{showFooter:true});
 const emit = defineEmits<{ updated: [plan: PlanVo] }>();
 const user = useUserStore(), actions = ref<PauseAction[]>([]), now = ref(Date.now());
 const history = computed(() => pauseHistory(props.plan,actions.value));
@@ -62,6 +65,10 @@ const statistics = ref<InsightStatistics>(), cards = computed(() => pausedMetric
 const loading = ref(false), actionsLoading = ref(false), actionsError = ref(''), statisticsError = ref('');
 const restoreOpen = ref(false), busy = ref(false), actionError = ref('');
 const canRestore = computed(() => !props.readOnly && user.trialActive && props.plan.status === 'PAUSED' && !!props.plan.qcPlanId && props.plan.source !== 'EXTERNAL' && props.plan.canControl !== false);
+const restoreBlockedReason = computed(() => {
+  void now.value; // Recheck the schedule when the elapsed-time clock advances.
+  return restoreUnavailableReason(props.plan,shanghaiToday());
+});
 let context = 0, controller: AbortController | undefined, statisticsKey = '', timer: ReturnType<typeof setInterval> | undefined;
 async function read(force = false) {
   if (loading.value || busy.value) return;
@@ -91,10 +98,22 @@ async function read(force = false) {
   if (turn === context && !signal.aborted) loading.value = false;
 }
 async function restore() {
-  if (!canRestore.value || busy.value || loading.value) return;
+  if (!canRestore.value || busy.value || loading.value || props.restoreDisabled || restoreBlockedReason.value) return;
   const id = props.plan.planId, turn = context;
   busy.value = true; actionError.value = '';
-  try { const result = await actPlan(id,'ENABLE'); if (turn === context) { restoreOpen.value = false; emit('updated',result); } }
+  try {
+    const result = await actPlan(id,'ENABLE');
+    if (turn !== context) return;
+    restoreOpen.value = false;
+    try {
+      const latest = await syncPlanDetail(id,true);
+      if (turn !== context) return;
+      const feedback = restoreResultFeedback(latest);
+      emit('updated',latest);ElMessage({type:feedback.type,message:feedback.message});
+    } catch {
+      if (turn === context) { emit('updated',result);ElMessage.warning('恢复指令已提交，暂未获取千川最新状态，请刷新核查。'); }
+    }
+  }
   catch (error) { if (turn === context) actionError.value = requestFailure(error,{method:'POST'}).message; }
   finally { if (turn === context) busy.value = false; }
 }
@@ -117,4 +136,5 @@ onUnmounted(() => { context++; controller?.abort(); clearInterval(timer); });
 .paused-timeline{list-style:none;padding:0 0 0 8px;margin:0}.paused-timeline li{position:relative;padding:0 0 24px 24px;border-left:2px solid #efeff7}.paused-timeline li::before{position:absolute;content:'';left:-7px;top:3px;width:12px;height:12px;border-radius:50%;background:#655bff}.paused-timeline li:last-child{border-color:transparent;padding-bottom:8px}.paused-timeline h4{display:flex;align-items:baseline;flex-wrap:wrap;gap:12px;margin:0;font-size:14px;font-weight:600;line-height:1.8}.paused-timeline time{font-size:12px;font-weight:400;color:#81849f}.paused-timeline p{margin:6px 0 0;color:#81849f;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.paused-current{margin:12px 0 0;padding:10px 14px;border-radius:10px;background:#fff8ed;color:#a87324;font-size:13px}
 .paused-result__footer{position:fixed;z-index:40;bottom:0;left:0;right:0;display:grid;justify-items:center;gap:8px;padding:14px 24px;border-top:1px solid #eeeff7;background:#fffffffa}.paused-result__footer>div{display:flex;justify-content:center;gap:16px}.paused-result__footer button,.paused-result__footer a{display:inline-flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;min-width:150px;padding:12px 22px;border:1px solid #e0e2f1;border-radius:10px;background:#fff;color:#525671;font:inherit;font-size:14px;font-weight:600;line-height:22px;text-decoration:none;cursor:pointer}.paused-result__footer button.paused-result__restore{background:#5b55f5;border-color:#5b55f5;color:#fff}.paused-result__footer svg{width:16px;height:16px}.paused-result button:disabled{opacity:.55;cursor:default}.paused-result button:focus-visible,.paused-result a:focus-visible{outline:2px solid #575cf6;outline-offset:3px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:1000px){.paused-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:767px){.paused-result{padding-bottom:184px}.paused-result__heading p{font-size:13px}.paused-fold summary{padding:18px;gap:10px;flex-wrap:wrap}.paused-fold h3{flex:1}.paused-fold__brief{order:3;width:100%;text-align:left;margin-left:17px}.paused-fold__body{padding:0 18px 24px}.pause-reason-options{gap:10px 8px}.pause-reason-options li{padding:7px 10px;font-size:12px}.paused-metrics{gap:12px}.paused-metrics article{padding:16px 12px}.paused-metrics article>p{font-size:23px}.paused-result__footer{padding:12px;gap:7px}.paused-result__footer>div{gap:8px;flex-wrap:wrap}.paused-result__footer button,.paused-result__footer a{min-width:0;padding:10px 12px;font-size:13px}}
+.paused-result--inline .paused-result__footer{position:static;z-index:auto;padding:0;border:0;background:transparent}
 </style>

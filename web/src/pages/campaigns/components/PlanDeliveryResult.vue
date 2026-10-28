@@ -15,7 +15,7 @@
       <p class="delivery-data__footnote">{{ statistics ? `最近读取 ${reviewTime(statistics.fetchedAt, '时间待同步')}。` : loading ? '正在读取当日平台报表。' : '暂未取得当日报表。' }}数据可能存在延迟，未返回的指标显示 —。</p>
     </section>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><router-link to="/campaigns">查看所有投放计划</router-link></footer>
+    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><router-link to="/campaigns">查看所有计划</router-link></footer>
     <CampaignPlanActionDialog v-model="pauseOpen" :plan="plan" action="pause" :busy="busy" :error="pauseError" @confirm="pause" />
   </section>
 </template>
