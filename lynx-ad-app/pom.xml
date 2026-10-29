@@ -25,11 +25,17 @@
         <testcontainers.version>1.20.4</testcontainers.version>
         <aliyun-oss.version>3.18.2</aliyun-oss.version>
         <aliyun-sms.version>4.6.0</aliyun-sms.version>
+        <aliyun-tea.version>1.4.1</aliyun-tea.version>
         <wechatpay.version>0.2.17</wechatpay.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>tea</artifactId>
+                <version>${aliyun-tea.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
