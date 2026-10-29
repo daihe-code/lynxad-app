@@ -152,7 +152,7 @@ async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   const same = !!state.value && JSON.stringify(values.productIds) === JSON.stringify(state.value.products.map(p => p.qcProductId));
   const missing = values.productIds.filter(id => !eligible.some(p => p.qcProductId === id));
   if (!same || missing.length || !analysisReady.value) step.value = 1;
-  else if (step.value === 3 && changedDraftFields(values,serverDraftInputs(state.value,today())).some(key => draftGoalFields.includes(key))) step.value = 2;
+  else if (step.value === 3 && changedDraftFields(values,serverDraftInputs(state.value,today())).some(key => key !== 'roiSource' && draftGoalFields.includes(key))) step.value = 2;
   return missing.length ? `已恢复可用内容；${missing.length} 个商品已被其他草稿占用、下架、不可投或信息不完整，未恢复选中（ID：${missing.join('、')}）。请重新确认选品。` : undefined;
 }
 const autosave = useCreationDraftAutosave({ scope: draftScope, server: () => state.value, today, capture: captureDraft, restore: restoreDraft,

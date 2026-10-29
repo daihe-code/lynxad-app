@@ -76,7 +76,9 @@ export function changedDraftFields(inputs: DraftInputs, baseline: DraftInputs): 
 export function rebaseDraftAfterBackgroundUpdate(cached: CachedCreationDraft, baseline: DraftBaseline): CachedCreationDraft | undefined {
   const serverChanges = changedDraftFields(baseline.inputs,cached.baseline.inputs);
   const remainingChanges = changedDraftFields(baseline.inputs,cached.inputs);
-  if (serverChanges.some(field => field !== 'step' && remainingChanges.includes(field))) return;
+  // Navigation, ROI provenance and inactive-mode budgets are browser preferences, not server edits.
+  const localFields: (keyof DraftInputs)[] = ['step','roiSource','modeBudgets'];
+  if (serverChanges.some(field => !localFields.includes(field) && remainingChanges.includes(field))) return;
   return { ...cached, baseline: { revision: baseline.revision, inputs: cleanInputs(baseline.inputs) },
     inputs: cleanInputs({ ...cached.inputs, step: cached.inputs.step !== cached.baseline.inputs.step ? cached.inputs.step : baseline.inputs.step }) };
 }

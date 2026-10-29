@@ -27,6 +27,15 @@ test('已提交到服务器的相同输入和等价金额格式不再锁住本�
   assert.deepEqual(changedDraftFields(recovered.inputs,recovered.baseline.inputs),[]);
 });
 
+test('自动推荐ROI来源和另一种投放方式的本机预算记忆不被误判为服务器内容冲突', () => {
+  const remembered={...inputs,roiSource:'PLATFORM',modeBudgets:{CUSTOM:'300',CONSERVATIVE:'50'}};
+  const record={...cached(),baseline:{revision:7,inputs:remembered},inputs:{...remembered,step:3}};
+  const recovered=rebaseDraftAfterBackgroundUpdate(record,{revision:15,inputs:{...inputs,roiSource:'MANUAL',step:3}});
+  assert.equal(recovered.inputs.roiSource,'PLATFORM');assert.equal(recovered.inputs.modeBudgets.CONSERVATIVE,'50');
+  assert.equal(recovered.baseline.revision,15);
+  assert.equal(rebaseDraftAfterBackgroundUpdate(record,{revision:15,inputs:{...inputs,roi:'9',roiSource:'MANUAL'}}),undefined);
+});
+
 test('服务器真正修改了预算或选品时仍保留冲突，不能自动覆盖', () => {
   const record=cached({budget:'777',name:'本机修改'});
   for (const changes of [{budget:'999'},{productIds:['456']},{mode:'CONSERVATIVE'}])
