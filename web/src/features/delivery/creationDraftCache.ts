@@ -72,6 +72,15 @@ export function changedDraftFields(inputs: DraftInputs, baseline: DraftInputs): 
     : JSON.stringify(inputs[field]) !== JSON.stringify(baseline[field]));
 }
 
+/** Worker progress changes the revision without changing the user's plan inputs. */
+export function rebaseDraftAfterBackgroundUpdate(cached: CachedCreationDraft, baseline: DraftBaseline): CachedCreationDraft | undefined {
+  const serverChanges = changedDraftFields(baseline.inputs,cached.baseline.inputs);
+  const remainingChanges = changedDraftFields(baseline.inputs,cached.inputs);
+  if (serverChanges.some(field => field !== 'step' && remainingChanges.includes(field))) return;
+  return { ...cached, baseline: { revision: baseline.revision, inputs: cleanInputs(baseline.inputs) },
+    inputs: cleanInputs({ ...cached.inputs, step: cached.inputs.step !== cached.baseline.inputs.step ? cached.inputs.step : baseline.inputs.step }) };
+}
+
 export function parseCachedDraft(raw: string | null, scope: DraftScope, now=Date.now()): CachedCreationDraft | undefined {
   if (!raw || raw.length > 16384) return;
   try {

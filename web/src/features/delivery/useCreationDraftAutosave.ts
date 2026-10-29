@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import type { CreationState } from './creationApi';
 import { creationScheduleDefaults } from './creationSchedule';
-import { CreationDraftCache, changedDraftFields, draftKey, rememberDraftAccount,
+import { CreationDraftCache, DRAFT_INPUT_FIELDS, changedDraftFields, draftKey, rememberDraftAccount, rebaseDraftAfterBackgroundUpdate,
   type CachedCreationDraft, type DraftInputs, type DraftScope } from './creationDraftCache';
 
 const goalFields: (keyof DraftInputs)[] = ['name','budget','roi','roiSource','mode','duration','start','end'];
@@ -83,14 +83,16 @@ export function useCreationDraftAutosave(options: {
       // retain the baseline in memory so leaving with unsaved input can be warned.
       cache = new CreationDraftCache({ getItem: key => localStorage.getItem(key),
         setItem: (key,value) => localStorage.setItem(key,value), removeItem: key => localStorage.removeItem(key) },writer);
-      const cached = cache.open(scope,serverBaseline());
+      const baseline = serverBaseline(), cached = cache.open(scope,baseline);
       active = true;
       if (!editable()) { status.value = ''; return; }
       if (cached && changedDraftFields(cached.inputs,cached.baseline.inputs).length) {
-        if (cached.baseline.revision !== (options.server()?.revision ?? null)) {
+        const recovered = cached.baseline.revision === baseline.revision ? cached : rebaseDraftAfterBackgroundUpdate(cached,baseline);
+        if (!recovered) {
           pending.value = cached; paused.value = true;
           status.value = '发现本机未提交内容，但服务器草稿已经更新，未自动覆盖，请核对后选择。';
-        } else await restore(cached,false);
+        } else if (changedDraftFields(recovered.inputs,baseline.inputs).length) await restore(recovered,false);
+        else flush();
       }
       if (retirePrevious && previous?.scope?.planId === null && previous.scope && draftKey(previous.scope) !== draftKey(scope) && flush()) previous.discard();
     } catch { active = true; status.value = '本机自动保存不可用，请使用“保存草稿”保存到服务器。'; }
@@ -100,7 +102,12 @@ export function useCreationDraftAutosave(options: {
   }
   function observeServer(incoming: CreationState) {
     if (!active || !currentScope() || paused.value || !cache?.baseline || incoming.revision === cache.baseline.revision) return false;
-    if (dirty()) { conflict('服务器草稿在其他位置更新了，本机输入已保留，请核对版本后再提交。'); return false; }
+    if (dirty()) {
+      const baseline = { revision: incoming.revision, inputs: serverDraftInputs(incoming,options.today()) };
+      if (rebaseDraftAfterBackgroundUpdate(snapshot()!,baseline)) cache.acknowledge(baseline.revision,baseline.inputs,DRAFT_INPUT_FIELDS);
+      else conflict('服务器草稿在其他位置更新了，本机输入已保留，请核对版本后再提交。');
+      return false;
+    }
     return true;
   }
   function suspend() { flush(); active = false; clearTimeout(timer); }

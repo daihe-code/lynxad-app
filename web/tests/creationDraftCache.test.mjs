@@ -1,10 +1,37 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CreationDraftCache, DRAFT_TTL_MS, changedDraftFields, draftKey, parseCachedDraft, rememberDraftAccount, recalledDraftAccount } from '../src/features/delivery/creationDraftCache.ts';
+import { CreationDraftCache, DRAFT_TTL_MS, changedDraftFields, draftKey, parseCachedDraft, rememberDraftAccount, recalledDraftAccount, rebaseDraftAfterBackgroundUpdate } from '../src/features/delivery/creationDraftCache.ts';
 
 const scope = { tenantId:'tenant', userId:'user', accountId:'account', awemeId:'aweme', planId:'draft' };
 const inputs = { productIds:['123'], name:'测试计划', budget:'300', roi:'1.5', mode:'CUSTOM', duration:'long', start:'2026-10-17', end:'2026-10-17', step:2 };
 const baseline = { revision:7, inputs };
+const cached = (changes={}) => ({schema:1,scope,baseline,inputs:{...inputs,...changes},savedAt:Date.now(),writer:'previous-window'});
+
+test('后台生成更新版本并推进步骤，继续编辑不误判为草稿冲突', () => {
+  const record=cached({step:3}), latest={revision:15,inputs:{...inputs,step:3}};
+  const recovered=rebaseDraftAfterBackgroundUpdate(record,latest);
+  assert.equal(recovered.baseline.revision,15);
+  assert.deepEqual(changedDraftFields(recovered.inputs,latest.inputs),[]);
+  assert.equal(record.baseline.revision,7);
+});
+
+test('后台状态轮询更新版本时，保留本机未提交的名称和预算', () => {
+  const record=cached({name:'本机修改',budget:'777',step:3});
+  const recovered=rebaseDraftAfterBackgroundUpdate(record,{revision:15,inputs:{...inputs,step:3}});
+  assert.equal(recovered.inputs.name,'本机修改');assert.equal(recovered.inputs.budget,'777');
+  assert.equal(recovered.baseline.inputs.budget,'300');assert.equal(recovered.baseline.revision,15);
+});
+
+test('已提交到服务器的相同输入和等价金额格式不再锁住本机草稿', () => {
+  const recovered=rebaseDraftAfterBackgroundUpdate(cached({budget:'777.00'}),{revision:15,inputs:{...inputs,budget:'777'}});
+  assert.deepEqual(changedDraftFields(recovered.inputs,recovered.baseline.inputs),[]);
+});
+
+test('服务器真正修改了预算或选品时仍保留冲突，不能自动覆盖', () => {
+  const record=cached({budget:'777',name:'本机修改'});
+  for (const changes of [{budget:'999'},{productIds:['456']},{mode:'CONSERVATIVE'}])
+    assert.equal(rebaseDraftAfterBackgroundUpdate(record,{revision:15,inputs:{...inputs,...changes}}),undefined);
+});
 function storage() {
   const map = new Map();
   return { map, getItem:key=>map.get(key) ?? null, setItem:(key,value)=>map.set(key,value), removeItem:key=>map.delete(key) };
