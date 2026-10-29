@@ -166,7 +166,7 @@ const activeTab = computed(() => catalogPolicy.tabs.find(category => category.va
 const cursorPaging = computed(() => activeTab.value.pagination === 'CURSOR');
 const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品，换个关键词试试'
   : cursorPaging.value && props.pagination?.hasMore ? '本页暂无商品，可继续查看下一页'
-  : tab.value !== 'ALL' ? `千川暂未返回“${activeTab.value.label}”商品，可切换其他分类查看`
+  : tab.value !== 'ALL' ? '暂无符合条件的商品,你可以查看全部商品'
   : unpromoted.value ? '当前筛选条件下暂无商品，可取消“只看未投放商品”查看'
   : '该抖音号暂无可投放商品');
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
