@@ -68,7 +68,14 @@ public class ProductRecommendationService {
         }
         // Never cache draft occupancy: another API/user can reserve a product between requests.
         var available=drafts.decorate(tenant.value(),account,draft,pool.products()).stream().filter(product->!excluded.contains(product.qcProductId())&&ProductRecommendationPolicy.eligible(product)).toList();
-        var suggestions=combinations.recommend(tenant,account,aweme,selected,available,refresh);
+        var ranked=combinations.recommend(tenant,account,aweme,selected,available,refresh);
+        // Candidate scans omit SKU-price queries. Enrich only the final recommendations,
+        // including cached rankings, without caching price-less products in the response.
+        var quotes=new HashMap<String,Product>();
+        if(!ranked.isEmpty())qc.refreshPrices(tenant,account,aweme,ranked.stream().map(s->s.product()).toList())
+                .forEach(p->quotes.put(p.qcProductId(),p));
+        var suggestions=ranked.stream().map(s->new ProductRecommendationPolicy.Suggestion(
+                quotes.getOrDefault(s.product().qcProductId(),s.product()),s.reasons(),s.matchedProductIds())).toList();
         String message="AI根据组合售卖、用途互补和共同场景推荐；ROI接近仅依据既有计划目标，缺少数据不推断ROI。是否适合组合投放需实际测试。";
         if(pool.partial())message+=" 本次仅评估已取得的 "+pool.products().size()+" 个候选商品。";
         if(pool.warning()!=null)message+=" "+pool.warning();

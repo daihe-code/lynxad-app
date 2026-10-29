@@ -37,6 +37,7 @@ class ProductRecommendationServiceTest {
         when(combinations.recommend(any(),anyString(),anyString(),anyList(),anyList(),anyBoolean())).thenAnswer(call->{List<Product> seeds=call.getArgument(3);List<Product> candidates=call.getArgument(4);return candidates.stream().limit(6).map(p->new Suggestion(p,List.of("AI组合建议：用途互补，可共同测试"),List.of(seeds.getFirst().qcProductId()))).toList();});
         when(qc.selected(any(),anyString(),anyString(),anyList())).thenAnswer(call->((List<String>)call.getArgument(3)).stream().map(this::product).toList());
         when(drafts.decorate(anyString(),anyString(),nullable(String.class),anyList())).thenAnswer(call->call.getArgument(3));
+        when(qc.refreshPrices(any(),anyString(),anyString(),anyList())).thenAnswer(call->call.getArgument(3));
         when(qc.recommendationCandidates(any(),anyString(),anyString(),eq(1),eq(100))).thenReturn(new CreationQianchuanGateway.Page(List.of(product("100"),product("101")),2,1,100));
     }
     ProductRecommendationService.Result get(String account,String aweme,boolean refresh){return service.recommend(tenant,account,aweme,List.of("100"),null,refresh);}
@@ -63,6 +64,31 @@ class ProductRecommendationServiceTest {
         when(qc.recommendationCandidates(any(),anyString(),anyString(),anyInt(),eq(100))).thenAnswer(call->{int page=call.getArgument(3);var rows=new ArrayList<Product>();for(int i=0;i<100;i++)rows.add(product(""+(page*100+i)));return new CreationQianchuanGateway.Page(rows,1000,page,100);});
         var result=get("a","w",false);assertEquals(300,result.scannedCount());assertTrue(result.partial());assertEquals(1000,result.catalogTotal());assertTrue(get("a","w",false).cached());
         verify(qc,times(3)).recommendationCandidates(eq(tenant),eq("a"),eq("w"),anyInt(),eq(100));
+        verify(qc,times(2)).refreshPrices(eq(tenant),eq("a"),eq("w"),argThat(rows->rows.size()==6));
+    }
+    @Test void finalRecommendationsReceivePricesEvenWhenCandidateAndRankingAreCached(){
+        var unpriced=new Product("101","101","瑜伽袜",null,null,"https://example.test/p","袜子",10L,List.of(),List.of());
+        when(qc.recommendationCandidates(tenant,"account","aweme",1,100)).thenReturn(new CreationQianchuanGateway.Page(List.of(unpriced,product("102")),2,1,100));
+        when(combinations.recommend(any(),anyString(),anyString(),anyList(),anyList(),anyBoolean())).thenReturn(List.of(new Suggestion(unpriced,List.of("AI组合建议：运动穿着搭配"),List.of("100"))));
+        var quote=new com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice(new BigDecimal("19.90"),new BigDecimal("29.90"),null,"QIANCHUAN_AVAILABLE",Instant.now(),false);
+        var priced=new Product("101","101",unpriced.name(),quote.minPrice(),new BigDecimal("25.00"),unpriced.imageUrl(),unpriced.category(),unpriced.stock(),unpriced.tags(),unpriced.unavailableReasons(),quote,null);
+        when(qc.refreshPrices(tenant,"account","aweme",List.of(unpriced))).thenReturn(List.of(priced));
+        var first=get("account","aweme",false);var cached=get("account","aweme",false);
+        assertFalse(first.cached());assertTrue(cached.cached());
+        for(var result:List.of(first,cached)) {
+            var row=result.items().getFirst();assertEquals(priced,row.product());
+            assertEquals(List.of("AI组合建议：运动穿着搭配"),row.reasons());assertEquals(List.of("100"),row.matchedProductIds());
+            assertEquals(new BigDecimal("19.90"),row.product().price());assertEquals(new BigDecimal("29.90"),row.product().priceInfo().maxPrice());
+            assertEquals(new BigDecimal("25.00"),row.product().userPrice());
+        }
+        verify(qc,times(1)).recommendationCandidates(tenant,"account","aweme",1,100);
+        verify(qc,times(2)).refreshPrices(tenant,"account","aweme",List.of(unpriced));
+        assertNull(unpriced.price());assertNull(unpriced.priceInfo());
+    }
+    @Test void emptyRecommendationsDoNotQueryPrices(){
+        when(combinations.recommend(any(),anyString(),anyString(),anyList(),anyList(),anyBoolean())).thenReturn(List.of());
+        assertTrue(get("account","aweme",false).items().isEmpty());
+        verify(qc,never()).refreshPrices(any(),anyString(),anyString(),anyList());
     }
     @Test void interruptedLaterPageCanReturnExplicitPartialResultsButIsNotCached(){
         when(qc.recommendationCandidates(tenant,"a","w",1,100)).thenReturn(new CreationQianchuanGateway.Page(List.of(product("101")),200,1,100));
