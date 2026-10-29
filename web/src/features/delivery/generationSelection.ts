@@ -13,8 +13,14 @@ interface SelectionState {
   materials: { status: string }[];
   generationAdditions?: { status: string }[];
   materialEdit?: { status: string } | null;
+  generationCounts?: unknown[];
 }
 const activeGeneration = new Set(['QUEUED','SUBMITTING','SENDING','RUNNING','IMPORTING','REVISING','UNCERTAIN']);
+export function batchGenerationRunning(state: SelectionState, submitting = false): boolean {
+  return (submitting || activeGeneration.has(state.generationStatus)) && state.generationStatus !== 'REVISING'
+    && !state.generationAdditions?.some(addition => activeGeneration.has(addition.status))
+    && !(state.generationCounts?.length === 1 && state.materials.length > 0);
+}
 export function productSelectionLocked(state?: SelectionState): boolean {
   return !!state && (state.productSelectionLocked === true || activeGeneration.has(state.generationStatus)
     || state.materials.some(material => material.status === 'PROCESSING')

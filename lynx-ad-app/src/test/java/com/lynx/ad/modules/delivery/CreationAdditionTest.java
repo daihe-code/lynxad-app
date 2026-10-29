@@ -49,7 +49,9 @@ class CreationAdditionTest {
         assertEquals(1,updated.materials.size());assertEquals(1,updated.generationAdditions.size());
         verifyNoInteractions(engine);
     }
-    @Test void manualVideoNeedsNoCoverOrTitleInputsAndReusesProductCopy() {
+    @ParameterizedTest @ValueSource(strings={"NONE","QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN"})
+    void manualVideoNeedsNoCoverOrTitleInputsAndCanAppendDuringGeneration(String status) {
+        s.generationStatus=status;s.engineJobId="existing-job";s.progress=57;
         var pool=new CreationState.TitlePool();pool.customTitles.add("户外商品实拍展示标题");s.titlePools.put("123",pool);
         when(assets.videoCover(new TenantId("tenant"),new com.lynx.ad.common.domain.Ids.UserId("user"),"uploaded-video")).thenReturn("automatic-cover");
         when(assets.detail(new TenantId("tenant"),"automatic-cover")).thenReturn(CreationPayloadTest.asset("automatic-cover","IMAGE","APPROVED",null,null,null));
@@ -57,6 +59,20 @@ class CreationAdditionTest {
         var added=result.materials.getLast();assertEquals("automatic-cover",added.coverAssetId);assertEquals(pool.customTitles,added.titles);
         verify(assets).ensureTarget(new TenantId("tenant"),"uploaded-video","account");verify(assets).ensureTarget(new TenantId("tenant"),"automatic-cover","account");
         assertEquals(2,result.materials.size());assertEquals("old",result.materials.getFirst().id);
+        assertEquals(status,result.generationStatus);assertEquals("existing-job",result.engineJobId);assertEquals(57,result.progress);
+        verifyNoInteractions(engine);
+    }
+    @ParameterizedTest @ValueSource(strings={"QUEUED","SENDING","UNCERTAIN","CREATED"})
+    void manualUploadCannotChangePublishingOrPublishedPlans(String status) {
+        s.publishStatus=status;s.generationStatus="RUNNING";
+        assertThrows(BizException.class,()->service.add(new TenantId("tenant"),"plan",new CreationWorkflowService.MaterialSelection(s.revision,"123","VIDEO","uploaded-video",null,null,null,null)));
+        assertEquals(1,s.materials.size());verifyNoInteractions(assets,importer,engine);
+    }
+    @Test void singleAdditionStageCannotResetItsProgressBackwards() throws Exception {
+        service.addition(new TenantId("tenant"),"plan",body("VIDEO",""));s.generationAdditions.getFirst().engineJobId="new-job";
+        s.generationStatus="RUNNING";s.progress=57;
+        when(engine.get(any())).thenReturn(json.readTree("{\"job_id\":\"new-job\",\"status\":\"processing\",\"progress\":{\"percent\":21},\"groups\":[]}"));
+        service.process(s);assertEquals(57,s.progress);assertEquals("RUNNING",s.generationStatus);
     }
     @ParameterizedTest @ValueSource(strings={"VIDEO","IMAGE","CAROUSEL"})
     void acceptsSingleFormatWithoutAnEarlierGenerationJob(String type) throws Exception {

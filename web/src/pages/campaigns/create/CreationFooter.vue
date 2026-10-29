@@ -7,7 +7,7 @@
         <p class="creation-footer__status">计划状态：<span :class="status.group.toLowerCase()">{{ status.label }}</span></p>
       </div>
       <div class="creation-footer__actions">
-        <div v-if="$slots.hint || footerHint" class="creation-footer__hint"><slot name="hint">{{ footerHint }}</slot></div>
+        <div v-if="$slots.hint || hint" class="creation-footer__hint"><slot name="hint">{{ hint }}</slot></div>
         <div class="creation-footer__buttons">
           <slot name="previous" />
           <button v-if="showDraftSave" class="creation-footer__save" type="button" :disabled="busy || saveDisabled" @click="emit('save')">{{ saveLabel }}</button>
@@ -21,9 +21,8 @@
 import { computed } from 'vue';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
-const props = withDefaults(defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; publishingStep?: boolean; planStatus?: string; qcStatus?: string | null; saveLabel?:string; showDraftSave?: boolean; hint?: string }>(), { planStatus: 'DRAFT', showDraftSave: true, saveLabel:'保存草稿' });
+const props = withDefaults(defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; planStatus?: string; qcStatus?: string | null; saveLabel?:string; showDraftSave?: boolean; hint?: string }>(), { planStatus: 'DRAFT', showDraftSave: true, saveLabel:'保存草稿' });
 const status = computed(() => planStatusDisplay(props.planStatus, props.qcStatus));
-const footerHint = computed(() => props.hint ?? (props.publishingStep ? '' : '本步骤不会发布广告'));
 const emit = defineEmits<{ back: []; save: [] }>();
 </script>
 <style scoped>

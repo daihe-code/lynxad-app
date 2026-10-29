@@ -268,7 +268,7 @@
               <input class="daterange__box" id="in-end" type="date" v-model="end" :min="start" :disabled="saving || readOnly || (settingsOnly && !allowScheduleChange)" :aria-invalid="!!dateError" aria-describedby="goal-date-error">
             </div>
 
-            <p v-if="dateError" id="goal-date-error" class="schedule-unavailable" role="status">{{ dateRecovery ? `开始日期 ${start} 已过期，请调整投放日期` : dateError }}</p>
+            <p v-if="dateError" id="goal-date-error" class="schedule-unavailable" role="status"><span>{{ dateRecovery ? `开始日期 ${start} 已过期，请调整投放日期` : dateError }}</span><button v-if="canRecoverDate" class="schedule-recover" type="button" :disabled="saving" @click="recoverDate">开始日期改为今天</button></p>
             <div class="hint-stack mt-[25px]">
               <span class="hint">
                 <svg class="hint__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-bulb"/></svg>
@@ -287,12 +287,11 @@
   </div>
 </main>
 <CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || !contentEditing && (readOnly || settingsOnly)" @back="emit('cancel')" @save="emit('saveDraft')">
-  <template v-if="nextIssue" #hint><div class="goal-blocker" role="status"><span id="goal-next-issue">{{ nextIssue.message }}</span><button v-if="canRecoverDate" type="button" :disabled="saving" @click="recoverDate">开始日期改为今天</button><button v-else type="button" :disabled="saving" @click="focusIssue">去调整</button></div></template>
   <template #previous><button class="btn-prev" type="button" :disabled="saving || !contentEditing && (readOnly || settingsOnly)" @click="emit('prev')">
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步
     </button></template>
-    <button ref="nextButton" class="btn-next-primary" type="button" :disabled="saving || !!nextIssue" :aria-describedby="nextIssue ? 'goal-next-issue' : undefined" @click="nextStep">
+    <button ref="nextButton" class="btn-next-primary" type="button" :disabled="saving || !!budgetError || !!roiError || !!dateError" @click="nextStep">
       下一步
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-right"/></svg>
     </button>
@@ -325,19 +324,11 @@ const budgetOpen = ref(false), budgetList = ref<HTMLElement>();
 const nextButton = ref<HTMLButtonElement>();
 const currentDay = computed(() => new Date(Date.now() + 8 * 3600000).toISOString().slice(0,10));
 const dateRecovery = computed(() => creationScheduleRecovery(duration.value, start.value, end.value, currentDay.value));
-const nextIssue = computed(() => props.budgetError ? { field: 'in-budget', message: props.budgetError }
-  : props.roiError ? { field: 'in-roi', message: props.roiError }
-  : props.dateError ? { field: !start.value || start.value < currentDay.value ? 'in-start' : 'in-end', message: dateRecovery.value ? `开始日期 ${start.value} 已过期，请调整投放日期` : props.dateError } : undefined);
-const canRecoverDate = computed(() => nextIssue.value?.field === 'in-start' && !!dateRecovery.value && !props.readOnly && !props.settingsOnly);
-function focusIssue() {
-  budgetTouched.value = true; roiTouched.value = true;
-  const field = document.getElementById(nextIssue.value?.field || 'in-start');
-  field?.scrollIntoView({ block: 'center', behavior: 'smooth' }); field?.focus({ preventScroll: true });
-}
+const canRecoverDate = computed(() => !!props.dateError && !!dateRecovery.value && !props.readOnly && !props.settingsOnly);
 function recoverDate() {
   if (props.saving || !canRecoverDate.value) return;
   const schedule = creationScheduleRecovery(duration.value, start.value, end.value, new Date(Date.now() + 8 * 3600000).toISOString().slice(0,10));
-  if (!schedule) { focusIssue(); return; }
+  if (!schedule) return;
   start.value = schedule.start;
   void nextTick(() => nextButton.value?.focus({ preventScroll: true }));
 }
@@ -385,5 +376,5 @@ function nextStep() {
 
 <style scoped>
 .budget-recommendation-refresh{margin-top:10px;color:#6256e8;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}.budget-recommendation-refresh:disabled{opacity:.5;cursor:wait}
-.goal-blocker{display:flex;align-items:center;justify-content:flex-end;gap:8px;max-width:430px;color:#d54c54;font-size:12px;line-height:18px;overflow-wrap:anywhere}.goal-blocker button{flex-shrink:0;padding:0;border:0;background:transparent;color:#575cf6;font:inherit;text-decoration:underline;cursor:pointer}.goal-blocker button:disabled{opacity:.5;cursor:wait}@media(max-width:767px){.goal-blocker{max-width:100%;flex-wrap:wrap}}
+.schedule-recover{margin-left:10px;padding:0;border:0;background:transparent;color:#575cf6;font:inherit;text-decoration:underline;cursor:pointer}.schedule-recover:disabled{opacity:.5;cursor:wait}
 </style>

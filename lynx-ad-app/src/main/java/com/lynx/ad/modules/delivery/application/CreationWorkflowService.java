@@ -408,7 +408,7 @@ public class CreationWorkflowService {
     private static CreationState.GenerationAddition additionRecord(CreationState s,String id){return s.generationAdditions.stream().filter(r->r.id.equals(id)).findFirst().orElseThrow(()->new BizException(1503,"新增素材任务不存在"));}
     public CreationState add(TenantId tenant,String requestedId,MaterialSelection request) {
         String id=sharedId(tenant,requestedId,true);
-        writable(tenant,WriteAction.SAVE_PLAN);var initial=store.get(tenant.value(),id);editable(initial);
+        writable(tenant,WriteAction.SAVE_PLAN);var initial=store.get(tenant.value(),id);appendable(initial);
         if(initial.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
         if(!ids(initial).contains(request.productId))throw new BizException(1503,"素材对应商品不属于当前计划");
         var m=new CreationState.Material();m.id=UUID.randomUUID().toString();m.productId=request.productId;m.type=request.type;
@@ -423,7 +423,7 @@ public class CreationWorkflowService {
         else throw new BizException(1503,"不支持的素材类型");
         for(String a:targetAssets)assets.ensureTarget(tenant,a,initial.accountId);
         m.textAssetId=importer.ingest(tenant,new UserId(initial.userId),id+":"+m.id+":text",String.join("\n",m.titles),"TEXT",null,false);
-        return store.mutate(tenant.value(),id,request.revision,s->{editable(s);if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
+        return store.mutate(tenant.value(),id,request.revision,s->{appendable(s);if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
     }
     public CreationState remove(TenantId tenant,String requestedId,String material,Feedback feedback) {
         String id=sharedId(tenant,requestedId,true);
@@ -799,10 +799,10 @@ public class CreationWorkflowService {
             store.mutate(current.tenantId,id,null,s->{
                 if(!Objects.equals(s.engineJobId,polledJobId)||!Set.of("RUNNING","IMPORTING","FAILED").contains(s.generationStatus))return;
                 for(var m:ready)if(!s.removedMaterialIds.contains(m.id)&&s.materials.stream().noneMatch(x->x.id.equals(m.id))&&(m.pendingVersion()?s.materials.size()<200:s.activeMaterials().size()<100)){s.materials.add(m);if(m.pendingVersion())s.changed();else s.mediaChanged();}
-                s.progress=Math.min(80,job.path("progress").path("percent").asInt(80));s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
+                s.progress=engineProgress(s,job);s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
                 updateGenerationSummary(s,job);
                 s.generationStage=job.path("progress").path("stage").asText("generation");
-                if(Set.of("succeeded","partial_failed","failed","cancelled").contains(status)){s.engineTerminalStatus=status;s.engineTerminalJobId=polledJobId;s.generationStatus="IMPORTING";s.generationStage="syncing";s.progress=80;if(generationNotices!=null)generationNotices.generated(s);}
+                if(Set.of("succeeded","partial_failed","failed","cancelled").contains(status)){s.engineTerminalStatus=status;s.engineTerminalJobId=polledJobId;s.generationStatus="IMPORTING";s.generationStage="syncing";s.progress=Math.max(s.progress,80);if(generationNotices!=null)generationNotices.generated(s);}
                 else {s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.generationStatus="RUNNING";s.resetGenerationReconciliation();}
             });
         }
@@ -812,12 +812,12 @@ public class CreationWorkflowService {
             s.retireReferenceAlternatives();
             if(!Set.of("IMPORTING","FAILED").contains(s.generationStatus)||s.engineTerminalStatus==null)return;
             long finished=s.materials.stream().filter(m->Set.of("READY","FAILED").contains(m.status)).count();
-            if(finished<s.materials.size()){s.progress=80+(int)(19*finished/s.materials.size());return;}
+            if(finished<s.materials.size()){s.progress=Math.max(s.progress,80+(int)(19*finished/s.materials.size()));return;}
             boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
             boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->(s.pendingRegenerationId.equals(m.replacesId)||s.pendingRegenerationId.equals(m.reviewSourceId))&&"READY".equals(m.status));
             boolean completeCounts=s.generationCounts.stream().allMatch(c->c.total()==null||c.completed()>=c.total());
             boolean succeeded=all&&replacement&&completeCounts&&!s.materials.isEmpty()&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
-            s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:80;
+            s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:Math.max(s.progress,80);
             s.generationMessage=succeeded?"素材已就绪并同步千川":s.materials.stream().anyMatch(m->"FAILED".equals(m.status))?
                 "部分素材同步未完成，可继续使用已就绪素材":"部分 AI 创意未完成，已有可用素材已保留，可从下方选用";
             s.generationStage="finished";
@@ -888,7 +888,7 @@ public class CreationWorkflowService {
                 r.status="IMPORTING";s.generationStatus="IMPORTING";s.generationStage="syncing";
                 s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,1,1)));
             }
-            s.progress=outputs.isEmpty()?Math.min(80,job.path("progress").path("percent").asInt()):80;
+            s.progress=outputs.isEmpty()?engineProgress(s,job):Math.max(s.progress,80);
             s.generationMessage=outputs.isEmpty()?job.path("progress").path("message").asText("新增素材生成中"):"新增素材已生成，正在同步千川";
         });
         if(terminal)store.mutate(tenant,id,null,s->{if(Objects.equals(s.engineJobId,request.engineJobId)){s.engineTerminalStatus=job.path("status").asText();s.engineTerminalJobId=request.engineJobId;}});
@@ -906,6 +906,9 @@ public class CreationWorkflowService {
     private void failAddition(String tenant,String id,String rid,String error) {
         store.mutate(tenant,id,null,s->{var r=additionRecord(s,rid);r.status="FAILED";r.error=error;s.generationStatus="FAILED";s.generationMessage=error;s.generationStage="finished";
             var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error,r.type,r.materialId,"新增"+switch(r.type){case "VIDEO"->"视频";case "IMAGE"->"商品卡图片";default->"图文";},"addition:"+rid)));});
+    }
+    private static int engineProgress(CreationState state,JsonNode job) {
+        return Math.max(state.progress,Math.max(0,Math.min(80,job.path("progress").path("percent").asInt(state.progress))));
     }
     private static void updateGenerationSummary(CreationState s,JsonNode job) {
         s.generationCounts.clear();s.generationIssues.clear();
@@ -1040,10 +1043,13 @@ public class CreationWorkflowService {
     private void requireKind(TenantId t,String id,String kind){if(id==null||!kind.equals(assets.detail(t,id).kind()))throw new BizException(1503,"素材类型不匹配");}
     private static CreationState.Material find(CreationState s,String id){return s.materials.stream().filter(m->m.id.equals(id)).findFirst().orElseThrow(()->new BizException(1503,"素材不属于该计划"));}
     private static void editable(CreationState s){
+        appendable(s);
+        if(Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
+    }
+    private static void appendable(CreationState s){
         if(s.titleGenerationPending())throw new BizException(1403,"标题正在生成，请等待本次结果后修改");
         if(s.publishedEdit!=null&&!"DRAFT".equals(s.publishedEdit.status))throw new BizException(1403,"保存结果待核查或已完成，请先核查原计划");
         if(!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
-        if(Set.of("QUEUED","SUBMITTING","REVISING","RUNNING","IMPORTING","UNCERTAIN").contains(s.generationStatus))throw new BizException(1403,"任务正在执行，请等待完成后修改");
     }
     private static void selectionEditable(CreationState s){
         com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.assertEditable(s);

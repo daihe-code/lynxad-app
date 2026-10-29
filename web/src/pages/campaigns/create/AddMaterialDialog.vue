@@ -2,7 +2,7 @@
   <ReferenceModal class="add-material-dialog" title="新增素材" :width="820" :busy="locked" @close="close">
     <div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
-    <div class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
+    <div class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
     <div v-if="source === 'AI'" class="ai-source"><label for="addition-description">生成要求 <small>选填</small></label><textarea id="addition-description" v-model="description" rows="3" maxlength="50" :disabled="locked" placeholder="可填写希望突出的场景或卖点" /><p class="hint">为当前商品新增{{ type === 'VIDEO' ? '一条视频' : type === 'IMAGE' ? '一张商品卡图片' : '一套图文' }}，保留已有素材。</p></div>
     <div v-if="source === 'LIBRARY'" class="library-source">
       <form class="library-search" @submit.prevent="search"><input v-model="query" aria-label="搜索素材名称" placeholder="搜索素材名称" :disabled="locked" /><button type="submit" :disabled="locked || loading">搜索</button><select :value="scope === 'AUTO' ? 'RELATED' : scope" aria-label="商品关联范围" :disabled="locked || loading" @change="scopeChanged"><option value="RELATED">当前商品相关</option><option value="ALL">{{ allLabel }}</option></select><button type="button" :disabled="locked || loading" @click="refresh"><ReferenceIcon name="refresh" />刷新</button></form>
@@ -33,12 +33,12 @@ import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativ
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
 type Format = CreationAdditionBody['type'];
 type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
-const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean }>();
+const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean }>();
 const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]] }>();
 const formats: Record<Format, string> = { VIDEO: '视频', IMAGE: '商品卡图片', CAROUSEL: '图文' };
 const sources: Record<Source, string> = { AI: '智能生成', LIBRARY: '从素材库选择', UPLOAD: '本地上传' };
-const type = ref<Format>(props.initialType), source = ref<Source>('AI'), description = ref('');
-const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(false);
+const type = ref<Format>(props.initialType), source = ref<Source>(props.generationBusy ? 'UPLOAD' : 'AI'), description = ref('');
+const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(!!props.generationBusy);
 const locked = computed(() => props.busy || awaiting.value || uploadBlocked.value);
 const product = computed(() => props.state.products.find(p => p.qcProductId === props.productId));
 const kindLabel = computed(() => ({ VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文' })[type.value]);
@@ -48,7 +48,7 @@ const loading = ref(false), loadError = ref(''), librarySelected = ref<LibraryIt
 const pageSize = 6, totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 const selected = computed(() => source.value === 'LIBRARY' ? librarySelected.value : source.value === 'UPLOAD' ? localSelected.value : undefined);
 const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。' : '');
-const canSubmit = computed(() => !!product.value && (source.value === 'AI' || !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
+const canSubmit = computed(() => !!product.value && (source.value === 'AI' ? !props.generationBusy : !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
 const previewItem = ref<LibraryItemVo>(), previewError = ref(''), previewVersion = ref(0);
 const previewUrls = computed(() => previewItem.value ? assetPreview(previewItem.value) : undefined);
 async function preview(item: LibraryItemVo) { previewError.value = ''; previewItem.value = item; if (!assetPreview(item).posterUrl && !assetPreview(item).playUrl) await resolveAssetPreview(item); }
@@ -74,7 +74,7 @@ function search() { if (locked.value) return; page.value = 1; previewItem.value 
 function scopeChanged(event: Event) { scope.value = (event.target as HTMLSelectElement).value as 'RELATED' | 'ALL'; search(); }
 function showAll() { scope.value = 'ALL'; query.value = ''; search(); }
 function changePage(value: number) { if (locked.value || loading.value || value < 1 || value > totalPages.value) return; page.value = value; void loadLibrary(true); }
-function chooseSource(value: Source) { if (locked.value || source.value === value) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
+function chooseSource(value: Source) { if (locked.value || source.value === value || value === 'AI' && props.generationBusy) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
 function chooseType(value: Format) { if (locked.value || type.value === value) return; type.value = value; librarySelected.value = undefined; localSelected.value = undefined; previewItem.value = undefined; scope.value = 'AUTO'; relatedCount.value = undefined; query.value = ''; page.value = 1; submitError.value = ''; }
 watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); });
 watch([() => props.state, () => props.busy], () => {

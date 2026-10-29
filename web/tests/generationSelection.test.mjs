@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts, productSelectionLocked } from '../src/features/delivery/generationSelection.ts';
+import { batchGenerationRunning, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts, productSelectionLocked } from '../src/features/delivery/generationSelection.ts';
 
 const draft = () => ({ products: [{ qcProductId: '123' }, { qcProductId: '456' }], generationStatus: 'NONE', generationProductIds: [], materials: [] });
+
+test('图片先就绪时继续展示本次整批进度，等待视频图文完成后再进入确认页', () => {
+  const initial={...draft(),generationStatus:'RUNNING',generationCounts:[{},{},{}]};
+  assert.equal(batchGenerationRunning(initial),true);
+  assert.equal(batchGenerationRunning({...initial,materials:[{type:'IMAGE',status:'READY'}]}),true);
+  assert.equal(batchGenerationRunning({...initial,generationStatus:'IMPORTING',materials:[{status:'PROCESSING'}]}),true);
+  for(const generationStatus of ['SUCCEEDED','FAILED','CANCELLED'])assert.equal(batchGenerationRunning({...initial,generationStatus}),false);
+});
+
+test('单条追加和修订保留原有编辑界面，不重新切换到整批生成页', () => {
+  const existing={...draft(),generationStatus:'RUNNING',materials:[{status:'READY'}]};
+  assert.equal(batchGenerationRunning({...existing,generationAdditions:[{status:'RUNNING'}]}),false);
+  assert.equal(batchGenerationRunning({...existing,generationStatus:'REVISING'}),false);
+  assert.equal(batchGenerationRunning({...existing,generationCounts:[{}]}),false);
+  assert.equal(batchGenerationRunning(draft(),true),true);
+});
 test('生成任务的全部执行阶段均锁定商品，旧的允许调整标记不能解除限制', () => {
   for (const generationStatus of ['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'])
     assert.equal(productSelectionLocked({ ...draft(), generationStatus, canAdjustProductsDuringGeneration: true }), true);

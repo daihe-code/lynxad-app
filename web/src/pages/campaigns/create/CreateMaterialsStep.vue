@@ -4,7 +4,10 @@
     <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad">
       <h2 class="panel__title">{{ batchRunning ? '生成投放素材' : published ? '已投放素材' : '确定投放素材' }}</h2><p class="panel__sub">{{ batchRunning ? `我正在为你选中的 ${state.generationProductIds.length || state.products.length} 款商品准备素材，生成后由你预览确认` : published ? '当前计划使用的素材，点击素材或标题可查看投放效果预览' : '我已整理好素材，请预览并确认用于本次投放的内容' }}</p>
       <GenerationNoticeResult :state="state" @focus="focusNotice" />
-      <MaterialGenerationProgress v-if="batchRunning" ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
+      <template v-if="batchRunning">
+      <MaterialGenerationProgress ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
+      <button v-if="!readOnly || additionActions" class="addrow" type="button" :disabled="busy || materialEditPending || titlePending" @click="openAddition('VIDEO')"><ReferenceIcon name="plus" />本地上传</button>
+      </template>
       <template v-else>
       <div v-if="showStatusNotice" class="tip" role="status"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ statusMessage }}<span v-if="typographyPendingCount"> 有 {{ typographyPendingCount }} 条素材的文字待完善，现有画面已保留。</span></p></div>
       <p v-if="running" class="material-processing-message" role="status">正在为所选商品生成或处理素材，已有素材仍可预览；任务会在后台继续。</p>
@@ -54,12 +57,12 @@
             <p v-if="!visible.length && !failureRows.length" class="empty">当前商品暂无{{ tabs[tab] }}素材{{ readOnly ? '。' : '，可智能生成或从素材库选择。' }}</p>
           </template>
           <div v-if="failureRows.length" class="material-failure-list"><article v-for="(issue, index) in failureRows" :key="issue.slotId || issue.materialId || index" class="material-generation-failure" :aria-label="`${tabs[tab]}生成失败`"><div class="material-failure-heading"><span class="material-failure-badge" aria-hidden="true">!</span><strong>{{ issue.title || `${tabs[tab]}生成失败` }}</strong><span>生成失败</span></div><p class="material-failure-reason" role="alert">失败原因：{{ issue.message }}</p><button v-if="!readOnly && canRetryFailureType" class="sync-retry" type="button" :disabled="busy || running" title="重试本次任务中该类型的全部失败项，已有素材保留" @click="retryFailureType">重试同类型失败项</button></article></div>
-          <button v-if="(!readOnly || additionActions) && tab !== 'TITLE'" class="addrow" :disabled="busy || running || materialEditPending || titlePending" @click="openAddition()"><ReferenceIcon name="plus" />新增素材（智能生成或上传）</button>
+          <button v-if="(!readOnly || additionActions) && tab !== 'TITLE'" class="addrow" :disabled="busy || materialEditPending || titlePending" @click="openAddition()"><ReferenceIcon name="plus" />新增素材（智能生成或上传）</button>
         </div><aside v-if="tab!=='TITLE'" class="work__side" aria-label="投放效果预览"><MaterialPreview :material="active" :product="previewProduct" :account="account"  @metadata="(id, data) => mediaMetadata[id] = data" /></aside></div>
       </div>
       </template>
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || contentEditing || busy || running" /><p class="plan__hint">{{ contentEditing ? '本次调整商品与素材，沿用原计划名称和投放目标；保存修改后更新原计划。' : '自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。' }}</p></div></div></div></section></div></main>
-    <CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" publishing-step @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">{{ contentEditing ? '保存修改' : '发布投放' }}</button></CreationFooter>
+    <CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">{{ contentEditing ? '保存修改' : '发布投放' }}</button></CreationFooter>
     <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="deferGeneration">
       <p class="generation-intro">{{ state.generationPendingProductIds?.length ? '仅列出新增商品。原商品及已生成素材继续保留，无需再次生成；新增商品可取消勾选，改用素材库或本地上传。' : '我会为勾选的商品生成投放素材。已有素材、无需生成的商品，可取消勾选。' }}</p>
       <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
@@ -73,7 +76,7 @@
       <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
     </ReferenceModal>
     <MaterialVersionDialog v-if="reviewSource && (!readOnly || materialActions)" :key="reviewSource.id" :source="reviewSource" :version="pendingVersion(reviewSource.id)" :busy="busy" :material-count="state.materials.length" :failed="pendingVersion(reviewSource.id)?.material.status === 'FAILED' || state.materialRevision?.sourceId === reviewSource.id && state.materialRevision.status === 'FAILED'" :message="state.generationMessage" @close="reviewSourceId = ''" @confirm="(id, decision) => emit('resolveVersion', id, decision)" @retry="id => emit('retrySync', id)"><p v-if="versionError" class="version-error" role="alert">{{ versionError }}</p></MaterialVersionDialog>
-    <AddMaterialDialog v-if="(!readOnly || additionActions) && addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" />
+    <AddMaterialDialog v-if="(!readOnly || additionActions) && addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" :generation-busy="running" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" />
   </div>
 </template>
 <script setup lang="ts">
@@ -95,7 +98,7 @@ import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel, componentLabel, processingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
-import { hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
+import { batchGenerationRunning, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
 const props = defineProps<{ state: CreationState; busy: boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; additionActions?:boolean; titleActions?:boolean; initialProductId?:string; initialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>();
 const titlePending=computed(()=>!!props.state.titleGeneration && ['SENDING','PROCESSING'].includes(props.state.titleGeneration.status));
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
@@ -170,7 +173,7 @@ function metadataLabel(m: CreationMaterial) {
 const missing = computed(() => props.state.products.filter(p => !props.state.materials.some(m => m.productId === p.qcProductId && materialIsReady(m))));
 const ready = computed(() => !titlePending.value && !!props.state.materials.length && !missing.value.length && props.state.materials.every(materialIsReady));
 const running = computed(() => generationSubmitting.value || ['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(props.state.generationStatus));
-const batchRunning = computed(() => running.value && !props.state.materials.length && props.state.generationStatus !== 'REVISING' && !props.state.generationAdditions?.some(r=>['QUEUED','SUBMITTING','RUNNING','IMPORTING','UNCERTAIN'].includes(r.status)) && !(props.state.generationCounts?.length === 1 && props.state.materials.length));
+const batchRunning = computed(() => batchGenerationRunning(props.state,generationSubmitting.value));
 const showStatusNotice=computed(()=>props.reconnecting || typographyPendingCount.value>0 || props.state.publishStatus === 'FAILED');
 const statusMessage = computed(() => props.state.publishStatus === 'FAILED' ? props.state.publishError || '发布未完成，请核查投放结果。' : props.reconnecting ? '暂时无法更新进度，正在重新连接。已有结果已保留。' : running.value ? props.state.generationStatus === 'IMPORTING' ? '素材已生成，正在登记、检查并同步千川。' : '素材准备中，任务会在后台继续，完成后可返回草稿查看。' : previewableCount.value ? '素材已准备，请预览并确认本次投放内容。后续处理问题会显示在对应素材下。' : props.state.materials.length ? '素材记录已保留，预览暂不可用，请核查处理状态。' : '请选择需要生成素材的商品，或从素材库补齐素材。');
 const visibilityLocked = computed(() => props.readOnly || props.busy || running.value || !['NONE','FAILED'].includes(props.state.publishStatus));
@@ -309,6 +312,7 @@ watch(productId, () => { selectedId.value = ''; const first = materials.value[0]
 .material-status--error { color: #e6535c; }
 .matrow button:focus-visible { outline: 2px solid #575cf6; outline-offset: 3px; }
 .empty { padding: 32px 12px; text-align: center; color: #8588a5; font-size: 13px; }
+.addrow:not(:disabled) { color: #575cf6; border-color: #d5d1ff; }
 .error { color: #e6535c; margin: 18px 0; font-size: 13px; line-height: 1.7; }
 .actionbar { position: fixed; left: 0; right: 0; }
 .btn-brand { background: #575cf6; border: 0; border-radius: 10px; color: #fff; padding: 12px 20px; font-size: 13px; font-weight: 600; }

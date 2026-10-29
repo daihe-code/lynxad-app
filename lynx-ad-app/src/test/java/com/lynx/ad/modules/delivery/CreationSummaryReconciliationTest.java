@@ -82,6 +82,29 @@ class CreationSummaryReconciliationTest {
         assertEquals("RUNNING",state.generationStatus);assertNull(state.engineTerminalStatus);
         assertEquals(0,state.generationReconciliationAttempts);
     }
+    @Test void lowerStagePercentNeverRollsBackTheSameJobAndCountsStillRefresh() throws Exception {
+        state.generationStatus="RUNNING";state.engineTerminalStatus=null;state.progress=57;
+        var job=(com.fasterxml.jackson.databind.node.ObjectNode)json.readTree(response("processing"));
+        job.putObject("progress").put("percent",21).put("stage","video_generation");
+        when(engine.get(anyString())).thenReturn(job);
+        service.process(state);
+        assertEquals(57,state.progress);assertEquals("RUNNING",state.generationStatus);
+        assertTrue(state.generationCounts.stream().allMatch(c->c.completed()==2));
+        verify(engine,never()).post(any(),any());
+    }
+    @Test void missingProgressDoesNotInventAnEightyPercentCompletion() throws Exception {
+        state.generationStatus="RUNNING";state.engineTerminalStatus=null;state.progress=29;
+        when(engine.get(anyString())).thenReturn(json.readTree(response("processing")));
+        service.process(state);
+        assertEquals(29,state.progress);assertEquals("RUNNING",state.generationStatus);
+    }
+    @Test void terminalFailurePreservesTheAlreadyReachedSyncProgress() throws Exception {
+        state.generationStatus="IMPORTING";state.progress=96;
+        state.materials.getFirst().status="FAILED";
+        when(engine.get(anyString())).thenReturn(json.readTree(response("partial_failed")));
+        service.process(state);
+        assertEquals("FAILED",state.generationStatus);assertEquals(96,state.progress);
+    }
     @Test void engineOutageKeepsExistingMaterialsAndCountsTheAttempt() {
         when(store.claim(state)).thenReturn(true);when(engine.get(anyString())).thenThrow(new BizException(8002,"引擎暂不可用"));
         assertEquals("FAILED",service.get(new TenantId("tenant"),"plan").generationStatus);
