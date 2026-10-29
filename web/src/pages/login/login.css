@@ -306,7 +306,7 @@ img,video {
 }
 @media (min-width:1024px) {
   .auth {
-    grid-template-columns: minmax(0,2fr) minmax(0,3fr);
+    grid-template-columns: minmax(0,9fr) minmax(0,11fr);
   }
   .auth__brand {
     display: flex;
