@@ -14,6 +14,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Component;
 @Primary
 @ConditionalOnExpression("'${lynx.ad.oauth.qianchuan.mode:legacy}' == 'live' || '${lynx.ad.mock.qianchuan:true}' == 'false'")
 public class LiveOauthTokenAdapter implements OauthTokenPort {
+    private static final Logger log = LoggerFactory.getLogger(LiveOauthTokenAdapter.class);
     private final QianchuanRestClient client;
     private final LynxAdProperties properties;
     private final OceanJson ocean;
@@ -112,9 +115,8 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
         out.putIfAbsent(id,new AuthorizedAdvertiser(id,name,role,parent));
     }
     public List<AwemeDraft> loadAwemes(String access,String advertiser) {
-        JsonNode data=get(properties.getQianchuan().getOauth().getAwemeAuthorizedUrl(),access,Map.of("advertiser_id",advertiser));
         Map<String,AwemeDraft> out=new LinkedHashMap<>();
-        for(JsonNode a:list(data)) {
+        for(JsonNode a:awemePages(access,advertiser,false,false)) {
             String id=a.path("aweme_id").asText(""); if(id.isBlank()) continue;
             String name=a.path("aweme_name").asText(a.path("name").asText("抖音号 "+id));
             String avatar=a.path("aweme_avatar").asText(a.path("avatar").asText(""));
@@ -128,7 +130,54 @@ public class LiveOauthTokenAdapter implements OauthTokenPort {
             Boolean mall=a.path("is_allow_mall").isBoolean()?a.path("is_allow_mall").booleanValue():null;
             out.putIfAbsent(id,new AwemeDraft(id,name,avatar.isBlank()?null:avatar,type,a.path("is_primary").asBoolean(false),catalog.sceneHint(type),authTypes,mall));
         }
+        if(out.isEmpty()) return List.of();
+        // Mall capability is only populated for the product creation scene.
+        try {
+            for(JsonNode a:awemePages(access,advertiser,true,false)) {
+                String id=a.path("aweme_id").asText("");
+                AwemeDraft current=out.get(id);
+                if(current!=null && a.path("is_allow_mall").isBoolean())
+                    out.put(id,withLabels(current,current.authTypes(),a.path("is_allow_mall").booleanValue()));
+            }
+        } catch(BizException ex) { log.warn("Aweme product-scene labels unavailable: code={}",ex.code()); }
+        // Alliance identity is separate from auth_type; it is not AWEME_COOPERATOR.
+        try {
+            for(JsonNode a:awemePages(access,advertiser,false,true)) {
+                String id=a.path("aweme_user_info").path("aweme_id").asText("");
+                AwemeDraft current=out.get(id);
+                JsonNode alliance=a.path("alliance_info").path("is_alliance_talent");
+                if(current!=null && alliance.isBoolean() && alliance.booleanValue()) {
+                    List<String> roles=new ArrayList<>(current.authTypes());
+                    if(!roles.contains("ALLIANCE")) roles.add("ALLIANCE");
+                    out.put(id,withLabels(current,roles,current.isAllowMall()));
+                }
+            }
+        } catch(BizException ex) { log.warn("Aweme alliance labels unavailable: code={}",ex.code()); }
         return List.copyOf(out.values());
+    }
+    private AwemeDraft withLabels(AwemeDraft a,List<String> roles,Boolean mall) {
+        return new AwemeDraft(a.awemeId(),a.name(),a.avatar(),a.type(),a.primary(),a.sceneHint(),roles,mall);
+    }
+    private List<JsonNode> awemePages(String access,String advertiser,boolean productScene,boolean relations) {
+        List<JsonNode> all=new ArrayList<>();
+        int pageSize=relations?30:100;
+        var oauth=properties.getQianchuan().getOauth();
+        for(int page=1;page<=1000;page++) {
+            Map<String,String> query=new LinkedHashMap<>();
+            query.put("advertiser_id",advertiser);
+            if(relations) query.put("page_params",serialize(Map.of("page",page,"page_size",pageSize)));
+            else {
+                query.put("page",String.valueOf(page)); query.put("page_size",String.valueOf(pageSize));
+                if(productScene) query.put("filtering",serialize(Map.of("marketing_goal","VIDEO_PROM_GOODS","scene","CREATE")));
+            }
+            JsonNode data=get(relations?oauth.getAwemeRelationsUrl():oauth.getAwemeAuthorizedUrl(),access,query);
+            JsonNode entries=relations?data.path("bind_aweme_user_infos"):list(data);
+            if(!entries.isArray() || entries.isEmpty()) return all;
+            entries.forEach(all::add);
+            int total=data.path(relations?"pagination":"page_info").path("total_page").asInt(-1);
+            if((total>=0 && page>=total) || (total<0 && entries.size()<pageSize)) return all;
+        }
+        throw new BizException(1205,"抖音号数量超出同步范围，请缩小授权范围");
     }
     private JsonNode list(JsonNode data) {
         if(data.isArray()) return data;

@@ -750,6 +750,7 @@ public class LynxAdProperties {
         private String refreshTokenUrl = "https://ad.oceanengine.com/open_api/oauth2/refresh_token/";
         private String advertiserGetUrl = "https://api.oceanengine.com/open_api/oauth2/advertiser/get/";
         private String awemeAuthorizedUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/authorized/get/";
+        private String awemeRelationsUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/overall_aweme/list/";
 
         public String getAccessTokenUrl() { return accessTokenUrl; }
         public void setAccessTokenUrl(String accessTokenUrl) { this.accessTokenUrl = accessTokenUrl; }
@@ -759,6 +760,8 @@ public class LynxAdProperties {
         public void setAdvertiserGetUrl(String advertiserGetUrl) { this.advertiserGetUrl = advertiserGetUrl; }
         public String getAwemeAuthorizedUrl() { return awemeAuthorizedUrl; }
         public void setAwemeAuthorizedUrl(String awemeAuthorizedUrl) { this.awemeAuthorizedUrl = awemeAuthorizedUrl; }
+        public String getAwemeRelationsUrl() { return awemeRelationsUrl; }
+        public void setAwemeRelationsUrl(String awemeRelationsUrl) { this.awemeRelationsUrl = awemeRelationsUrl; }
     }
 
     public static class CatalogApi {

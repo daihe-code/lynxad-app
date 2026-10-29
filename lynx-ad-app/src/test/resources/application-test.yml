@@ -73,6 +73,7 @@ lynx:
         refresh-token-url: https://ad.oceanengine.com/open_api/oauth2/refresh_token/
         advertiser-get-url: https://api.oceanengine.com/open_api/oauth2/advertiser/get/
         aweme-authorized-url: https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/authorized/get/
+        aweme-relations-url: https://api.oceanengine.com/open_api/v1.0/qianchuan/overall_aweme/list/
       catalog:
         product-get-url: https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/product/get/
       delivery:

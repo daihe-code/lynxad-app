@@ -69,6 +69,7 @@ lynx:
         refresh-token-url: ${QC_REFRESH_TOKEN_URL:https://ad.oceanengine.com/open_api/oauth2/refresh_token/}
         advertiser-get-url: ${QC_ADVERTISER_GET_URL:https://api.oceanengine.com/open_api/oauth2/advertiser/get/}
         aweme-authorized-url: ${QC_AWEME_AUTHORIZED_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_aweme/authorized/get/}
+        aweme-relations-url: ${QC_AWEME_RELATIONS_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/overall_aweme/list/}
       catalog:
         product-get-url: ${QC_PRODUCT_GET_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/uni_promotion/product/get/}
         product-price-url: ${QC_PRODUCT_PRICE_URL:https://api.oceanengine.com/open_api/v1.0/qianchuan/product/available/get/}
