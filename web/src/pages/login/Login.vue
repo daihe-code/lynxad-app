@@ -14,18 +14,20 @@
         <path d="M12 2.9 4.8 5.9v6.2c0 4.3 3 8 7.2 9.1 4.2-1.1 7.2-4.8 7.2-9.1V5.9L12 2.9Z"/>
         <path d="m9.1 12 2 2 3.9-3.9"/>
       </symbol>
-      <symbol id="ic-trend-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3.6 16.6 9.2 11l3.4 3.4 7.8-7.8"/>
-        <path d="M15.4 6.6h5v5"/>
+      <symbol id="ic-media" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v6"/>
+        <circle cx="8" cy="8" r="1.5"/>
+        <path d="m3 16 4-4 4 4 3-3"/>
+        <circle cx="18" cy="18" r="5"/>
+        <path d="m17 15.8 3.2 2.2-3.2 2.2Z" fill="currentColor" stroke="none"/>
       </symbol>
       <symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18.2 8.8a6.2 6.2 0 1 0-12.4 0c0 5.3-2.1 6.9-2.1 6.9h16.6s-2.1-1.6-2.1-6.9Z"/>
         <path d="M13.7 19.2a1.9 1.9 0 0 1-3.4 0"/>
       </symbol>
-      <symbol id="ic-headset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3.9 15.2v-3.1a8.1 8.1 0 0 1 16.2 0v3.1"/>
-        <rect x="2.6" y="12.9" width="4.5" height="6.4" rx="2.2"/>
-        <rect x="16.9" y="12.9" width="4.5" height="6.4" rx="2.2"/>
+      <symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4.5" width="18" height="17" rx="2"/>
+        <path d="M7 2v5M17 2v5M3 10h18M8 14h3v3H8zM14 14h3v3h-3z"/>
       </symbol>
       <symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M2.6 12S6.1 5.9 12 5.9 21.4 12 21.4 12 17.9 18.1 12 18.1 2.6 12 2.6 12Z"/>
@@ -62,20 +64,11 @@
           <ul class="auth-features">
             <li class="auth-feature">
               <span class="auth-feature__icon">
-                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-shield"/></svg>
+                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-media"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">持续盯盘，及时发现异常</h3>
-                <p class="auth-feature__desc">持续关注投放表现，发现异常及时提醒，并在你确认的托管范围内执行优化。</p>
-              </div>
-            </li>
-            <li class="auth-feature">
-              <span class="auth-feature__icon">
-                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-trend-up"/></svg>
-              </span>
-              <div>
-                <h3 class="auth-feature__title">平台服务免费体验 7 天</h3>
-                <p class="auth-feature__desc">先体验素材准备、投放管理与盯盘能力；广告费用仍由媒体平台收取。</p>
+                <h3 class="auth-feature__title">素材制作，投放管理更省心</h3>
+                <p class="auth-feature__desc">灵投智能生成投放素材，协助完成投放设置与计划管理，减少重复操作。</p>
               </div>
             </li>
             <li class="auth-feature">
@@ -83,17 +76,26 @@
                 <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-bell"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">确认后再启动投放</h3>
-                <p class="auth-feature__desc">授权不会立即投放，商品、预算、目标和素材均由你确认。</p>
+                <h3 class="auth-feature__title">全天盯盘，异常及时提醒</h3>
+                <p class="auth-feature__desc">持续关注消耗与投放表现，发现异常及时提醒，让日常投放管理更省心。</p>
               </div>
             </li>
             <li class="auth-feature">
               <span class="auth-feature__icon">
-                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-headset"/></svg>
+                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-shield"/></svg>
               </span>
               <div>
-                <h3 class="auth-feature__title">每步操作可追溯</h3>
-                <p class="auth-feature__desc">操作可解释、可干预、可回滚，灵投每一步决策都有据可查，透明投放更放心。</p>
+                <h3 class="auth-feature__title">预算自主，关键操作先确认</h3>
+                <p class="auth-feature__desc">投入多少，由你决定。关键操作先确认，调整有依据，过程可查看。</p>
+              </div>
+            </li>
+            <li class="auth-feature">
+              <span class="auth-feature__icon">
+                <svg class="h-8 w-8" aria-hidden="true"><use href="#ic-calendar"/></svg>
+              </span>
+              <div>
+                <h3 class="auth-feature__title">免费体验，满意再选订阅</h3>
+                <p class="auth-feature__desc">平台服务免费体验 7 天，体验后自主选择是否订阅。广告费仍由各媒体平台收取。</p>
               </div>
             </li>
           </ul>
