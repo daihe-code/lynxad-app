@@ -119,6 +119,21 @@ class CreationSummaryReconciliationTest {
         service.process(detached);
         assertEquals("new-job",state.engineJobId);assertEquals("RUNNING",state.generationStatus);assertNull(state.engineTerminalStatus);
     }
+    @Test void deletedFailureDoesNotReturnWhenTheSameEngineSummaryIsReadAgain() throws Exception {
+        state.dismissedGenerationIssues.add(new CreationState.GenerationIssueDismissal("job","p","VIDEO","group-1-video-3"));
+        var job=(com.fasterxml.jackson.databind.node.ObjectNode)json.readTree(response("partial_failed"));
+        var group=(com.fasterxml.jackson.databind.node.ObjectNode)job.path("groups").get(0);
+        ((com.fasterxml.jackson.databind.node.ObjectNode)group.path("expected")).put("videos",3);
+        group.putArray("generation_failures").addObject().put("material_type","video").put("slot_id","group-1-video-3").put("message","内部技术错误");
+        when(engine.get(anyString())).thenReturn(job);
+        service.process(state);service.process(state);
+        assertTrue(state.generationIssues.isEmpty());
+        assertEquals(new CreationState.GenerationCount("VIDEO",2,2,0),state.generationCounts.stream().filter(c->c.type().equals("VIDEO")).findFirst().orElseThrow());
+        assertEquals(6,state.materials.size());verify(engine,never()).post(any(),any());
+        state.engineJobId="new-job";job.put("job_id","new-job");
+        service.process(state);
+        assertEquals(1,state.generationIssues.size());assertEquals(1,state.generationCounts.stream().filter(c->c.type().equals("VIDEO")).findFirst().orElseThrow().failed());
+    }
     @Test void publishedOrAdditionFailureDoesNotReopenOriginalGeneration() {
         state.publishStatus="CREATED";assertFalse(state.needsGenerationReconciliation());
         state.publishStatus="NONE";state.pendingAdditionId="addition";assertFalse(state.needsGenerationReconciliation());

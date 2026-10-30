@@ -114,6 +114,7 @@ export interface CreationState {
   generationAdditions?: { id: string; productId: string; type: string; description: string; status: string; createdAt: string; materialId?: string; error?: string }[];
 }
 export interface CreationAdditionBody { productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; description: string; requestId: string }
+export type GenerationIssue = NonNullable<CreationState['generationIssues']>[number];
 export interface ProductQuery { page: number; pageSize: number; keyword: string; tab: string; unpromoted: boolean; cursor?: string }
 export interface ProductPage { items: CreationProduct[]; total: number; nextCursor?: string | null; hasMore?: boolean }
 const root = '/api/v1/delivery/creation';
@@ -137,7 +138,8 @@ export const creationRecommendations = (id: string, refresh = false) => apiGet<C
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
 export const creationStep = (s: CreationState, step: number) => apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step });
 export const creationGenerate = (s: CreationState, productIds: string[]) => apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds });
-export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|'CAROUSEL') => apiPost<CreationState>(`${root}/${s.planId}/generation/retry`, { revision:s.revision,type }, slow);
+export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|'CAROUSEL', issue?: GenerationIssue) => apiPost<CreationState>(`${root}/${s.planId}/generation/retry`, { revision:s.revision,type, ...(issue ? {productId:issue.productId,slotId:issue.slotId} : {}) }, slow);
+export const creationDeleteGenerationFailure = (s: CreationState, issue: GenerationIssue) => apiDelete<CreationState>(`${root}/${s.planId}/generation/failures`, { data: {revision:s.revision,productId:issue.productId,type:issue.type,slotId:issue.slotId} });
 export const creationAddition = (s: CreationState, body: CreationAdditionBody) => apiPost<CreationState>(`${root}/${s.planId}/generation/additions`, { revision: s.revision, ...body });
 export const creationMaterialContext = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/context`);
 export const creationVisibility = (s: CreationState, hideInAweme: boolean) => apiPut<CreationState>(`${root}/${s.planId}/visibility`, { revision: s.revision, hideInAweme });

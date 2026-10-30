@@ -58,7 +58,11 @@ public class CreationState {
     /** Internal dispatch receipt. A source job ID alone never proves a revision was accepted. */
     public Regeneration regeneration;
     public GenerationRetry generationRetry;
-    public static class GenerationRetry { public String requestId,type,status; }
+    public static class GenerationRetry {
+        public String requestId,type,status;
+        public List<GenerationRetryTarget> targets = new ArrayList<>();
+    }
+    public record GenerationRetryTarget(String product_id,String slot_id) {}
     public static class Regeneration {
         public String requestId,sourceId,parentId,jobId,planTaskId,groupId,target,instruction;
         public String status="RESERVED",revisionId,executionJobId,resultMaterialId;
@@ -78,6 +82,11 @@ public class CreationState {
     public String generationStage;
     public List<GenerationCount> generationCounts = new ArrayList<>();
     public List<GenerationIssue> generationIssues = new ArrayList<>();
+    public List<GenerationIssueDismissal> dismissedGenerationIssues = new ArrayList<>();
+    public record GenerationIssueDismissal(String jobId,String productId,String type,String slotId) {}
+    public boolean generationIssueDismissed(GenerationIssue issue) {
+        return dismissedGenerationIssues.contains(new GenerationIssueDismissal(engineJobId,issue.productId(),issue.type(),issue.slotId()));
+    }
     public record GenerationCount(String type,int completed,Integer total,int failed) {
         public GenerationCount(String type,int completed,Integer total){this(type,completed,total,0);}
     }

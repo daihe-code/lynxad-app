@@ -67,6 +67,62 @@ class CreationReviewWorkflowTest {
         assertThrows(BizException.class,()->service.retryGeneration(tenant,"plan",new CreationWorkflowService.RetryGeneration(s.revision,"VIDEO")));
         verify(engine,times(1)).post(anyString(),any());
     }
+    void failedSlots() {
+        s.generationStatus="FAILED";s.engineJobId="engine-job";s.enginePlanId="engine-plan";
+        s.generationCounts.add(new CreationState.GenerationCount("VIDEO",1,3,2));
+        s.generationIssues.add(new CreationState.GenerationIssue("p1","商品一","内部错误一","VIDEO",null,"失败视频一","group-1-video-2"));
+        s.generationIssues.add(new CreationState.GenerationIssue("p2","商品二","内部错误二","VIDEO",null,"失败视频二","group-2-video-1"));
+        var ready=new CreationState.Material();ready.id="ready";ready.type="VIDEO";ready.status="READY";ready.productId="p1";s.materials.add(ready);
+    }
+    @Test void oneFailedSlotRetryPreservesOtherFailuresAndSuccessfulMaterials() {
+        failedSlots();
+        when(engine.post(contains("retry-failed"),any())).thenAnswer(call->{
+            var body=json.valueToTree(call.getArgument(1));
+            assertEquals(json.readTree("[{\"product_id\":\"p1\",\"slot_id\":\"group-1-video-2\"}]"),body.path("targets"));
+            return ((com.fasterxml.jackson.databind.node.ObjectNode)body).put("job_id","engine-job").put("status","ACCEPTED");
+        });
+        service.retryGeneration(tenant,"plan",new CreationWorkflowService.RetryGeneration(7,"VIDEO","p1","group-1-video-2"));
+        assertEquals("RUNNING",s.generationStatus);assertEquals("ACCEPTED",s.generationRetry.status);
+        assertEquals(2,s.generationIssues.size());assertEquals("ready",s.materials.getFirst().id);assertEquals("READY",s.materials.getFirst().status);
+        verify(engine,times(1)).post(anyString(),any());
+    }
+    @Test void deletingAFailedSlotPersistsItsIdentityAndNeverDeletesMediaOrCallsEngine() {
+        failedSlots();var issue=s.generationIssues.getFirst();
+        service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(7,"p1","VIDEO",issue.slotId()));
+        assertEquals(8,s.revision);assertEquals(1,s.generationIssues.size());assertEquals("p2",s.generationIssues.getFirst().productId());
+        assertEquals(new CreationState.GenerationCount("VIDEO",1,2,1),s.generationCounts.getFirst());
+        assertEquals(1,s.materials.size());assertTrue(s.removedMaterialIds.isEmpty());
+        assertTrue(json.convertValue(s,CreationState.class).generationIssueDismissed(issue));
+        s.engineJobId="next-job";assertFalse(s.generationIssueDismissed(issue));
+        verifyNoInteractions(engine,qc);
+    }
+    @Test void retryingAllFailuresExcludesDeletedSlots() {
+        failedSlots();
+        service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(7,"p1","VIDEO","group-1-video-2"));
+        when(engine.post(contains("retry-failed"),any())).thenAnswer(call->{
+            var body=json.valueToTree(call.getArgument(1));
+            assertEquals(json.readTree("[{\"product_id\":\"p2\",\"slot_id\":\"group-2-video-1\"}]"),body.path("targets"));
+            return ((com.fasterxml.jackson.databind.node.ObjectNode)body).put("job_id","engine-job").put("status","ACCEPTED");
+        });
+        service.retryGeneration(tenant,"plan",new CreationWorkflowService.RetryGeneration(s.revision,"VIDEO"));
+        assertEquals("ACCEPTED",s.generationRetry.status);assertEquals(1,s.materials.size());
+    }
+    @Test void unknownForeignAndStaleFailureActionsNeverSubmitOrDeleteAnything() {
+        failedSlots();
+        assertThrows(BizException.class,()->service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(6,"p1","VIDEO","group-1-video-2")));
+        assertThrows(BizException.class,()->service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(7,"p2","VIDEO","group-1-video-2")));
+        assertThrows(BizException.class,()->service.retryGeneration(tenant,"plan",new CreationWorkflowService.RetryGeneration(7,"VIDEO","p2","group-1-video-2")));
+        assertEquals(2,s.generationIssues.size());assertEquals(1,s.materials.size());assertNull(s.generationRetry);verifyNoInteractions(engine);
+    }
+    @Test void failedPlaceholderActionsCannotRemoveARegisteredMaterialOrChangeAnActiveJob() {
+        failedSlots();var issue=s.generationIssues.getFirst();
+        s.generationIssues.set(0,new CreationState.GenerationIssue(issue.productId(),issue.productName(),issue.message(),issue.type(),"ready",issue.title(),issue.slotId()));
+        assertThrows(BizException.class,()->service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(7,"p1","VIDEO",issue.slotId())));
+        s.generationStatus="RUNNING";
+        assertThrows(BizException.class,()->service.deleteGenerationFailure(tenant,"plan",new CreationWorkflowService.DeleteGenerationFailure(7,"p2","VIDEO","group-2-video-1")));
+        assertThrows(BizException.class,()->service.retryGeneration(tenant,"plan",new CreationWorkflowService.RetryGeneration(7,"VIDEO","p2","group-2-video-1")));
+        assertEquals(2,s.generationIssues.size());assertTrue(s.dismissedGenerationIssues.isEmpty());verifyNoInteractions(engine);
+    }
     @Test void expiredEstimateRejectionProvidesRecoveryAndKeepsMaterials() throws Exception {
         var attempt=new CreationStore.Attempt("attempt","tenant","plan",7,"publish-request-000001","hash","{}","QUEUED",null,null);
         when(store.claimPublish("tenant",attempt.key())).thenReturn(true);

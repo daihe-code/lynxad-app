@@ -371,7 +371,29 @@ public class CreationWorkflowService {
             s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(r.type,0,1)));s.generationIssues.clear();s.resetGenerationReconciliation();s.revision++;
         });
     }
-    public record RetryGeneration(int revision,String type) {}
+    public record RetryGeneration(int revision,String type,String productId,String slotId) {
+        public RetryGeneration(int revision,String type){this(revision,type,null,null);}
+    }
+    public record DeleteGenerationFailure(int revision,String productId,String type,String slotId) {}
+    private static CreationState.GenerationIssue failure(CreationState s,String productId,String type,String slotId) {
+        if(productId==null||slotId==null||slotId.isBlank())throw new BizException(1503,"请选择失败的素材");
+        return s.generationIssues.stream().filter(i->Objects.equals(productId,i.productId())&&Objects.equals(type,i.type())&&slotId.equals(i.slotId()))
+                .filter(i->!s.generationIssueDismissed(i))
+                .filter(i->s.materials.stream().noneMatch(m->Objects.equals(m.id,i.materialId())))
+                .findFirst().orElseThrow(()->new BizException(1503,"失败项已更新，请刷新后重试"));
+    }
+    public CreationState deleteGenerationFailure(TenantId tenant,String requestedId,DeleteGenerationFailure request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        return store.mutate(tenant.value(),id,request.revision,s->{
+            editable(s);
+            var issue=failure(s,request.productId,request.type,request.slotId);
+            s.dismissedGenerationIssues.add(new CreationState.GenerationIssueDismissal(s.engineJobId,issue.productId(),issue.type(),issue.slotId()));
+            s.generationIssues.remove(issue);
+            s.generationCounts.replaceAll(c->c.type().equals(issue.type())?new CreationState.GenerationCount(c.type(),c.completed(),
+                    c.total()==null?null:Math.max(c.completed(),c.total()-1),Math.max(0,c.failed()-1)):c);
+            s.changed();
+        });
+    }
     public CreationState retryGeneration(TenantId tenant,String requestedId,RetryGeneration request) {
         String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
         if(!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(request.type,"")))throw new BizException(1503,"请选择重试的素材类型");
@@ -379,11 +401,18 @@ public class CreationWorkflowService {
         var reserved=store.mutate(tenant.value(),id,request.revision,s->{
             editable(s);
             if(s.engineJobId==null||s.enginePlanId==null||s.generationCounts.stream().noneMatch(c->c.type().equals(request.type)&&c.failed()>0))throw new BizException(1503,"当前类型没有已确认的失败生成项");
-            var retry=new CreationState.GenerationRetry();retry.requestId=UUID.randomUUID().toString();retry.type=request.type;retry.status="SENDING";s.generationRetry=retry;
+            var retry=new CreationState.GenerationRetry();retry.requestId=UUID.randomUUID().toString();retry.type=request.type;retry.status="SENDING";
+            var issues=request.productId!=null||request.slotId!=null?List.of(failure(s,request.productId,request.type,request.slotId)):
+                    s.generationIssues.stream().filter(i->request.type.equals(i.type())&&!s.generationIssueDismissed(i)&&i.slotId()!=null).toList();
+            retry.targets=issues.stream().map(i->new CreationState.GenerationRetryTarget(i.productId(),i.slotId())).distinct().toList();
+            if(retry.targets.isEmpty()&&s.dismissedGenerationIssues.stream().anyMatch(d->Objects.equals(s.engineJobId,d.jobId())))throw new BizException(1503,"当前没有可重试的失败项，请刷新后重试");
+            s.generationRetry=retry;
             s.generationStatus="UNCERTAIN";s.generationMessage="正在提交失败项重试，成功素材已保留";s.changed();
         });
         try {
-            var response=engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(reserved.engineJobId)+"/retry-failed",Map.of("store_id",reserved.tenantId,"ai_plan_task_id",reserved.enginePlanId,"type",request.type,"request_id",reserved.generationRetry.requestId));
+            var body=new LinkedHashMap<String,Object>();body.put("store_id",reserved.tenantId);body.put("ai_plan_task_id",reserved.enginePlanId);body.put("type",request.type);body.put("request_id",reserved.generationRetry.requestId);
+            if(!reserved.generationRetry.targets.isEmpty())body.put("targets",reserved.generationRetry.targets);
+            var response=engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(reserved.engineJobId)+"/retry-failed",body);
             acceptGenerationRetry(reserved,response);
         }catch(BizException error){
             if(error.code()!=8003)store.mutate(reserved.tenantId,id,null,s->{s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage=error.getMessage();});
@@ -393,6 +422,7 @@ public class CreationWorkflowService {
     private void acceptGenerationRetry(CreationState snapshot,JsonNode receipt) {
         var retry=snapshot.generationRetry;
         if(receipt==null||!snapshot.engineJobId.equals(receipt.path("job_id").asText())||!snapshot.tenantId.equals(receipt.path("store_id").asText())||!retry.type.equals(receipt.path("type").asText())||!retry.requestId.equals(receipt.path("request_id").asText()))return;
+        if(!retry.targets.isEmpty()&&!json.valueToTree(retry.targets).equals(receipt.path("targets")))return;
         String status=receipt.path("status").asText();
         store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
             if(s.generationRetry==null||!retry.requestId.equals(s.generationRetry.requestId))return;
@@ -921,7 +951,8 @@ public class CreationWorkflowService {
             // Planning failures can have no counts. Do not invent totals for those products.
             if(!expected.isObject()||expected.path("videos").asInt()+expected.path("product_cards").asInt()+expected.path("image_texts").asInt()==0)known=false;
         }
-        s.generationIssues.addAll(GenerationIssueMapper.from(s,job));
+        var issues=GenerationIssueMapper.from(s,job);
+        s.generationIssues.addAll(issues.stream().filter(i->!s.generationIssueDismissed(i)).toList());
         for(String type:List.of("VIDEO","IMAGE","CAROUSEL")) {
             int completed=0,total=0;
             var families=new HashSet<String>();
@@ -934,6 +965,7 @@ public class CreationWorkflowService {
                 }
             }
             boolean terminal=Set.of("failed","partial_failed").contains(job.path("status").asText());
+            total=Math.max(completed,total-(int)issues.stream().filter(i->type.equals(i.type())&&s.generationIssueDismissed(i)).count());
             int failed=known&&terminal?Math.max(0,total-completed):terminal?(int)s.generationIssues.stream().filter(i->type.equals(i.type())).count():0;
             s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null,failed));
         }
