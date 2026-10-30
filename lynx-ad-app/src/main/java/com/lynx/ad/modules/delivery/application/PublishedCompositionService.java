@@ -94,9 +94,16 @@ public class PublishedCompositionService {
         if("SUCCEEDED".equals(edit.status)||current.publishedEditPending())return current;
         if(!"DRAFT".equals(edit.status))throw new BizException(1404,"原计划内容已变化，请返回详情核对；本次生成的素材仍在素材中心保留");
         if(current.revision!=revision)throw new BizException(1404,"修改内容已更新，请刷新后核对");
-        idle(current);gateway.selected(tenant,current.accountId,current.awemeId,current.products.stream().map(CreationState.Product::qcProductId).toList());
+        idle(current);
         var original=json.convertValue(edit.original,CreationState.class);
-        // Validate all selected products, title reviews and platform asset synchronization before any write.
+        var ids=current.products.stream().map(CreationState.Product::qcProductId).toList();
+        if(ids.isEmpty()||ids.size()>10||new HashSet<>(ids).size()!=ids.size())throw new BizException(1302,"请选择 1–10 个不同商品");
+        var retained=new HashSet<>(original.products.stream().map(CreationState.Product::qcProductId).toList());
+        var added=ids.stream().filter(id->!retained.contains(id)).toList();
+        // Catalog gray reasons include "already in a full-domain plan": creation eligibility
+        // applies to new products, while retained bindings are checked against live ad detail below.
+        if(!added.isEmpty())gateway.selected(tenant,current.accountId,current.awemeId,added);
+        // Validate title reviews and platform asset synchronization before any write.
         var wanted=payloads.creatives(current);var old=payloads.creatives(original);
         var c=gateway.credential(tenant,current.accountId,current.awemeId);
         tx.executeWithoutResult(status->store.mutate(tenant.value(),edit.sourcePlanId,edit.sourceRevision,source->{

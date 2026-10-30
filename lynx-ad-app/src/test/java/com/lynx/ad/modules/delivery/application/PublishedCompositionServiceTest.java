@@ -56,6 +56,51 @@ class PublishedCompositionServiceTest {
     ArrayNode creatives(CreationState s){var groups=json.createArrayNode();for(var p:s.products){var g=groups.addObject().put("product_id",Long.parseLong(p.qcProductId())).put("hide_in_aweme",true);g.putArray("title_material").addObject().put("title","标题").put("title_type","CUSTOM");g.putObject("creative_card").put("promotion_card_image_id","cover");for(var m:s.materials)if(m.productId.equals(p.qcProductId()))g.withArray("video_material").addObject().put("video_id",m.videoAssetId).put("video_cover_id","cover").put("image_mode","VIDEO_VERTICAL");}return groups;}
     ObjectNode wrap(String id,JsonNode groups){var d=json.createObjectNode().put("ad_id",id);d.set("multi_product_creative_list",groups.deepCopy());return d;}
     CreationState read(String id){return store.get("tenant",id);}
+    @Test void addingVideoToPausedPlanDoesNotRecheckItsExistingProductAsANewPlan() {
+        doThrow(new BizException(1302,"商品正在使用商品全域推广，暂不支持创建"))
+                .when(gateway).selected(tenant,"account","111",List.of("123"));
+        var work=service.begin(tenant,"plan");
+        work=store.mutate("tenant",work.planId,work.revision,s->{
+            var video=material("123");video.id="new-video";video.videoAssetId="new-uploaded-video";s.materials.add(video);
+        });
+        assertEquals("SUCCEEDED",service.save(tenant,work.planId,work.revision).publishedEdit.status);
+        assertEquals("1001",read("plan").qcPlanId);assertEquals(2,read("plan").materials.size());
+        assertEquals(List.of("123"),read("plan").products.stream().map(CreationState.Product::qcProductId).toList());
+        assertEquals(PlanStatus.PAUSED,plan("plan").status());
+        verify(gateway,never()).selected(any(),any(),any(),any());
+        verify(ads).automaticContent(eq(credential),eq("1001"),eq("MATERIAL_ADD"),any());
+        verify(ads,never()).deleteProduct(any(),any(),any());verify(plans,never()).save(any());
+    }
+    @Test void addingAProductValidatesOnlyTheNewProductAndPreservesTheBoundProduct() {
+        var work=adjust(service.begin(tenant,"plan"),"123","456");
+        assertEquals("SUCCEEDED",service.save(tenant,work.planId,work.revision).publishedEdit.status);
+        verify(gateway).selected(tenant,"account","111",List.of("456"));
+        verify(gateway,never()).selected(tenant,"account","111",List.of("123","456"));
+        assertEquals(List.of("123","456"),read("plan").products.stream().map(CreationState.Product::qcProductId).toList());
+    }
+    @Test void genuinelyUnavailableNewProductIsRejectedBeforeAnyPlatformWrite() {
+        var work=adjust(service.begin(tenant,"plan"),"456");
+        doThrow(new BizException(1302,"商品不可投：新商品已下架")).when(gateway).selected(tenant,"account","111",List.of("456"));
+        assertThrows(BizException.class,()->service.save(tenant,work.planId,work.revision));
+        assertEquals("DRAFT",read(work.planId).publishedEdit.status);assertNull(lock);
+        assertEquals("123",read("plan").products.getFirst().qcProductId());
+        verify(ads,never()).automaticContent(any(),any(),any(),any());verify(ads,never()).deleteProduct(any(),any(),any());
+    }
+    @Test void removingAnExistingProductDoesNotRequireCreationEligibilityForTheRetainedOne() {
+        var source=store.mutate("tenant","plan",null,s->{s.products.add(product("456"));s.materials.add(material("456"));});
+        remote.put("1001",wrap("1001",creatives(source)));
+        var work=adjust(service.begin(tenant,"plan"),"456");
+        assertEquals("SUCCEEDED",service.save(tenant,work.planId,work.revision).publishedEdit.status);
+        verify(gateway,never()).selected(any(),any(),any(),any());verify(ads).deleteProduct(credential,"1001","123");
+    }
+    @Test void invalidSavedProductMembershipIsStillRejectedBeforeAnyWrite() {
+        var work=service.begin(tenant,"plan");
+        work=store.mutate("tenant",work.planId,work.revision,s->s.products.add(product("123")));
+        var invalid=work;
+        assertThrows(BizException.class,()->service.save(tenant,invalid.planId,invalid.revision));
+        assertNull(lock);verify(ads,never()).automaticContent(any(),any(),any(),any());
+        verify(gateway,never()).selected(any(),any(),any(),any());
+    }
     @Test void beginContentEditAcceptsUploadedVideoWithUnusedAwemeId() {
         ((ObjectNode)remote.get("1001").path("multi_product_creative_list").get(0)
                 .path("video_material").get(0)).put("aweme_item_id",0);
