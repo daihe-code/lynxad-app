@@ -116,10 +116,10 @@ const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
 async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 async function editProductCopy(product:string,change:(state:CreationState)=>Promise<CreationState>,tab:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'='TITLE') {
   if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;
-  materialBusy.value=true;mediaFailure.value=undefined;let draft:CreationState|undefined;
-  try{draft=await beginContentEdit(plan.value.planId);await change(draft);}
+  materialBusy.value=true;mediaFailure.value=undefined;
+  try{const draft=await beginContentEdit(plan.value.planId);await change(draft);contentTitleEditing.value=true;contentTitleProduct.value=product;contentMaterialTab.value=tab;adjustProductsOnOpen.value=false;contentDraftId.value=draft.planId;}
   catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}
-  finally{if(draft){contentTitleEditing.value=true;contentTitleProduct.value=product;contentMaterialTab.value=tab;adjustProductsOnOpen.value=false;contentDraftId.value=draft.planId;}materialBusy.value=false;}
+  finally{materialBusy.value=false;}
 }
 function addPublishedMaterial(body:Parameters<typeof creationAdd>[1]) {return editProductCopy(body.productId,s=>creationAdd(s,body),body.type as 'VIDEO'|'IMAGE'|'CAROUSEL');}
 function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,s=>creationAddition(s,body),body.type);}

@@ -56,6 +56,19 @@ class PublishedCompositionServiceTest {
     ArrayNode creatives(CreationState s){var groups=json.createArrayNode();for(var p:s.products){var g=groups.addObject().put("product_id",Long.parseLong(p.qcProductId())).put("hide_in_aweme",true);g.putArray("title_material").addObject().put("title","标题").put("title_type","CUSTOM");g.putObject("creative_card").put("promotion_card_image_id","cover");for(var m:s.materials)if(m.productId.equals(p.qcProductId()))g.withArray("video_material").addObject().put("video_id",m.videoAssetId).put("video_cover_id","cover").put("image_mode","VIDEO_VERTICAL");}return groups;}
     ObjectNode wrap(String id,JsonNode groups){var d=json.createObjectNode().put("ad_id",id);d.set("multi_product_creative_list",groups.deepCopy());return d;}
     CreationState read(String id){return store.get("tenant",id);}
+    @Test void beginContentEditAcceptsUploadedVideoWithUnusedAwemeId() {
+        ((ObjectNode)remote.get("1001").path("multi_product_creative_list").get(0)
+                .path("video_material").get(0)).put("aweme_item_id",0);
+        var work=service.begin(tenant,"plan");
+        assertEquals("DRAFT",work.publishedEdit.status);
+        assertEquals("NONE",work.publishStatus);
+        assertEquals("video-123",work.publishedEdit.members.getFirst().before.get(0)
+                .path("video_material").get(0).path("video_id").asText());
+        assertFalse(work.publishedEdit.members.getFirst().before.get(0)
+                .path("video_material").get(0).has("aweme_item_id"));
+        assertEquals("CREATED",read("plan").publishStatus);
+        verify(ads,never()).automaticContent(any(),any(),any(),any());
+    }
     CreationState adjust(CreationState s,String... ids){return store.mutate("tenant",s.planId,s.revision,v->{var next=Arrays.stream(ids).map(this::product).toList();CreationProductSelection.apply(v,next);v.products=new ArrayList<>(next);for(String id:ids)if(v.materials.stream().noneMatch(m->m.productId.equals(id)))v.materials.add(material(id));v.generationStatus="SUCCEEDED";});}
     @Test void beginAndResumeDoNotCreateOrModifyLivePlan(){var work=service.begin(tenant,"plan");assertNotEquals("plan",work.planId);assertEquals(work.planId,service.begin(tenant,"plan").planId);assertEquals("CREATED",read("plan").publishStatus);assertEquals("original-engine-task",work.materials.getFirst().enginePlanId);verify(plans,never()).save(any());verify(ads,never()).automaticContent(any(),any(),any(),any());verify(ads,never()).deleteProduct(any(),any(),any());}
     @Test void saveAdditionKeepsOriginalVisualAndUpdatesOriginalPhysicalPlan(){var w=adjust(service.begin(tenant,"plan"),"123","456");var result=service.save(tenant,w.planId,w.revision);assertEquals("SUCCEEDED",result.publishedEdit.status);assertEquals(List.of("123","456"),read("plan").products.stream().map(CreationState.Product::qcProductId).toList());assertEquals(2,read("plan").materials.size());assertEquals("1001",read("plan").qcPlanId);assertNull(read("plan").publishedEditDraftId);assertNull(lock);verify(ads).automaticContent(eq(credential),eq("1001"),eq("MATERIAL_ADD"),any());verify(plans,never()).save(any());}

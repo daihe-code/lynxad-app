@@ -33,7 +33,7 @@ import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativ
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
 type Format = CreationAdditionBody['type'];
 type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
-const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean }>();
+const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean; submissionError?: string }>();
 const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]] }>();
 const formats: Record<Format, string> = { VIDEO: '视频', IMAGE: '商品卡图片', CAROUSEL: '图文' };
 const sources: Record<Source, string> = { AI: '智能生成', LIBRARY: '从素材库选择', UPLOAD: '本地上传' };
@@ -77,11 +77,11 @@ function changePage(value: number) { if (locked.value || loading.value || value 
 function chooseSource(value: Source) { if (locked.value || source.value === value || value === 'AI' && props.generationBusy) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
 function chooseType(value: Format) { if (locked.value || type.value === value) return; type.value = value; librarySelected.value = undefined; localSelected.value = undefined; previewItem.value = undefined; scope.value = 'AUTO'; relatedCount.value = undefined; query.value = ''; page.value = 1; submitError.value = ''; }
 watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); });
-watch([() => props.state, () => props.busy], () => {
+watch([() => props.state, () => props.busy, () => props.submissionError], () => {
   const accepted = submissionSource === 'AI' ? props.state.generationAdditions?.some(r => r.id === requestId.value) : props.state.materials.some(m => !previousIds.has(m.id));
   if (!awaiting.value && !(requestId.value && submissionSource === 'AI' && accepted)) return;
   if (accepted) { if (submissionKey) sessionStorage.removeItem(submissionKey); emit('close'); }
-  else if (!props.busy) { awaiting.value = false; submitError.value = '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
+  else if (!props.busy) { awaiting.value = false; submitError.value = props.submissionError || '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
 });
 function close() { if (!locked.value) emit('close'); }
 function submit() {
