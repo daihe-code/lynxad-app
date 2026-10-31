@@ -79,6 +79,7 @@ const initialFailure = ref<ApiRequestError>(), productFailure = ref<ApiRequestEr
 const initializing = ref(false), recovering = ref(false), polling = ref(false);
 const productTipDismissed = ref(false);
 const accounts = ref<AccountVo[]>([]), accountKey = ref(''), selected = ref<api.CreationProduct[]>([]), products = ref<api.CreationProduct[]>([]), total = ref(0);
+const materialEntryProducts = ref('');
 const query = ref<api.ProductQuery>({ page: 1, pageSize: 10, keyword: '', tab: 'ALL', unpromoted: true });
 const productPagination = ref<{ nextCursor?: string | null; hasMore?: boolean }>({});
 const productCursors = ref<Record<number, string>>({ 1: '0' });
@@ -99,6 +100,8 @@ watch(() => step.value === 4 && state.value?.publishStatus !== 'CREATED' ? state
   } catch { /* An unavailable creation time stays unknown; submission polling continues independently. */ }
 });
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
+const resumeMaterialEntry = computed(() => contentEditing.value && props.initialStep === 3 && !props.adjustProductsOnOpen
+  && sameSelection.value && JSON.stringify(state.value?.products.map(p => p.qcProductId)) === materialEntryProducts.value);
 const pendingSelectionImpact = computed(() => state.value ? selectionImpact(state.value.products,selected.value,state.value.materials) : undefined);
 const adjustmentMessage = computed(() => productAdjustmentText({
   materialCount: state.value?.materials.filter(material => material.status === 'READY').length ?? 0,
@@ -112,7 +115,7 @@ const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].inc
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
 const selectionLocked=computed(()=>contentLocked.value || productSelectionLocked(state.value));
 const reconcileId = ref(''), reviewedQuote=ref('');
-const maxStep = computed(() => analysisReady.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
+const maxStep = computed(() => analysisReady.value || resumeMaterialEntry.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
 const { budget, budgets: modeBudgets, restore: restoreBudgets, reset: resetBudgets, applyRecommendation: applyBudgetRecommendation } = useCreationModeBudgets(mode);
@@ -135,23 +138,26 @@ function draftScope(): DraftScope | undefined {
   return { tenantId: user.me.tenantId, userId: user.me.userId, accountId: account.value.accountId,
     awemeId: account.value.awemeId, planId: state.value?.planId || null };
 }
-function fillDraft(values: DraftInputs) {
+function fillDraft(values: DraftInputs, restoreStep = true) {
   name.value = values.name; mode.value = values.mode; restoreBudgets(values.budget,values.modeBudgets); restoreRoi(values.roi,values.roiSource);
   duration.value = values.duration; start.value = values.start; end.value = values.end;
-  step.value = analysisReady.value ? values.step : 1;
+  if (restoreStep) step.value = resumeMaterialEntry.value ? 3 : analysisReady.value ? values.step : 1;
 }
 async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   if (!account.value) throw new Error('当前账户不可用');
   const key = accountKey.value, planId = state.value?.planId;
-  const rows = values.productIds.length ? await api.creationRestoreProducts(account.value.accountId,account.value.awemeId,values.productIds,state.value?.planId) : [];
+  // Existing plan bindings are valid independently of new-plan catalog eligibility.
+  const retainedSelection = contentEditing.value && !!state.value
+    && JSON.stringify(values.productIds) === JSON.stringify(state.value.products.map(p => p.qcProductId));
+  const rows = retainedSelection ? state.value!.products : values.productIds.length ? await api.creationRestoreProducts(account.value.accountId,account.value.awemeId,values.productIds,state.value?.planId) : [];
   if (key !== accountKey.value || planId !== state.value?.planId) throw new Error('账户或草稿已切换');
-  const eligible = rows.filter(p => values.productIds.includes(p.qcProductId) && p.name?.trim()
+  const eligible = retainedSelection ? rows : rows.filter(p => values.productIds.includes(p.qcProductId) && p.name?.trim()
     && !p.draft && !p.unavailableReasons?.length && (p.stock == null || p.stock > 0));
   selected.value = values.productIds.flatMap(id => { const p = eligible.find(item => item.qcProductId === id); return p ? [p] : []; });
   fillDraft(values);
   const same = !!state.value && JSON.stringify(values.productIds) === JSON.stringify(state.value.products.map(p => p.qcProductId));
   const missing = values.productIds.filter(id => !eligible.some(p => p.qcProductId === id));
-  if (!same || missing.length || !analysisReady.value) step.value = 1;
+  if (!same || missing.length || !analysisReady.value && !resumeMaterialEntry.value) step.value = 1;
   else if (step.value === 3 && changedDraftFields(values,serverDraftInputs(state.value,today())).some(key => key !== 'roiSource' && draftGoalFields.includes(key))) step.value = 2;
   return missing.length ? `已恢复可用内容；${missing.length} 个商品已被其他草稿占用、下架、不可投或信息不完整，未恢复选中（ID：${missing.join('、')}）。请重新确认选品。` : undefined;
 }
@@ -165,9 +171,11 @@ function acceptWrite(saved: api.CreationState, fields: (keyof DraftInputs)[] = [
 }
 function acceptRead(updated: api.CreationState) {
   const keepFailureResult = step.value === 4 && updated.publishStatus === 'FAILED';
+  const keepContentStep = contentEditing.value && sameSelection.value
+    && JSON.stringify(updated.products.map(p => p.qcProductId)) === JSON.stringify(state.value?.products.map(p => p.qcProductId));
   const refreshInputs = autosave.observeServer(updated);
   state.value = updated;
-  if (refreshInputs) { selected.value = updated.products; fillDraft(serverDraftInputs(updated,today())); autosave.acknowledge(DRAFT_INPUT_FIELDS); }
+  if (refreshInputs) { selected.value = updated.products; fillDraft(serverDraftInputs(updated,today()), !keepContentStep); autosave.acknowledge(DRAFT_INPUT_FIELDS); }
   if (keepFailureResult) step.value = 4;
   if (updated.publishStatus === 'CREATED') autosave.discard();
 }
@@ -476,12 +484,13 @@ async function initialize() {
     if (id) {
       state.value = await api.creationGet(id); if (disposed) return;
       const s = state.value;
+      materialEntryProducts.value = JSON.stringify(s.products.map(p => p.qcProductId));
       resumingMaterials.value = creationReachedStep(s) >= 3;
       accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3' && creationReachedStep(s) >= 3;
       const restoredStep = ['QUEUED', 'SENDING', 'UNCERTAIN', 'CREATED'].includes(s.publishStatus) || showPublishFailureResult(s.publishStatus, props.initialStep, noticeMaterials) ? 4
         : Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
-      step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials && !(contentEditing.value && props.initialStep===3 && !props.adjustProductsOnOpen) ? 1 : restoredStep;
+      step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials && !resumeMaterialEntry.value ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; restoreBudgets(s.budget == null ? '' : String(s.budget));
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
       const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
@@ -498,12 +507,14 @@ async function initialize() {
     if (!state.value || state.value.analysisStatus === 'NONE' && !state.value.analysis) await loadProducts();
     if (!disposed) {
       await autosave.activate();
+      // An explicit material action takes precedence over a cached navigation step.
+      if (resumeMaterialEntry.value) step.value = 3;
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3';
       const recoveryStep = state.value?.publishStatus === 'FAILED' && typeof route.query.recover === 'string'
         ? publishFailureStep(publishFailureTarget(state.value.publishRecovery, state.value.publishError, route.query.recover)) : undefined;
       if (recoveryStep) step.value = recoveryStep;
       else if (showPublishFailureResult(state.value?.publishStatus, props.initialStep, noticeMaterials, sameSelection.value)) step.value = 4;
-      if (step.value < 4 && !analysisReady.value && !(contentEditing.value && props.initialStep===3 && !props.adjustProductsOnOpen) && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
+      if (step.value < 4 && !analysisReady.value && !resumeMaterialEntry.value && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
       if(step.value === 2 && state.value) {
         await refreshRecommendations(planPublishFailure(state.value.publishRecovery, state.value.publishError).refreshEstimate);
       }
