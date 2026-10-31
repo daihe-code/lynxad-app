@@ -176,6 +176,8 @@ public class CreationState {
         public String failureStage;
         public Integer failureCode;
         @com.fasterxml.jackson.annotation.JsonIgnore public MaterialProcessing processing;
+        /** File provenance is hydrated from owned assets, separately from regeneration bindings. */
+        @com.fasterxml.jackson.annotation.JsonIgnore public String source;
         public List<String> imageUrls = new ArrayList<>();
         public String imageMode;
         public List<String> titles = new ArrayList<>();

@@ -26,6 +26,7 @@ export interface CreationMaterial {
   deliveryMode?: 'full' | 'simplified' | 'image_only'; deliveryFamilyId?: string;
   typographyStatus?: 'complete' | 'core_only' | 'pending';
   processing?: MaterialProcessing;
+  source?: 'LYNX' | 'UPLOAD';
 }
 export interface MaterialProcessing {
   generationStatus: string; storageStatus: string; reviewStatus: string; syncStatus: string;

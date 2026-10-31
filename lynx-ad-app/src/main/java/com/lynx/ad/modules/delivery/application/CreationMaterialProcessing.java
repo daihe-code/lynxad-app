@@ -19,7 +19,16 @@ public class CreationMaterialProcessing {
     public record Inspection(MaterialProcessing progress,List<String> retryAssets) {}
     public Map<String,AssetUploadService.Detail> hydrate(TenantId tenant,CreationState state) {
         var cache=new HashMap<String,AssetUploadService.Detail>();
-        for(var material:state.materials)material.processing=inspect(tenant,state,material,cache).progress();
+        for(var material:state.materials) {
+            material.processing=inspect(tenant,state,material,cache).progress();
+            var media="VIDEO".equals(material.type)?Collections.singletonList(material.videoAssetId):material.imageAssetIds;
+            boolean generated=!media.isEmpty()&&media.stream().allMatch(id->{
+                var asset=cache.get(id);
+                return asset!=null&&("engine_oss".equals(asset.storageMode())
+                        ||asset.storageMetadata()!=null&&"AI_GENERATED".equals(asset.storageMetadata().origin()));
+            });
+            material.source=generated||material.engineMaterialId!=null&&!material.engineMaterialId.isBlank()?"LYNX":"UPLOAD";
+        }
         return cache;
     }
     public Inspection inspect(CreationState state,CreationState.Material material) {return inspect(new TenantId(state.tenantId),state,material,new HashMap<>());}

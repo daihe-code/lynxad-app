@@ -111,6 +111,8 @@ public class CreationWorkflowService {
         s=refreshGeneratedFiles(tenant,s);
         s.products=new ArrayList<>(currentProductPrices(tenant,s));
         var assetDetails=materialProcessing.hydrate(tenant,s);
+        var repaired=reconcileDuplicateSelections(tenant,s,assetDetails);
+        if(repaired!=s){s=repaired;assetDetails=materialProcessing.hydrate(tenant,s);}
         for(var m:s.materials) {
             m.previewUrl=previewUrl(tenant,m.videoAssetId!=null?m.videoAssetId:m.audioAssetId,assetDetails);
             if("VIDEO".equals(m.type)) {
@@ -129,6 +131,19 @@ public class CreationWorkflowService {
         }
         if(creativeContexts!=null)creativeContexts.hydrate(s);
         return s;
+    }
+    private CreationState reconcileDuplicateSelections(TenantId tenant,CreationState snapshot,Map<String,AssetUploadService.Detail> hydrated) {
+        if(!CreationMaterialSelections.repairable(snapshot))return snapshot;
+        var selections=new CreationMaterialSelections(assets,tenant,hydrated);
+        if(selections.duplicateIds(snapshot).isEmpty())return snapshot;
+        try{return store.mutate(tenant.value(),snapshot.planId,snapshot.revision,s->{
+            if(!CreationMaterialSelections.repairable(s))return;
+            var duplicates=selections.duplicateIds(s);
+            if(s.materials.removeIf(m->duplicates.contains(m.id))){
+                for(String id:duplicates)if(!s.removedMaterialIds.contains(id))s.removedMaterialIds.add(id);
+                s.mediaChanged();
+            }
+        });}catch(BizException conflict){if(conflict.code()!=1404)throw conflict;return store.get(tenant.value(),snapshot.planId);}
     }
     private CreationState reconcileGenerationOnRead(CreationState s) {
         if(s.publishedEdit!=null&&"SUCCEEDED".equals(s.publishedEdit.status))return s;
@@ -439,11 +454,14 @@ public class CreationWorkflowService {
     public CreationState add(TenantId tenant,String requestedId,MaterialSelection request) {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var initial=store.get(tenant.value(),id);appendable(initial);
-        if(initial.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
         if(!ids(initial).contains(request.productId))throw new BizException(1503,"素材对应商品不属于当前计划");
         var m=new CreationState.Material();m.id=UUID.randomUUID().toString();m.productId=request.productId;m.type=request.type;
         m.videoAssetId=request.videoAssetId;m.coverAssetId=request.coverAssetId;m.imageAssetIds=request.imageAssetIds==null?new ArrayList<>():new ArrayList<>(request.imageAssetIds);
-        m.carouselId=request.carouselId;m.titles=CreationManualSelectionPolicy.titles(initial,request.productId,request.type,request.titles).stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isEmpty()).distinct().toList();
+        m.carouselId=request.carouselId;
+        var selections=new CreationMaterialSelections(assets,tenant);
+        if(selections.contains(initial,m))return initial;
+        if(initial.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
+        m.titles=CreationManualSelectionPolicy.titles(initial,request.productId,request.type,request.titles).stream().filter(Objects::nonNull).map(DeliveryInputPolicy::text).filter(x->!x.isEmpty()).distinct().toList();
         DeliveryInputPolicy.titles(m.titles,true);
         m.title=m.titles.getFirst();
         List<String> targetAssets=new ArrayList<>();
@@ -453,7 +471,11 @@ public class CreationWorkflowService {
         else throw new BizException(1503,"不支持的素材类型");
         for(String a:targetAssets)assets.ensureTarget(tenant,a,initial.accountId);
         m.textAssetId=importer.ingest(tenant,new UserId(initial.userId),id+":"+m.id+":text",String.join("\n",m.titles),"TEXT",null,false);
-        return store.mutate(tenant.value(),id,request.revision,s->{appendable(s);if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
+        return store.mutate(tenant.value(),id,null,s->{appendable(s);
+            // Check again under the row lock, including retries whose response was lost.
+            if(selections.contains(s,m))return;
+            if(s.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
+            if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用 100 个素材");s.materials.add(m);s.mediaChanged();});
     }
     public CreationState remove(TenantId tenant,String requestedId,String material,Feedback feedback) {
         String id=sharedId(tenant,requestedId,true);

@@ -5,12 +5,13 @@
     <img v-else-if="poster && !broken" :src="poster" alt="" @error="broken = true" />
     <span v-else class="material-summary__placeholder" aria-hidden="true">▧</span>
     <div class="material-summary__copy"><strong :title="material.displayName || material.title">{{ material.displayName || material.title || '未命名素材' }}</strong><p>{{ metadata }}</p></div>
-    <span v-if="!preview" class="material-summary__source">{{ material.engineMaterialId ? '智能生成' : '手动添加' }}</span>
+    <span v-if="!preview" class="material-summary__source">{{ materialSourceLabel(material) }}</span>
   </article>
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { CreationMaterial } from '@/features/delivery/creationApi';
+import { materialSourceLabel } from '@/features/delivery/materialSelection';
 const props = defineProps<{ material: CreationMaterial; label?: string; preview?: boolean }>();
 const broken = ref(false);
 const poster = computed(() => props.material.posterUrl || props.material.imageUrls?.[0]);

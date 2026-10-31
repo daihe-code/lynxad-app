@@ -31,6 +31,7 @@ import { materialMeta } from '@/features/creative/materialSources';
 import { assetDate } from '@/features/creative/assetDates';
 import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
+import { materialSelectionAccepted } from '@/features/delivery/materialSelection';
 type Format = CreationAdditionBody['type'];
 type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
 const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean; submissionError?: string }>();
@@ -56,7 +57,8 @@ const previewUrls = computed(() => previewItem.value ? assetPreview(previewItem.
 async function preview(item: LibraryItemVo) { previewError.value = ''; previewItem.value = item; if (!assetPreview(item).posterUrl && !assetPreview(item).playUrl) await resolveAssetPreview(item); }
 async function previewFailed() { const item = previewItem.value; if (item && assetPreview(item).source === 'ORIGINAL' && await resolveAssetPreview(item) && assetPreview(item).playUrl) return; previewError.value = '素材暂不可预览，请刷新后重试。'; }
 function createdDate(value: string | null) { return assetDate(value); }
-let loadNumber = 0, previousIds = new Set<string>(), submissionSource: Source = 'AI', submissionKey = '';
+let loadNumber = 0, submissionSource: Source = 'AI', submissionKey = '';
+let submissionStarted = false;
 async function loadLibrary(keepSelection = false) {
   const number = ++loadNumber; loading.value = true; loadError.value = '';
   if (!keepSelection) librarySelected.value = undefined;
@@ -80,7 +82,9 @@ function chooseSource(value: Source) { if (locked.value || source.value === valu
 function chooseType(value: Format) { if (locked.value || type.value === value) return; type.value = value; librarySelected.value = undefined; localSelected.value = undefined; previewItem.value = undefined; scope.value = 'AUTO'; relatedCount.value = undefined; query.value = ''; page.value = 1; submitError.value = ''; }
 watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); });
 watch([() => props.state, () => props.busy, () => props.submissionError], () => {
-  const accepted = submissionSource === 'AI' ? props.state.generationAdditions?.some(r => r.id === requestId.value) : props.state.materials.some(m => !previousIds.has(m.id));
+  if (awaiting.value && props.busy) submissionStarted = true;
+  const accepted = submissionSource === 'AI' ? props.state.generationAdditions?.some(r => r.id === requestId.value)
+    : materialSelectionAccepted(submissionStarted, props.busy, props.submissionError);
   if (!awaiting.value && !(requestId.value && submissionSource === 'AI' && accepted)) return;
   if (accepted) { if (submissionKey) sessionStorage.removeItem(submissionKey); emit('close'); }
   else if (!props.busy) { awaiting.value = false; submitError.value = props.submissionError || '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
@@ -88,7 +92,7 @@ watch([() => props.state, () => props.busy, () => props.submissionError], () => 
 function close() { if (!locked.value) emit('close'); }
 function submit() {
   if (locked.value || !canSubmit.value) return;
-  awaiting.value = true; submitError.value = ''; submissionSource = source.value; previousIds = new Set(props.state.materials.map(m => m.id));
+  awaiting.value = true; submitError.value = ''; submissionStarted = false; submissionSource = source.value;
   if (source.value === 'AI') {
     const body = { productId: props.productId, type: type.value, description: '' };
     submissionKey = `creation-addition:${props.state.planId}:${JSON.stringify(body)}`;
