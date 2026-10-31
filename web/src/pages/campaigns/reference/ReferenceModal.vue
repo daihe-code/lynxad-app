@@ -14,6 +14,7 @@
     >
       <header>
         <h2 :id="titleId">{{ title }}</h2>
+        <slot name="header-extra" />
         <button v-if="showClose !== false" aria-label="关闭弹窗" :disabled="busy" @click="close">
           <ReferenceIcon name="close" />
         </button>

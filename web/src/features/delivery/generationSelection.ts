@@ -16,9 +16,11 @@ interface SelectionState {
   generationCounts?: unknown[];
 }
 const activeGeneration = new Set(['QUEUED','SUBMITTING','SENDING','RUNNING','IMPORTING','REVISING','UNCERTAIN']);
+export function activeGenerationAddition<T extends { status: string }>(state: { generationAdditions?: T[] }): T | undefined {
+  return state.generationAdditions?.slice().reverse().find(addition => activeGeneration.has(addition.status));
+}
 export function batchGenerationRunning(state: SelectionState, submitting = false): boolean {
-  return (submitting || activeGeneration.has(state.generationStatus)) && state.generationStatus !== 'REVISING'
-    && !state.generationAdditions?.some(addition => activeGeneration.has(addition.status))
+  return !!activeGenerationAddition(state) || (submitting || activeGeneration.has(state.generationStatus)) && state.generationStatus !== 'REVISING'
     && !(state.generationCounts?.length === 1 && state.materials.length > 0);
 }
 export function productSelectionLocked(state?: SelectionState): boolean {

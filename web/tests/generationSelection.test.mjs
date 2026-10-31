@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { batchGenerationRunning, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts, productSelectionLocked } from '../src/features/delivery/generationSelection.ts';
+import { activeGenerationAddition, batchGenerationRunning, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts, productSelectionLocked } from '../src/features/delivery/generationSelection.ts';
 
 const draft = () => ({ products: [{ qcProductId: '123' }, { qcProductId: '456' }], generationStatus: 'NONE', generationProductIds: [], materials: [] });
 
@@ -12,12 +12,26 @@ test('图片先就绪时继续展示本次整批进度，等待视频图文完�
   for(const generationStatus of ['SUCCEEDED','FAILED','CANCELLED'])assert.equal(batchGenerationRunning({...initial,generationStatus}),false);
 });
 
-test('单条追加和修订保留原有编辑界面，不重新切换到整批生成页', () => {
+test('新增素材进入生成页，已有素材的版本修订继续使用原来的修订界面', () => {
   const existing={...draft(),generationStatus:'RUNNING',materials:[{status:'READY'}]};
-  assert.equal(batchGenerationRunning({...existing,generationAdditions:[{status:'RUNNING'}]}),false);
+  assert.equal(batchGenerationRunning({...existing,generationAdditions:[{status:'RUNNING'}]}),true);
   assert.equal(batchGenerationRunning({...existing,generationStatus:'REVISING'}),false);
   assert.equal(batchGenerationRunning({...existing,generationCounts:[{}]}),false);
   assert.equal(batchGenerationRunning(draft(),true),true);
+});
+test('新增素材从排队到同步完成前一直显示生成页，重新进入也恢复本次进度', () => {
+  const existing={...draft(),generationStatus:'SUCCEEDED',generationCounts:[{type:'VIDEO',completed:0,total:1}],materials:[{status:'READY'}]};
+  for(const status of ['QUEUED','SUBMITTING','SENDING','RUNNING','IMPORTING','UNCERTAIN']) {
+    const state={...existing,generationAdditions:[{id:'old',status:'SUCCEEDED',type:'IMAGE'},{id:'current',status,type:'VIDEO'}]};
+    assert.equal(batchGenerationRunning(state),true);
+    assert.equal(batchGenerationRunning(JSON.parse(JSON.stringify(state))),true);
+    assert.equal(activeGenerationAddition(state).id,'current');
+  }
+  for(const status of ['SUCCEEDED','FAILED','CANCELLED']) {
+    const state={...existing,generationStatus:status,generationAdditions:[{id:'current',status,type:'VIDEO'}]};
+    assert.equal(batchGenerationRunning(state),false);
+    assert.equal(activeGenerationAddition(state),undefined);
+  }
 });
 test('生成任务的全部执行阶段均锁定商品，旧的允许调整标记不能解除限制', () => {
   for (const generationStatus of ['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'])
