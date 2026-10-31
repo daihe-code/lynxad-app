@@ -145,6 +145,13 @@ function fillDraft(values: DraftInputs, restoreStep = true) {
 }
 async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   if (!account.value) throw new Error('当前账户不可用');
+  // A material action has already been accepted for the server's product selection.
+  // Earlier local selection edits (including empty selections) must not undo it.
+  if (initializing.value && resumeMaterialEntry.value && state.value) {
+    selected.value = state.value.products;
+    fillDraft(serverDraftInputs(state.value,today()));
+    return;
+  }
   const key = accountKey.value, planId = state.value?.planId;
   // Existing plan bindings are valid independently of new-plan catalog eligibility.
   const retainedSelection = contentEditing.value && !!state.value
@@ -508,7 +515,11 @@ async function initialize() {
     if (!disposed) {
       await autosave.activate();
       // An explicit material action takes precedence over a cached navigation step.
-      if (resumeMaterialEntry.value) step.value = 3;
+      if (resumeMaterialEntry.value) {
+        step.value = 3;
+        autosave.acknowledge(DRAFT_INPUT_FIELDS);
+        autosave.flush();
+      }
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3';
       const recoveryStep = state.value?.publishStatus === 'FAILED' && typeof route.query.recover === 'string'
         ? publishFailureStep(publishFailureTarget(state.value.publishRecovery, state.value.publishError, route.query.recover)) : undefined;
