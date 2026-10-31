@@ -107,7 +107,7 @@ function submit() {
 onUnmounted(() => { ++loadNumber; });
 </script>
 <style scoped>
-.add-material-dialog :deep(.reference-modal__box){display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
+.add-material-dialog :deep(.reference-modal__box){zoom:.85;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
 .add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:34px 0 32px}
 .add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}
 .add-material-dialog :deep(header){gap:34px;align-items:center}
