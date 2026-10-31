@@ -6,7 +6,6 @@
       <GenerationNoticeResult :state="state" @focus="focusNotice" />
       <template v-if="batchRunning">
       <MaterialGenerationProgress ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
-      <button v-if="!readOnly || additionActions" class="addrow" type="button" :disabled="busy || materialEditPending || titlePending" @click="openAddition('VIDEO')"><ReferenceIcon name="plus" />本地上传</button>
       </template>
       <template v-else>
       <div v-if="showStatusNotice" class="tip" role="status"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ statusMessage }}<span v-if="typographyPendingCount"> 有 {{ typographyPendingCount }} 条素材的文字待完善，现有画面已保留。</span></p></div>
