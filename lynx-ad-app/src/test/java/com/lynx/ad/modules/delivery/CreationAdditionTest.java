@@ -40,6 +40,21 @@ class CreationAdditionTest {
         service=new CreationWorkflowService(store,null,null,null,engine,json,importer,assets,carousels,mock(CreationPayloadBuilder.class),mock(BillingTrialService.class),mock(PlatformTransactionManager.class));
     }
     CreationWorkflowService.Addition body(String type,String description){return new CreationWorkflowService.Addition(s.revision,"123",type,description,"request");}
+    @Test void addingMaterialAfterTheDraftDateExpiresAutomaticallyRepairsSavedDates() {
+        var today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        s.scheduleType="DATE_RANGE";s.startDate=today.minusDays(1).toString();s.endDate=today.plusDays(5).toString();
+        service.addition(new TenantId("tenant"),"plan",body("VIDEO",""));
+        assertEquals(today.toString(),s.startDate);assertEquals(today.plusDays(5).toString(),s.endDate);
+        assertEquals(1,s.materials.size());assertEquals(1,s.generationAdditions.size());assertEquals("QUEUED",s.generationStatus);
+        verifyNoInteractions(engine);
+    }
+    @Test void initialGenerationAlsoMovesAFullyExpiredRangeAndKeepsItsDuration() {
+        var today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        s.scheduleType="DATE_RANGE";s.startDate=today.minusDays(5).toString();s.endDate=today.minusDays(2).toString();
+        service.generate(new TenantId("tenant"),"plan",new CreationWorkflowService.Generate(s.revision,List.of("123")));
+        assertEquals(today.toString(),s.startDate);assertEquals(today.plusDays(3).toString(),s.endDate);
+        assertEquals("QUEUED",s.generationStatus);assertEquals(1,s.materials.size());verifyNoInteractions(engine);
+    }
     @ParameterizedTest @ValueSource(strings={"VIDEO","IMAGE","CAROUSEL"})
     void publishedPlanWorkingCopyQueuesAdditionWithoutChangingLivePlan(String type) {
         s.publishedEdit=new CreationState.PublishedEdit();s.publishedEdit.sourcePlanId="live-plan";s.publishedEdit.targetPlanId="live-plan";

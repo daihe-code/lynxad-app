@@ -51,7 +51,7 @@ import { awemeLabels } from '@/features/identity/awemeLabels';
 import { getPlan } from '@/features/delivery/deliveryApi';
 import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
 import { planPublishFailure, showPublishFailureResult, publishFailureTarget, publishFailureStep, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
-import { creationScheduleDefaults } from '@/features/delivery/creationSchedule';
+import { creationScheduleDefaults, canRefreshCreationSchedule, resumeDraftDates } from '@/features/delivery/creationSchedule';
 import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
 import { draftGoalFields, serverDraftInputs, useCreationDraftAutosave } from '@/features/delivery/useCreationDraftAutosave';
@@ -139,11 +139,13 @@ function draftScope(): DraftScope | undefined {
     awemeId: account.value.awemeId, planId: state.value?.planId || null };
 }
 function fillDraft(values: DraftInputs, restoreStep = true) {
+  values = resumeDraftDates(values,today(),canRefreshCreationSchedule(state.value));
   name.value = values.name; mode.value = values.mode; restoreBudgets(values.budget,values.modeBudgets); restoreRoi(values.roi,values.roiSource);
   duration.value = values.duration; start.value = values.start; end.value = values.end;
   if (restoreStep) step.value = resumeMaterialEntry.value ? 3 : analysisReady.value ? values.step : 1;
 }
 async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
+  values = resumeDraftDates(values,today(),canRefreshCreationSchedule(state.value));
   if (!account.value) throw new Error('当前账户不可用');
   // A material action has already been accepted for the server's product selection.
   // Earlier local selection edits (including empty selections) must not undo it.
@@ -348,6 +350,7 @@ async function changeMode(value: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE') 
 }
 async function persistGoal() {
   if(contentEditing.value)return;
+  refreshInputSchedule();
   if (!state.value || budgetError.value || roiError.value || dateError.value || !name.value.trim()) throw new Error('请检查计划名称、预算、ROI 和日期');
   const goal = { name: name.value.trim(), smartBidType: mode.value, budget: Number(budget.value), roi2Goal: mode.value === 'CUSTOM' ? Number(roi.value) : null, scheduleType: duration.value === 'custom' ? 'DATE_RANGE' : 'FROM_NOW', startDate: duration.value === 'custom' ? start.value : null, endDate: duration.value === 'custom' ? end.value : null };
   const saved = state.value;
@@ -355,8 +358,11 @@ async function persistGoal() {
   acceptWrite(await api.creationGoal(saved, goal),draftGoalFields);
 }
 async function saveGoal() { await run(async () => { await persistGoal(); await persistStep(3); step.value = 3; window.scrollTo(0,0); }); }
-async function generate(ids: string[]) { await run(async () => { acceptWrite(await api.creationGenerate(state.value!, ids)); schedulePoll(); }); }
-async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { acceptWrite(await api.creationAddition(state.value!, body)); schedulePoll(); }); }
+function refreshInputSchedule() {
+  const dates = resumeDraftDates(captureDraft(),today(),canRefreshCreationSchedule(state.value));start.value=dates.start;end.value=dates.end;
+}
+async function generate(ids: string[]) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationGenerate(state.value!, ids)); schedulePoll(); }); }
+async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationAddition(state.value!, body)); schedulePoll(); }); }
 async function regenerateTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string) { await run(async()=>{acceptWrite(await api.creationRegenerateTitle(state.value!,product,kind,index,original));schedulePoll();}); }
 async function editProductTitles(product: string,kind:'CUSTOM'|'CARD',titles:string[]) { await run(async()=>{acceptWrite(await api.creationProductTitles(state.value!,product,kind,titles));schedulePoll();}); }
 async function retryGeneration(type:'VIDEO'|'IMAGE'|'CAROUSEL') {
@@ -500,7 +506,7 @@ async function initialize() {
       step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials && !resumeMaterialEntry.value ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; restoreBudgets(s.budget == null ? '' : String(s.budget));
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
-      const schedule = creationScheduleDefaults(today(), s.startDate, s.endDate); start.value = schedule.start; end.value = schedule.end;
+      const schedule = serverDraftInputs(s,today()); start.value = schedule.start; end.value = schedule.end;
       schedulePoll();
     }
     else {

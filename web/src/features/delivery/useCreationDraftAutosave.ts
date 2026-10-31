@@ -1,13 +1,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import type { CreationState } from './creationApi';
-import { creationScheduleDefaults } from './creationSchedule';
+import { canRefreshCreationSchedule, resumeCreationSchedule, resumeDraftDates } from './creationSchedule';
 import { CreationDraftCache, DRAFT_INPUT_FIELDS, changedDraftFields, draftKey, rememberDraftAccount, rebaseDraftAfterBackgroundUpdate,
   type CachedCreationDraft, type DraftInputs, type DraftScope } from './creationDraftCache';
 
 const goalFields: (keyof DraftInputs)[] = ['name','budget','roi','roiSource','mode','duration','start','end'];
 export { goalFields as draftGoalFields };
 export function serverDraftInputs(state: CreationState | undefined, today: string): DraftInputs {
-  const schedule = creationScheduleDefaults(today, state?.startDate, state?.endDate);
+  const schedule = resumeCreationSchedule(today, state?.startDate, state?.endDate, canRefreshCreationSchedule(state));
   return { productIds: state?.products.map(p => p.qcProductId) || [], name: state?.name || '',
     budget: state?.budget == null ? '' : String(state.budget), roi: state?.roi2Goal == null ? '' : String(state.roi2Goal), roiSource:state?.roi2Goal == null ? 'PLATFORM' : 'MANUAL',
     mode: state?.smartBidType || 'CUSTOM', duration: state?.scheduleType === 'DATE_RANGE' ? 'custom' : 'long',
@@ -83,7 +83,10 @@ export function useCreationDraftAutosave(options: {
       // retain the baseline in memory so leaving with unsaved input can be warned.
       cache = new CreationDraftCache({ getItem: key => localStorage.getItem(key),
         setItem: (key,value) => localStorage.setItem(key,value), removeItem: key => localStorage.removeItem(key) },writer);
-      const baseline = serverBaseline(), cached = cache.open(scope,baseline);
+      const baseline = serverBaseline(), stored = cache.open(scope,baseline);
+      const enabled = canRefreshCreationSchedule(options.server());
+      const cached = stored && { ...stored, inputs: resumeDraftDates(stored.inputs,options.today(),enabled),
+        baseline: { ...stored.baseline, inputs: resumeDraftDates(stored.baseline.inputs,options.today(),enabled) } };
       active = true;
       if (!editable()) { status.value = ''; return; }
       if (cached && changedDraftFields(cached.inputs,cached.baseline.inputs).length) {

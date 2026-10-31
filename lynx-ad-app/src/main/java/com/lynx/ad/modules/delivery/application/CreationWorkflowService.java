@@ -14,6 +14,7 @@ import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
 import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
+import com.lynx.ad.modules.delivery.domain.service.CreationDraftSchedule;
 import com.lynx.ad.modules.delivery.domain.service.PublishFailureRecovery;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
@@ -99,6 +100,7 @@ public class CreationWorkflowService {
     public CreationState get(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,false);
         var s=store.get(tenant.value(),id);
+        s=reconcileDraftSchedule(tenant,s);
         if(titleRegeneration!=null)s=titleRegeneration.refresh(s);
         // This changes only an unpublished draft's selection. Engine history,
         // OSS objects and already uploaded platform assets remain available.
@@ -133,6 +135,21 @@ public class CreationWorkflowService {
         }
         if(creativeContexts!=null)creativeContexts.hydrate(s);
         return s;
+    }
+    private CreationState reconcileDraftSchedule(TenantId tenant,CreationState snapshot) {
+        if(CreationDraftSchedule.correction(snapshot,LocalDate.now(ZoneId.of("Asia/Shanghai")))==null)return snapshot;
+        try{return store.mutate(tenant.value(),snapshot.planId,snapshot.revision,s->{if(refreshDraftSchedule(s))s.changed();});}
+        catch(BizException conflict){if(conflict.code()!=1404)throw conflict;return store.get(tenant.value(),snapshot.planId);}
+    }
+    private boolean refreshDraftSchedule(CreationState s) {
+        var schedule=CreationDraftSchedule.correction(s,LocalDate.now(ZoneId.of("Asia/Shanghai")));
+        if(schedule==null)return false;
+        s.startDate=schedule.startDate().toString();s.endDate=schedule.endDate().toString();
+        if(plans!=null)plans.findById(new TenantId(s.tenantId),new PlanId(s.planId))
+                .filter(p->p.qcPlanId().isEmpty()&&p.status()==PlanStatus.DRAFT).ifPresent(p->{
+                    var previous=p.setting();p.updateSetting(new DeliverySetting(previous.bidType(),previous.dailyBudget(),previous.roi2Goal(),schedule,previous.audience()));plans.save(p);
+                });
+        return true;
     }
     private CreationState reconcileDuplicateSelections(TenantId tenant,CreationState snapshot,Map<String,AssetUploadService.Detail> hydrated) {
         if(!CreationMaterialSelections.repairable(snapshot))return snapshot;
@@ -319,10 +336,11 @@ public class CreationWorkflowService {
             if(s.qcPlanId!=null||!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
             if(request.step>=2)requireBasicAnalysis(s);
             if(request.step==2 && s.step==1)confirmAnalysisSnapshot(s);
-            if(request.step==3&&s.step!=3)CreationPayloadBuilder.settings(s);
+            boolean refreshed=request.step==3&&refreshDraftSchedule(s);
+            if(request.step==3&&(s.step!=3||refreshed))CreationPayloadBuilder.settings(s);
             // Navigation changes no creative content and must preserve an already confirmed package.
             int reached=s.reachedStep();
-            if(s.step!=request.step||reached<request.step){s.reachedStep=Math.max(reached,request.step);s.step=request.step;s.revision++;}
+            if(s.step!=request.step||reached<request.step||refreshed){s.reachedStep=Math.max(reached,request.step);s.step=request.step;s.revision++;}
         });
     }
     public CreationState visibility(TenantId tenant,String requestedId,Visibility request) {
@@ -345,7 +363,7 @@ public class CreationWorkflowService {
         writable(tenant,WriteAction.SAVE_PLAN);
         if(authorizationCapabilities!=null && g.productIds!=null && !g.productIds.isEmpty())authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         return store.mutate(tenant.value(),id,g.revision,s->{
-            editable(s);CreationPayloadBuilder.settings(s);
+            editable(s);refreshDraftSchedule(s);CreationPayloadBuilder.settings(s);
             requireBasicAnalysis(s);
             if(g.productIds==null||!ids(s).containsAll(g.productIds))throw new BizException(1503,"请选择当前计划中的商品生成素材");
             var decisions=new LinkedHashSet<>(s.generationSelection==null?List.<String>of():s.generationSelection);decisions.addAll(g.productIds);
@@ -371,7 +389,7 @@ public class CreationWorkflowService {
             }
             if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,s.accountId);
             if(s.revision!=request.revision)throw new BizException(1404,"草稿已更新，请刷新后重试");
-            editable(s);CreationPayloadBuilder.settings(s);
+            editable(s);refreshDraftSchedule(s);CreationPayloadBuilder.settings(s);
             requireBasicAnalysis(s);
             var product=s.products.stream().filter(p->Objects.equals(p.qcProductId(),request.productId)).findFirst().orElseThrow(()->new BizException(1503,"商品不属于当前计划"));
             if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材");
