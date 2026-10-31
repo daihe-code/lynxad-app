@@ -178,6 +178,8 @@ public class CreationState {
         @com.fasterxml.jackson.annotation.JsonIgnore public MaterialProcessing processing;
         /** File provenance is hydrated from owned assets, separately from regeneration bindings. */
         @com.fasterxml.jackson.annotation.JsonIgnore public String source;
+        /** How this plan selected the material; independent of the file's provenance. */
+        public String addedVia;
         public List<String> imageUrls = new ArrayList<>();
         public String imageMode;
         public List<String> titles = new ArrayList<>();

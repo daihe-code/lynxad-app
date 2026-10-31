@@ -88,7 +88,9 @@ public class CreationWorkflowService {
     public record Visibility(int revision,Boolean hideInAweme) {}
     public record Generate(int revision,List<String> productIds) {}
     public record Addition(int revision,String productId,String type,String description,String requestId) {}
-    public record MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles) {}
+    public record MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles,String addedVia) {
+        public MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles){this(revision,productId,type,videoAssetId,coverAssetId,imageAssetIds,carouselId,titles,null);}
+    }
     public record Feedback(int revision,List<String> reasons,String description) {}
     public record VersionDecision(int revision,String decision) {}
     public record Publish(int revision,int packageVersion,String requestKey) {}
@@ -455,7 +457,9 @@ public class CreationWorkflowService {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);var initial=store.get(tenant.value(),id);appendable(initial);
         if(!ids(initial).contains(request.productId))throw new BizException(1503,"素材对应商品不属于当前计划");
+        if(request.addedVia!=null&&!Set.of("LIBRARY","UPLOAD").contains(request.addedVia))throw new BizException(1503,"不支持的素材添加方式");
         var m=new CreationState.Material();m.id=UUID.randomUUID().toString();m.productId=request.productId;m.type=request.type;
+        m.addedVia=request.addedVia;
         m.videoAssetId=request.videoAssetId;m.coverAssetId=request.coverAssetId;m.imageAssetIds=request.imageAssetIds==null?new ArrayList<>():new ArrayList<>(request.imageAssetIds);
         m.carouselId=request.carouselId;
         var selections=new CreationMaterialSelections(assets,tenant);

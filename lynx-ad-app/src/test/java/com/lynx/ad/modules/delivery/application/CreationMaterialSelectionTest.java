@@ -111,4 +111,26 @@ class CreationMaterialSelectionTest {
         var picked=new CreationState.Material();picked.productId="p";picked.type="IMAGE";picked.imageAssetIds=List.of("image-file");
         assertTrue(selections.contains(state,picked));picked.type="CAROUSEL";picked.carouselId="bundle";assertTrue(selections.contains(state,picked));
     }
+    @Test void librarySelectionPersistsItsChannelWithoutOverridingGeneratedFileProvenance() throws Exception {
+        when(assets.detail(tenant,"generated-file")).thenReturn(asset("generated-file","engine_oss",null));
+        service.add(tenant,"plan",new CreationWorkflowService.MaterialSelection(7,"p","VIDEO","generated-file","cover",null,null,List.of("商品真实展示标题"),"LIBRARY"));
+        var json=new ObjectMapper();
+        var reloaded=json.readValue(json.writeValueAsString(state),CreationState.class);
+        assertEquals("LIBRARY",reloaded.materials.getFirst().addedVia);
+        when(store.get("tenant","plan")).thenReturn(reloaded);
+        var view=CreationView.of(service.get(tenant,"plan")).materials().getFirst();
+        assertEquals("LYNX",view.source());assertEquals("LIBRARY",view.addedVia());assertNull(view.engineMaterialId());
+    }
+    @Test void libraryUploadedFileAndDirectUploadKeepTheirRealFileOrigin() {
+        service.add(tenant,"plan",new CreationWorkflowService.MaterialSelection(7,"p","VIDEO","library-upload","cover",null,null,List.of("商品真实展示标题"),"LIBRARY"));
+        service.add(tenant,"plan",new CreationWorkflowService.MaterialSelection(8,"p","VIDEO","new-local-upload","cover",null,null,List.of("商品真实展示标题"),"UPLOAD"));
+        var materials=CreationView.of(service.get(tenant,"plan")).materials();
+        assertEquals("UPLOAD",materials.getFirst().source());assertEquals("LIBRARY",materials.getFirst().addedVia());
+        assertEquals("UPLOAD",materials.getLast().source());assertEquals("UPLOAD",materials.getLast().addedVia());
+    }
+    @Test void selectingAnExistingGeneratedRowDoesNotRelabelItOrCreateAnotherLibraryCopy() {
+        state.materials.add(video("original","generated-file",true));
+        service.add(tenant,"plan",new CreationWorkflowService.MaterialSelection(7,"p","VIDEO","generated-file","cover",null,null,List.of("商品真实展示标题"),"LIBRARY"));
+        assertEquals(1,state.materials.size());assertNull(state.materials.getFirst().addedVia);assertEquals(7,state.revision);
+    }
 }

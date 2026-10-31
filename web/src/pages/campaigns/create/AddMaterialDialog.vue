@@ -101,7 +101,7 @@ function submit() {
     sessionStorage.setItem(submissionKey, requestId.value); emit('generate', { ...body, requestId: requestId.value });
   } else {
     const item = selected.value!;
-    emit('add', { productId: props.productId, type: type.value, ...(type.value === 'VIDEO' ? { videoAssetId: item.assetId } : type.value === 'IMAGE' ? { imageAssetIds: [item.assetId!] } : { carouselId: item.carouselId }) });
+    emit('add', { productId: props.productId, type: type.value, addedVia: source.value, ...(type.value === 'VIDEO' ? { videoAssetId: item.assetId } : type.value === 'IMAGE' ? { imageAssetIds: [item.assetId!] } : { carouselId: item.carouselId }) });
   }
 }
 onUnmounted(() => { ++loadNumber; });

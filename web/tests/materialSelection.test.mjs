@@ -17,3 +17,10 @@ test('复用已有条目的成功响应无需新增行即可确认，等待中�
   assert.equal(materialSelectionAccepted(true, true, ''), false);
   assert.equal(materialSelectionAccepted(true, false, '提交失败'), false);
 });
+
+test('素材本身的生成方式与素材库添加渠道分别展示', () => {
+  assert.equal(materialSourceLabel({ source: 'LYNX', addedVia: 'LIBRARY' }), '智能生成 · 来源素材库');
+  assert.equal(materialSourceLabel({ source: 'UPLOAD', addedVia: 'LIBRARY' }), '人工上传 · 来源素材库');
+  assert.equal(materialSourceLabel({ source: 'UPLOAD', addedVia: 'UPLOAD' }), '人工上传');
+  assert.equal(materialSourceLabel({ source: 'LYNX' }), '智能生成');
+});
