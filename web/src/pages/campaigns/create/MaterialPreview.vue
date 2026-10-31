@@ -32,7 +32,7 @@
             <button type="button" aria-label="分享预览" @click="panel = 'share'"><FeedPreviewIcon name="share" solid /><span>分享</span></button>
             <span class="feed-record" :class="{ 'is-playing': playing }" aria-hidden="true"><FeedPreviewIcon name="music" /></span>
           </div>
-          <div v-if="material && material.type !== 'CAROUSEL'" class="feed-caption">
+          <div v-if="material" class="feed-caption">
             <p class="feed-author"><b>@ {{ accountName }}</b><span>广告</span><button v-if="landscape && material.type === 'VIDEO' && product && !title" class="feed-product-entry" type="button" aria-label="查看商品预览" @click="panel = 'product'"><FeedPreviewIcon name="bag" /></button></p>
             <button class="feed-copy" :class="{ expanded: captionExpanded }" type="button" :aria-expanded="captionExpanded" aria-label="展开或收起广告文案" @click="captionExpanded = !captionExpanded"><span>{{ displayTitle }}</span></button>
             <div v-if="product" class="feed-product">
@@ -66,6 +66,7 @@ import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import FeedPreviewIcon from './FeedPreviewIcon.vue';
 import PlatformPlacementPreview from './PlatformPlacementPreview.vue';
 import type { CreationMaterial, CreationProduct } from '@/features/delivery/creationApi';
+import { materialPreviewCopy } from '@/features/delivery/materialPreviewCopy';
 const props = defineProps<{ material?: CreationMaterial; product?: CreationProduct; title?: string; account?: { awemeName: string; avatar?: string } }>();
 const emit = defineEmits<{ metadata: [id: string, data: { width: number; height: number; duration: number }] }>();
 const platforms = [{ id: 'douyin', name: '抖音' }, { id: 'toutiao', name: '头条' }, { id: 'xigua', name: '西瓜' }, { id: 'huoshan', name: '抖音火山版' }, { id: 'pangolin', name: '穿山甲' }];
@@ -86,7 +87,7 @@ const videoSource = computed(() => `${props.material?.id || ''}:${objectPath(pro
 // A stable key alone does not stop the browser reloading when src changes.
 // Keep the loaded URL until the selected material or its underlying file changes.
 const playbackUrl = ref('');
-const displayTitle = computed(() => props.title || props.material?.titles[0] || props.material?.title || props.product?.name || '');
+const displayTitle = computed(() => materialPreviewCopy(props.material, props.product, props.title));
 watch(videoSource, () => {
   videoElement.value?.pause(); audioElement.value?.pause(); imageIndex.value = 0; error.value = ''; playing.value = false; playPending.value = false;
   playbackUrl.value = props.material?.previewUrl || '';

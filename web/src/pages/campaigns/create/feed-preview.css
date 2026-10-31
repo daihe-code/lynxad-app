@@ -35,7 +35,7 @@
 .feed-phone:not(.feed-phone--landscape):not(.feed-phone--gallery) .feed-visual { top: -68px; bottom: -40px; }
 .feed-phone--landscape .feed-visual { top: 50%; bottom: auto; height: auto; aspect-ratio: 16 / 9; transform: translateY(-50%); }
 .feed-phone--gallery .feed-visual { top: 7px; right: 54px; bottom: 135px; }
-/* Slide explanations are already embedded in the images; reserve no extra caption area. */
+/* Keep carousel images full size; the ad description overlays their lower edge. */
 .feed-phone--carousel .feed-stage { overflow: visible; }
 .feed-phone--carousel .feed-visual { top: -68px; right: 0; bottom: 0; }
 /* Fill the portrait feed width while keeping the embedded bottom explanation visible. */
@@ -72,6 +72,7 @@
 .feed-caption { position: absolute; z-index: 1; left: 0; right: 54px; bottom: 6px; padding: 14px 10px 7px 12px; background: linear-gradient(transparent,#0009 50%); }
 .feed-phone--gallery .feed-caption { height: 127px; bottom: 0; padding-top: 0; background: #000; }
 .feed-phone--product-card .feed-caption { right: 0; height: 127px; padding: 8px 50px 6px 10px; }
+.feed-phone--carousel .feed-caption { height: auto; bottom: 8px; padding: 20px 10px 8px 12px; background: linear-gradient(transparent,#000b 35%); }
 .feed-author { margin: 0 0 5px; display: flex; align-items: center; gap: 6px; line-height: 21px; }
 .feed-author b { max-width: calc(100% - 38px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 500; }
 .feed-author > span { font-size: 8px; padding: 0 3px; border-radius: 2px; color: #aaa; background: #ffffff17; line-height: 14px; }
@@ -82,6 +83,8 @@
 .feed-copy.expanded { max-height: 85px; overflow: auto; }
 .feed-copy.expanded > span:first-child { display: block; }
 .feed-phone--gallery .feed-copy { max-height: 36px; overflow: auto; }
+.feed-phone--carousel .feed-copy { white-space: pre-line; }
+.feed-phone--carousel .feed-copy.expanded { max-height: 85px; }
 .feed-phone--landscape:not(.feed-phone--title) .feed-copy,.feed-phone--landscape:not(.feed-phone--title) .feed-product { display: none; }
 .feed-product { display: flex; align-items: center; gap: 5px; padding: 5px; min-height: 36px; border-radius: 4px; background: #ffffff17; }
 .feed-screen .feed-product-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; text-align: left; }
