@@ -7,6 +7,9 @@ const videoRequirements = [
   '横版视频：宽高比16:9，视频码率≥516kbps，大小≤1000M，1280*720≤分辨率≤2560*1440，4s≤时长≤300s',
   '竖版视频：宽高比9:16，视频码率≥516kbps，大小≤1000M，720*1280≤分辨率≤1440*2560，4s≤时长≤300s',
 ];
+const imageRequirements = [
+  '商品卡方图：jpg，png，jpeg等图片格式，宽高比1:1，大小≤10M，600*600≤尺寸≤3000*3000',
+];
 const policies = {
   VIDEO: { label: '视频库', note: `视频需 ${fileRules.videoCodec.toUpperCase()} 编码，不超过 ${pixels}，时长须大于 0。推荐竖版 9:16；实际规格以所选广告场景为准。` },
   IMAGE: { label: '图片库', note: `图片不超过 ${pixels}；商品卡须为 1:1 方图，其他广告场景规格分别校验。` },
@@ -20,7 +23,7 @@ export function libraryUploadPolicy(library: UploadLibrary) {
   const files=fileRules.files.filter(r => library === 'CAROUSEL' ? r.kind !== 'VIDEO' : r.kind === library);
   const extensions=files.map(r=>r.extension);
   const limits=[...new Set(files.map(r=>`${r.kind === 'IMAGE' ? '图片' : r.kind === 'VIDEO' ? '视频' : r.kind === 'AUDIO' ? '音频' : '文本'} ≤ ${r.maxBytes / 1024 ** 2}MB`))].join(' · ');
-  return { ...policies[library], extensions, hint: `${extensions.map(e=>e.toUpperCase()).join(' / ')} · ${limits}`, requirements: library === 'VIDEO' ? videoRequirements : [], note: policies[library].note };
+  return { ...policies[library], extensions, hint: `${extensions.map(e=>e.toUpperCase()).join(' / ')} · ${limits}`, requirements: library === 'VIDEO' ? videoRequirements : library === 'IMAGE' ? imageRequirements : [], note: policies[library].note };
 }
 export function libraryFileError(filename: string, library?: UploadLibrary) {
   if (!library) return '';

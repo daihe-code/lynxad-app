@@ -44,7 +44,10 @@ class AssetFilePolicyTest {
     @Test void limitsAreSpecificToTheFileKind() {
         AssetFilePolicy.size(AssetFilePolicy.spec("test.mp4"),1000L*1024*1024);
         assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.mp4"),1000L*1024*1024+1));
-        assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.jpg"),2L*1024*1024));
+        for(String extension:new String[]{"jpg","jpeg","png"}) {
+            AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),10L*1024*1024);
+            assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),10L*1024*1024+1));
+        }
         assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.txt"),2L*1024*1024));
         assertThrows(BizException.class,()->AssetFilePolicy.spec("test.mov"));
     }
