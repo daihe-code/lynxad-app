@@ -77,11 +77,12 @@
                   <button class="sthumb__box" type="button" :aria-label="readOnly ? `查看${p.name}的商品信息` : `查看${p.name}的组合推荐`" :aria-pressed="readOnly ? undefined : recommendationSource === p.qcProductId" :disabled="saving" @click="!readOnly && showRecommendations(p)"><img v-if="p.imageUrl && !broken[p.productId]" :src="p.imageUrl" alt="" @error="broken[p.productId] = true" /><span v-else>{{ p.name.slice(0, 2) }}</span></button>
                 </template>
                 <div class="selected-product-info" :aria-label="`${p.name}的商品信息`">
+                  <img v-if="p.imageUrl && !broken[p.productId]" class="selected-product-info__image" :src="p.imageUrl" :alt="p.name" @error="broken[p.productId] = true" />
                   <strong class="selected-product-info__name">{{ p.name }}</strong>
                   <dl>
                     <div><dt>价格</dt><dd class="selected-product-info__price">{{ productPriceText(p.priceInfo, p.price) }}<small v-if="p.priceInfo?.stale">上次价格</small></dd></div>
-                    <div><dt>销量</dt><dd>{{ p.sales == null ? '暂未获取' : p.sales.toLocaleString('zh-CN') }}</dd></div>
                     <div><dt>库存</dt><dd>{{ p.stock == null ? '暂未获取' : p.stock.toLocaleString('zh-CN') }}</dd></div>
+                    <div><dt>销量</dt><dd>{{ p.sales == null ? '暂未获取' : p.sales.toLocaleString('zh-CN') }}</dd></div>
                   </dl>
                 </div>
               </el-popover>
