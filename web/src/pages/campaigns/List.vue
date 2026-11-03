@@ -52,12 +52,16 @@
         <div class="inline-filter-group" role="group" aria-label="创建时间"><span>创建时间</span><button v-for="days in [7, 30]" :key="days" type="button" :class="{ active: createdWithin === days }" :aria-pressed="createdWithin === days" @click="createdWithin = createdWithin === days ? null : days">近 {{ days }} 天</button></div>
       </div>
       <div class="table-scroll" v-loading="loading">
-        <table class="plan-table" :class="{ compact, 'without-tools': !showTools }">
-          <colgroup><col style="width: 320px"><col style="width: 160px"><col style="width: 192px"><col style="width: 192px"><col style="width: 108px"><col style="width: 92px"><col style="width: 122px"><col style="width: 106px"><col v-if="showTools" style="width: 136px"><col style="width: 80px"></colgroup>
+        <table ref="tableRef" class="plan-table" :class="{ compact, 'without-tools': !showTools, 'is-resizing': !!resizingColumn }" :style="tableStyle">
+          <colgroup><col v-for="column in tableColumns" :key="column.key" :style="{width: `${columnWidth(column)}px`}" /></colgroup>
           <thead><tr>
-            <th><button class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button></th><th>计划状态</th><th>投放设置</th><th>投放时间</th>
-            <th v-for="column in metricColumns" :key="column.field"><el-tooltip :content="column.description" :trigger="['hover', 'focus']" :show-after="200" :enterable="false" effect="light" placement="top-start" popper-class="campaign-metric-tooltip"><button class="sort-heading" @click="toggleSort(column.field)"><span class="metric-label">{{ column.label }}</span><el-icon :class="{ 'sort-active': sortField === column.field }"><Sort /></el-icon></button></el-tooltip></th>
-            <th v-if="showTools">调控工具</th><th>操作</th>
+            <th v-for="column in tableColumns" :key="column.key" :data-column-key="column.key">
+              <button v-if="column.key === 'name'" class="sort-heading" @click="toggleSort('name')">计划名称<el-icon :class="{ 'sort-active': sortField === 'name' }"><Sort /></el-icon></button>
+              <el-tooltip v-else-if="column.metric" :content="column.metric.description" :trigger="['hover', 'focus']" :show-after="200" :enterable="false" effect="light" placement="top-start" popper-class="campaign-metric-tooltip"><button class="sort-heading" @click="toggleSort(column.metric!.field)"><span class="metric-label">{{ column.label }}</span><el-icon :class="{ 'sort-active': sortField === column.key }"><Sort /></el-icon></button></el-tooltip>
+              <span v-else>{{ column.label }}</span>
+              <span class="column-resizer" :class="{'column-resizer--active': resizingColumn === column.key}" role="separator" tabindex="0" aria-orientation="vertical" :aria-label="`调整${column.label}列宽`" :aria-valuemin="column.minWidth" :aria-valuemax="maximumColumnWidth" :aria-valuenow="columnWidth(column)"
+                @pointerdown.stop.prevent="startResize($event,column)" @pointermove.stop="moveResize" @pointerup.stop="endResize" @pointercancel="cancelResize" @lostpointercapture="cancelResize" @click.stop.prevent @keydown="resizeKey($event,column)" />
+            </th>
           </tr></thead>
           <tbody>
             <tr v-for="row in pagedRows" :key="row.planId" >
@@ -120,6 +124,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { campaignTableColumns, columnWidthsPreferenceKey, maximumColumnWidth } from '@/features/delivery/campaignTableColumns';
+import { useCampaignColumnResize } from '@/features/delivery/useCampaignColumnResize';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
 import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort } from '@element-plus/icons-vue';
@@ -176,6 +182,9 @@ const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = re
 type SortField = MetricField;
 const metricTemplate = ref<PlanMetricTemplate>('PAYMENT'), displayedMetricTemplate = ref<PlanMetricTemplate>('PAYMENT');
 const metricColumns = computed(() => metricTemplates[displayedMetricTemplate.value].columns);
+const tableColumns = computed(() => campaignTableColumns(displayedMetricTemplate.value, showTools.value));
+const columnWidthsStorageKey = computed(() => columnWidthsPreferenceKey(user.me?.tenantId, user.me?.userId));
+const { tableRef, columnWidth, tableStyle, resizingColumn, startResize, moveResize, endResize, cancelResize, resizeKey } = useCampaignColumnResize(tableColumns, columnWidthsStorageKey);
 const templateStorageKey = computed(() => templatePreferenceKey(user.me?.tenantId, user.me?.userId));
 try { if (templateStorageKey.value && localStorage.getItem(templateStorageKey.value) === 'NET') metricTemplate.value = displayedMetricTemplate.value = 'NET'; } catch { /* Use defaults if storage is unavailable. */ }
 function selectMetricTemplate(value: PlanMetricTemplate) {
@@ -436,6 +445,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.plan-table th { position: relative; }
+.column-resizer { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; outline: none; }
+.plan-table th:last-child > .column-resizer { right: 0; }
+.column-resizer::after { content: ''; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 1px; background: #dad8eb; opacity: 0; transition: opacity .12s; }
+.plan-table th:hover > .column-resizer::after, .column-resizer:focus-visible::after, .column-resizer--active::after { opacity: 1; }
+.column-resizer:focus-visible::after, .column-resizer--active::after { background: #6860ef; width: 2px; }
+.plan-table.is-resizing { user-select: none; }
+.plan-table .sort-heading { max-width: 100%; min-width: 0; padding-right: 4px; }
+.sort-heading .metric-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sort-heading .el-icon { flex-shrink: 0; }
+.plan-table td { overflow: hidden; }
+.schedule-range { overflow: hidden; text-overflow: ellipsis; }
+
 .metric-label { text-decoration: underline dashed #aaa8ba; text-underline-offset: 4px; cursor: help; }
 .metric-label:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 2px; }
 :global(.campaign-metric-tooltip) { max-width: 320px; color: #45445c; font-size: 12px; line-height: 1.7; }
