@@ -1,5 +1,5 @@
 <template>
-  <section class="delivery-result" aria-label="审核通过后的投放结果">
+  <section class="delivery-result" :class="{ 'delivery-result--inline': inlineFooter }" aria-label="审核通过后的投放结果">
     <header class="delivery-result__heading">
       <span class="delivery-result__icon" aria-hidden="true"><ReferenceIcon :name="scheduled ? 'check-clock' : 'play'" /></span>
       <h2>{{ scheduled ? '审核通过，待投放' : '投放中' }}</h2>
@@ -15,7 +15,7 @@
       <p class="delivery-data__footnote">{{ statistics ? `最近读取 ${reviewTime(statistics.fetchedAt, '时间待同步')}。` : loading ? '正在读取当日平台报表。' : '暂未取得当日报表。' }}数据可能存在延迟，未返回的指标显示 —。</p>
     </section>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><PlanListButton /></footer>
+    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading || pauseDisabled" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><PlanListButton primary label="查看所有投放计划" /></footer>
     <CampaignPlanActionDialog v-model="pauseOpen" :plan="plan" action="pause" :busy="busy" :error="pauseError" @confirm="pause" />
   </section>
 </template>
@@ -33,7 +33,7 @@ import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import PlanListButton from './PlanListButton.vue';
 import PlanResultSummary from './PlanResultSummary.vue';
 import CampaignPlanActionDialog from './CampaignPlanActionDialog.vue';
-const props = defineProps<{ plan: PlanListVo; awemeName?: string; readOnly?: boolean; showFooter?: boolean }>();
+const props = withDefaults(defineProps<{ plan: PlanListVo; awemeName?: string; readOnly?: boolean; showFooter?: boolean; inlineFooter?: boolean; pauseDisabled?: boolean }>(), { showFooter: true });
 const emit = defineEmits<{ updated: [plan: PlanVo] }>();
 const user = useUserStore();
 const scheduled = computed(() => props.plan.status === 'SCHEDULED');
@@ -56,7 +56,7 @@ async function read(force = false) {
   if (status.status === 'fulfilled' && status.value) emit('updated', status.value);
 }
 async function pause(reason?: PlanPauseReason) {
-  if (!canPause.value || busy.value || loading.value || !isPlanPauseReason(reason)) return;
+  if (!canPause.value || busy.value || loading.value || props.pauseDisabled || !isPlanPauseReason(reason)) return;
   const id = props.plan.planId, turn = context;
   busy.value = true; pauseError.value = '';
   try { const result = await actPlan(id, 'DISABLE', reason); if (turn === context) { pauseOpen.value = false; emit('updated', result); } }
@@ -97,6 +97,9 @@ onUnmounted(() => { context++; controller?.abort(); clearInterval(timer); });
 .delivery-result__footer{position:fixed;z-index:40;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:24px;padding:14px 24px;border-top:1px solid #eeeff7;background:#fffffffa}
 .delivery-result__footer button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:9px;min-width:182px;padding:13px 24px;border:1px solid #e0e2f1;border-radius:10px;background:#fff;color:#252842;font:inherit;font-size:14px;font-weight:600;line-height:22px;text-decoration:none;cursor:pointer}
 .delivery-result__footer button.delivery-result__pause{border-color:#f6cccc;color:#e5585e}
+.delivery-result__footer button:disabled{opacity:.55;cursor:not-allowed}
+.delivery-result--inline{padding-bottom:20px}
+.delivery-result--inline .delivery-result__footer{position:static;margin-top:24px;padding:14px 0;border-top:0;background:transparent}
 .delivery-result__footer svg{width:16px;height:16px}.delivery-result button:focus-visible,.delivery-result a:focus-visible{outline:2px solid #575cf6;outline-offset:3px}
 @media(max-width:1000px){.delivery-data__cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.delivery-result__heading p{font-size:13px}.delivery-data{padding:22px 18px}.delivery-data__tools{gap:10px}.delivery-data article{padding:16px 12px}.delivery-data__value{font-size:23px}.delivery-result__footer{gap:10px;padding:12px}.delivery-result__footer button{min-width:0;padding:11px 12px;font-size:13px}}
