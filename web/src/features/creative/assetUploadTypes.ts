@@ -19,6 +19,10 @@ const policies = {
 };
 
 export const assetFileRules = fileRules;
+export const carouselTextLimits = { name: 50, text: 1000 };
+export function carouselTextLengthError(value: string, field: keyof typeof carouselTextLimits) {
+  return value.length <= carouselTextLimits[field] ? '' : `${field === 'name' ? '图文名称' : '图文内容'}最多 ${carouselTextLimits[field]} 个字符`;
+}
 export const carouselAudioPolicy = {
   extensions: fileRules.files.filter(r => r.kind === 'AUDIO' && r.qianchuanSupported).map(r => r.extension),
   hint: '格式要求：大小≤20M，仅支持mp3、m4a音频格式',

@@ -3,11 +3,12 @@
     <p class="tip">文本、图片和音频组成一条图文，检查通过并同步完成后可添加。</p>
     <p v-if="differentAccount" class="error">另一投放账户的图文仍在处理中，请完成后再上传当前账户的图文。</p>
     <section><h3>1. 文本 <span>必填</span></h3>
-      <label>图文名称<input v-model="draft.name" maxlength="100" :disabled="locked" placeholder="选填，默认使用第一张图片的名称" /></label>
+      <label>图文名称<div class="counted-field"><input v-model="draft.name" aria-label="图文名称" :maxlength="carouselTextLimits.name" :disabled="locked" :aria-invalid="!!nameError" placeholder="选填，默认使用第一张图片的名称" /><span class="field-counter" aria-hidden="true">{{ draft.name.length }}/{{ carouselTextLimits.name }}</span></div></label>
+      <p v-if="nameError" class="error" role="alert">{{ nameError }}</p>
       <input ref="textInput" class="sr-only" type="file" accept=".txt" aria-label="导入图文文本" :disabled="locked" @change="textChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="textInput?.click()">导入 TXT 文件</button>
-      <textarea v-model="draft.text" aria-label="图文文本" :disabled="locked" :maxlength="assetFileRules.maxTextChars" rows="4" placeholder="请输入图文内容，将单独进行文本质检"></textarea>
-      <small>{{ draft.text.length.toLocaleString() }} / {{ assetFileRules.maxTextChars.toLocaleString() }} 字符 · {{ textPolicy.hint }}</small>
+      <div class="counted-field counted-field--multiline"><textarea v-model="draft.text" aria-label="图文文本" :disabled="locked" :aria-invalid="!!textError" :maxlength="carouselTextLimits.text" rows="4" placeholder="请输入图文内容，将单独进行文本质检" @input="textImportError = ''"></textarea><span class="field-counter" aria-hidden="true">{{ draft.text.length }}/{{ carouselTextLimits.text }}</span></div>
+      <p v-if="textError" class="error" role="alert">{{ textError }}</p>
       <label v-if="embedded" class="aigc"><input v-model="draft.textAigc" type="checkbox" :disabled="locked" />文本包含 AI 生成内容</label>
     </section>
     <section @dragover.prevent @drop.prevent="chooseImages($event.dataTransfer?.files)"><h3>2. 图片 <span>必填 · 支持多张</span></h3>
@@ -34,7 +35,7 @@
     <p v-if="!embedded" class="tip">三部分全部质检通过后，才同步图片和音频组件到所选千川账户。</p>
     <p v-if="draft.busy" class="tip" role="status">正在预检、上传并保存图文，进入审核后即可关闭。</p>
     <p v-else-if="draft.result" class="tip" role="status">{{ ready ? '图文已就绪，检查、同步均已完成。' : '图文已保存，正在检查或同步。' }}</p>
-    <div class="modal__foot"><button v-if="!embedded" class="btn-modal-ghost" type="button" :disabled="draft.busy" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" :disabled="locked || !draft.text.trim() || !draft.images.length || !draft.audio" @click="start">{{ draft.busy ? '正在上传…' : draft.result ? '图文已保存' : '上传图文并检查' }}</button></div>
+    <div class="modal__foot"><button v-if="!embedded" class="btn-modal-ghost" type="button" :disabled="draft.busy" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" :disabled="locked || !!nameError || !!textError || !draft.text.trim() || !draft.images.length || !draft.audio" @click="start">{{ draft.busy ? '正在上传…' : draft.result ? '图文已保存' : '上传图文并检查' }}</button></div>
   </div>
 </template>
 <script setup lang="ts">
@@ -45,7 +46,7 @@ import { beginCarouselDialog, carouselDraft as draft, fileAigcKey, uploadCarouse
 import { uploadRows, reviewLabel, syncLabel } from '@/features/creative/assetUploads';
 import { carouselReady } from '@/features/creative/materialSources';
 import { getCarousel, reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync } from '@/features/creative/creativeApi';
-import { assetFileRules, libraryUploadPolicy, libraryFileError, carouselAudioPolicy as audioPolicy, carouselAudioError } from '@/features/creative/assetUploadTypes';
+import { assetFileRules, libraryUploadPolicy, libraryFileError, carouselAudioPolicy as audioPolicy, carouselAudioError, carouselTextLimits, carouselTextLengthError } from '@/features/creative/assetUploadTypes';
 import { decodeText, preflight } from '@/features/creative/assetPreflight';
 import { getUploadPolicy } from '@/features/creative/creativeApi';
 import AssetReviewStatus from './AssetReviewStatus.vue';
@@ -62,7 +63,10 @@ const ready = computed(() => !!props.fixedAccountId && carouselReady(draft.resul
 const rows = computed(() => uploadRows.filter(r => draft.keys.includes(r.key)));
 const accounts = ref<AccountVo[]>([]), accountError = ref(''), textInput = ref<HTMLInputElement>(), imageInput = ref<HTMLInputElement>(), audioInput = ref<HTMLInputElement>();
 const audioSelectionError = ref('');
-const imagePolicy = libraryUploadPolicy('IMAGE'), textPolicy = libraryUploadPolicy('TEXT');
+const textImportError = ref('');
+const nameError = computed(() => carouselTextLengthError(draft.name, 'name'));
+const textError = computed(() => textImportError.value || carouselTextLengthError(draft.text, 'text'));
+const imagePolicy = libraryUploadPolicy('IMAGE');
 const previews = ref<{ url: string; name: string }[]>([]);
 watch(() => [...draft.images], images => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); previews.value = images.map(f => ({ url: URL.createObjectURL(f), name: f.name })); }, { immediate: true });
 watch(() => draft.busy, blocked => emit('closeBlocked', blocked), { immediate: true, flush: 'sync' });
@@ -88,10 +92,16 @@ function audioChanged(e: Event) { const el = e.target as HTMLInputElement; choos
 async function textChanged(e: Event) {
   const el = e.target as HTMLInputElement, file = el.files?.[0]; el.value = '';
   if (!file || locked.value) return;
-  const invalid = libraryFileError(file.name, 'TEXT'); if (invalid) { ElMessage.warning(invalid); return; }
+  textImportError.value = '';
+  const invalid = libraryFileError(file.name, 'TEXT'); if (invalid) { textImportError.value = invalid; return; }
   draft.busy = true;
-  try { await preflight(file, await getUploadPolicy()); draft.text = decodeText(new Uint8Array(await file.arrayBuffer())); }
-  catch (error) { ElMessage.warning(error instanceof Error ? error.message : '文本导入失败'); }
+  try {
+    await preflight(file, await getUploadPolicy());
+    const text = decodeText(new Uint8Array(await file.arrayBuffer()));
+    const error = carouselTextLengthError(text, 'text'); if (error) throw new Error(error);
+    draft.text = text;
+  }
+  catch (error) { textImportError.value = error instanceof Error ? error.message : '文本导入失败'; }
   finally { draft.busy = false; }
 }
 async function loadAccounts() { try { accounts.value = (await listAccounts()).filter(a => a.platform === 'QIANCHUAN' && a.status !== 'DELETED'); accountError.value = ''; } catch { accountError.value = '授权账户加载失败，可先仅保存平台'; } }
@@ -103,6 +113,13 @@ async function verifySync(id: string,sync: AssetSync) { retrying.value=sync.id;t
 onMounted(() => { if(!props.fixedAccountId)void loadAccounts(); });
 onUnmounted(() => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); });
 </script>
+<style scoped>
+.counted-field { position:relative; min-width:0; }
+.counted-field input { padding-right:64px; }
+.counted-field--multiline { display:grid; }
+.counted-field textarea { padding:10px 10px 32px; }
+.field-counter { position:absolute; right:14px; bottom:10px; color:#7c7f99; font-size:12px; line-height:18px; pointer-events:none; }
+</style>
 <style scoped>
 .carousel-upload { color:#50536f; font-size:13px; }.tip { color:#7c7f99; line-height:1.7; margin:12px 0; }section { padding:16px; border:1px solid #e3e4f3; border-radius:14px; margin:14px 0; background:#fcfcff; }h3 { font-size:15px; font-weight:700; margin-bottom:12px; color:#1b1d32; }h3 span { font-size:12px; font-weight:400; color:#7c7f99; margin-left:8px; }section label,.accounts { display:grid; gap:8px; margin-bottom:12px; }input:not([type=checkbox]),textarea { width:100%; border:1px solid #dddff0; border-radius:8px; padding:10px; font:inherit; color:inherit; background:white; }textarea { resize:vertical; }small { display:block; margin-top:8px; color:#7c7f99; line-height:1.5; }.images { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:12px; }.image { position:relative; min-width:0; }.image img { width:100%; height:85px; object-fit:cover; border-radius:8px; }.image button { position:absolute; right:3px; top:3px; border-radius:50%; background:white; width:22px; height:22px; }.image small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.aigc { display:flex; gap:8px; align-items:center; }input[type=checkbox],progress { accent-color:#5b55ff; }.error { color:#e5484d; line-height:1.7; margin:8px 0; }button:disabled { opacity:.45; cursor:not-allowed; }.parts>div { display:flex; gap:16px; padding:8px 0; border-bottom:1px solid #eeeef7; }.parts b { font-weight:400; }.progress-list { margin-top:16px; }.progress-list>div { display:grid; gap:6px; padding:8px 0; }progress { width:100%; height:6px; }section p button,.error button { color:#5b55ff; }
 </style>

@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 import { createCarousel, getCarousel, type CarouselDetail } from './creativeApi';
 import { addUploadFiles, ensureUploadSession, reviewPending, startUploads, uploadRows } from './assetUploads';
 import { targetError } from './assetPreflight';
-import { assetFileRules, carouselAudioError } from './assetUploadTypes';
+import { assetFileRules, carouselAudioError, carouselTextLimits, carouselTextLengthError } from './assetUploadTypes';
 
 export const carouselDraft = reactive({ name: '', text: '', images: [] as File[], audio: undefined as File | undefined,
   textAigc: undefined as boolean | undefined, fileAigc: {} as Record<string, boolean>,
@@ -42,6 +42,9 @@ export async function uploadCarousel() {
   const check = () => { if (!token || token !== localStorage.getItem('lynx.token')) throw new Error('登录账户已切换，上传已停止'); };
   try {
     check();
+    for (const field of ['name', 'text'] as const) {
+      const error = carouselTextLengthError(carouselDraft[field], field); if (error) throw new Error(error);
+    }
     if (!carouselDraft.text.trim()) throw new Error('请输入图文文本');
     if (!carouselDraft.images.length || carouselDraft.images.length > assetFileRules.carouselMaxImages) throw new Error(`请选择 1-${assetFileRules.carouselMaxImages} 张图片`);
     if (!carouselDraft.audio) throw new Error('请选择一份音频');
@@ -64,7 +67,7 @@ export async function uploadCarousel() {
     await startUploads([], carouselDraft.aigc, 'CAROUSEL', carouselDraft.keys); check();
     if (rows.some(r => !r?.result)) throw new Error(rows.find(r => !r?.result)?.error || '图文组件未全部上传，请重试');
     const images = [...new Set(rows.slice(1, -1).map(r => r!.result!.id))];
-    const body = { name: carouselDraft.name.trim() || carouselDraft.images[0]!.name.replace(/\.[^.]+$/, '').slice(0, 100),
+    const body = { name: carouselDraft.name.trim() || carouselDraft.images[0]!.name.replace(/\.[^.]+$/, '').slice(0, carouselTextLimits.name),
       textAssetId: rows[0]!.result!.id, imageAssetIds: images, audioAssetId: rows.at(-1)!.result!.id, accountIds: [...carouselDraft.accounts] };
     const signature = JSON.stringify(body);
     if (signature !== bodySignature) { bodySignature = signature; carouselDraft.requestId = crypto.randomUUID(); }
