@@ -286,7 +286,7 @@
 
   </div>
 </main>
-<CreationFooter :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || !contentEditing && (readOnly || settingsOnly)" @back="emit('cancel')" @save="emit('saveDraft')">
+<CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || !contentEditing && (readOnly || settingsOnly)" @back="emit('cancel')" @save="emit('saveDraft')">
   <template #previous><button class="btn-prev" type="button" :disabled="saving || !contentEditing && (readOnly || settingsOnly)" @click="emit('prev')">
       <svg class="h-[15px] w-[15px]" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-arrow-left"/></svg>
       上一步

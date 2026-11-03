@@ -3,7 +3,7 @@
     <div class="creation-footer__inner">
       <button class="creation-footer__back" type="button" :disabled="busy" @click="emit('back')"><ReferenceIcon name="arrow-left" />返回计划列表</button>
       <div class="creation-footer__summary">
-        <div class="creation-footer__name"><span>计划名称</span><strong :title="planName || undefined">{{ planName || '保存草稿后自动生成' }}</strong></div>
+        <div class="creation-footer__name"><span>计划名称</span><strong :title="planName || undefined">{{ planName || '自动生成计划名称' }}</strong></div>
         <p class="creation-footer__status">计划状态：<span :class="status.group.toLowerCase()">{{ status.label }}</span></p>
       </div>
       <div class="creation-footer__actions">
@@ -21,7 +21,7 @@
 import { computed } from 'vue';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
-const props = withDefaults(defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; planStatus?: string; qcStatus?: string | null; saveLabel?:string; showDraftSave?: boolean; hint?: string }>(), { planStatus: 'DRAFT', showDraftSave: true, saveLabel:'保存草稿' });
+const props = withDefaults(defineProps<{ planName?: string; busy: boolean; saveDisabled?: boolean; planStatus?: string; qcStatus?: string | null; saveLabel?:string; showDraftSave?: boolean; hint?: string }>(), { planStatus: 'DRAFT', showDraftSave: false, saveLabel:'保存草稿' });
 const status = computed(() => planStatusDisplay(props.planStatus, props.qcStatus));
 const emit = defineEmits<{ back: []; save: [] }>();
 </script>

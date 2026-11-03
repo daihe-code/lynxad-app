@@ -50,7 +50,12 @@ export function useCreationDraftAutosave(options: {
     if (!editable()) return true;
     const result = cache!.save(options.capture());
     if (result === 'conflict') { conflict('另一个窗口更新了本机草稿，自动保存已暂停，请选择要保留的内容。'); return false; }
-    if (result === 'unavailable') { status.value = '本机自动保存不可用，请使用“保存草稿”保存到服务器。'; return false; }
+    if (result === 'unavailable') {
+      // A server-confirmed draft can still be left when local storage is blocked.
+      const unsaved = dirty();
+      status.value = unsaved ? '本机自动保存不可用，请通过“返回计划列表”保存当前计划。' : '';
+      return !unsaved;
+    }
     status.value = '';
     try { if (cache?.scope) rememberDraftAccount(localStorage,cache.scope); } catch { /* Main input cache has already been saved. */ }
     return true;
@@ -98,7 +103,7 @@ export function useCreationDraftAutosave(options: {
         else flush();
       }
       if (retirePrevious && previous?.scope?.planId === null && previous.scope && draftKey(previous.scope) !== draftKey(scope) && flush()) previous.discard();
-    } catch { active = true; status.value = '本机自动保存不可用，请使用“保存草稿”保存到服务器。'; }
+    } catch { active = true; status.value = '本机自动保存不可用，请通过“返回计划列表”保存当前计划。'; }
   }
   function acknowledge(fields: (keyof DraftInputs)[], revision = options.server()?.revision ?? null, inputs=options.capture()) {
     if (active && currentScope() && !paused.value) cache?.acknowledge(revision,inputs,fields);
