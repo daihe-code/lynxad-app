@@ -153,9 +153,9 @@
                        aria-describedby="code-sms-error">
                 <button class="btn-code" type="button" @click="onSend" :disabled="cooldown > 0 || sending || loading">{{ sending ? "发送中…" : cooldown > 0 ? `${cooldown}s 后重新获取` : "获取验证码" }}</button>
               </div>
-              <p class="field__error" id="code-sms-error" role="alert">
+              <p class="field__error" :class="{ 'field__error--visible': sendError }" id="code-sms-error" role="alert">
                 <svg class="h-4 w-4 shrink-0" aria-hidden="true"><use href="#ic-alert"/></svg>
-                <span>{{ errors.code }}</span>
+                <span>{{ sendError || errors.code }}</span>
               </p>
             </div>
 
@@ -236,7 +236,7 @@
                 <input id="reset-code" v-model="code" class="input tnum" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="请输入验证码" :readonly="loading" :aria-invalid="errors.code ? true : undefined" aria-describedby="reset-code-error" @input="clearFieldError('code')" @blur="validateOnBlur('code')">
                 <button class="btn-code" type="button" :disabled="cooldown > 0 || sending || loading" @click="onSend">{{ sending ? "发送中…" : cooldown > 0 ? `${cooldown}s 后重新获取` : "获取验证码" }}</button>
               </div>
-              <p id="reset-code-error" class="field__error" role="alert"><span>{{ errors.code }}</span></p>
+              <p id="reset-code-error" class="field__error" :class="{ 'field__error--visible': sendError }" role="alert"><span>{{ sendError || errors.code }}</span></p>
             </div>
             <div class="field" :data-invalid="errors.newPassword ? 'true' : undefined">
               <label class="field__label" for="reset-password">新密码</label>
@@ -268,6 +268,7 @@ import { nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { resetPassword, sendSms } from "@/features/tenant/authApi";
 import { resetPasswordError } from "./loginRecovery";
+import { requestFailure } from "@/api/apiErrors";
 import { useUserStore } from "@/stores/user";
 import { isCnMobile } from "@/utils/phone";
 
@@ -279,6 +280,7 @@ const phone = ref(""), code = ref(""), pwdPhone = ref(""), password = ref("");
 const agreed = ref(false), showPassword = ref(false);
 const resetting = ref(false), resetSuccess = ref(false), newPassword = ref(""), confirmPassword = ref("");
 const loading = ref(false), sending = ref(false), cooldown = ref(0);
+const sendError = ref("");
 const errors = reactive<Record<FieldKey, string>>({ smsPhone: "", code: "", pwdPhone: "", password: "", newPassword: "", confirmPassword: "" });
 const legalAttention = ref(false), legalError = ref("");
 const fieldIds: Record<FieldKey, string> = { smsPhone: "code-phone", code: "code-sms", pwdPhone: "pwd-phone", password: "pwd-password", newPassword: "reset-password", confirmPassword: "reset-confirm" };
@@ -314,7 +316,10 @@ function validateField(key: FieldKey) {
   errors[key] = valid ? "" : key === "code" ? "请输入 6 位数字验证码" : key === "password" ? "密码长度需为 6–20 位" : "请输入 11 位有效手机号";
   return valid;
 }
-function clearFieldError(key: FieldKey) { if (errors[key]) validateField(key); }
+function clearFieldError(key: FieldKey) {
+  if (key === "smsPhone" || key === "code") sendError.value = "";
+  if (errors[key]) validateField(key);
+}
 function validateOnBlur(key: FieldKey) { if (valueOf(key)) validateField(key); }
 
 async function switchTab(next: LoginTab, focus = false) {
@@ -337,6 +342,7 @@ function onTabKeydown(event: KeyboardEvent, current: LoginTab) {
   switchTab(event.key === "Home" ? "sms" : event.key === "End" ? "password" : current === "sms" ? "password" : "sms", true);
 }
 function clearSensitiveFields() {
+  sendError.value = "";
   password.value = "";
   code.value = "";
   newPassword.value = "";
@@ -372,14 +378,28 @@ function startCooldown(seconds: number) {
 }
 async function onSend() {
   if (sending.value || cooldown.value > 0 || loading.value) return;
-  if (!validateField("smsPhone")) { focusField("smsPhone"); return; }
+  sendError.value = "";
+  if (!validateField("smsPhone")) {
+    errors.smsPhone = "手机号错误，验证码发送失败";
+    focusField("smsPhone");
+    return;
+  }
+  const recipient = phone.value.trim();
   sending.value = true;
   try {
-    const result = await sendSms(phone.value.trim());
+    const result = await sendSms(recipient, { headers: { "X-Quiet-Request": "true" } });
     if (disposed) return;
     const seconds = result.cooldownSec ?? result.ttlSec;
     if (Number.isFinite(seconds) && seconds > 0) startCooldown(seconds);
-  } catch { /* The API interceptor reports the error; no countdown on failure. */ }
+  } catch (error) {
+    if (disposed || recipient !== phone.value.trim()) return;
+    const failure = requestFailure(error, { method: "POST" });
+    if (failure.kind === "CANCELLED") return;
+    if (failure.code === 1001) {
+      errors.smsPhone = failure.message;
+      focusField("smsPhone");
+    } else sendError.value = failure.message;
+  }
   finally { sending.value = false; }
 }
 

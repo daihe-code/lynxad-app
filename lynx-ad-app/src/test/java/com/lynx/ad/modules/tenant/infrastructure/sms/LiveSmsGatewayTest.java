@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.aliyun.dysmsapi20170525.models.SendSmsResponse;
 import com.aliyun.dysmsapi20170525.models.SendSmsResponseBody;
+import com.aliyun.tea.TeaException;
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.PhoneNumber;
 import com.lynx.ad.common.exception.BizException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class LiveSmsGatewayTest {
 
@@ -37,7 +40,46 @@ class LiveSmsGatewayTest {
         var gateway = new LiveSmsGateway(configured(), request -> response("isv.SMS_SIGNATURE_ILLEGAL"));
         BizException error = assertThrows(BizException.class, () -> gateway.send(PHONE, "123456"));
         assertEquals(1113, error.code());
-        assertEquals("短信发送失败", error.getMessage());
+        assertEquals("短信服务配置异常，验证码发送失败", error.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "isv.MOBILE_NUMBER_ILLEGAL,1001,手机号错误，验证码发送失败",
+        "isv.BUSINESS_LIMIT_CONTROL,1115,验证码发送过于频繁，请稍后再试",
+        "isv.SIGN_STATE_ILLEGAL,1113,短信服务配置异常，验证码发送失败",
+        "isv.SMS_SIGNATURE_SCENE_ILLEGAL,1113,短信服务配置异常，验证码发送失败",
+        "isv.SMS_TEMPLATE_ILLEGAL,1113,短信服务配置异常，验证码发送失败",
+        "isv.AMOUNT_NOT_ENOUGH,1113,短信服务暂不可用，验证码发送失败",
+        "isv.OUT_OF_SERVICE,1113,短信服务暂不可用，验证码发送失败",
+        "isp.SYSTEM_ERROR,1113,验证码发送失败，请稍后重试",
+        "unknown,1113,验证码发送失败，请稍后重试"
+    })
+    void givesTheActualFailureReasonForBothResponseAndSdkException(String providerCode, int code, String message) {
+        for (boolean sdkException : new boolean[]{false, true}) {
+            var gateway = new LiveSmsGateway(configured(), request -> {
+                if (sdkException) {
+                    var failure = new TeaException();
+                    failure.setCode(providerCode);
+                    failure.setMessage("provider request contains sensitive values");
+                    throw failure;
+                }
+                return response(providerCode);
+            });
+            BizException error = assertThrows(BizException.class, () -> gateway.send(PHONE, "123456"));
+            assertEquals(code, error.code());
+            assertEquals(message, error.getMessage());
+        }
+    }
+
+    @Test
+    void missingProviderResponseDoesNotBlameThePhoneNumber() {
+        for (var response : new SendSmsResponse[]{null, new SendSmsResponse(), response(null)}) {
+            var gateway = new LiveSmsGateway(configured(), request -> response);
+            BizException error = assertThrows(BizException.class, () -> gateway.send(PHONE, "123456"));
+            assertEquals(1113, error.code());
+            assertEquals("验证码发送失败，请稍后重试", error.getMessage());
+        }
     }
 
     @Test

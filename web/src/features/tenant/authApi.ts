@@ -2,7 +2,7 @@
  * 租户认证/账户调用封装。字段须与
  * `specs/001-closed-loop-saas/contracts/openapi.yaml` 及 `web/src/api/schema.d.ts` 对齐，禁止 `any`。
  */
-import { apiGet, apiPost, apiPut } from "@/api/http";
+import { apiGet, apiPost, apiPut, type ApiRequestConfig } from "@/api/http";
 
 export interface LoginResult {
   token: string;
@@ -61,8 +61,8 @@ export interface UpdateProfilePayload {
   companyScale?: string | null;
 }
 
-export function sendSms(phone: string) {
-  return apiPost<SendSmsResult>("/api/v1/tenant/auth/sms/send", { phone });
+export function sendSms(phone: string, config?: ApiRequestConfig) {
+  return apiPost<SendSmsResult>("/api/v1/tenant/auth/sms/send", { phone }, config);
 }
 
 export function verifySms(phone: string, code: string) {

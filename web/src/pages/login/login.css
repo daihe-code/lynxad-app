@@ -626,6 +626,9 @@ img,video {
 .\!field[data-invalid=true] .field__error,.field[data-invalid=true] .field__error {
   display: flex;
 }
+.field__error--visible {
+  display: flex;
+}
 .\!field[data-invalid=true] .input,.\!field[data-invalid=true] .input-affix,.field[data-invalid=true] .\!input,.field[data-invalid=true] .input,.field[data-invalid=true] .input-affix {
   --tw-border-opacity: 1;
   border-color: rgb(var(--c-danger)/var(--tw-border-opacity,1));
@@ -715,15 +718,13 @@ img,video {
 .field__control:has(.input-icon-btn) .\!input {
   padding-right: 3.5rem;
 }
-.\!input:-webkit-autofill {
-  -webkit-text-fill-color: rgb(var(--c-text-1))!important;
-  -webkit-transition: background-color 9999s ease-out!important;
-  transition: background-color 9999s ease-out!important;
-}
-.input:-webkit-autofill {
+.\!input:is(:-webkit-autofill, :autofill),
+.input:is(:-webkit-autofill, :autofill) {
   -webkit-text-fill-color: rgb(var(--c-text-1));
-  -webkit-transition: background-color 9999s ease-out;
-  transition: background-color 9999s ease-out;
+  caret-color: rgb(var(--c-text-1));
+  /* Cover the browser autofill tint immediately, retaining focus/error rings. */
+  box-shadow: inset 0 0 0 1000px #fff,
+    var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow,0 0 #0000)!important;
 }
 .input-affix {
   font-variant-numeric: tabular-nums;
