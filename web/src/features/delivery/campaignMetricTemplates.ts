@@ -28,7 +28,7 @@ export function metricDelta(row: Pick<PlanListVo, 'comparison'>, column: MetricC
   const value = key in legacyField ? comparison?.[legacyField[key as keyof typeof legacyField]]
     : current != null && previous != null && current >= 0 && previous > 0 ? (current - previous) / previous * 100
     : current === 0 && previous === 0 ? 0 : null;
-  return { value, current, previous, percent: true, lowerIsBetter: column.kind === 'rate', unit: column.kind === 'count' ? '单' : column.kind === 'money' ? '元' : column.kind === 'rate' ? '%' : '',
+  return { value, current, previous, lowerIsBetter: column.kind === 'rate',
     basis: comparison?.basis, previousTs: comparison?.previousSnapshotTs, previousStartDate: comparison?.previousStartDate,
     previousEndDate: comparison?.previousEndDate, unavailableReason: comparison?.unavailableReason };
 }
