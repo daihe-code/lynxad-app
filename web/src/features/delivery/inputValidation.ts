@@ -18,7 +18,7 @@ export function budgetInputError(value: string, mode: string, profile: InputProf
   const amount=decimal(value), min=budgetMinimum(mode,profile), max=isCostMode(mode) ? rules[profile].budgetMaximum : rules[profile].volumeBudgetMaximum;
   if (amount === undefined) return '请输入正确的日预算，最多两位小数';
   if (amount < min) return `${isCostMode(mode) ? '控成本' : '放量'}日预算不能低于 ${min} 元（含 ${min} 元），最多两位小数`;
-  return amount > max ? `日预算范围为 ${min}–${max} 元，最多两位小数` : '';
+  return amount > max ? `日预算范围为 ${min.toLocaleString('zh-CN')}–${max.toLocaleString('zh-CN')} 元，最多两位小数` : '';
 }
 export function roiInputError(value: string, mode: string, profile: InputProfile = 'creation') {
   if (!isCostMode(mode)) return '';
