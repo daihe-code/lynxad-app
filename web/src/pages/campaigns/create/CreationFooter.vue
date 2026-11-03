@@ -1,7 +1,7 @@
 <template>
   <footer class="creation-footer" aria-label="投放计划操作栏">
     <div class="creation-footer__inner">
-      <button class="creation-footer__back" type="button" :disabled="busy" @click="emit('back')"><ReferenceIcon name="arrow-left" />查看所有计划</button>
+      <button class="creation-footer__back" type="button" :disabled="busy" @click="emit('back')"><ReferenceIcon name="arrow-left" />返回计划列表</button>
       <div class="creation-footer__summary">
         <div class="creation-footer__name"><span>计划名称</span><strong :title="planName || undefined">{{ planName || '保存草稿后自动生成' }}</strong></div>
         <p class="creation-footer__status">计划状态：<span :class="status.group.toLowerCase()">{{ status.label }}</span></p>
