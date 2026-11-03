@@ -16,6 +16,7 @@ import java.net.*;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Function;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,7 +33,10 @@ class CreationGatewayTest {
         gateway=new CreationQianchuanGateway(new QianchuanRestClient(json,millis->{},HttpClient.newHttpClient()),new OceanJson(json),json,p,credentials,accounts);
     }
     void serve(String response,int status) throws Exception {
-        server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",e->{requests.incrementAndGet();query=e.getRequestURI().getRawQuery();assertEquals("test-token",e.getRequestHeaders().getFirst("Access-Token"));byte[] bytes=response.getBytes(StandardCharsets.UTF_8);e.sendResponseHeaders(status,bytes.length);e.getResponseBody().write(bytes);e.close();});server.start();
+        serve(raw->response,status);
+    }
+    void serve(Function<String,String> response,int status) throws Exception {
+        server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",e->{requests.incrementAndGet();query=e.getRequestURI().getRawQuery();assertEquals("test-token",e.getRequestHeaders().getFirst("Access-Token"));byte[] bytes=response.apply(query).getBytes(StandardCharsets.UTF_8);e.sendResponseHeaders(status,bytes.length);e.getResponseBody().write(bytes);e.close();});server.start();
         String url="http://127.0.0.1:"+server.getAddress().getPort()+"/";p.getQianchuan().getCatalog().setProductGetUrl(url);p.getQianchuan().getDelivery().setAdCreateUrl(url);
     }
     @AfterEach void close(){if(server!=null)server.stop(0);}
@@ -61,7 +65,7 @@ class CreationGatewayTest {
              "page_info":{"cursor":9007199254740993,"has_more":true}}}
             """,200);
         for(String tab:List.of("NEW_PRODUCT","BREAKTHROUGH_PRODUCT")) {
-            var first=gateway.products(new TenantId("t"),"a","123",1,10,"新品",tab,true,null);
+            var first=gateway.products(new TenantId("t"),"a","123",1,10,"新品",tab,false,null);
             var params=queryParams();var filters=json.readTree(params.get("filtering"));
             assertEquals(tab,filters.path("tab").asText());assertEquals("新品",filters.path("product_name").asText());
             assertFalse(filters.has("create_roi2_limit_product"));assertEquals("0",params.get("cursor"));
@@ -82,6 +86,44 @@ class CreationGatewayTest {
         assertEquals("SEARCH_TREND",filters.path("tab").asText());assertFalse(filters.has("create_roi2_limit_product"));
         assertEquals("2",params.get("page"));assertEquals("30",params.get("page_size"));assertFalse(params.containsKey("cursor"));
         assertEquals(0,result.total());assertTrue(result.items().isEmpty());
+    }
+    @ParameterizedTest
+    @ValueSource(strings={"NEW_PRODUCT","BREAKTHROUGH_PRODUCT","SEARCH_TREND"})
+    void categoryFilterIntersectsOnlyCurrentPageWithSameAwemeUnpromotedProducts(String tab) throws Exception {
+        var queries=Collections.synchronizedList(new ArrayList<String>());
+        serve(raw->{
+            String decoded=URLDecoder.decode(raw,StandardCharsets.UTF_8);queries.add(decoded);
+            return decoded.contains("\"tab\":\"ALL\"")
+                ? "{\"code\":0,\"data\":{\"product_list\":[{\"id\":1001},{\"id\":1003},{\"id\":9999}]}}"
+                : "{\"code\":0,\"data\":{\"product_list\":[{\"id\":1003,\"name\":\"分类第三款\"},{\"id\":1002},{\"id\":1001,\"name\":\"分类第一款\"}],\"page_info\":{\"cursor\":9007199254740993,\"has_more\":true,\"total_number\":30}}}";
+        },200);
+        var page=gateway.products(new TenantId("t"),"a","123",1,10,null,tab,true,null);
+        assertEquals(List.of("1003","1001"),page.items().stream().map(product->product.qcProductId()).toList());
+        assertEquals("分类第三款",page.items().getFirst().name());
+        assertEquals(2,requests.get());
+        assertTrue(queries.getFirst().contains("\"tab\":\""+tab+"\""));
+        assertFalse(queries.getFirst().contains("create_roi2_limit_product"));
+        String verification=queries.getLast();
+        assertTrue(verification.contains("advertiser_id=9007199254740993"));
+        assertTrue(verification.contains("aweme_id=123"));
+        assertTrue(verification.contains("\"tab\":\"ALL\""));
+        assertTrue(verification.contains("\"create_roi2_limit_product\":true"));
+        assertTrue(verification.contains("\"product_ids\":[1003,1002,1001]"));
+        assertTrue(verification.contains("page=1"));assertTrue(verification.contains("page_size=100"));
+        if(!tab.equals("SEARCH_TREND")){assertEquals("9007199254740993",page.nextCursor());assertTrue(page.hasMore());}
+        assertEquals(30,page.total());
+    }
+    @Test void emptyFilteredPageKeepsItsCursorAndLookupFailuresAreNotSilentlyUnfiltered() throws Exception {
+        serve(raw->URLDecoder.decode(raw,StandardCharsets.UTF_8).contains("\"tab\":\"ALL\"")
+                ? "{\"code\":0,\"data\":{\"product_list\":[]}}"
+                : "{\"code\":0,\"data\":{\"product_list\":[{\"id\":1001}],\"page_info\":{\"cursor\":8,\"has_more\":true}}}",200);
+        var page=gateway.products(new TenantId("t"),"a","123",1,10,null,"NEW_PRODUCT",true,null);
+        assertTrue(page.items().isEmpty());assertEquals("8",page.nextCursor());assertTrue(page.hasMore());
+        server.stop(0);
+        serve(raw->URLDecoder.decode(raw,StandardCharsets.UTF_8).contains("\"tab\":\"ALL\"")
+                ? "{\"code\":40000,\"message\":\"lookup unavailable\"}"
+                : "{\"code\":0,\"data\":{\"product_list\":[{\"id\":1001}],\"page_info\":{\"cursor\":0}}}",200);
+        assertThrows(BizException.class,()->gateway.products(new TenantId("t"),"a","123",1,10,null,"NEW_PRODUCT",true,null));
     }
     @Test void categoryEmptyResponseIsSuccessfulButPlatformRejectionIsNotSilentlyEmpty() throws Exception {
         serve("{\"code\":0,\"data\":{\"product_list\":[],\"page_info\":{\"cursor\":0,\"page\":0,\"page_size\":0}}}",200);

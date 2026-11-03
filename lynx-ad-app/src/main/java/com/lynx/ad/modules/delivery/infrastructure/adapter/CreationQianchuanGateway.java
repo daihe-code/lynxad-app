@@ -97,13 +97,21 @@ public class CreationQianchuanGateway {
                 if("0".equals(next)||next.equals(position))throw new BizException(1406,"千川商品分页信息异常，请重新查询");
             }
         }
+        var candidates=new ArrayList<JsonNode>();
+        data.path("product_list").forEach(candidates::add);
+        if(unpromoted && !ProductCatalogPolicy.supportsUnpromoted(category) && !candidates.isEmpty()) {
+            // These categories reject the native filter. Check only this page's IDs
+            // against the same advertiser/aweme's ALL + unpromoted endpoint.
+            var eligible=unpromotedProductIds(c,aweme,candidates);
+            candidates.removeIf(product->!eligible.contains(product.path("id").asText(product.path("product_id").asText())));
+        }
         var refs=new ArrayList<com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref>();
-        for(var p:data.path("product_list")) refs.add(new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(
+        for(var p:candidates) refs.add(new com.lynx.ad.modules.catalog.infrastructure.persistence.ProductPriceStore.Ref(
                 p.path("id").asText(p.path("product_id").asText()),p.path("channel_id").asText(null)));
         var quotes=prices==null||!fetchPrices?Map.<String,com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice>of():prices.prices(tenant,c,aweme,refs,refreshPrices);
         var manual=manualPrices(tenant,aweme);
         var items=new ArrayList<Product>();
-        for(var p:data.path("product_list")) {
+        for(var p:candidates) {
             String id=p.path("id").asText(p.path("product_id").asText());
             if(!id.matches("[1-9][0-9]{0,18}")) continue;
             var quote=quotes.get(id);
@@ -114,6 +122,26 @@ public class CreationQianchuanGateway {
                     p.path("category_name").asText(""),p.path("stock_num").isNumber()?p.path("stock_num").longValue():null,tags,reasons,quote,p.path("channel_id").asText(null),null,sales(p.get("sell_num"))));
         }
         return new Page(items,info.path("total_number").asLong(items.size()),page,size,next,hasMore);
+    }
+    private Set<String> unpromotedProductIds(Credential credential,String aweme,List<JsonNode> candidates) {
+        var ids=candidates.stream().map(product->product.path("id").asText(product.path("product_id").asText()))
+                .filter(id->id.matches("[1-9][0-9]{0,18}")).distinct().toList();
+        var eligible=new HashSet<String>();
+        // Bound each lookup to ten candidate IDs, never scan the whole shop.
+        for(int offset=0;offset<ids.size();offset+=10) {
+            var batch=ids.subList(offset,Math.min(offset+10,ids.size()));
+            var params=new LinkedHashMap<String,Object>();
+            params.put("advertiser_id",credential.advertiserId().value());params.put("aweme_id",aweme);
+            params.put("filtering",encode(Map.of("tab","ALL","create_roi2_limit_product",true,
+                    "product_ids",batch.stream().map(CreationQianchuanGateway::numericId).toList())));
+            params.put("page",1);params.put("page_size",100);
+            var result=read(credential,properties.getQianchuan().getCatalog().getProductGetUrl(),params);
+            for(var product:result.path("product_list")) {
+                String id=product.path("id").asText(product.path("product_id").asText());
+                if(batch.contains(id))eligible.add(id);
+            }
+        }
+        return eligible;
     }
     private static String catalogCursor(String value) {
         if(value==null||!value.matches("0|[1-9][0-9]{0,18}")||new BigInteger(value).compareTo(BigInteger.valueOf(Long.MAX_VALUE))>0)
