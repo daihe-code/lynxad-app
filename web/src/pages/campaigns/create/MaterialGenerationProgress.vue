@@ -1,10 +1,10 @@
 <template>
   <div class="gen" :class="{'gen--compact':compact}" role="status" aria-live="polite">
+    <p class="gen__title">{{ cards.some(card=>card.failed) && !busy ? '部分素材尚未完成' : state.generationResultStatus === 'UNCERTAIN' ? '本次生成提交结果待确认' : state.generationStatus === 'REVISING' ? '正在处理本次重新生成' : syncing ? state.generationResultStatus === 'SUCCEEDED' ? '素材已生成，正在登记素材并同步千川' : '正在登记已有产物并同步千川' : ['QUEUED','SUBMITTING'].includes(state.generationStatus) ? '正在准备素材' : '正在生成投放素材' }}</p>
     <div v-if="state.generationResultStatus !== 'UNCERTAIN'" class="gauge" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100" aria-label="素材生成总进度">
       <svg class="gauge__svg" viewBox="0 0 104 104" aria-hidden="true"><circle class="gauge__track" cx="52" cy="52" r="46" /><circle class="gauge__arc" cx="52" cy="52" r="46" stroke-dasharray="289" :stroke-dashoffset="289 * (1 - percent / 100)" /></svg>
       <span class="gauge__mid"><span class="gauge__pct">{{ percent }}<span class="gauge__unit">%</span></span><span class="gauge__cap">{{ syncing ? '同步中' : '生成中' }}</span></span>
     </div>
-    <p class="gen__title">{{ cards.some(card=>card.failed) && !busy ? '部分素材尚未完成' : state.generationResultStatus === 'UNCERTAIN' ? '本次生成提交结果待确认' : state.generationStatus === 'REVISING' ? '正在处理本次重新生成' : syncing ? state.generationResultStatus === 'SUCCEEDED' ? '素材已生成，正在登记素材并同步千川' : '正在登记已有产物并同步千川' : ['QUEUED','SUBMITTING'].includes(state.generationStatus) ? '正在准备素材' : '正在生成投放素材' }}</p>
     <p class="gen__desc">{{ reconnecting ? '暂时无法更新进度，正在重新连接。' : syncing ? '生成结果已保留，正在完成登记、检查和千川同步。' : ['QUEUED','SUBMITTING'].includes(state.generationStatus) ? '正在读取商品信息并提交生成任务。' : `已完成 ${cards.reduce((sum,card)=>sum+card.completed,0)}${cards.every(card=>card.total !== null) ? '/' + cards.reduce((sum,card)=>sum+(card.total || 0),0) : ''} 条，其余素材正在处理中。` }}</p>
     <p class="gen__desc">{{ state.generationResultStatus === 'UNCERTAIN' ? '本次请求不会自动重发，现有素材仍可使用，请核对引擎任务记录。' : '你可以先离开，生成任务会继续。完成后可从消息通知或本计划查看结果。' }}</p>
     <div v-if="state.generationResultStatus !== 'UNCERTAIN'" class="gencards" :class="{ 'gencards--single': cards.length === 1 }">
@@ -36,6 +36,8 @@ const cards = computed(() => ([{ type: 'VIDEO', label: '短视频', icon: 'video
 </script>
 <style scoped>
 .gen { padding: 16px 0 54px; scroll-margin-top: 100px; }
+.gen .gen__title{margin:0 0 24px;font-size:18px;line-height:26px}
+.gen .gauge + .gen__desc{margin-top:24px}
 .gen--compact{padding:0 0 20px}.gen--compact .gauge,.gen--compact .gen__title,.gen--compact>.gen__desc,.gen--compact .gen__hint{display:none}.gen--compact .gencards{margin-top:12px}.generation-failure{font-size:12px;line-height:1.7;color:#a45b28;margin-top:10px}.generation-failure button{display:block;margin-top:8px;color:#575cf6;background:white;border:1px solid #dad8f6;border-radius:8px;padding:6px 10px;cursor:pointer}.generation-failure button:disabled{opacity:.5;cursor:default}
 .gauge__svg { transform: rotate(-90deg); }
 .gencard { border-style: solid; }
