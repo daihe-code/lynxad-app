@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPostForm } from "@/api/http";
+import { apiDelete, apiGet, apiPost, apiPostForm, type ApiRequestConfig } from "@/api/http";
 
 export type MaterialType = 'VIDEO' | 'IMAGE';
 export interface MaterialFeedback { reasons: string[]; description: string }
@@ -154,13 +154,13 @@ export function listLibraryFull(params: {
   accountId?: string;
   productId?: string;
   productScope?: 'AUTO' | 'RELATED' | 'ALL';
-}) {
+}, config?: ApiRequestConfig) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== "") q.set(k, String(v));
   });
   const suffix = q.toString() ? `?${q.toString()}` : "";
-  return apiGet<LibraryResponse>(`/api/v1/creative/library${suffix}`);
+  return apiGet<LibraryResponse>(`/api/v1/creative/library${suffix}`, config);
 }
 
 export function replaceItem(packageId: string, productId: string, file: File) {
