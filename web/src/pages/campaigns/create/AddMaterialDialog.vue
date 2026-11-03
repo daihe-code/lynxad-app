@@ -1,5 +1,5 @@
 <template>
-  <ReferenceModal class="add-material-dialog" title="新增素材" :width="1020" :busy="locked" @close="close">
+  <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': uploadBatchMode && type === 'VIDEO' }" title="新增素材" :width="1020" :busy="locked" @close="close">
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
     <div class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
@@ -13,17 +13,17 @@
       <div v-else class="asset-grid" role="group" :aria-label="`${kindLabel}素材库`"><article v-for="item in items" :key="`${item.id}:${previewVersion}`" :class="{ selected: librarySelected?.id === item.id }"><button type="button" class="asset-select" :aria-pressed="librarySelected?.id === item.id" :aria-label="`选择 ${item.filename}`" :disabled="locked" @click="librarySelected = item"><span class="asset-preview"><AssetThumbnail :item="item" fit="contain" /></span><span class="check-mark">{{ librarySelected?.id === item.id ? '✓' : '' }}</span><strong :title="item.filename">{{ item.filename }}</strong><small>{{ materialMeta(item) }}</small><small>{{ item.source === 'UPLOAD' ? '本地上传' : item.source === 'LYNX' ? '智能生成' : '千川素材' }} · {{ createdDate(item.createdAt) }}</small></button><button type="button" class="preview-button" :aria-label="`预览 ${item.filename}`" :title="type === 'VIDEO' ? '播放预览' : '预览'" :disabled="locked" @click="preview(item)"><ReferenceIcon :name="type === 'VIDEO' ? 'play' : 'eye'" /></button></article></div>
       <nav v-if="!loadError && !loading && total > 0" class="library-pager" :aria-label="`${kindLabel}分页`"><span>共 {{ total }} 条，每页 {{ pageSize }} 条</span><div><button type="button" :aria-label="`${kindLabel}上一页`" :disabled="locked || page <= 1" @click="changePage(page - 1)">上一页</button><span>第 {{ page }} / {{ totalPages }} 页</span><button type="button" :aria-label="`${kindLabel}下一页`" :disabled="locked || page >= totalPages" @click="changePage(page + 1)">下一页</button></div></nav>
     </div>
-    <LocalMaterialUpload v-if="uploadMounted" ref="uploader" v-show="source === 'UPLOAD'" :active="source === 'UPLOAD'" :type="type" :account-id="state.accountId" :busy="busy || awaiting || imageSaving" :added-image-ids="addedImageIds" :image-saving="imageSaving" @image-batch="imageBatch = $event" @blocked="uploadBlocked = $event" @files-changed="localFileCount = $event" @select="localSelected = $event" />
+    <LocalMaterialUpload v-if="uploadMounted" ref="uploader" v-show="source === 'UPLOAD'" :active="source === 'UPLOAD'" :type="type" :account-id="state.accountId" :busy="busy || awaiting || batchSaving" :added-asset-ids="addedAssetIds" :batch-saving="batchSaving" @upload-batch="uploadBatch = $event" @blocked="uploadBlocked = $event" @files-changed="localFileCount = $event" @select="localSelected = $event" />
     <div v-if="previewItem" ref="previewPanel" class="preview-panel"><div><strong>{{ previewItem.filename }}</strong><button type="button" aria-label="关闭素材预览" @click="previewItem = undefined">关闭预览</button></div><video v-if="previewItem.type === 'VIDEO' && previewUrls?.playUrl" :key="previewItem.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls autoplay preload="metadata" @loadedmetadata="scrollPreview" @error="previewFailed" /><img v-else-if="imagePreviewUrl" :key="previewItem.id" :src="assetUrl(imagePreviewUrl)" :alt="previewItem.filename" @load="scrollPreview" /><p v-else class="hint">此素材暂不可预览，请刷新后重试。</p><p v-if="previewError" class="error">{{ previewError }}</p></div>
-    <p v-if="imageSpecError" class="error" role="alert">{{ imageSpecError }}</p><p v-if="imageBatchMode && imageAttachError || submitError" class="error" role="alert">{{ imageBatchMode && imageAttachError || submitError }}</p>
+    <p v-if="imageSpecError" class="error" role="alert">{{ imageSpecError }}</p><p v-if="uploadBatchMode && uploadAttachError || submitError" class="error" role="alert">{{ uploadBatchMode && uploadAttachError || submitError }}</p>
     <template #footer>
-      <template v-if="imageBatchMode">
-        <span class="selection-count">{{ imageBatch.addedCount === imageBatch.count ? `成功添加 ${imageBatch.addedCount} 张图片` : `已就绪 ${imageBatch.readyCount}/${imageBatch.count} 张图片` }}</span>
-        <button v-if="imageBatch.processing" type="button" class="secondary" :disabled="busy || imageSaving || stoppingImages" @click="stopImages">{{ stoppingImages ? '停止中…' : '停止未完成任务' }}</button>
-        <button v-else type="button" class="secondary" :disabled="locked || !!imageAttachError" @click="continueImages">继续上传</button>
-        <button type="button" class="primary" :disabled="locked || stoppingImages" @click="imageAttachError ? retryImageAdd() : close()">{{ imageSaving ? '添加中…' : imageBatch.processing || stoppingImages ? '处理中…' : imageAttachError ? '重试添加' : '完成，返回素材列表' }}</button>
+      <template v-if="uploadBatchMode">
+        <span class="selection-count">{{ uploadBatch.addedCount === uploadBatch.count ? `成功添加 ${uploadBatch.addedCount} ${uploadUnit}` : `已就绪 ${uploadBatch.readyCount}/${uploadBatch.count} ${uploadUnit}` }}</span>
+        <button v-if="uploadBatch.processing" type="button" class="secondary" :disabled="busy || batchSaving || stoppingUploads" @click="stopUploads">{{ stoppingUploads ? '停止中…' : '停止未完成任务' }}</button>
+        <button v-else type="button" class="secondary" :class="{ 'upload-more-link': type === 'VIDEO' }" :disabled="locked || !!uploadAttachError" @click="continueUploads">继续上传</button>
+        <button type="button" class="primary" :disabled="locked || stoppingUploads" @click="uploadAttachError ? retryUploadAdd() : close()">{{ batchSaving ? '添加中…' : uploadBatch.processing || stoppingUploads ? '处理中…' : uploadAttachError ? '重试添加' : '完成，返回素材列表' }}</button>
       </template>
-      <template v-else><span v-if="source !== 'AI'" class="selection-count"><template v-if="needsImageFile">请选择要上传的图片</template><template v-else>已选 {{ selected ? 1 : 0 }} {{ type === 'IMAGE' ? '张图片' : type === 'VIDEO' ? '条视频' : '套图文' }}</template></span><button type="button" class="secondary" :disabled="locked" @click="close">取消</button><button v-if="!needsImageFile" type="button" class="primary" :disabled="locked || !canSubmit" @click="submit">{{ busy || awaiting ? '提交中…' : source === 'AI' ? generationButton : '添加所选素材' }}</button></template>
+      <template v-else><span v-if="source !== 'AI'" class="selection-count"><template v-if="needsUploadFile">请选择要上传的{{ type === 'VIDEO' ? '视频' : '图片' }}</template><template v-else>已选 {{ selected ? 1 : 0 }} {{ type === 'IMAGE' ? '张图片' : type === 'VIDEO' ? '条视频' : '套图文' }}</template></span><button type="button" class="secondary" :disabled="locked" @click="close">取消</button><button v-if="!needsUploadFile" type="button" class="primary" :disabled="locked || !canSubmit" @click="submit">{{ busy || awaiting ? '提交中…' : source === 'AI' ? generationButton : '添加所选素材' }}</button></template>
     </template>
   </ReferenceModal>
 </template>
@@ -40,11 +40,11 @@ import { assetDate } from '@/features/creative/assetDates';
 import { listLibraryFull, type LibraryItemVo } from '@/features/creative/creativeApi';
 import type { CreationAdditionBody, CreationState, creationAdd } from '@/features/delivery/creationApi';
 import { materialSelectionAccepted } from '@/features/delivery/materialSelection';
-import type { ImageBatchReceipt, ImageBatchState } from '@/features/creative/imageUploadBatch';
+import type { LocalUploadBatch, UploadBatchReceipt, UploadBatchState } from '@/features/creative/localUploadBatch';
 type Format = CreationAdditionBody['type'];
 type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
 const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean; submissionError?: string }>();
-const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]]; addImages: [body: Parameters<typeof creationAdd>[1], receipt: ImageBatchReceipt]; imageBatchFinished: [] }>();
+const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
 const formats: Record<Format, string> = { VIDEO: '视频', IMAGE: '商品卡图片', CAROUSEL: '图文' };
 const sources: Record<Source, string> = { AI: '智能生成', LIBRARY: '从素材库选择', UPLOAD: '本地上传' };
 const type = ref<Format>(props.initialType), source = ref<Source>(props.generationBusy ? 'UPLOAD' : 'AI');
@@ -52,25 +52,26 @@ const generationUnit = computed(() => ({ VIDEO: '1 条视频', IMAGE: '1 张商�
 const generationButton = computed(() => ({ VIDEO: '生成 1 条视频', IMAGE: '生成 1 张图片', CAROUSEL: '生成 1 套图文' })[type.value]);
 const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(!!props.generationBusy);
 const uploader = ref<InstanceType<typeof LocalMaterialUpload>>();
-const addedImageIds = ref<string[]>([]), imageSaving = ref(false), imageAttachError = ref(''), stoppingImages = ref(false);
-const imageBatch = ref<ImageBatchState>({ count: 0, readyCount: 0, addedCount: 0, stoppedCount: 0, processing: false, readyIds: [] });
-const imageBatchMode = computed(() => source.value === 'UPLOAD' && type.value === 'IMAGE' && imageBatch.value.count > 0);
-const locked = computed(() => props.busy || awaiting.value || uploadBlocked.value || imageSaving.value || stoppingImages.value || imageBatchMode.value && imageBatch.value.processing);
+const uploadUnit = computed(() => type.value === 'VIDEO' ? '个视频' : '张图片');
+const addedAssetIds = ref<string[]>([]), batchSaving = ref(false), uploadAttachError = ref(''), stoppingUploads = ref(false);
+const uploadBatch = ref<UploadBatchState>({ count: 0, readyCount: 0, addedCount: 0, stoppedCount: 0, processing: false, readyIds: [] });
+const uploadBatchMode = computed(() => source.value === 'UPLOAD' && type.value !== 'CAROUSEL' && uploadBatch.value.count > 0);
+const locked = computed(() => props.busy || awaiting.value || uploadBlocked.value || batchSaving.value || stoppingUploads.value || uploadBatchMode.value && uploadBatch.value.processing);
 let alive = true;
-function addReadyImages() {
-  if (!imageBatchMode.value || imageBatch.value.processing || stoppingImages.value || uploadBlocked.value || props.busy || imageSaving.value || imageAttachError.value) return;
-  const ids = imageBatch.value.readyIds.filter(id => !addedImageIds.value.includes(id));
+function addReadyUploads() {
+  if (type.value === 'CAROUSEL' || !uploadBatchMode.value || uploadBatch.value.processing || stoppingUploads.value || uploadBlocked.value || props.busy || batchSaving.value || uploadAttachError.value) return;
+  const ids = uploadBatch.value.readyIds.filter(id => !addedAssetIds.value.includes(id));
   if (!ids.length) return;
-  imageSaving.value = true;
-  emit('addImages', { productId: props.productId, type: 'IMAGE', addedVia: 'UPLOAD', imageAssetIds: ids }, {
-    added(id) { if (alive && !addedImageIds.value.includes(id)) addedImageIds.value.push(id); },
-    done(error) { if (alive) { imageAttachError.value = error || ''; imageSaving.value = false; } }
+  batchSaving.value = true;
+  emit('addUploads', { productId: props.productId, type: type.value, assetIds: ids }, {
+    added(id) { if (alive && !addedAssetIds.value.includes(id)) addedAssetIds.value.push(id); },
+    done(error) { if (alive) { uploadAttachError.value = error || ''; batchSaving.value = false; } }
   });
 }
-watch([imageBatch, source, type, () => props.busy, uploadBlocked, stoppingImages], addReadyImages, { flush: 'post' });
-function retryImageAdd() { imageAttachError.value = ''; addReadyImages(); }
-async function stopImages() { stoppingImages.value = true; try { await uploader.value?.stopImages(); } finally { stoppingImages.value = false; } }
-function continueImages() { if (!locked.value) uploader.value?.continueImages(); }
+watch([uploadBatch, source, type, () => props.busy, uploadBlocked, stoppingUploads], addReadyUploads, { flush: 'post' });
+function retryUploadAdd() { uploadAttachError.value = ''; addReadyUploads(); }
+async function stopUploads() { stoppingUploads.value = true; try { await uploader.value?.stopUploads(); } finally { stoppingUploads.value = false; } }
+function continueUploads() { if (!locked.value) uploader.value?.continueUploads(); }
 const product = computed(() => props.state.products.find(p => p.qcProductId === props.productId));
 const kindLabel = computed(() => ({ VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文' })[type.value]);
 const allLabel = computed(() => `全部${kindLabel.value}`);
@@ -79,7 +80,7 @@ const loading = ref(false), loadError = ref(''), librarySelected = ref<LibraryIt
 const pageSize = 6, totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 const selected = computed(() => source.value === 'LIBRARY' ? librarySelected.value : source.value === 'UPLOAD' ? localSelected.value : undefined);
 const localFileCount = ref(0);
-const needsImageFile = computed(() => source.value === 'UPLOAD' && type.value === 'IMAGE' && localFileCount.value === 0);
+const needsUploadFile = computed(() => source.value === 'UPLOAD' && type.value !== 'CAROUSEL' && localFileCount.value === 0);
 const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。' : '');
 const canSubmit = computed(() => !!product.value && (source.value === 'AI' ? !props.generationBusy : !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
 const previewItem = ref<LibraryItemVo>(), previewError = ref(''), previewVersion = ref(0);
@@ -137,7 +138,7 @@ watch([() => props.state, () => props.busy, () => props.submissionError], () => 
   if (accepted) { if (submissionKey) sessionStorage.removeItem(submissionKey); emit('close'); }
   else if (!props.busy) { awaiting.value = false; submitError.value = props.submissionError || '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
 });
-function close() { if (!locked.value) { if (addedImageIds.value.length) emit('imageBatchFinished'); emit('close'); } }
+function close() { if (!locked.value) { if (addedAssetIds.value.length) emit('uploadBatchFinished'); emit('close'); } }
 function submit() {
   if (locked.value || !canSubmit.value) return;
   awaiting.value = true; submitError.value = ''; submissionStarted = false; submissionSource = source.value;
@@ -156,6 +157,8 @@ onUnmounted(() => { alive = false; ++loadNumber; });
 </script>
 <style scoped>
 .add-material-dialog{--add-material-scale:.85}
+.video-upload-dialog :deep(footer){border-top:1px solid #dedaff;padding-top:16px}
+.video-upload-dialog .upload-more-link{border-color:transparent;color:#5342ff;min-width:0}
 .add-material-dialog :deep(.reference-modal__box){zoom:var(--add-material-scale);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
 .add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:34px 0 32px}
 .add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}

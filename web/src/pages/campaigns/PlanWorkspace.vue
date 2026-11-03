@@ -31,7 +31,7 @@
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-images="addPublishedImages" @image-batch-finished="finishPublishedImages" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { persistImageBatch, type ImageBatchReceipt } from '@/features/creative/imageUploadBatch';
+import { persistUploadBatch, localUploadSelection, type LocalUploadBatch, type UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
@@ -123,24 +123,24 @@ async function editProductCopy(product:string,change:(state:CreationState)=>Prom
   finally{materialBusy.value=false;}
 }
 function addPublishedMaterial(body:Parameters<typeof creationAdd>[1]) {return editProductCopy(body.productId,s=>creationAdd(s,body),body.type as 'VIDEO'|'IMAGE'|'CAROUSEL');}
-let pendingImageDraft: CreationState | undefined;
-async function addPublishedImages(body: Parameters<typeof creationAdd>[1], receipt: ImageBatchReceipt) {
-  if (!plan.value || !productAdjustmentAvailable.value || dirty.value || settingsBlocked.value || selectionLocked.value || saving.value || materialBusy.value) { receipt.done('暂时无法添加图片，请稍后重试。'); return; }
+let pendingUploadDraft: CreationState | undefined;
+async function addPublishedUploads(body: LocalUploadBatch, receipt: UploadBatchReceipt) {
+  if (!plan.value || !productAdjustmentAvailable.value || dirty.value || settingsBlocked.value || selectionLocked.value || saving.value || materialBusy.value) { receipt.done('暂时无法添加素材，请稍后重试。'); return; }
   materialBusy.value = true; mediaFailure.value = undefined;
   try {
-    pendingImageDraft = pendingImageDraft ? await creationGet(pendingImageDraft.planId) : await beginContentEdit(plan.value.planId);
-    contentTitleProduct.value = body.productId;
-    await persistImageBatch(pendingImageDraft, body.imageAssetIds || [],
-      (current, id) => creationAdd(current, { ...body, imageAssetIds: [id] }),
-      (id, next) => { pendingImageDraft = next; receipt.added(id); });
+    pendingUploadDraft = pendingUploadDraft ? await creationGet(pendingUploadDraft.planId) : await beginContentEdit(plan.value.planId);
+    contentTitleProduct.value = body.productId; contentMaterialTab.value = body.type;
+    await persistUploadBatch(pendingUploadDraft, body.assetIds,
+      (current, id) => creationAdd(current, { productId: body.productId, type: body.type, addedVia: 'UPLOAD', ...localUploadSelection(body.type, id) }),
+      (id, next) => { pendingUploadDraft = next; receipt.added(id); });
     receipt.done();
   } catch (error) { mediaFailure.value = requestFailure(error, { method: 'POST' }); receipt.done(mediaFailure.value.message); }
   finally { materialBusy.value = false; }
 }
-function finishPublishedImages() {
-  if (!pendingImageDraft) return;
-  contentTitleEditing.value = true; contentMaterialTab.value = 'IMAGE'; adjustProductsOnOpen.value = false;
-  contentDraftId.value = pendingImageDraft.planId; pendingImageDraft = undefined;
+function finishPublishedUploads() {
+  if (!pendingUploadDraft) return;
+  contentTitleEditing.value = true; adjustProductsOnOpen.value = false;
+  contentDraftId.value = pendingUploadDraft.planId; pendingUploadDraft = undefined;
 }
 function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,s=>creationAddition(s,body),body.type);}
 function saveProductTitles(product:string,kind:'CUSTOM'|'CARD',titles:string[]){return editProductCopy(product,s=>creationProductTitles(s,product,kind,titles));}
@@ -268,7 +268,7 @@ function resetForm() {
   }
 }
 async function load() {
-  clearTimeout(materialTimer);pendingImageDraft=undefined;materialAction.value=undefined;materialBusy.value=false;contentTitleEditing.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
+  clearTimeout(materialTimer);pendingUploadDraft=undefined;materialAction.value=undefined;materialBusy.value=false;contentTitleEditing.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
   const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined; contextFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
