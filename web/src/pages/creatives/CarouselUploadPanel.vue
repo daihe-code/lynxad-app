@@ -14,7 +14,7 @@
       <input ref="imageInput" class="sr-only" type="file" :accept="imagePolicy.extensions.map(e => `.${e}`).join(',')" multiple aria-label="选择图文图片" :disabled="locked" @change="imagesChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="imageInput?.click()">{{ draft.images.length ? '继续添加图片' : '选择图片（支持多选）' }}</button>
       <div class="images"><div v-for="(image, index) in previews" :key="image.url" class="image"><img :src="image.url" :alt="image.name" /><button type="button" :disabled="locked" :aria-label="`移除图片 ${index + 1}`" @click="draft.images.splice(index, 1)">×</button><small>{{ image.name }}</small><label v-if="embedded" class="aigc"><input v-model="draft.fileAigc[fileAigcKey(draft.images[index]!)]" type="checkbox" :disabled="locked" />AI 生成</label></div></div>
-      <small>{{ draft.images.length }} / {{ assetFileRules.carouselMaxImages }} 张 · {{ imagePolicy.hint }} · {{ (assetFileRules.maxPixels / 10000).toLocaleString() }} 万像素</small>
+      <small>{{ draft.images.length }} / {{ assetFileRules.carouselMaxImages }} 张 · 支持jpg，png，jpeg等图片格式，9:16≤宽高比≤16:9，360px≤宽度≤2560px，单个图片大小不超过10M</small>
     </section>
     <section @dragover.prevent @drop.prevent="chooseAudio($event.dataTransfer?.files)"><h3>3. 音频 <span>必填</span></h3>
       <input ref="audioInput" class="sr-only" type="file" :accept="audioPolicy.extensions.map(e => `.${e}`).join(',')" aria-label="选择图文音频" :disabled="locked" @change="audioChanged" />
