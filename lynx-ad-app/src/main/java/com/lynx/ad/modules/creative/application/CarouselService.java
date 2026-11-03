@@ -45,7 +45,10 @@ public class CarouselService {
         parts.add(part(tenant,"AUDIO",0,request.audioAssetId()));
         var text=assets.require(tenant.value(),request.textAssetId());
         if(text.textContent()==null || text.textContent().isBlank()) throw new BizException(1520,"图文文本不能为空");
-        AssetFilePolicy.target(assets.require(tenant.value(),request.audioAssetId()).filename(),!targets.isEmpty());
+        var audio=assets.require(tenant.value(),request.audioAssetId());
+        if(!Set.of("audio/mpeg","audio/mp4").contains(AssetFilePolicy.spec(audio.filename()).contentType()))
+            throw new BizException(1520,"图文音频仅支持 MP3、M4A 格式");
+        AssetFilePolicy.size(AssetFilePolicy.spec(audio.filename()),audio.sizeBytes());
         for(String target:targets) {
             if(target==null || target.isBlank()) throw new BizException(1201,"授权账户标识不合法");
             var account=accounts.findById(tenant,new AccountId(target)).orElseThrow(()->new BizException(1201,"账户不存在或不属于当前灵投账户"));

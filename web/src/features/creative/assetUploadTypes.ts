@@ -19,6 +19,16 @@ const policies = {
 };
 
 export const assetFileRules = fileRules;
+export const carouselAudioPolicy = {
+  extensions: fileRules.files.filter(r => r.kind === 'AUDIO' && r.qianchuanSupported).map(r => r.extension),
+  hint: '格式要求：大小≤20M，仅支持mp3、m4a音频格式',
+};
+export function carouselAudioError(file: Pick<File, 'name' | 'size'>) {
+  const extension = file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase();
+  if (!carouselAudioPolicy.extensions.includes(extension)) return '图文音频仅支持 MP3、M4A 格式';
+  const limit = fileRules.files.find(r => r.extension === extension)!.maxBytes;
+  return file.size > 0 && file.size <= limit ? '' : '图文音频不能为空，大小不得超过 20M';
+}
 export function libraryUploadPolicy(library: UploadLibrary) {
   const files=fileRules.files.filter(r => library === 'CAROUSEL' ? r.kind !== 'VIDEO' : r.kind === library);
   const extensions=files.map(r=>r.extension);

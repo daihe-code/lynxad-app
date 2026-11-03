@@ -48,6 +48,12 @@ class AssetFilePolicyTest {
             AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),10L*1024*1024);
             assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),10L*1024*1024+1));
         }
+        for(String extension:new String[]{"mp3","m4a"}) {
+            AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),20L*1024*1024);
+            assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test."+extension),20L*1024*1024+1));
+        }
+        AssetFilePolicy.size(AssetFilePolicy.spec("test.wav"),10L*1024*1024);
+        assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.wav"),10L*1024*1024+1));
         assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.txt"),2L*1024*1024));
         assertThrows(BizException.class,()->AssetFilePolicy.spec("test.mov"));
     }

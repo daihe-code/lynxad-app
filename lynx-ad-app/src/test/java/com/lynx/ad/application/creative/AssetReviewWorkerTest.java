@@ -20,8 +20,11 @@ class AssetReviewWorkerTest {
     @AfterEach void stop() { worker.stop(); }
     private AssetUploadRepository.Review review(String id) { return new AssetUploadRepository.Review("asset","tenant-a","PENDING",id,null,null,List.of(),null,2,Instant.now()); }
     private void file(String kind) {
+        file(kind,kind.equals("AUDIO") ? "file.mp3" : "file",10);
+    }
+    private void file(String kind,String filename,long size) {
         var now=Instant.now();
-        when(repository.require("tenant-a","asset")).thenReturn(new AssetUploadRepository.Asset("asset","tenant-a","user","request",kind,"file","mime",10,"key","STORED","oss",null,null,"md5",false,null,null,"content",null,null,now,now));
+        when(repository.require("tenant-a","asset")).thenReturn(new AssetUploadRepository.Asset("asset","tenant-a","user","request",kind,filename,"mime",size,"key","STORED","oss",null,null,"md5",false,null,null,"content",null,null,now,now));
         when(storage.getUrl(new TenantId("tenant-a"),"key")).thenReturn("https://oss.example/signed");
     }
     @Test void onlyApprovalActivatesPlatformSync() {
@@ -64,5 +67,20 @@ class AssetReviewWorkerTest {
         worker.process(review(null)); verify(repository).failReview(any(),eq("引擎不可用")); verify(storage).getUrl(new TenantId("tenant-a"),"key");
         verify(repository,never()).activate(anyString(),anyString()); verifyNoMoreInteractions(storage);
         verify(repository,never()).storageFailed(any(),anyString());
+    }
+    @Test void twentyMiBAudioCanReachReviewWhileOversizedAudioCannot() {
+        for(String filename:List.of("audio.mp3","audio.M4A")) {
+            reset(repository,storage,engine); file("AUDIO",filename,20L*1024*1024);
+            var pending=new AssetReviewPort.Result("PENDING","review-audio",null,null,List.of(),null);
+            when(engine.submit(eq(AssetKind.AUDIO),anyString(),anyString(),anyString(),anyString())).thenReturn(pending);
+            worker.process(review(null));
+            verify(repository).finishReview(any(),eq(pending)); verify(repository,never()).failReview(any(),anyString());
+        }
+        for(String filename:List.of("audio.mp3","audio.m4a","audio.wav")) {
+            reset(repository,storage,engine); file("AUDIO",filename,(filename.endsWith("wav") ? 10L : 20L)*1024*1024+1);
+            worker.process(review(null));
+            verify(repository).failReview(any(),anyString()); verifyNoInteractions(engine);
+            verify(repository,never()).activate(anyString(),anyString());
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.lynx.ad.modules.creative.application;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.creative.domain.model.AssetKind;
+import com.lynx.ad.modules.creative.domain.service.AssetFilePolicy;
 import com.lynx.ad.modules.creative.domain.port.*;
 import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository;
 import jakarta.annotation.PreDestroy;
@@ -40,7 +41,7 @@ public class AssetReviewWorker {
             var asset=repository.require(review.tenantId(),review.assetId());
             if(!"STORED".equals(asset.storageStatus())) throw new BizException(1525,"文件尚未入库，无法审核");
             var kind=AssetKind.valueOf(asset.kind());
-            if(kind==AssetKind.AUDIO && asset.sizeBytes()>10L*1024*1024) throw new BizException(1525,"AI 语音审核支持不超过 10MB 的文件，请压缩后重新上传");
+            if(kind==AssetKind.AUDIO) AssetFilePolicy.size(AssetFilePolicy.spec(asset.filename()),asset.sizeBytes());
             if(review.createdAt().isBefore(Instant.now().minusSeconds(1800))) throw new BizException(1525,"AI 审核等待超过 30 分钟，请检查引擎任务后重试");
             if(review.reviewId()==null && (kind==AssetKind.VIDEO || kind==AssetKind.IMAGE) && "local".equalsIgnoreCase(asset.storageMode()))
                 throw new BizException(1525,"素材已保存到本地，云端审核无法读取本机链接；请重试审核，先转存平台 OSS");

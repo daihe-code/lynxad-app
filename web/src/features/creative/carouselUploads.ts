@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 import { createCarousel, getCarousel, type CarouselDetail } from './creativeApi';
 import { addUploadFiles, ensureUploadSession, reviewPending, startUploads, uploadRows } from './assetUploads';
 import { targetError } from './assetPreflight';
-import { assetFileRules } from './assetUploadTypes';
+import { assetFileRules, carouselAudioError } from './assetUploadTypes';
 
 export const carouselDraft = reactive({ name: '', text: '', images: [] as File[], audio: undefined as File | undefined,
   textAigc: undefined as boolean | undefined, fileAigc: {} as Record<string, boolean>,
@@ -45,6 +45,7 @@ export async function uploadCarousel() {
     if (!carouselDraft.text.trim()) throw new Error('请输入图文文本');
     if (!carouselDraft.images.length || carouselDraft.images.length > assetFileRules.carouselMaxImages) throw new Error(`请选择 1-${assetFileRules.carouselMaxImages} 张图片`);
     if (!carouselDraft.audio) throw new Error('请选择一份音频');
+    const audioError = carouselAudioError(carouselDraft.audio); if (audioError) throw new Error(audioError);
     const problem = targetError(carouselDraft.audio, !!carouselDraft.accounts.length); if (problem) throw new Error(problem);
     if (!textFile || fileText !== carouselDraft.text) { fileText = carouselDraft.text; textFile = new File([fileText], '图文文本.txt', { type: 'text/plain', lastModified: ++textRevision }); }
     const files = [textFile, ...carouselDraft.images, carouselDraft.audio];

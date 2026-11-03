@@ -18,7 +18,10 @@ class CarouselServiceTest {
     final CarouselService service=new CarouselService(groups,assets,uploads,mock(OauthAccountRepository.class));
     final CarouselRepository.Bundle bundle=new CarouselRepository.Bundle("group","tenant-a","user","request-id-123456","name",List.of("account"),"PENDING",Instant.now());
     AssetUploadRepository.Asset asset(String id,String kind) {
-        return new AssetUploadRepository.Asset(id,"tenant-a","user","request",kind,"file."+(kind.equals("TEXT")?"txt":kind.equals("AUDIO")?"mp3":"jpg"),"mime",100,"key","STORED","oss",null,null,"md5",false,1,1,"真实文本",null,null,Instant.now(),Instant.now());
+        return asset(id,kind,"file."+(kind.equals("TEXT")?"txt":kind.equals("AUDIO")?"mp3":"jpg"));
+    }
+    AssetUploadRepository.Asset asset(String id,String kind,String filename) {
+        return new AssetUploadRepository.Asset(id,"tenant-a","user","request",kind,filename,"mime",100,"key","STORED","oss",null,null,"md5",false,1,1,"真实文本",null,null,Instant.now(),Instant.now());
     }
     void parts(String text,String image,String audio) {
         when(groups.parts(bundle)).thenReturn(List.of(new CarouselRepository.Part("TEXT",0,"text"),new CarouselRepository.Part("IMAGE",0,"image"),new CarouselRepository.Part("AUDIO",0,"audio")));
@@ -69,5 +72,14 @@ class CarouselServiceTest {
         assertThrows(BizException.class,()->service.create(new TenantId("tenant-b"),new CarouselService.Create("request-id-123456","name","text",List.of("image"),"audio",List.of())));
         assertThrows(BizException.class,()->service.detail(new TenantId("tenant-b"),"group"));
         verify(groups,never()).insert(any(),any()); verifyNoInteractions(uploads);
+    }
+    @Test void carouselRejectsWavEvenWhenOnlySavedToPlatform() {
+        when(assets.require("tenant-a","text")).thenReturn(asset("text","TEXT"));
+        when(assets.require("tenant-a","image")).thenReturn(asset("image","IMAGE"));
+        when(assets.require("tenant-a","audio")).thenReturn(asset("audio","AUDIO","audio.WAV"));
+        var request=new CarouselService.Create("request-id-123456","name","text",List.of("image"),"audio",List.of());
+        var error=assertThrows(BizException.class,()->service.create(new TenantId("tenant-a"),new com.lynx.ad.common.domain.Ids.UserId("user"),request));
+        assertEquals("图文音频仅支持 MP3、M4A 格式",error.getMessage());
+        verify(groups,never()).insert(any(),any());
     }
 }

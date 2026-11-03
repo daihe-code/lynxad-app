@@ -19,9 +19,10 @@
     <section @dragover.prevent @drop.prevent="chooseAudio($event.dataTransfer?.files)"><h3>3. 音频 <span>必填</span></h3>
       <input ref="audioInput" class="sr-only" type="file" :accept="audioPolicy.extensions.map(e => `.${e}`).join(',')" aria-label="选择图文音频" :disabled="locked" @change="audioChanged" />
       <button class="choose-file" type="button" :disabled="locked" @click="audioInput?.click()">{{ draft.audio ? '更换音频' : '选择音频' }}</button>
-      <p v-if="draft.audio">{{ draft.audio.name }} · {{ fileSize(draft.audio.size) }} <button type="button" :disabled="locked" @click="draft.audio = undefined">移除</button></p>
+      <p v-if="draft.audio">{{ draft.audio.name }} · {{ fileSize(draft.audio.size) }} <button type="button" :disabled="locked" @click="draft.audio = undefined; audioSelectionError = ''">移除</button></p>
       <label v-if="embedded && draft.audio" class="aigc"><input v-model="draft.fileAigc[fileAigcKey(draft.audio)]" type="checkbox" :disabled="locked" />音频包含 AI 生成内容</label>
-      <small>{{ audioPolicy.hint }} · M4A 需 {{ assetFileRules.m4aCodec.toUpperCase() }} 编码，时长大于 0；WAV 仅存平台</small>
+      <small>{{ audioPolicy.hint }}</small>
+      <p v-if="audioSelectionError" class="error" role="alert">{{ audioSelectionError }}</p>
     </section>
     <label v-if="!fixedAccountId" class="accounts">同步到千川账户<el-select v-model="draft.accounts" multiple collapse-tags :disabled="locked" placeholder="不选则仅保存到平台"><el-option v-for="a in accounts" :key="a.accountId" :value="a.accountId" :label="`${a.accountName}（${a.advertiserId}）`" /></el-select></label>
     <p v-if="accountError" class="error">{{ accountError }} <button type="button" @click="loadAccounts">重试</button></p>
@@ -44,7 +45,7 @@ import { beginCarouselDialog, carouselDraft as draft, fileAigcKey, uploadCarouse
 import { uploadRows, reviewLabel, syncLabel } from '@/features/creative/assetUploads';
 import { carouselReady } from '@/features/creative/materialSources';
 import { getCarousel, reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync } from '@/features/creative/creativeApi';
-import { assetFileRules, libraryUploadPolicy, libraryFileError } from '@/features/creative/assetUploadTypes';
+import { assetFileRules, libraryUploadPolicy, libraryFileError, carouselAudioPolicy as audioPolicy, carouselAudioError } from '@/features/creative/assetUploadTypes';
 import { decodeText, preflight } from '@/features/creative/assetPreflight';
 import { getUploadPolicy } from '@/features/creative/creativeApi';
 import AssetReviewStatus from './AssetReviewStatus.vue';
@@ -60,7 +61,8 @@ const locked = computed(() => draft.busy || !!draft.result || differentAccount.v
 const ready = computed(() => !!props.fixedAccountId && carouselReady(draft.result, props.fixedAccountId));
 const rows = computed(() => uploadRows.filter(r => draft.keys.includes(r.key)));
 const accounts = ref<AccountVo[]>([]), accountError = ref(''), textInput = ref<HTMLInputElement>(), imageInput = ref<HTMLInputElement>(), audioInput = ref<HTMLInputElement>();
-const imagePolicy = libraryUploadPolicy('IMAGE'), audioPolicy = libraryUploadPolicy('AUDIO'), textPolicy = libraryUploadPolicy('TEXT');
+const audioSelectionError = ref('');
+const imagePolicy = libraryUploadPolicy('IMAGE'), textPolicy = libraryUploadPolicy('TEXT');
 const previews = ref<{ url: string; name: string }[]>([]);
 watch(() => [...draft.images], images => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); previews.value = images.map(f => ({ url: URL.createObjectURL(f), name: f.name })); }, { immediate: true });
 watch(() => draft.busy, blocked => emit('closeBlocked', blocked), { immediate: true, flush: 'sync' });
@@ -76,9 +78,10 @@ function chooseImages(files?: FileList | null) {
 }
 function chooseAudio(files?: FileList | null) {
   if (locked.value || !files?.length) return;
-  if (files.length !== 1) { ElMessage.warning('音频区域只允许选择一个音频文件'); return; }
-  const f = files[0]!; const error = libraryFileError(f.name, 'AUDIO');
-  if (error) ElMessage.warning(error); else draft.audio = f;
+  if (files.length !== 1) { audioSelectionError.value = '音频区域只允许选择一个音频文件'; return; }
+  const f = files[0]!; const error = carouselAudioError(f);
+  audioSelectionError.value = error;
+  if (!error) draft.audio = f;
 }
 function imagesChanged(e: Event) { const el = e.target as HTMLInputElement; chooseImages(el.files); el.value = ''; }
 function audioChanged(e: Event) { const el = e.target as HTMLInputElement; chooseAudio(el.files); el.value = ''; }

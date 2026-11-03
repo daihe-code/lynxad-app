@@ -4,8 +4,8 @@
     { "extension": "jpg", "kind": "IMAGE", "maxBytes": 10485760, "qianchuanSupported": true },
     { "extension": "jpeg", "kind": "IMAGE", "maxBytes": 10485760, "qianchuanSupported": true },
     { "extension": "png", "kind": "IMAGE", "maxBytes": 10485760, "qianchuanSupported": true },
-    { "extension": "mp3", "kind": "AUDIO", "maxBytes": 10485760, "qianchuanSupported": true },
-    { "extension": "m4a", "kind": "AUDIO", "maxBytes": 10485760, "qianchuanSupported": true },
+    { "extension": "mp3", "kind": "AUDIO", "maxBytes": 20971520, "qianchuanSupported": true },
+    { "extension": "m4a", "kind": "AUDIO", "maxBytes": 20971520, "qianchuanSupported": true },
     { "extension": "wav", "kind": "AUDIO", "maxBytes": 10485760, "qianchuanSupported": false },
     { "extension": "txt", "kind": "TEXT", "maxBytes": 1048576, "qianchuanSupported": false }
   ],
