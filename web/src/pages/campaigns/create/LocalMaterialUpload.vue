@@ -2,7 +2,7 @@
   <div class="local-material-upload">
     <p v-if="type !== 'IMAGE'" class="account-note">素材将同步到当前计划的投放账户。</p>
     <template v-if="type !== 'CAROUSEL'">
-      <label class="aigc upload-aigc"><input v-model="aigc" type="checkbox" :disabled="blocked || busy" />包含 AI 生成内容</label>
+      <label v-if="type !== 'IMAGE' || !rows.length" class="aigc upload-aigc"><input v-model="aigc" type="checkbox" :disabled="blocked || busy" />包含 AI 生成内容</label>
       <input ref="input" class="sr-only" type="file" multiple :accept="policy.extensions.map(e => `.${e}`).join(',')" aria-label="选择本地素材文件" :disabled="blocked || busy" @change="changed" />
       <div v-if="!rows.length" class="drop-zone" :class="{ 'drop-zone--image': type === 'IMAGE' }" role="button" tabindex="0" :aria-label="type === 'IMAGE' ? '选择图片' : undefined" :aria-disabled="blocked || busy" @click="chooseFiles" @keydown.enter="chooseFiles" @keydown.space.prevent="chooseFiles" @dragover.prevent @drop.prevent="add($event.dataTransfer?.files)">
         <ReferenceIcon :name="type === 'IMAGE' ? 'cloud-upload' : 'upload'" />
@@ -18,7 +18,8 @@
         <p class="account-note">上传后将进行检查和同步，完成后可添加至当前商品。</p>
       </template>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <section v-if="rows.length" class="upload-processing" aria-label="素材上传处理进度">
+      <ImageUploadProgress v-if="type === 'IMAGE' && rows.length" :rows="rows" :state="imageBatchState" :account-id="accountId" :added-ids="addedImageIds || []" :saving="!!imageSaving" :retrying="retrying" :disabled="blocked || busy" :phase="phase" @retry-review="retryReview" @retry-sync="retrySync" @verify-sync="verify" @retry-upload="row => start([row.key])" @remove="remove" />
+      <section v-else-if="rows.length" class="upload-processing" aria-label="素材上传处理进度">
         <div class="upload-summary"><strong>已就绪 {{ readyCount }} / {{ rows.length }} {{ type === 'VIDEO' ? '个视频' : '张图片' }}</strong><ol aria-label="处理步骤"><li v-for="(label, index) in ['上传', '检查', '同步']" :key="label" :class="{ complete: processingStep > index, active: processingStep === index }"><span>{{ processingStep > index ? '✓' : index + 1 }}</span>{{ label }}</li></ol></div>
         <div class="upload-list" aria-live="polite">
         <article v-for="row in rows" :key="row.key" :class="{ selected: selectedId === row.result?.id, ready: uploadedReady(row.result, accountId) }">
@@ -42,7 +43,7 @@
         </article>
         </div>
       </section>
-      <button v-if="rows.length" class="upload-more" type="button" :disabled="blocked || busy" @click="chooseFiles">{{ type === 'IMAGE' ? '继续添加图片' : '继续添加文件' }}</button>
+      <button v-if="rows.length && type !== 'IMAGE'" class="upload-more" type="button" :disabled="blocked || busy" @click="chooseFiles">继续添加文件</button>
     </template>
     <div v-show="type === 'CAROUSEL'">
       <CarouselUploadPanel v-if="carouselMounted" :default-account-ids="[accountId]" :fixed-account-id="accountId" embedded @close-blocked="carouselBlocked = $event" />
@@ -53,17 +54,19 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
+import ImageUploadProgress from './ImageUploadProgress.vue';
+import type { ImageBatchState } from '@/features/creative/imageUploadBatch';
 import CarouselUploadPanel from '@/pages/creatives/CarouselUploadPanel.vue';
 import AssetReviewStatus from '@/pages/creatives/AssetReviewStatus.vue';
 import AssetSyncAction from '@/pages/creatives/AssetSyncAction.vue';
 import { fileSize } from '@/pages/creatives/assetFormat';
-import { addUploadFiles, beginUploadDialog, startUploads, syncLabel, uploadRows, type UploadRow } from '@/features/creative/assetUploads';
+import { addUploadFiles, beginUploadDialog, startUploads, stopUploadRows, syncLabel, uploadRows, type UploadRow } from '@/features/creative/assetUploads';
 import { libraryUploadPolicy } from '@/features/creative/assetUploadTypes';
 import { carouselDraft } from '@/features/creative/carouselUploads';
 import { reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync, type LibraryItemVo } from '@/features/creative/creativeApi';
 import { carouselItem, carouselReady, uploadedItem, uploadedReady, uploadPhase } from '@/features/creative/materialSources';
-const props = defineProps<{ type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; accountId: string; busy: boolean; active: boolean }>();
-const emit = defineEmits<{ select: [item: LibraryItemVo | undefined]; blocked: [value: boolean]; filesChanged: [count: number] }>();
+const props = defineProps<{ type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; accountId: string; busy: boolean; active: boolean; addedImageIds?: string[]; imageSaving?: boolean }>();
+const emit = defineEmits<{ select: [item: LibraryItemVo | undefined]; blocked: [value: boolean]; filesChanged: [count: number]; imageBatch: [state: ImageBatchState] }>();
 beginUploadDialog();
 const uploadScope = crypto.randomUUID();
 const input = ref<HTMLInputElement>(), adding = ref(false), retrying = ref(''), error = ref(''), selectedId = ref(''), aigc = ref(false);
@@ -73,6 +76,16 @@ const rows = computed(() => scopedRows.value.filter(r => r.library === props.typ
 const policy = computed(() => libraryUploadPolicy(props.type));
 const blocked = computed(() => adding.value || !!retrying.value || scopedRows.value.some(r => r.busy) || carouselBlocked.value);
 const readyCount = computed(() => rows.value.filter(r => uploadedReady(r.result, props.accountId)).length);
+let picking: AbortController | undefined;
+const imageBatchState = computed<ImageBatchState>(() => {
+  const images = props.type === 'IMAGE' ? rows.value : [];
+  return { count: images.length, readyCount: images.filter(row => !row.stopped && uploadedReady(row.result, props.accountId)).length,
+    addedCount: images.filter(row => row.result && props.addedImageIds?.includes(row.result.id)).length,
+    stoppedCount: images.filter(row => row.stopped).length,
+    processing: images.some(row => !row.stopped && (row.busy || adding.value || isWorking(row))),
+    readyIds: [...new Set(images.filter(row => !row.stopped && uploadedReady(row.result, props.accountId)).map(row => row.result!.id))] };
+});
+watch(imageBatchState, value => emit('imageBatch', value), { immediate: true });
 const processingStep = computed(() => Math.min(3, ...rows.value.map(row => {
   if (uploadedReady(row.result, props.accountId)) return 3;
   if (!row.result) return /校验|合并/.test(row.stage) ? 1 : 0;
@@ -86,23 +99,31 @@ function chooseFiles() { if (!blocked.value && !props.busy) input.value?.click()
 async function add(files?: FileList | null) {
   if (blocked.value || props.busy || props.type === 'CAROUSEL') return;
   adding.value = true; error.value = '';
+  picking = new AbortController();
   const before = new Set(scopedRows.value.map(r => r.key)), containsAi = aigc.value;
   try {
-    error.value = (await addUploadFiles(files, props.type, uploadScope)).join('；');
+    error.value = (await addUploadFiles(files, props.type, uploadScope, picking.signal)).join('；');
     const added = scopedRows.value.filter(row => !before.has(row.key));
-    for (const row of added) row.isAigc = containsAi;
-    const valid = added.filter(row => row.valid).map(row => row.key);
+    for (const row of added) {
+      row.isAigc = containsAi;
+      if (props.type === 'IMAGE' && row.metadata?.width && row.metadata?.height && row.metadata.width !== row.metadata.height) {
+        row.valid = false; row.stage = '预检未通过'; row.error = '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。';
+      }
+    }
+    if (picking.signal.aborted) { await stopUploadRows(added.map(row => row.key)); return; }
+    const valid = added.filter(row => row.valid && !row.stopped).map(row => row.key);
     if (valid.length) await start(valid);
   } catch (value) { error.value = message(value); }
   finally { adding.value = false; }
 }
 function changed(event: Event) { const el = event.target as HTMLInputElement; void add(el.files); el.value = ''; }
 function phase(row: UploadRow) {
+  if (row.stopped) return '已停止';
   if (row.stage === '正在本地预检') return '检查中';
   if (!row.valid) return '检查未通过';
   if (row.result?.storageStatus === 'VALIDATING') return '检查中';
   if (!row.result && !row.error && /校验|合并/.test(row.stage)) return '检查中';
-  return uploadPhase(row.result, props.accountId, row.busy || adding.value && !row.result, row.error);
+  return uploadPhase(row.result, props.accountId, row.busy, row.error);
 }
 function progress(row: UploadRow) { return Math.max(0, Math.min(100, row.progress)); }
 function isWorking(row: UploadRow) { return ['上传中', '检查中', '同步中'].includes(phase(row)); }
@@ -138,6 +159,18 @@ watch(() => [rows.value.map(r => [r.result?.id, uploadedReady(r.result, props.ac
   if (!valid) { selectedId.value = ''; emit('select', undefined); }
 }, { deep: true });
 onUnmounted(() => emit('blocked', false));
+async function stopImages() {
+  if (props.busy) return;
+  picking?.abort();
+  await stopUploadRows(rows.value.filter(row => !uploadedReady(row.result, props.accountId)).map(row => row.key));
+}
+function continueImages() {
+  if (blocked.value || props.busy || imageBatchState.value.processing) return;
+  const keys = new Set(rows.value.map(row => row.key));
+  for (let index = uploadRows.length - 1; index >= 0; index--) if (keys.has(uploadRows[index]!.key)) uploadRows.splice(index, 1);
+  chooseFiles();
+}
+defineExpose({ stopImages, continueImages });
 </script>
 <style scoped>
 .account-note{color:#7c7f99;font-size:12px;margin:12px 0}.drop-zone{border:1px dashed #bbb9ef;border-radius:12px;background:#fafaff;display:grid;justify-items:center;gap:10px;padding:22px;cursor:pointer}.drop-zone>svg{width:26px;height:26px;color:#5b55ff}.drop-zone small{color:#7c7f99;text-align:center;line-height:1.6}.drop-zone[aria-disabled=true]{opacity:.5;cursor:not-allowed}.upload-list{display:grid;gap:10px;margin-top:16px}.upload-list article{border:1px solid #e5e5f3;padding:12px;border-radius:10px;min-width:0}.upload-list article.selected{border-color:#5b55ff;background:#f8f7ff}.file-line,.row-actions,.sync-line,.carousel-ready{display:flex;justify-content:space-between;align-items:center;gap:12px}.file-line strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-line>span{white-space:nowrap;color:#7c7f99;font-size:12px}.ready .file-line>span{color:#0cab76}.upload-list small{display:block;color:#7c7f99;font-size:12px;line-height:1.8}.aigc{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px}.aigc input{accent-color:#5b55ff}.row-actions{justify-content:flex-end;margin-top:8px}.row-actions button,.sync-line button{color:#5b55ff}.row-actions button[aria-pressed=true]{font-weight:600}.carousel-ready button{padding:9px 16px;background:#5b55ff;color:white;border-radius:8px;margin-left:auto}.error{color:#e5484d;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.sync-line{font-size:12px}.sync-line>span{min-width:0}.carousel-ready{margin-top:15px;color:#0cab76}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}progress{width:100%;height:6px;accent-color:#5b55ff}button:disabled{opacity:.45;cursor:not-allowed}

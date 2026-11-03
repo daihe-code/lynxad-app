@@ -103,16 +103,17 @@ export interface UploadPolicy {
   maxPixels: number; maxTextChars: number; maxFiles: number; videoCodec: string; m4aCodec: string; carouselMaxImages?: number;
 }
 export function getUploadPolicy() { return apiGet<UploadPolicy>('/api/v1/creative/assets/upload-policy', { headers: { 'X-Quiet-Request': 'true' } }); }
-export function initAssetUpload(file: File, requestId: string, accountIds: string[], isAigc: boolean, libraryType?: LibraryItemVo['type']) {
-  return apiPost<UploadInit>('/api/v1/creative/assets/uploads/init', { requestId, filename: file.name, sizeBytes: file.size, accountIds, isAigc, libraryType }, { headers: { 'X-Quiet-Request': 'true' } });
+export function initAssetUpload(file: File, requestId: string, accountIds: string[], isAigc: boolean, libraryType?: LibraryItemVo['type'], signal?: AbortSignal) {
+  return apiPost<UploadInit>('/api/v1/creative/assets/uploads/init', { requestId, filename: file.name, sizeBytes: file.size, accountIds, isAigc, libraryType }, { signal, headers: { 'X-Quiet-Request': 'true' } });
 }
-export function uploadAssetFile(id: string, file: File, progress: (percent: number) => void) {
+export function uploadAssetFile(id: string, file: File, progress: (percent: number) => void, signal?: AbortSignal) {
   const body = new FormData(); body.append('file', file);
-  return apiPostForm<UploadedAsset>(`/api/v1/creative/assets/${id}/file`, body, { timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' }, onUploadProgress: e => progress(Math.round(e.loaded / (e.total || file.size) * 100)) });
+  return apiPostForm<UploadedAsset>(`/api/v1/creative/assets/${id}/file`, body, { signal, timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' }, onUploadProgress: e => progress(Math.round(e.loaded / (e.total || file.size) * 100)) });
 }
-export function completeAssetUpload(id: string, parts: { partNumber: number; etag: string }[]) {
-  return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/upload-complete`, { parts }, { timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' } });
+export function completeAssetUpload(id: string, parts: { partNumber: number; etag: string }[], signal?: AbortSignal) {
+  return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/upload-complete`, { parts }, { signal, timeout: 15 * 60 * 1000, headers: { 'X-Quiet-Request': 'true' } });
 }
+export const cancelAssetUpload = (id: string) => apiDelete<void>(`/api/v1/creative/assets/${id}/upload`, { headers: { 'X-Quiet-Request': 'true' } });
 export function getUploadedAsset(id: string) { return apiGet<UploadedAsset>(`/api/v1/creative/assets/${id}`, { headers: { 'X-Quiet-Request': 'true' } }); }
 export function retryAssetReview(id: string) {
   return apiPost<UploadedAsset>(`/api/v1/creative/assets/${id}/review/retry`, {}, { timeout: 15 * 60 * 1000 });
