@@ -1,18 +1,17 @@
 import type { PlanListVo, PlanMetricTemplate, PlanMetricValues } from './deliveryApi';
 
 export type MetricField = 'costYuan' | 'convert' | 'gmvYuan' | 'roi' | 'netGmvYuan' | 'netRoi' | 'refundRate';
-export interface MetricColumn { field: MetricField; key: keyof PlanMetricValues; label: string; kind: 'money' | 'count' | 'roi' | 'rate'; hint: string; description: string }
-const scopeHint = '与列表采用相同数据范围';
-const cost: MetricColumn = { field: 'costYuan', key: 'cost', label: '整体消耗(元)', kind: 'money', hint: scopeHint, description: '所选统计时间内，投放期间产生的消耗。' };
+export interface MetricColumn { field: MetricField; key: keyof PlanMetricValues; label: string; kind: 'money' | 'count' | 'roi' | 'rate'; description: string }
+const cost: MetricColumn = { field: 'costYuan', key: 'cost', label: '整体消耗(元)', kind: 'money', description: '所选统计时间内，投放期间产生的消耗。' };
 export const metricTemplates: Record<PlanMetricTemplate, { label: string; columns: MetricColumn[] }> = {
   PAYMENT: { label: '整体支付ROI目标', columns: [cost,
-    { field: 'convert', key: 'orders', label: '整体成交订单数', kind: 'count', hint: scopeHint, description: '所选统计时间内，投放带来的整体成交订单数量。' },
-    { field: 'gmvYuan', key: 'gmv', label: '整体成交金额(元)', kind: 'money', hint: scopeHint, description: '所选统计时间内，投放带来的整体成交金额，包含平台计入的优惠及补贴金额。' },
-    { field: 'roi', key: 'roi', label: '整体支付ROI', kind: 'roi', hint: '汇总成交金额 / 汇总消耗', description: '每消耗1元带来的整体成交金额。计算公式：整体支付ROI = 整体成交金额 ÷ 整体消耗。' }] },
+    { field: 'convert', key: 'orders', label: '整体成交订单数', kind: 'count', description: '所选统计时间内，投放带来的整体成交订单数量。' },
+    { field: 'gmvYuan', key: 'gmv', label: '整体成交金额(元)', kind: 'money', description: '所选统计时间内，投放带来的整体成交金额，包含平台计入的优惠及补贴金额。' },
+    { field: 'roi', key: 'roi', label: '整体支付ROI', kind: 'roi', description: '每消耗1元带来的整体成交金额。计算公式：整体支付ROI = 整体成交金额 ÷ 整体消耗。' }] },
   NET: { label: '净成交ROI目标', columns: [cost,
-    { field: 'netRoi', key: 'netRoi', label: '净成交ROI', kind: 'roi', hint: '汇总净成交金额 / 汇总消耗', description: '每消耗1元带来的净成交金额。计算公式：净成交ROI = 净成交金额 ÷ 整体消耗。' },
-    { field: 'netGmvYuan', key: 'netGmv', label: '净成交金额(元)', kind: 'money', hint: scopeHint, description: '整体成交金额扣除支付后1小时内发生退款的金额后，得到的成交金额。' },
-    { field: 'refundRate', key: 'refundRate', label: '1小时退款率', kind: 'rate', hint: '按整体成交金额加权汇总', description: '支付后1小时内退款金额占整体成交金额的比例，用于了解成交后的短时退款情况。' }] },
+    { field: 'netRoi', key: 'netRoi', label: '净成交ROI', kind: 'roi', description: '每消耗1元带来的净成交金额。计算公式：净成交ROI = 净成交金额 ÷ 整体消耗。' },
+    { field: 'netGmvYuan', key: 'netGmv', label: '净成交金额(元)', kind: 'money', description: '整体成交金额扣除支付后1小时内发生退款的金额后，得到的成交金额。' },
+    { field: 'refundRate', key: 'refundRate', label: '1小时退款率', kind: 'rate', description: '支付后1小时内退款金额占整体成交金额的比例，用于了解成交后的短时退款情况。' }] },
 };
 export function metricText(value: number | null | undefined, kind: MetricColumn['kind'], currency = false) {
   if (value == null || !Number.isFinite(Number(value))) return '—';
