@@ -12,7 +12,6 @@
         <div v-if="!added(row) && !row.stopped" class="upload-file-actions">
           <p v-if="row.error" class="error" role="alert">{{ row.error }}</p>
           <AssetReviewStatus v-if="row.result && ['FAILED', 'REJECTED', 'MANUAL_REVIEW'].includes(row.result.aiReview?.status || '')" :review="row.result.aiReview" :retrying="retrying === row.result.id" @retry="emit('retryReview', row)" />
-          <template v-if="row.result"><div v-for="sync in row.result.syncs.filter(s => s.accountId === accountId && (['FAILED', 'WAITING_AUTH', 'UNCERTAIN', 'PAUSED'].includes(s.status) || s.reviewStatus === 'REJECTED'))" :key="sync.id" class="sync-error"><span>{{ sync.errorMessage }}</span><AssetSyncAction :sync="sync" :busy="retrying === sync.id" :can-retry="['APPROVED','NOT_REQUIRED'].includes(row.result.aiReview?.status || '')" @retry="emit('retrySync', row, sync)" @verify="emit('verifySync', row, sync)" /></div></template>
           <button v-if="row.error && row.valid && !row.result" type="button" :disabled="disabled" @click="emit('retryUpload', row)">重试上传</button>
           <button v-if="!row.busy && (!row.valid || !!row.error)" type="button" :disabled="disabled" @click="emit('remove', row)">移除</button>
         </div>
@@ -30,7 +29,6 @@ import type { UploadBatchState } from '@/features/creative/localUploadBatch';
 import { uploadedReady } from '@/features/creative/materialSources';
 import { fileSize } from '@/pages/creatives/assetFormat';
 import AssetReviewStatus from '@/pages/creatives/AssetReviewStatus.vue';
-import AssetSyncAction from '@/pages/creatives/AssetSyncAction.vue';
 const props = defineProps<{ type: 'IMAGE' | 'VIDEO'; rows: UploadRow[]; state: UploadBatchState; accountId: string; addedIds: string[]; saving: boolean; retrying: string; disabled: boolean; phase: (row: UploadRow) => string }>();
 const emit = defineEmits<{ retryReview: [row: UploadRow]; retrySync: [row: UploadRow, sync: AssetSync]; verifySync: [row: UploadRow, sync: AssetSync]; retryUpload: [row: UploadRow]; remove: [row: UploadRow] }>();
 const previews = ref(new Map<string, string>());

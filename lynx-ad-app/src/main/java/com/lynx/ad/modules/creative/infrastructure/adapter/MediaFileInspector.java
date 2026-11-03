@@ -23,6 +23,37 @@ public class MediaFileInspector {
         this.executable = executable; this.timeoutSeconds = Math.max(5, Math.min(600, timeoutSeconds));
     }
     public record Metadata(Integer width, Integer height, double durationSeconds) {}
+    /** Mechanical compatibility repair only: preserve the whole duration, pictures and sound. */
+    public void repairForUpload(Path source,Path target,String kind) {
+        boolean acquired=false;
+        try {
+            if(!(acquired=slots.tryAcquire(5,TimeUnit.SECONDS)))throw new BizException(1526,"素材处理繁忙");
+            if("IMAGE".equals(kind)) {
+                int first;try(var in=java.nio.file.Files.newInputStream(source)){first=in.read();}
+                var validated=AssetFilePolicy.validate(source,"original."+(first==137?"png":"jpg"),java.nio.file.Files.size(source));
+                var original=javax.imageio.ImageIO.read(source.toFile());
+                double scale=Math.min(1d,2560d/Math.max(validated.width(),validated.height()));
+                var image=new java.awt.image.BufferedImage(Math.max(1,(int)(original.getWidth()*scale)),Math.max(1,(int)(original.getHeight()*scale)),java.awt.image.BufferedImage.TYPE_INT_RGB);
+                var g=image.createGraphics();try{g.setColor(java.awt.Color.WHITE);g.fillRect(0,0,image.getWidth(),image.getHeight());g.drawImage(original,0,0,image.getWidth(),image.getHeight(),null);}finally{g.dispose();}
+                var writer=javax.imageio.ImageIO.getImageWritersByFormatName("jpg").next();
+                try(var output=javax.imageio.ImageIO.createImageOutputStream(target.toFile())) {
+                    writer.setOutput(output);var options=writer.getDefaultWriteParam();options.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);options.setCompressionQuality(.92f);
+                    writer.write(null,new javax.imageio.IIOImage(image,null,null),options);
+                }finally{writer.dispose();}return;
+            }
+            var command=new ArrayList<>(List.of("-hide_banner","-nostdin","-v","error","-y","-threads","1","-protocol_whitelist","file","-i",source.toString(),"-map_metadata","-1"));
+            if("VIDEO".equals(kind)) {
+                var info=run(List.of("-hide_banner","-nostdin","-protocol_whitelist","file","-i",source.toString()),false);
+                var size=Pattern.compile("Video:[^\\r\\n]*? (\\d+)x(\\d+)(?:[ ,\\[])").matcher(info);
+                if(!size.find())throw new BizException(1520,"视频轨道不可读取");
+                boolean portrait=Integer.parseInt(size.group(2))>Integer.parseInt(size.group(1));int w=portrait?720:1280,h=portrait?1280:720;
+                command.addAll(List.of("-map","0:v:0","-map","0:a:0?","-vf","scale="+w+":"+h+":force_original_aspect_ratio=decrease,pad="+w+":"+h+":(ow-iw)/2:(oh-ih)/2,setsar=1","-c:v","libx264","-threads","2","-preset","fast","-profile:v","high","-pix_fmt","yuv420p","-r","30","-b:v","2M","-minrate","2M","-maxrate","2M","-bufsize","4M","-x264-params","nal-hrd=cbr:force-cfr=1","-c:a","aac","-b:a","128k","-ar","44100","-ac","2","-movflags","+faststart"));
+            }else command.addAll(List.of("-map","0:a:0","-vn","-c:a","libmp3lame","-b:a","192k","-ar","44100"));
+            command.add(target.toString());run(command,true);
+        }catch(InterruptedException ex){Thread.currentThread().interrupt();throw new BizException(1526,"素材处理被中断");}
+        catch(IOException ex){throw new BizException(1526,"素材格式处理未完成");}
+        finally{if(acquired)slots.release();}
+    }
     public void cover(Path video,Path image) {
         boolean acquired=false;
         try {

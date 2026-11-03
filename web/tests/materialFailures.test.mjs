@@ -10,12 +10,12 @@ test('失败只标记对应商品和素材类型，未产出文件也有失败�
   assert.equal(generationFailureRows(s,'p2','VIDEO')[0].message,'视频服务超时');
   assert.deepEqual(generationFailureRows(s,'p1','VIDEO'),[]);
 });
-test('同步失败归到已有素材行，保留真实原因且不重复生成失败占位',()=>{
+test('同步异常交给后台恢复，不暴露技术原因及错误徽标',()=>{
   const m={id:'v2',productId:'p2',type:'VIDEO',status:'FAILED',error:'千川上传被拒绝',processing:{stage:'SYNC',generationStatus:'SUCCEEDED',storageStatus:'SUCCEEDED',reviewStatus:'SUCCEEDED',syncStatus:'FAILED'}};
   const s=state();s.generationIssues[0].materialId='v2';s.materials=[m];
-  assert.equal(materialFailed(m),true);assert.equal(materialFailureReason(m,s),'千川上传被拒绝');
+  assert.equal(materialFailed(m),false);assert.equal(materialFailureReason(m,s),'');
   assert.deepEqual(generationFailureRows(s,'p2','VIDEO'),[]);
-  assert.equal(productHasFailure(s,'p2','VIDEO'),true);
+  assert.equal(productHasFailure(s,'p2','VIDEO'),false);assert.deepEqual(activeGenerationIssues(s),[]);
 });
 test('成功回显后移除过期失败标记，历史原因不污染现有结果',()=>{
   const s=state();s.generationIssues[0].materialId='v2';
@@ -27,4 +27,9 @@ test('缺少类型的旧记录仅在对应商品下提示，不猜测四个tab�
   const s=state();s.generationIssues=[{productId:'p2',message:'创意规划失败'}];
   assert.equal(productHasFailure(s,'p2'),true);
   for(const type of ['VIDEO','IMAGE','CAROUSEL','TITLE'])assert.equal(productHasFailure(s,'p2',type),false);
+});
+
+test('本地上传的聚合阶段仍为REVIEW时，也不展示同步底层原因',()=>{
+  const m={id:'upload',productId:'p1',status:'PROCESSING',error:'错误码 1511',processing:{stage:'REVIEW',syncStatus:'FAILED',reviewStatus:'PENDING',components:[]}};
+  assert.equal(materialFailed(m),false);assert.equal(materialFailureReason(m,{materials:[m]}),'');
 });

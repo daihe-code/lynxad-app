@@ -12,13 +12,18 @@ export function carouselReady(value: CarouselDetail | undefined, accountId: stri
     && value.parts.length > 0 && value.parts.every(part => part.asset.storageStatus === 'STORED' && approved(part.asset.aiReview?.status)
       && (part.role === 'TEXT' || uploadedReady(part.asset, accountId)));
 }
-export function uploadPhase(asset: UploadedAsset | undefined, accountId: string, busy = false, error = '') {
+export function syncRecoveryPending(sync: AssetSync, until = 0): boolean {
+  return sync.reviewStatus !== 'REJECTED' && (sync.status === 'FAILED' && (sync.attempts ?? 3) < 3
+    || ['UNCERTAIN','WAITING_AUTH'].includes(sync.status) && until > Date.now());
+}
+export function uploadPhase(asset: UploadedAsset | undefined, accountId: string, busy = false, error = '', recoveryUntil = 0) {
   if (error) return '上传失败';
   if (!asset) return busy ? '上传中' : '待上传';
   if (asset.storageStatus !== 'STORED') return asset.storageStatus === 'FAILED' ? '上传失败' : '上传中';
   if (!approved(asset.aiReview?.status)) return ['FAILED', 'REJECTED', 'MANUAL_REVIEW'].includes(asset.aiReview?.status || '') ? '检查未通过' : '检查中';
   const sync = asset.syncs.find(s => s.accountId === accountId);
   if (uploadedReady(asset, accountId)) return '已就绪';
+  if (sync && syncRecoveryPending(sync, recoveryUntil)) return '同步中';
   if (sync && ['FAILED', 'WAITING_AUTH', 'UNCERTAIN', 'PAUSED'].includes(sync.status) || sync?.reviewStatus === 'REJECTED') return '同步未完成';
   return '同步中';
 }

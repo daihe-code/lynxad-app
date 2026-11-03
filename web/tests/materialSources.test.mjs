@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadedReady, carouselReady, uploadPhase, materialMeta } from '../src/features/creative/materialSources.ts';
+import { uploadedReady, carouselReady, uploadPhase, materialMeta, syncRecoveryPending } from '../src/features/creative/materialSources.ts';
 const asset = () => ({ id:'a',kind:'VIDEO',storageStatus:'STORED',aiReview:{status:'APPROVED'},syncs:[{accountId:'current',status:'UPLOADED',reviewStatus:'PASS'}] });
 test('local selection waits for the current account review and sync, including uncertain outcomes',()=>{
   const value=asset();assert.equal(uploadedReady(value,'current'),true);assert.equal(uploadedReady(value,'other'),false);
@@ -22,4 +22,11 @@ test('video cards display factual duration and orientation without inventing mis
   assert.equal(materialMeta({type:'VIDEO',durationSec:18.25,width:1080,height:1920}),'18.3 秒 · 竖屏');
   assert.equal(materialMeta({type:'VIDEO',durationSec:20,imageMode:'VIDEO_HORIZONTAL'}),'20 秒 · 横屏');
   assert.equal(materialMeta({type:'VIDEO'}),'时长待获取 · 画幅待获取');
+});
+test('local uploads keep observing bounded background recovery and never claim readiness early',()=>{
+  const value=asset(), sync=value.syncs[0];sync.status='FAILED';sync.attempts=1;
+  assert.equal(syncRecoveryPending(sync),true);assert.equal(uploadPhase(value,'current'),'同步中');assert.equal(uploadedReady(value,'current'),false);
+  sync.attempts=3;assert.equal(syncRecoveryPending(sync),false);assert.equal(uploadPhase(value,'current'),'同步未完成');
+  sync.status='UNCERTAIN';assert.equal(syncRecoveryPending(sync,Date.now()+60_000),true);assert.equal(syncRecoveryPending(sync,Date.now()-1),false);
+  sync.reviewStatus='REJECTED';assert.equal(syncRecoveryPending(sync,Date.now()+60_000),false);
 });

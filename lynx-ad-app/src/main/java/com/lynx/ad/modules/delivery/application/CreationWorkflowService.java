@@ -15,6 +15,7 @@ import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
 import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.CreationDraftSchedule;
+import com.lynx.ad.modules.delivery.domain.service.CreationSyncRecovery;
 import com.lynx.ad.modules.delivery.domain.service.PublishFailureRecovery;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
@@ -115,6 +116,16 @@ public class CreationWorkflowService {
         s=refreshGeneratedFiles(tenant,s);
         s.products=new ArrayList<>(currentProductPrices(tenant,s));
         var assetDetails=materialProcessing.hydrate(tenant,s);
+        // Reactivate older drafts whose aggregate FAILED status previously stopped all polling.
+        var recovering=s.materials.stream().filter(m->!m.excludedFromDelivery&&m.syncRecoveryStartedAt==0&&CreationSyncRecovery.systemIssue(m)
+                &&!Set.of("REJECTED","FAILED").contains(m.processing.reviewStatus())).collect(java.util.stream.Collectors.toMap(m->m.id,m->m.status));
+        if(!recovering.isEmpty()&&s.accountId!=null&&Set.of("NONE","FAILED").contains(s.publishStatus)) {
+            s=store.mutate(tenant.value(),id,null,state->{
+                if(!Set.of("NONE","FAILED").contains(state.publishStatus))return;
+                for(var m:state.materials)if(recovering.containsKey(m.id)&&!m.excludedFromDelivery&&Objects.equals(m.status,recovering.get(m.id))&&m.syncRecoveryStartedAt==0){m.failureStage="SYNC";m.syncRecoveryStartedAt=System.currentTimeMillis();m.status="PROCESSING";}
+            });
+            assetDetails=materialProcessing.hydrate(tenant,s);
+        }
         var repaired=reconcileDuplicateSelections(tenant,s,assetDetails);
         if(repaired!=s){s=repaired;assetDetails=materialProcessing.hydrate(tenant,s);}
         for(var m:s.materials) {
@@ -209,6 +220,8 @@ public class CreationWorkflowService {
                 for(int i=0;i<next.imageAssetIds.size();i++)next.importedAssets.put("IMAGE_"+i,next.imageAssetIds.get(i));
                 if("CAROUSEL".equals(next.type))next.carouselId=null;
                 next.status="PROCESSING";next.error=null;
+                next.failureStage=null;next.failureCode=null;next.excludedFromDelivery=false;
+                next.syncRecoveryStartedAt=0;next.syncRecoveryNextAt=0;next.syncRecoveryFailures=0;
                 replacements.put(old.id,next);
             }catch(BizException unavailable){/* Keep durable previews when the engine is temporarily unavailable. */}
         }
@@ -895,7 +908,7 @@ public class CreationWorkflowService {
             });
         }
         current=store.get(snapshot.tenantId,id);
-        for(var material:current.materials)if(!"READY".equals(material.status)&&!"FAILED".equals(material.status))processMaterial(current,material);
+        for(var material:current.materials)if(!"READY".equals(material.status)&&CreationSyncRecovery.due(material,System.currentTimeMillis()))processMaterial(current,material);
         store.mutate(snapshot.tenantId,id,null,s->{
             s.retireReferenceAlternatives();
             if(!Set.of("IMPORTING","FAILED").contains(s.generationStatus)||s.engineTerminalStatus==null)return;
@@ -982,7 +995,7 @@ public class CreationWorkflowService {
         if(terminal)store.mutate(tenant,id,null,s->{if(Objects.equals(s.engineJobId,request.engineJobId)){s.engineTerminalStatus=job.path("status").asText();s.engineTerminalJobId=request.engineJobId;}});
         var current=store.get(tenant,id);String currentMaterialId=additionRecord(current,rid).materialId;
         var material=current.materials.stream().filter(m->Objects.equals(m.id,currentMaterialId)).findFirst().orElse(null);
-        if(material!=null&&!Set.of("READY","FAILED").contains(material.status))processMaterial(current,material);
+        if(material!=null&&!"READY".equals(material.status)&&CreationSyncRecovery.due(material,System.currentTimeMillis()))processMaterial(current,material);
         current=store.get(tenant,id);String savedMaterialId=additionRecord(current,rid).materialId;
         final var saved=current.materials.stream().filter(m->Objects.equals(m.id,savedMaterialId)).findFirst().orElse(null);
         boolean ready=saved!=null&&"READY".equals(saved.status);
@@ -1040,6 +1053,8 @@ public class CreationWorkflowService {
     public CreationState.Material importOptimizationMaterial(CreationState s,CreationState.Material m){processMaterial(s,m,true);return m;}
     private void processMaterial(CreationState s,CreationState.Material m,boolean automatic) {
         var tenant=new TenantId(s.tenantId);
+        if(m.excludedFromDelivery||m.syncRecoveryNextAt>System.currentTimeMillis())return;
+        boolean recovering="SYNC".equals(m.failureStage);
         m.failureStage="REGISTRATION";m.failureCode=null;
         try {
             for(var entry:m.sourceUrls.entrySet())if(!m.importedAssets.containsKey(entry.getKey())) {
@@ -1067,16 +1082,30 @@ public class CreationWorkflowService {
                 var refs=new ArrayList<>(m.imageAssetIds);if(m.videoAssetId!=null)refs.add(m.videoAssetId);if(m.coverAssetId!=null)refs.add(m.coverAssetId);if(m.audioAssetId!=null)refs.add(m.audioAssetId);if(m.textAssetId!=null)refs.add(m.textAssetId);
                 for(String ref:refs){var a=assets.detail(tenant,ref);if(a.aiReview()!=null&&Set.of("REJECTED","MANUAL_REVIEW","FAILED").contains(a.aiReview().status())){m.status="FAILED";m.failureStage="REVIEW";m.error=a.aiReview().summary();}
                     var failedSync=a.syncs().stream().filter(x->s.accountId.equals(x.accountId())&&Set.of("FAILED","UNCERTAIN","PAUSED").contains(x.status())).findFirst();
-                    if(failedSync.isPresent()){m.status="FAILED";m.failureStage="SYNC";m.error=failedSync.get().errorMessage()==null?"千川同步未完成，请在素材中心查看并重试":failedSync.get().errorMessage();}}
-                if(Set.of(1523,1406).contains(e.code())){m.status="FAILED";m.failureStage="SYNC";m.error=e.getMessage();}
+                    if(failedSync.isPresent()&&!"REVIEW".equals(m.failureStage)){m.status="FAILED";m.failureStage="SYNC";m.error=failedSync.get().errorMessage()==null?"千川同步未完成，请在素材中心查看并重试":failedSync.get().errorMessage();}}
+                if(Set.of(1523,1406).contains(e.code())&&!"REVIEW".equals(m.failureStage)){m.status="FAILED";m.failureStage="SYNC";m.error=e.getMessage();}
             }
         }catch(BizException e){m.status="FAILED";m.error=e.getMessage();m.failureCode=e.code();}
+        if(recovering&&!"READY".equals(m.status)&&!"REVIEW".equals(m.failureStage))m.failureStage="SYNC";
+        var inspection=materialProcessing.inspect(s,m).progress();
+        boolean exhausted=false;
+        if(CreationSyncRecovery.systemIssue(m)||"SYNC".equals(inspection.stage())) {
+            var refs=new ArrayList<>(m.imageAssetIds);refs.addAll(Arrays.asList(m.videoAssetId,m.coverAssetId,m.audioAssetId));
+            for(String ref:refs)if(ref!=null) {
+                var a=assets.detail(tenant,ref);
+                if(a!=null&&a.syncs().stream().anyMatch(x->Objects.equals(s.accountId,x.accountId())&&"FAILED".equals(x.status())&&x.attempts()>=3))exhausted=true;
+            }
+        }
+        CreationSyncRecovery.settle(m,inspection,exhausted,System.currentTimeMillis());
         if("READY".equals(m.status)&&creativeContexts!=null)try{creativeContexts.record(s,m);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Material creative context registration pending: {}",m.id);}
         if(!automatic)store.mutate(s.tenantId,s.planId,null,state->{
             // A title edit or another user change may occur while an asset is being inspected.
             if (state.revision != s.revision) return;
             int i=-1;for(int n=0;n<state.materials.size();n++)if(state.materials.get(n).id.equals(m.id))i=n;
-            if(i<0)return;state.materials.set(i,m);
+            if(i<0)return;
+            boolean excluded=state.materials.get(i).excludedFromDelivery;
+            state.materials.set(i,m);
+            if(!excluded&&m.excludedFromDelivery)state.mediaChanged();
             if("READY".equals(m.status)&&m.replacesId!=null&&!"CREATED".equals(state.publishStatus)){state.materials.removeIf(old->old.id.equals(m.replacesId));state.removedMaterialIds.add(m.replacesId);}
         });
     }

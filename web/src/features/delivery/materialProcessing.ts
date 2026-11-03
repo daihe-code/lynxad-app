@@ -1,4 +1,5 @@
 import type { CreationMaterial, CreationState } from './creationApi';
+import { systemSyncIssue } from './materialFailures.ts';
 export function processingLabel(status?: string): string {
   return ({SUCCEEDED:'完成',NOT_REQUIRED:'无需处理',PENDING:'等待中',RUNNING:'处理中',FAILED:'失败',
     REJECTED:'未通过',UNCERTAIN:'结果待确认',WAITING_AUTH:'等待授权',PAUSED:'已暂停',UNKNOWN:'待核验'} as Record<string,string>)[status || 'UNKNOWN'] || '待核验';
@@ -11,13 +12,13 @@ export function materialHasPreview(material: CreationMaterial): boolean {
 }
 export function materialProcessingLabel(material: CreationMaterial): string {
   const p=material.processing;
-  if (!p) return material.status === 'READY' ? '可用 · 已同步千川' : '处理状态待核验';
+  if (systemSyncIssue(material)) return '素材处理中';
+  if (!p) return material.status === 'READY' ? '已就绪' : '素材处理中';
   const origin=p.generationStatus === 'SUCCEEDED' ? '已生成' : p.storageStatus === 'SUCCEEDED' ? '已上传' : '素材';
-  if (p.stage === 'READY') return '可用 · 已同步千川';
+  if (p.stage === 'READY') return '已就绪';
   if (p.stage === 'REGISTRATION') return `${origin} · ${p.storageStatus === 'FAILED' ? '登记失败' : p.storageStatus === 'UNKNOWN' ? '登记状态待核验' : '正在登记素材'}`;
   if (p.stage === 'REVIEW') return `${origin} · ${['REJECTED','FAILED'].includes(p.reviewStatus) ? '质检未通过' : '等待质检'}`;
-  if (p.stage === 'SYNC') return `${origin} · ${{SUCCEEDED:'已同步千川',FAILED:'千川同步失败',UNCERTAIN:'千川上传待确认',WAITING_AUTH:'等待千川授权',REJECTED:'千川审核未通过',PAUSED:'千川同步已暂停',UNKNOWN:'同步状态待核验'}[p.syncStatus] || '正在同步千川'}`;
-  if (p.stage === 'VALIDATION') return '已同步千川 · 投放校验待处理';
+  if (p.stage === 'SYNC' || p.stage === 'VALIDATION') return '素材处理中';
   return '处理状态待核验';
 }
 export function generationResultLabel(state: Pick<CreationState,'generationResultStatus'|'generationStatus'>): string {

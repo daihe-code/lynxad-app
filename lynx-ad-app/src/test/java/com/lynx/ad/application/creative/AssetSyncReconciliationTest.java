@@ -129,4 +129,26 @@ class AssetSyncReconciliationTest {
         assertEquals("UNCERTAIN",sync().status());assertTrue(repository.due(10).isEmpty());repository.recoverExpired();assertEquals("UNCERTAIN",sync().status());assertEquals(0,repository.retry("tenant","asset","account",false));
         when(lookup.find(any(),any())).thenReturn(new AssetReceiptLookupPort.Result("CONFIRMED","one","11"));assertEquals("CONFIRMED",service.reconcile(tenant,"asset","account").state());assertEquals("UPLOADED",sync().status());verify(upload,times(1)).upload(any(),any(),any(),any(),any(),any(),anyBoolean());
     }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void backgroundQueueRetriesApprovedDefiniteFailuresButNeverAmbiguousOrExhaustedAttempts(String mode)throws Exception {
+        database(mode);insert("tenant","exhausted","account");insert("tenant","unchecked","account");
+        jdbc.update("INSERT INTO creative_asset_review(asset_id,tenant_id,status,next_attempt_at,created_at,updated_at) VALUES('asset','tenant','APPROVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),('exhausted','tenant','APPROVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        assertTrue(repository.uncertainSyncs().size()<=2);assertTrue(repository.uncertainSyncs().stream().allMatch(s->"UNCERTAIN".equals(s.status())));
+        jdbc.update("UPDATE creative_asset_platform SET status='FAILED',next_attempt_at=CURRENT_TIMESTAMP WHERE tenant_id='tenant'");
+        jdbc.update("UPDATE creative_asset_platform SET attempts=3 WHERE asset_id='exhausted'");
+        repository.resumeRecoverableSyncs();assertEquals("QUEUED",sync().status());assertEquals("FAILED",repository.syncs("tenant","exhausted").getFirst().status());assertEquals("FAILED",repository.syncs("tenant","unchecked").getFirst().status());
+        jdbc.update("UPDATE creative_asset_platform SET status='UNCERTAIN' WHERE asset_id='asset'");repository.resumeRecoverableSyncs();assertEquals("UNCERTAIN",sync().status());
+    }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void repairedUploadUsesItsOwnDurableSignatureAndDimensionsWhenReconciling(String mode)throws Exception {
+        database(mode);String repairedHash="a".repeat(32);
+        jdbc.update("UPDATE creative_asset_platform SET attempted_signature=? WHERE asset_id='asset'",repairedHash);
+        var original=repository.require("tenant","asset");var now=Instant.now();
+        var repaired=new AssetUploadRepository.Asset("repair","tenant","user","sync-format-v1:asset","IMAGE","compatible.jpg","image/jpeg",30,"key-repair","STORED","local",null,null,repairedHash,true,720,720,null,null,null,now,now);
+        when(files.syncPayloadForSignature(tenant,original,repairedHash)).thenReturn(repaired);
+        when(lookup.find(any(),any())).thenReturn(new AssetReceiptLookupPort.Result("CONFIRMED","repaired-file","22"));
+        assertEquals("CONFIRMED",service.reconcile(tenant,"asset","account").state());
+        verify(lookup).find(any(),argThat(expected->repairedHash.equals(expected.signature())&&expected.sizeBytes()==30&&expected.width()==720));
+        assertEquals("repaired-file",sync().objectId());assertEquals(HASH,repository.require("tenant","asset").md5());verify(files,never()).download(any(),any());
+    }
 }

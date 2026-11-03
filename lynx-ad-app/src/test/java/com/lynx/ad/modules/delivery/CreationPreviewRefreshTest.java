@@ -35,6 +35,7 @@ class CreationPreviewRefreshTest {
         var state=new CreationState();state.tenantId="tenant";state.userId="user";state.accountId="account";state.planId="plan";
         state.generationStatus="FAILED";state.confirmedVersion=state.packageVersion;
         var video=material("video","VIDEO");video.videoAssetId="video-file";video.coverAssetId="old-cover";
+        video.excludedFromDelivery=true;video.syncRecoveryStartedAt=1;video.syncRecoveryNextAt=Long.MAX_VALUE;video.syncRecoveryFailures=3;video.failureStage="SYNC";
         var image=material("image","IMAGE");image.imageAssetIds.add("old-image");state.materials.addAll(List.of(video,image));
         when(store.get("tenant","plan")).thenReturn(state);
         when(store.mutate(eq("tenant"),eq("plan"),any(),any())).thenAnswer(call->{Consumer<CreationState> update=call.getArgument(3);update.accept(state);return state;});
@@ -46,6 +47,7 @@ class CreationPreviewRefreshTest {
         assertEquals("video",view.materials.getFirst().id);assertEquals("new-cover",view.materials.getFirst().coverAssetId);
         assertEquals(List.of("new-image"),view.materials.getLast().imageAssetIds);
         assertEquals("PROCESSING",view.materials.getFirst().status);assertNull(view.confirmedVersion);assertEquals(version+1,view.packageVersion);
+        assertFalse(view.materials.getFirst().excludedFromDelivery);assertEquals(0,view.materials.getFirst().syncRecoveryFailures);assertEquals(0,view.materials.getFirst().syncRecoveryNextAt);
         assertEquals("old-cover",video.coverAssetId);assertEquals(List.of("old-image"),image.imageAssetIds);
         service(store,importer,assets).get(new TenantId("tenant"),"plan");
         assertEquals(version+1,state.packageVersion);

@@ -1,12 +1,21 @@
 import type { CreationMaterial, CreationState } from './creationApi';
 
+export function systemSyncIssue(material: CreationMaterial): boolean {
+  const p=material.processing;
+  if (p && ['REJECTED','FAILED'].includes(p.reviewStatus)) return false;
+  return !!p && (p.stage==='SYNC' || ['FAILED','UNCERTAIN','WAITING_AUTH','PAUSED','REJECTED'].includes(p.syncStatus)
+    || p.components?.some(c=>['FAILED','UNCERTAIN','WAITING_AUTH','PAUSED','REJECTED'].includes(c.syncStatus)))
+    || !!material.error && /千川|1511/.test(material.error);
+}
 export function materialFailed(material: CreationMaterial): boolean {
+  if (systemSyncIssue(material)) return false;
   if (material.status === 'READY' && (!material.processing || material.processing.stage === 'READY')) return false;
   const p = material.processing;
   return material.status === 'FAILED' || !!p && [p.generationStatus, p.storageStatus, p.reviewStatus, p.syncStatus].some(s => ['FAILED', 'REJECTED'].includes(s));
 }
 
 export function materialFailureReason(material: CreationMaterial, state: CreationState): string {
+  if (systemSyncIssue(material)) return '';
   const issue = state.generationIssues?.find(i => i.materialId === material.id);
   return material.error || issue?.message || material.processing?.message || (materialFailed(material) ? '素材处理未完成，暂未返回具体原因，可核查处理记录。' : '');
 }
@@ -23,5 +32,5 @@ export function generationFailureRows(state: CreationState, productId: string, t
 
 export function activeGenerationIssues(state: CreationState) {
   return (state.generationIssues || []).filter(i => !i.materialId || !state.materials.some(m => m.id === i.materialId
-    && m.status === 'READY' && (!m.processing || m.processing.stage === 'READY')));
+    && (systemSyncIssue(m) || m.status === 'READY' && (!m.processing || m.processing.stage === 'READY'))));
 }

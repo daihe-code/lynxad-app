@@ -9,6 +9,7 @@ import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadReposi
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import jakarta.annotation.PreDestroy;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -22,12 +23,15 @@ public class AssetSyncWorker {
     private final ExecutorService executor=Executors.newFixedThreadPool(2);
     private final Semaphore slots=new Semaphore(2);
     private final ConcurrentMap<String,AssetUploadRepository.Sync> active=new ConcurrentHashMap<>();
+    private AssetSyncReconciliationService reconciliation;
+    @org.springframework.beans.factory.annotation.Autowired public void reconciliation(AssetSyncReconciliationService value){reconciliation=value;}
     public AssetSyncWorker(AssetUploadRepository repository, AssetUploadService files, QianchuanCredentialFacade credentials, AssetUploadPort upload) {
         this.repository=repository; this.files=files; this.credentials=credentials; this.upload=upload;
     }
     @Scheduled(fixedDelayString="${lynx.ad.asset-sync.poll-ms:3000}")
     public void poll() {
         repository.recoverExpired();
+        repository.resumeRecoverableSyncs();
         for(var sync:repository.due(2)) {
             if (!slots.tryAcquire()) break;
             boolean submitted=false;
@@ -53,6 +57,8 @@ public class AssetSyncWorker {
             repository.attemptedCredential(sync,fingerprint(credential));
             upload.checkAvailable();
             var asset=repository.require(sync.tenantId(),sync.assetId());
+            var payload=files.syncPayload(tenant,asset,sync.attempts()>0&&sync.errorMessage()!=null&&sync.errorMessage().contains("1511"));
+            if(payload!=null)asset=payload;
             temp=files.download(tenant,asset);
             String signature=asset.md5();
             if(repository.isEngineAsset(tenant.value(),asset.id())) {
@@ -72,16 +78,25 @@ public class AssetSyncWorker {
             if (ex.code()==1211 || ex.code()==1201 || ex.code()==1205 || Qianchuan401ReplayCodes.isAuthExpired(ex)) status="WAITING_AUTH";
             else if (ex.code()==1523 || dispatched && ex.code()!=1511 && ex.code()!=429) status="UNCERTAIN";
             else if (ex.code()==1524) status="PAUSED";
-            else if (ex.code()==429 && sync.attempts()<3) status="QUEUED";
+            else if ((ex.code()==429 || ex.code()==1511 || !dispatched&&Set.of(1521,1526).contains(ex.code())) && sync.attempts()<2) status="QUEUED";
             else status="FAILED";
             // Do not persist upstream raw messages which could echo sensitive request fields.
-            String error=switch(status) { case "WAITING_AUTH" -> "授权信息不可用，请等待授权模块更新或重新授权后重试"; case "UNCERTAIN" -> "千川上传结果待确认，请核查上传结果，不会重复上传"; case "PAUSED" -> "本地模拟模式未调用千川，切换真实模式后重试"; case "QUEUED" -> "千川限流，稍后自动重试"; default -> "千川拒绝上传或文件不符合要求，请检查格式及素材上传权限后重试（错误码 " + ex.code() + "）"; };
+            String error=switch(status) { case "WAITING_AUTH" -> "授权信息不可用，等待授权模块更新"; case "UNCERTAIN" -> "上传结果待后台核查"; case "PAUSED" -> "本地模拟模式未调用千川"; case "QUEUED" -> "后台自动处理（错误码 "+ex.code()+"）"; default -> "平台上传未完成（错误码 " + ex.code() + "）"; };
             repository.fail(sync,status,error,Math.min(300,15 << Math.min(sync.attempts(),4)));
-        } catch (Exception ex) { repository.fail(sync,dispatched?"UNCERTAIN":"FAILED",dispatched?"上传已发送，本地回执未确认，请核查，不会重复上传":"文件读取失败，尚未发送千川上传请求，可重试",0); }
+        } catch (Exception ex) { repository.fail(sync,dispatched?"UNCERTAIN":sync.attempts()<2?"QUEUED":"FAILED",dispatched?"上传已发送，等待后台核查":"文件读取未完成，等待后台处理",30); }
         finally { AssetUploadService.remove(temp); active.remove(sync.id(),sync); }
     }
     @Scheduled(fixedDelayString="${lynx.ad.asset-sync.heartbeat-ms:30000}")
     public void heartbeat() { active.values().forEach(repository::heartbeat); }
+    @Scheduled(fixedDelayString="${lynx.ad.asset-sync.verify-ms:60000}")
+    public void verifyPending() {
+        if(reconciliation==null)return;
+        for(var sync:repository.uncertainSyncs()) {
+            if(!slots.tryAcquire())break;
+            try{executor.submit(()->{try{reconciliation.reconcile(new TenantId(sync.tenantId()),sync.assetId(),sync.accountId());}catch(RuntimeException ignored){/* Durable verification lease bounds read-only retries. */}finally{slots.release();}});}
+            catch(RejectedExecutionException stopped){slots.release();}
+        }
+    }
     @Scheduled(fixedDelayString="${lynx.ad.asset-sync.cleanup-ms:3600000}")
     public void cleanup() {
         for(var a:repository.abandoned()) { try { files.cancel(new TenantId(a.tenantId()),a.id()); } catch (Exception ignored) {} }

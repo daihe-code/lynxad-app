@@ -29,11 +29,12 @@ public class AssetSyncReconciliationService {
         if(claim==null)return new Result("BUSY",AssetSyncVerificationStore.message("BUSY"),files.detail(tenant,asset.id()));
         AssetReceiptLookupPort.Result result;
         try {
-            if(!"STORED".equals(asset.storageStatus())||claim.dispatchedAt()==null||claim.advertiser()==null||claim.signature()==null||!claim.signature().matches("(?i)[0-9a-f]{32}")||!claim.signature().equalsIgnoreCase(Objects.toString(asset.md5(),"")))result=AssetReceiptLookupPort.Result.pending("MISSING_EVIDENCE");
+            var payload=claim.signature()!=null&&claim.signature().equalsIgnoreCase(Objects.toString(asset.md5(),""))?asset:files.syncPayloadForSignature(tenant,asset,claim.signature());
+            if(payload==null||!"STORED".equals(payload.storageStatus())||claim.dispatchedAt()==null||claim.advertiser()==null||claim.signature()==null||!claim.signature().matches("(?i)[0-9a-f]{32}"))result=AssetReceiptLookupPort.Result.pending("MISSING_EVIDENCE");
             else {
                 var c=credentials.getUsableCredential(tenant,new AccountId(account));
                 if(!claim.advertiser().equals(c.advertiserId().value()))result=AssetReceiptLookupPort.Result.pending("SCOPE_CHANGED");
-                else result=lookup.find(c,new AssetReceiptLookupPort.Expected(AssetKind.valueOf(asset.kind()),claim.signature(),asset.sizeBytes(),asset.width(),asset.height(),asset.isAigc(),sync.objectId(),sync.materialId()));
+                else result=lookup.find(c,new AssetReceiptLookupPort.Expected(AssetKind.valueOf(payload.kind()),claim.signature(),payload.sizeBytes(),payload.width(),payload.height(),payload.isAigc(),sync.objectId(),sync.materialId()));
             }
         }catch(BizException unavailable){result=AssetReceiptLookupPort.Result.pending(Set.of(1201,1205,1211,401).contains(unavailable.code())||com.lynx.ad.common.http.Qianchuan401ReplayCodes.isAuthExpired(unavailable)?"AUTH_REQUIRED":"UNAVAILABLE");}
         catch(RuntimeException unavailable){result=AssetReceiptLookupPort.Result.pending("UNAVAILABLE");}

@@ -176,6 +176,20 @@ public class AssetUploadRepository {
     public List<Sync> due(int limit) {
         return jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a ON a.id=p.asset_id AND a.tenant_id=p.tenant_id WHERE a.storage_status='STORED' AND "+eligibleSql("p")+" AND p.status='QUEUED' AND p.next_attempt_at<=? ORDER BY p.next_attempt_at,p.id LIMIT ?",SYNC,Timestamp.from(Instant.now()),limit);
     }
+    public void resumeRecoverableSyncs() {
+        jdbc.update("UPDATE creative_asset_platform SET status='QUEUED',updated_at=? WHERE status='FAILED' AND attempts<3 AND next_attempt_at<=? AND "+eligibleSql("creative_asset_platform"),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
+    }
+    public List<Sync> uncertainSyncs() {
+        return jdbc.query("SELECT * FROM creative_asset_platform WHERE status='UNCERTAIN' AND (verification_checked_at IS NULL OR verification_checked_at<?) ORDER BY updated_at LIMIT 2",SYNC,Timestamp.from(Instant.now().minusSeconds(60)));
+    }
+    /** A server-only format conversion inherits its approved source's content decision. */
+    public void approveTechnicalRepair(String tenant,String source,String target) {
+        if(!approved(tenant,source))throw new BizException(1525,"源素材尚未通过内容检查");
+        var original=require(tenant,source);var repaired=require(tenant,target);
+        if(!("sync-format-v1:"+source).equals(repaired.requestId())||!original.kind().equals(repaired.kind())||original.isAigc()!=repaired.isAigc())throw new BizException(1520,"技术格式文件与源素材不匹配");
+        var now=Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO creative_asset_review(asset_id,tenant_id,status,summary,next_attempt_at,created_at,updated_at) VALUES(?,?,'APPROVED',?,?,?,?)",target,tenant,"技术格式修复，沿用已通过的内容检查",now,now,now);
+    }
     public boolean claim(Sync s) {
         var now = Instant.now();
         return jdbc.update("UPDATE creative_asset_platform SET status='RUNNING',attempts=attempts+1,lease_until=?,updated_at=?,upload_evidence_version=1,attempted_signature=NULL,attempted_advertiser_id=NULL,upload_dispatched_at=NULL,verification_key=NULL,verification_lease_until=NULL,verification_state=NULL,verification_checked_at=NULL,verification_message=NULL WHERE tenant_id=? AND id=? AND status='QUEUED' AND attempts=? AND next_attempt_at<=? AND "+eligibleSql("creative_asset_platform"),Timestamp.from(now.plusSeconds(900)),Timestamp.from(now),s.tenantId(),s.id(),s.attempts(),Timestamp.from(now))==1;

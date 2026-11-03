@@ -176,6 +176,10 @@ public class CreationState {
         public Double durationSec;
         public String failureStage;
         public Integer failureCode;
+        /** Internal recovery budget. No paid generation is dispatched by sync recovery. */
+        public long syncRecoveryStartedAt,syncRecoveryNextAt;
+        public int syncRecoveryFailures;
+        public boolean excludedFromDelivery;
         @com.fasterxml.jackson.annotation.JsonIgnore public MaterialProcessing processing;
         /** File provenance is hydrated from owned assets, separately from regeneration bindings. */
         @com.fasterxml.jackson.annotation.JsonIgnore public String source;
@@ -193,7 +197,10 @@ public class CreationState {
     }
     public void changed() { revision++; confirmedVersion = null; }
     public void mediaChanged() { packageVersion++; changed(); }
-    @com.fasterxml.jackson.annotation.JsonIgnore public List<Material> activeMaterials() { return materials.stream().filter(m->!m.pendingVersion()).toList(); }
+    @com.fasterxml.jackson.annotation.JsonIgnore public List<Material> activeMaterials() { return materials.stream().filter(m->!m.pendingVersion()&&!m.excludedFromDelivery).toList(); }
+    @com.fasterxml.jackson.annotation.JsonIgnore public boolean needsMaterialRecovery() {
+        return Set.of("NONE","FAILED").contains(publishStatus)&&materials.stream().anyMatch(m->!m.excludedFromDelivery&&"SYNC".equals(m.failureStage));
+    }
 
     /** Retire old photo alternatives only after their generated sibling is usable. */
     public boolean retireReferenceAlternatives() {

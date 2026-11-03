@@ -54,4 +54,20 @@ class MediaFileInspectorTest {
         assertThrows(BizException.class,()->inspector.validate(file,"mpeg4.mp4"));
         assertThrows(BizException.class,()->new MediaFileInspector(dir.resolve("missing.exe").toString(),5).validate(file,"mpeg4.mp4"));
     }
+    @Test void compatibilityRepairRetainsDurationAndAudioAndMakesPlayablePortraitMp4() throws Exception {
+        Path source=generate("source.mp4","-f","lavfi","-i","color=c=blue:s=240x320:r=25","-f","lavfi","-i","sine=frequency=440:sample_rate=44100","-t","2","-c:v","mpeg4","-c:a","aac");
+        Path target=dir.resolve("compatible.mp4");inspector.repairForUpload(source,target,"VIDEO");
+        var metadata=inspector.validate(target,"compatible.mp4");assertEquals(720,metadata.width());assertEquals(1280,metadata.height());assertEquals(2,metadata.durationSeconds(),.12);
+        // Mapping the audio track fails if repair dropped it. Decode it completely as well.
+        var p=new ProcessBuilder(executable,"-v","error","-i",target.toString(),"-map","0:a:0","-f","null","-").redirectErrorStream(true).start();
+        assertTrue(p.waitFor(20,TimeUnit.SECONDS));assertEquals(0,p.exitValue(),new String(p.getInputStream().readAllBytes()));
+        assertTrue(Files.size(source)>0);
+    }
+    @Test void imageRepairKeepsSquareCompositionAndRemovesAlpha() throws Exception {
+        var image=new java.awt.image.BufferedImage(800,800,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(400,400,0xffff0000);var source=dir.resolve("source.png");javax.imageio.ImageIO.write(image,"png",source.toFile());
+        var target=dir.resolve("compatible.jpg");inspector.repairForUpload(source,target,"IMAGE");
+        var checked=AssetFilePolicy.validate(target,"compatible.jpg",Files.size(target));assertEquals(800,checked.width());assertEquals(800,checked.height());
+        var repaired=javax.imageio.ImageIO.read(target.toFile());assertFalse(repaired.getColorModel().hasAlpha());assertEquals(java.awt.Color.WHITE.getRGB(),repaired.getRGB(0,0));
+    }
 }

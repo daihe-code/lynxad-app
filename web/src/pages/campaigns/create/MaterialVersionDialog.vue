@@ -14,7 +14,6 @@
       <MaterialSummary :material="source" />
       <div class="version-progress" role="status"><span v-if="!failed" class="version-spinner" aria-hidden="true" /><strong>{{ failed ? '本次重新生成未完成' : '正在重新生成素材' }}</strong><p>{{ failed ? version?.material.error || message || '请查看失败原因，原素材仍可使用。' : '可以关闭弹窗继续操作，后台会继续生成；完成后可在原素材处查看新版本。' }}</p></div>
     </template>
-    <button v-if="version?.material.processing?.canRetrySync && !ready" class="version-secondary" :disabled="busy" @click="emit('retry', version.material.id)">重试失败组件（不重新生成）</button>
     <button v-if="failed && version" class="version-secondary" :disabled="busy" @click="emit('confirm', version.material.id, 'DISCARD')">保留原素材，放弃此失败版本</button>
     <slot />
     <template #footer><button class="version-secondary" :disabled="busy" @click="emit('close')">{{ ready ? '稍后处理' : '关闭' }}</button><button v-if="ready && version" class="version-primary" :disabled="busy || applying" @click="emit('confirm', version.material.id, decision)">{{ busy ? '正在保存…' : applying ? '正在核查结果…' : decision === 'REPLACE' ? '确认替换' : '确认保留两者' }}</button></template>

@@ -88,7 +88,7 @@ function phase(row: UploadRow) {
   if (!row.valid) return '检查未通过';
   if (row.result?.storageStatus === 'VALIDATING') return '检查中';
   if (!row.result && !row.error && /校验|合并/.test(row.stage)) return '检查中';
-  return uploadPhase(row.result, props.accountId, row.busy, row.error);
+  return uploadPhase(row.result, props.accountId, row.busy, row.error, row.syncRecoveryUntil);
 }
 function isWorking(row: UploadRow) { return ['上传中', '检查中', '同步中'].includes(phase(row)); }
 function message(value: unknown) { const e = value as { message?: string; response?: { data?: { message?: string } } }; return e.response?.data?.message || e.message || '操作失败，请重试'; }

@@ -2,8 +2,9 @@ import { reactive } from 'vue';
 import { cancelAssetUpload, completeAssetUpload, getUploadedAsset, getUploadPolicy, initAssetUpload, uploadAssetFile, type UploadedAsset } from './creativeApi';
 import { preflight, targetError, type FileMetadata } from './assetPreflight';
 import { libraryFileError, type UploadLibrary } from './assetUploadTypes';
+import { syncRecoveryPending } from './materialSources';
 
-export interface UploadRow { key: string; file: File; library?: UploadLibrary; scope?: string; isAigc?: boolean; progress: number; stage: string; busy: boolean; valid: boolean; stopped?: boolean; uploadAssetId?: string; metadata?: FileMetadata; error: string; result?: UploadedAsset }
+export interface UploadRow { key: string; file: File; library?: UploadLibrary; scope?: string; isAigc?: boolean; progress: number; stage: string; busy: boolean; valid: boolean; stopped?: boolean; uploadAssetId?: string; syncRecoveryUntil?:number; metadata?: FileMetadata; error: string; result?: UploadedAsset }
 /** In-memory transfers outlive a dialog; server-side sync tasks also outlive a browser session. */
 export const uploadRows = reactive<UploadRow[]>([]);
 let ownerToken = localStorage.getItem('lynx.token');
@@ -90,7 +91,7 @@ export function beginUploadDialog() {
     const row = uploadRows[index]!;
     const pending = !row.stopped && (row.busy || (running && row.valid && !row.result)
       || reviewPending(row.result?.aiReview?.status)
-      || row.result?.syncs.some(s => ['QUEUED', 'RUNNING', 'WAITING_STORAGE'].includes(s.status)));
+      || row.result?.syncs.some(s => ['QUEUED', 'RUNNING', 'WAITING_STORAGE'].includes(s.status) || syncRecoveryPending(s,row.syncRecoveryUntil)));
     if (!pending) uploadRows.splice(index, 1);
   }
 }
@@ -138,7 +139,7 @@ export async function startUploads(accountIds: string[], aigc: boolean, library?
           row.stage = '上传到平台存储';
           asset = await uploadAssetFile(init.assetId, row.file, percent => { if (row.stopped) return; row.progress = Math.min(100, percent); if (percent >= 100) row.stage = '正在校验文件并入库'; }, controller.signal);
         }
-        check(); row.result = asset; row.progress = 100; row.stage = uploadStage(asset);
+        check(); row.result = asset; row.progress = 100; row.stage = uploadStage(asset); row.syncRecoveryUntil=Date.now()+10*60_000;
       } catch (error) { if (!row.stopped) { row.error = errorMessage(error); row.stage = '平台上传失败'; } }
       finally { row.busy = false; transfers.delete(row.key); }
     }
@@ -149,7 +150,8 @@ let polling = false;
 setInterval(async () => {
   ensureUploadSession();
   if (polling) return;
-  const rows = uploadRows.filter(r => !r.stopped && r.result && (reviewPending(r.result.aiReview?.status) || r.result.syncs.some(s => ['QUEUED', 'RUNNING', 'WAITING_STORAGE'].includes(s.status))));
+  for(const row of uploadRows)if(row.syncRecoveryUntil && row.syncRecoveryUntil<=Date.now())row.syncRecoveryUntil=0;
+  const rows = uploadRows.filter(r => !r.stopped && r.result && (reviewPending(r.result.aiReview?.status) || r.result.syncs.some(s => ['QUEUED', 'RUNNING', 'WAITING_STORAGE'].includes(s.status)||syncRecoveryPending(s,r.syncRecoveryUntil))));
   if (!rows.length) return;
   polling = true;
   try { await Promise.all(rows.map(async row => { try { const result = await getUploadedAsset(row.result!.id); if (!row.stopped) { row.result = result; row.stage = uploadStage(result); } } catch { /* Keep the last known state when offline. */ } })); }

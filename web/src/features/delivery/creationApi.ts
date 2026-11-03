@@ -83,6 +83,7 @@ export interface ProductBasicAnalysis {
   issues: ProductBasicIssue[];
 }
 export interface CreationState {
+  materialOutcome?: { ready:number; recovering:number; failed:number; generatedFailure:boolean };
   materialVersions?: { sourceId: string; material: CreationMaterial; decision?: string }[];
   materialRevision?: { requestId: string; sourceId: string; materialId?: string; status: string } | null;
   engineJobId?: string;

@@ -323,5 +323,46 @@ public class AssetUploadService {
             return temp;
         } catch (Exception ex) { remove(temp); throw ex; }
     }
+    private Optional<Asset> syncRepair(TenantId tenant,Asset source) {
+        return repository.request(tenant.value(),"sync-format-v1:"+source.id()).map(a->a.canonicalId()==null?a:repository.require(tenant.value(),a.canonicalId())).filter(a->"STORED".equals(a.storageStatus()));
+    }
+    public Asset syncPayloadForSignature(TenantId tenant,Asset source,String signature) {
+        if(signature!=null&&signature.equalsIgnoreCase(Objects.toString(source.md5(),"")))return source;
+        return syncRepair(tenant,source).filter(a->signature!=null&&signature.equalsIgnoreCase(Objects.toString(a.md5(),""))).orElse(null);
+    }
+    public Asset syncPayload(TenantId tenant,Asset source,boolean repair) throws IOException {
+        var previous=syncRepair(tenant,source);if(previous.isPresent())return previous.get();
+        if(!repair)return source;
+        if(!repository.approved(tenant.value(),source.id()))throw new BizException(1525,"源素材尚未通过内容检查");
+        String filename="compatible."+switch(source.kind()){case "VIDEO"->"mp4";case "IMAGE"->"jpg";case "AUDIO"->"mp3";default->throw new BizException(1520,"不支持修复此文件类型");};
+        Path original=null,converted=null;Asset prepared=null;boolean owned=false;
+        try {
+            original=download(tenant,source);
+            if(source.md5()!=null&&!source.md5().equalsIgnoreCase(fileSignature(original)))throw new BizException(1520,"源素材文件与已检查内容不一致");
+            converted=Files.createTempFile("lynx-sync-format-","-"+filename);inspector.repairForUpload(original,converted,source.kind());
+            var validated=AssetFilePolicy.validate(converted,filename,Files.size(converted));var media=inspector.validate(converted,filename);
+            if(media!=null)validated=new AssetFilePolicy.Validated(validated.md5(),validated.size(),media.width(),media.height(),null);
+            var duplicate=repository.content(tenant.value(),AssetUploadRepository.contentKey(source,validated.md5())).orElse(null);
+            if(duplicate!=null&&duplicate.id().equals(source.id()))return source;
+            var a=repository.request(tenant.value(),"sync-format-v1:"+source.id()).orElse(null);
+            if(a==null){String id=UUID.randomUUID().toString();var now=Instant.now();a=new Asset(id,tenant.value(),source.userId(),"sync-format-v1:"+source.id(),source.kind(),filename,AssetFilePolicy.spec(filename).contentType(),validated.size(),AssetStoragePolicy.key(tenant,id,filename),"WAITING",properties.getStorage().getAssetMode(),null,null,null,source.isAigc(),null,null,null,null,null,now,now);repository.insert(a);initializeStorage(a);repository.carouselComponent(tenant.value(),id);}
+            prepared=a;
+            if(!repository.claimUpload(tenant.value(),a.id()))throw new BizException(1526,"素材格式处理正在完成");
+            owned=true;
+            try(var in=Files.newInputStream(converted)){location(a).put(tenant,a.objectKey(),in,validated.size(),a.contentType());}
+            if(repository.aiReview(tenant.value(),a.id())==null)repository.approveTechnicalRepair(tenant.value(),source.id(),a.id());
+            try{repository.stored(a,validated.md5(),validated.width(),validated.height(),null);}catch(DuplicateKeyException same){var canonical=repository.content(tenant.value(),AssetUploadRepository.contentKey(a,validated.md5())).orElseThrow();repository.duplicate(a,canonical.id());return canonical;}
+            if(media!=null)repository.duration(tenant.value(),a.id(),Math.round(media.durationSeconds()*1000));
+            return repository.require(tenant.value(),a.id());
+        }catch(IOException|RuntimeException ex){if(owned)repository.storageFailed(prepared,"素材格式处理未完成，等待后台重试");throw ex;}
+        finally{remove(original);remove(converted);}
+    }
+    private static String fileSignature(Path file) throws IOException {
+        try {
+            var digest=java.security.MessageDigest.getInstance("MD5");
+            try(var input=new java.security.DigestInputStream(Files.newInputStream(file),digest)){input.transferTo(OutputStream.nullOutputStream());}
+            return HexFormat.of().formatHex(digest.digest());
+        }catch(java.security.NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
+    }
     public static void remove(Path path) { if (path!=null) try { Files.deleteIfExists(path); } catch (IOException ignored) {} }
 }

@@ -73,7 +73,7 @@ class AssetSyncWorkerTest {
         when(credentials.getUsableCredential(any(),any())).thenReturn(new Credential("test-token",new AdvertiserId("11")));
         when(upload.upload(any(),any(),any(),any(),any(),any(),anyBoolean())).thenReturn(new AssetUploadPort.Result("file-id","11","request"));
         doThrow(new org.springframework.dao.DataAccessResourceFailureException("local commit unavailable")).when(repository).finish(any(),any(),any(),any(),any());
-        worker.process(sync("account"));verify(repository).fail(any(),eq("UNCERTAIN"),anyString(),eq(0));verify(upload,times(1)).upload(any(),any(),any(),any(),any(),any(),anyBoolean());
+        worker.process(sync("account"));verify(repository).fail(any(),eq("UNCERTAIN"),anyString(),eq(30));verify(upload,times(1)).upload(any(),any(),any(),any(),any(),any(),anyBoolean());
         verify(repository,never()).retry(any(),any(),any(),anyBoolean());
     }
     @Test void lostAttemptOwnershipStopsBeforeMultipartRequest() throws Exception {
@@ -81,5 +81,24 @@ class AssetSyncWorkerTest {
         when(repository.require("tenant-a","asset")).thenReturn(asset);when(files.download(any(),eq(asset))).thenReturn(Path.of("missing-test-file"));
         when(credentials.getUsableCredential(any(),any())).thenReturn(new Credential("test-token",new AdvertiserId("11")));when(repository.dispatched(any(),anyString(),anyString())).thenReturn(false);
         worker.process(sync("account"));verify(upload,never()).upload(any(),any(),any(),any(),any(),any(),anyBoolean());verify(repository,never()).finish(any(),any(),any(),any(),any());
+    }
+    @Test void rejectionRepairsExistingBytesAndRetriesOnlyThreeTimes() throws Exception {
+        var now=Instant.now();var original=new AssetUploadRepository.Asset("asset","tenant-a","user","request","IMAGE","test.png","image/png",4,"key","STORED","local",null,null,"original",true,800,800,null,null,null,now,now);
+        var repaired=new AssetUploadRepository.Asset("repair","tenant-a","user","sync-format-v1:asset","IMAGE","compatible.jpg","image/jpeg",6,"repair-key","STORED","local",null,null,"converted",true,800,800,null,null,null,now,now);
+        when(repository.require("tenant-a","asset")).thenReturn(original);
+        when(credentials.getUsableCredential(any(),any())).thenReturn(new Credential("token",new AdvertiserId("11")));
+        when(files.syncPayload(any(),eq(original),eq(false))).thenReturn(original);
+        when(files.syncPayload(any(),eq(original),eq(true))).thenReturn(repaired);
+        when(files.download(any(),any())).thenReturn(Path.of("missing-test-file"));
+        when(upload.upload(any(),any(),any(),any(),any(),any(),anyBoolean())).thenThrow(new BizException(1511,"rejected"));
+        var initial=sync("account");worker.process(initial);
+        verify(repository).fail(eq(initial),eq("QUEUED"),contains("1511"),eq(15));
+        for(int attempts=1;attempts<=2;attempts++) {
+            var retry=new AssetUploadRepository.Sync(initial.id(),initial.tenantId(),initial.assetId(),initial.accountId(),null,"QUEUED",null,null,null,"UNKNOWN",attempts,now,null,"后台自动处理（错误码 1511）");worker.process(retry);
+            verify(repository).fail(eq(retry),eq(attempts==1?"QUEUED":"FAILED"),contains("1511"),eq(attempts==1?30:60));
+        }
+        verify(upload,times(2)).upload(any(),eq(AssetKind.IMAGE),any(),eq("compatible.jpg"),eq("image/jpeg"),eq("converted"),eq(true));
+        verify(repository,times(2)).dispatched(any(),eq("11"),eq("converted"));
+        verify(repository,never()).storageFailed(any(),anyString());
     }
 }
