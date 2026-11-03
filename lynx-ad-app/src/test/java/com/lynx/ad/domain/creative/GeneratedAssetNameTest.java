@@ -25,6 +25,20 @@ class GeneratedAssetNameTest {
                 GeneratedAssetName.create("素材标题", "VIDEO", TIME, ID, ".mp4"));
     }
 
+    @Test void imagesWithIdenticalTitlesTimesAndIdPrefixesNeverShareAName() {
+        for (String component : new String[]{"IMAGE_0", "IMAGE_1", "COVER"}) {
+            var names = new java.util.HashSet<String>();
+            for (int index = 0; index < 100; index++) {
+                String id = "6013b26f-72b1-4f64-9119-" + "%012d".formatted(index);
+                String name = GeneratedAssetName.create("瑜伽服商品卡", component, TIME, id, ".jpg");
+                assertTrue(names.add(name), name);
+                assertTrue(name.endsWith(id + ".jpg"));
+                assertEquals(name, GeneratedAssetName.create("瑜伽服商品卡", component, TIME, id, ".jpg"));
+                assertTrue(name.getBytes(StandardCharsets.UTF_8).length <= 100);
+            }
+        }
+    }
+
     @Test void mediaComponentsRemainRecognizableAndKeepTheirActualExtensions() {
         assertTrue(GeneratedAssetName.create("标题", "VIDEO", TIME, ID, ".mp4").contains("_视频_"));
         assertTrue(GeneratedAssetName.create("标题", "COVER", TIME, ID, ".jpg").contains("_封面_"));
