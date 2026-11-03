@@ -42,7 +42,8 @@ class AssetFilePolicyTest {
         assertThrows(BizException.class,()->AssetFilePolicy.validate(binary,"binary.txt",4));
     }
     @Test void limitsAreSpecificToTheFileKind() {
-        AssetFilePolicy.size(AssetFilePolicy.spec("test.mp4"),500L*1024*1024);
+        AssetFilePolicy.size(AssetFilePolicy.spec("test.mp4"),1000L*1024*1024);
+        assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.mp4"),1000L*1024*1024+1));
         assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.jpg"),2L*1024*1024));
         assertThrows(BizException.class,()->AssetFilePolicy.size(AssetFilePolicy.spec("test.txt"),2L*1024*1024));
         assertThrows(BizException.class,()->AssetFilePolicy.spec("test.mov"));

@@ -1,6 +1,6 @@
 {
   "files": [
-    { "extension": "mp4", "kind": "VIDEO", "maxBytes": 524288000, "qianchuanSupported": true },
+    { "extension": "mp4", "kind": "VIDEO", "maxBytes": 1048576000, "qianchuanSupported": true },
     { "extension": "jpg", "kind": "IMAGE", "maxBytes": 1572864, "qianchuanSupported": true },
     { "extension": "jpeg", "kind": "IMAGE", "maxBytes": 1572864, "qianchuanSupported": true },
     { "extension": "png", "kind": "IMAGE", "maxBytes": 1572864, "qianchuanSupported": true },
