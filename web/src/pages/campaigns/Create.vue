@@ -30,6 +30,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { useCreationActionNotices } from '@/features/delivery/useCreationActionNotices';
 import { useCreationVisibility } from '@/features/delivery/useCreationVisibility';
 import { addProductTitle, type TitleAddition, type TitleAdditionReceipt } from '@/features/delivery/titleAddition';
 import { roiInputError, scheduleInputError } from '@/features/delivery/inputValidation';
@@ -74,6 +75,7 @@ const props = defineProps<{ initialPlanId?: string; initialStep?: number; initia
 const requestBusy = ref(false), visibilitySaving = ref(false);
 const busy = computed(() => requestBusy.value || visibilitySaving.value);
 const state = ref<api.CreationState>(), step = ref(1), loaded = ref(false), loadError = ref(false);
+const notices=useCreationActionNotices(state);
 const resumingMaterials = ref(false);
 const productStep = ref<InstanceType<typeof CreateProductsStep>>();
 const adjustmentAcknowledged = ref(!!props.adjustProductsOnOpen);
@@ -367,12 +369,12 @@ function refreshInputSchedule() {
   const dates = resumeDraftDates(captureDraft(),today(),canRefreshCreationSchedule(state.value));start.value=dates.start;end.value=dates.end;
 }
 async function generate(ids: string[]) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationGenerate(state.value!, ids)); schedulePoll(); }); }
-async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationAddition(state.value!, body)); schedulePoll(); }); }
+async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { refreshInputSchedule();const next=await api.creationAddition(state.value!, body);acceptWrite(next);notices.addition(next,body.requestId);schedulePoll(); }); }
 async function addTitle(body: TitleAddition, receipt: TitleAdditionReceipt) {
   let started=false;
   await run(async()=>{
     started=true;
-    try { const next=await addProductTitle(state.value!,{...body,requestId:receipt.requestId});acceptWrite(next);schedulePoll();receipt.done(undefined,body.source==='AI'?next.titleGeneration:undefined); }
+    try { const before=state.value!;const next=await addProductTitle(before,{...body,requestId:receipt.requestId});acceptWrite(next);notices.titleAdded(before,next,body.productId,body.kind,body.source==='AI');schedulePoll();receipt.done(undefined,body.source==='AI'?next.titleGeneration:undefined); }
     catch(error){
       const failure=requestFailure(error,{method:'POST'});receipt.done(failure.message);
       if(failure.kind==='CONFLICT'&&state.value){try{acceptRead(await api.creationGet(state.value.planId));}catch{/* Keep the dialog input for retry. */}}
@@ -381,8 +383,8 @@ async function addTitle(body: TitleAddition, receipt: TitleAdditionReceipt) {
   });
   if(!started)receipt.done('暂时无法新增标题，请稍后重试。');
 }
-async function regenerateTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string) { await run(async()=>{acceptWrite(await api.creationRegenerateTitle(state.value!,product,kind,index,original));schedulePoll();}); }
-async function editProductTitles(product: string,kind:'CUSTOM'|'CARD',titles:string[]) { await run(async()=>{acceptWrite(await api.creationProductTitles(state.value!,product,kind,titles));schedulePoll();}); }
+async function regenerateTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string) { await run(async()=>{const next=await api.creationRegenerateTitle(state.value!,product,kind,index,original);acceptWrite(next);notices.titleGenerated(next);schedulePoll();}); }
+async function editProductTitles(product: string,kind:'CUSTOM'|'CARD',titles:string[]) { await run(async()=>{const before=state.value!;const next=await api.creationProductTitles(before,product,kind,titles);acceptWrite(next);notices.titlesEdited(before,next,product,kind);schedulePoll();}); }
 async function retryGeneration(type:'VIDEO'|'IMAGE'|'CAROUSEL') {
   try { await ElMessageBox.confirm('仅重试此类型未完成的生成项，成功素材会保留；模型服务可能产生新的生成费用。','重试失败项',{confirmButtonText:'重试失败项',cancelButtonText:'暂不重试'}); } catch { return; }
   await run(async()=>{acceptWrite(await api.creationRetryGeneration(state.value!,type));schedulePoll();});
@@ -392,7 +394,7 @@ async function retryFailure(issue: api.GenerationIssue) {
   await run(async () => { acceptWrite(await api.creationRetryGeneration(state.value!, issue.type as 'VIDEO'|'IMAGE'|'CAROUSEL', issue)); schedulePoll(); });
 }
 async function deleteFailure(issue: api.GenerationIssue) {
-  await run(async () => { acceptWrite(await api.creationDeleteGenerationFailure(state.value!, issue)); });
+  await run(async () => { const next=await api.creationDeleteGenerationFailure(state.value!, issue);acceptWrite(next);if(issue.slotId)notices.failureDeleted(next,issue.slotId); });
 }
 async function editTitles(id: string, titles: string[]) { await run(async () => { acceptWrite(await api.creationTitles(state.value!, id, titles)); schedulePoll(); }); }
 const visibility = useCreationVisibility({
@@ -423,7 +425,7 @@ async function verifySync(id: string) {
 }
 async function retrySync(id: string) { await run(async () => { acceptWrite(await api.creationRetrySync(state.value!,id)); schedulePoll(); }); }
 async function repairTypography(id: string) { await run(async () => { acceptWrite(await api.creationTypography(state.value!, id)); schedulePoll(); }); }
-async function add(body: Parameters<typeof api.creationAdd>[1]) { await run(async () => { acceptWrite(await api.creationAdd(state.value!, body)); schedulePoll(); }); }
+async function add(body: Parameters<typeof api.creationAdd>[1]) { await run(async () => { const before=state.value!;const next=await api.creationAdd(before,body);acceptWrite(next);notices.added(before,next);schedulePoll(); }); }
 async function addUploadBatch(body: LocalUploadBatch, receipt: UploadBatchReceipt) {
   let started = false;
   await run(async () => {
@@ -431,15 +433,15 @@ async function addUploadBatch(body: LocalUploadBatch, receipt: UploadBatchReceip
     try {
       await persistUploadBatch(state.value!, body.assetIds,
         (current, id) => api.creationAdd(current, { productId: body.productId, type: body.type, addedVia: 'UPLOAD', ...localUploadSelection(body.type, id) }),
-        (id, next) => { acceptWrite(next); receipt.added(id); });
+        (id, next) => { const before=state.value!;acceptWrite(next);notices.added(before,next);receipt.added(id); });
       schedulePoll(); receipt.done();
     } catch (error) { receipt.done(requestFailure(error, { method: 'POST' }).message); throw error; }
   });
   if (!started) receipt.done('暂时无法添加素材，请稍后重试。');
 }
 function openAction(kind: 'regenerate'|'delete', id: string) { if (!busy.value) action.value = { kind, id }; }
-async function resolveVersion(id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD') { await run(async () => { acceptWrite(await api.creationResolveVersion(state.value!, id, decision)); schedulePoll(); }); }
-async function feedback(body: MaterialFeedback) { const a = action.value; if (!a?.id) return; await run(async () => { acceptWrite(await api.creationFeedback(state.value!, a.id!, a.kind, body)); action.value = null; schedulePoll(); }); }
+async function resolveVersion(id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD') { await run(async () => { const next=await api.creationResolveVersion(state.value!,id,decision);acceptWrite(next);if(decision==='DISCARD')notices.deleted(next,id);schedulePoll(); }); }
+async function feedback(body: MaterialFeedback) { const a = action.value; if (!a?.id) return; await run(async () => { const next=await api.creationFeedback(state.value!,a.id!,a.kind,body);acceptWrite(next);if(a.kind==='delete')notices.deleted(next,a.id!);else notices.regenerated(next);action.value=null;schedulePoll(); }); }
 async function recoverPublishFailure(choice: PublishFailureTarget) {
   if (!state.value || state.value.publishStatus !== 'FAILED' || busy.value || initializing.value || draftRestoring.value || draftUnresolved.value) return;
   const recovery = planPublishFailure(state.value.publishRecovery, state.value.publishError);

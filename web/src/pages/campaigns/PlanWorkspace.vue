@@ -64,6 +64,7 @@ import { addProductTitle, type TitleAddition, type TitleAdditionReceipt } from '
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { persistUploadBatch, localUploadSelection, type LocalUploadBatch, type UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import { useRoute, useRouter } from 'vue-router';
+import { useCreationActionNotices } from '@/features/delivery/useCreationActionNotices';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
@@ -123,7 +124,7 @@ async function editProductCopy(product:string,change:(state:CreationState)=>Prom
   catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}
   finally{materialBusy.value=false;}
 }
-function addPublishedMaterial(body:Parameters<typeof creationAdd>[1]) {return editProductCopy(body.productId,s=>creationAdd(s,body),body.type as 'VIDEO'|'IMAGE'|'CAROUSEL');}
+function addPublishedMaterial(body:Parameters<typeof creationAdd>[1]) {return editProductCopy(body.productId,async s=>{const next=await creationAdd(s,body);notices.added(s,next);return next;},body.type as 'VIDEO'|'IMAGE'|'CAROUSEL');}
 let pendingUploadDraft: CreationState | undefined;
 async function addPublishedUploads(body: LocalUploadBatch, receipt: UploadBatchReceipt) {
   if (!plan.value || !productAdjustmentAvailable.value || dirty.value || settingsBlocked.value || selectionLocked.value || saving.value || materialBusy.value) { receipt.done('暂时无法添加素材，请稍后重试。'); return; }
@@ -133,7 +134,7 @@ async function addPublishedUploads(body: LocalUploadBatch, receipt: UploadBatchR
     contentTitleProduct.value = body.productId; contentMaterialTab.value = body.type;
     await persistUploadBatch(pendingUploadDraft, body.assetIds,
       (current, id) => creationAdd(current, { productId: body.productId, type: body.type, addedVia: 'UPLOAD', ...localUploadSelection(body.type, id) }),
-      (id, next) => { pendingUploadDraft = next; receipt.added(id); });
+      (id, next) => { notices.added(pendingUploadDraft!,next);pendingUploadDraft=next;receipt.added(id); });
     receipt.done();
   } catch (error) { mediaFailure.value = requestFailure(error, { method: 'POST' }); receipt.done(mediaFailure.value.message); }
   finally { materialBusy.value = false; }
@@ -143,21 +144,23 @@ function finishPublishedUploads() {
   contentTitleEditing.value = true; adjustProductsOnOpen.value = false;
   contentDraftId.value = pendingUploadDraft.planId; pendingUploadDraft = undefined;
 }
-function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,s=>creationAddition(s,body),body.type);}
+function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,async s=>{const next=await creationAddition(s,body);notices.addition(next,body.requestId);return next;},body.type);}
 async function addPublishedTitle(body:TitleAddition,receipt:TitleAdditionReceipt) {
   if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value){receipt.done('暂时无法新增标题，请稍后重试。');return;}
   materialBusy.value=true;mediaFailure.value=undefined;
   try {
     const draft=await beginContentEdit(plan.value.planId),next=await addProductTitle(draft,{...body,requestId:receipt.requestId});
+    notices.titleAdded(draft,next,body.productId,body.kind,body.source==='AI');
     receipt.done(undefined,body.source==='AI'?next.titleGeneration:undefined);
     if(body.source==='AI'&&next.titleGeneration?.status==='FAILED')return;
     contentTitleEditing.value=true;contentTitleProduct.value=body.productId;contentMaterialTab.value='TITLE';adjustProductsOnOpen.value=false;contentDraftId.value=next.planId;
   }catch(error){receipt.done(requestFailure(error,{method:'POST'}).message);}
   finally{materialBusy.value=false;}
 }
-function saveProductTitles(product:string,kind:'CUSTOM'|'CARD',titles:string[]){return editProductCopy(product,s=>creationProductTitles(s,product,kind,titles));}
-function regenerateProductTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string){return editProductCopy(product,s=>creationRegenerateTitle(s,product,kind,index,original));}
+function saveProductTitles(product:string,kind:'CUSTOM'|'CARD',titles:string[]){return editProductCopy(product,async s=>{const next=await creationProductTitles(s,product,kind,titles);notices.titlesEdited(s,next,product,kind);return next;});}
+function regenerateProductTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string){return editProductCopy(product,async s=>{const next=await creationRegenerateTitle(s,product,kind,index,original);notices.titleGenerated(next);return next;});}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
+const notices=useCreationActionNotices(creation);
 const auditResult = computed(() => hasPlanAuditResult(plan.value));
 const deliveryResult = computed(() => !transferring.value && hasPlanDeliveryResult(plan.value));
 const pausedResult = computed(() => !transferring.value && hasPlanPausedResult(plan.value));
@@ -182,7 +185,7 @@ async function retryVersionSync(id:string) { const s=creation.value,p=plan.value
 async function resolveMaterialVersion(id:string,decision:'REPLACE'|'KEEP_BOTH'|'DISCARD') {
   const s=creation.value,p=plan.value;if(!s||!p||!editing.value||!canEdit.value||materialBusy.value||saving.value||materialPending.value)return;
   const version=loadNumber;materialBusy.value=true;mediaFailure.value=undefined;
-  try {const updated=await creationResolveVersion({...s,planId:p.planId},id,decision);if(version===loadNumber)creation.value=updated;}
+  try {const updated=await creationResolveVersion({...s,planId:p.planId},id,decision);if(version===loadNumber){creation.value=updated;if(decision==='DISCARD')notices.deleted(updated,id);}}
   catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'POST'});}
   finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}}
 }
@@ -190,7 +193,7 @@ async function submitMaterialAction(feedback:MaterialFeedback) {
   const action=materialAction.value,s=creation.value,p=plan.value;
   if(!action||!s||!p||!editing.value||!canEdit.value||materialBusy.value||saving.value||materialPending.value)return;
   const version=loadNumber;materialBusy.value=true;mediaFailure.value=undefined;
-  try {const updated=await creationFeedback({...s,planId:p.planId},action.id,action.kind,feedback);if(version===loadNumber){creation.value=updated;materialAction.value=undefined;}}
+  try {const updated=await creationFeedback({...s,planId:p.planId},action.id,action.kind,feedback);if(version===loadNumber){creation.value=updated;if(action.kind==='delete')notices.deleted(updated,action.id);else notices.regenerated(updated);materialAction.value=undefined;}}
   catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:action.kind==='delete'?'DELETE':'POST'});}
   finally{if(version===loadNumber){materialBusy.value=false;scheduleMaterialPoll();}}
 }
