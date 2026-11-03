@@ -6,7 +6,7 @@
         <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
       </button>
     </div>
-    <PlatformPlacementPreview v-if="!usesDouyinPreview" :platform="platform" :material="material" :product="product" :account="account" @metadata="(id,data) => emit('metadata',id,data)" />
+    <PlatformPlacementPreview v-if="!usesDouyinPreview" :platform="platform" :material="material" :product="product" :account="account" :title="title" @metadata="(id,data) => emit('metadata',id,data)" />
     <div v-else class="feed-phone" :class="{ 'feed-phone--landscape': landscape && material?.type === 'VIDEO', 'feed-phone--gallery': material?.type !== 'VIDEO', 'feed-phone--carousel': material?.type === 'CAROUSEL', 'feed-phone--landscape-carousel': imageLandscape && material?.type === 'CAROUSEL', 'feed-phone--product-card': material?.type === 'IMAGE', 'feed-phone--title': !!title }">
       <div class="feed-screen">
         <div class="feed-status" aria-hidden="true"><span>9:41</span><span class="feed-status-icons"><FeedPreviewIcon name="signal" /><FeedPreviewIcon name="wifi" /><span class="feed-battery" /></span></div>

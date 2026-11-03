@@ -2,6 +2,12 @@
 <script setup lang="ts">
 defineProps<{ name: string; solid?: boolean }>();
 const paths: Record<string, string> = {
+  'thumb-up': '<path d="M8 10 12 3c1-1 3 0 2.7 2l-.8 4H20c1.4 0 2.3 1.1 2 2.5l-1.5 7C20.3 20 19.5 21 18 21H8V10ZM2 10h3v11H2Z"/>',
+  'message-square': '<path d="M3 3h18v14H9l-6 4V3Z"/>',
+  more: '<g fill="currentColor" stroke="none"><circle cx="4" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="20" cy="12" r="1.8"/></g>',
+  home: '<path d="m3 10 9-7 9 7v11h-7v-7h-4v7H3V10Z"/>',
+  screen: '<rect x="3" y="3" width="18" height="14" rx="1"/><path d="M8 21h8m-4-4v4"/>',
+  profile: '<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
   play: '<path d="M6 3.5a1 1 0 0 1 1.5-.9l13 8.5a1 1 0 0 1 0 1.8l-13 8.5a1 1 0 0 1-1.5-.9V3.5Z" stroke="none"/>',
   'plus-circle': '<circle cx="12" cy="12" r="9"/><path d="M8 12h8m-4-4v8"/>',
   signal: '<path d="M3 19v-3m5 3v-6m5 6V9m5 10V5" stroke-width="3"/>',

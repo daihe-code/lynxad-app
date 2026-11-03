@@ -429,7 +429,7 @@ const icons: Record<
       viewBox: "0 0 24 24",
     },
     content:
-      '<circle cx="12" cy="12" r="8.6" fill="#F2918B"/>\n    <path fill="#fff" d="M9.6 7.6 16.6 12l-7 4.4z"/>',
+      '<circle cx="12" cy="12" r="9.6" fill="#FF0046"/>\n    <path fill="#fff" d="M9.6 7.6 16.6 12l-7 4.4z"/>',
   },
   "plat-huoshan": {
     attrs: {
