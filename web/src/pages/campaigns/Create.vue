@@ -10,7 +10,7 @@
     <aside v-if="contentEditing" class="draft-save-note" role="status"><p>{{ state?.contentEdit?.message || '当前正在调整原投放计划的商品与素材；暂存修改只保存编辑内容，点击“保存修改”并同步成功后更新原计划。' }}</p><button v-if="contentLocked" type="button" :disabled="busy" @click="verifyContent">核查保存结果</button></aside>
     <CreateProductsStep ref="productStep" :adjustment-message="adjustmentMessage" @adjust-confirmed="adjustmentAcknowledged = true" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-hint="estimateHint" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep :initial-product-id="initialMaterialProduct" :initial-tab="initialMaterialTab" @regenerate-title="regenerateTitle" :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @add-uploads="addUploadBatch" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" @visibility="setVisibility" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @add-title="addTitle" @retry-generation="retryGeneration" @retry-failure="retryFailure" @delete-failure="deleteFailure" @publish="publish" @cancel="cancel" />
+    <LiveMaterialsStep :initial-product-id="initialMaterialProduct" :initial-tab="initialMaterialTab" @regenerate-title="regenerateTitle" :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @add-uploads="addUploadBatch" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" :visibility-value="visibilityValue" :visibility-error="visibilityError" :visibility-disabled="requestBusy || contentLocked || draftRestoring || draftUnresolved || recovering" @visibility="setVisibility" @retry-visibility="visibility.retry" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @add-title="addTitle" @retry-generation="retryGeneration" @retry-failure="retryFailure" @delete-failure="deleteFailure" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4">
       <CreationFrame :step="4" :account="account" :account-chips="accountChips" :result-state="state.publishStatus === 'FAILED' ? 'warning' : undefined" />
@@ -30,6 +30,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { useCreationVisibility } from '@/features/delivery/useCreationVisibility';
 import { addProductTitle, type TitleAddition, type TitleAdditionReceipt } from '@/features/delivery/titleAddition';
 import { roiInputError, scheduleInputError } from '@/features/delivery/inputValidation';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -70,7 +71,9 @@ import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
 const props = defineProps<{ initialPlanId?: string; initialStep?: number; initialMaterialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; initialMaterialProduct?:string; publishedEditTarget?: string; adjustProductsOnOpen?: boolean }>();
-const state = ref<api.CreationState>(), step = ref(1), busy = ref(false), loaded = ref(false), loadError = ref(false);
+const requestBusy = ref(false), visibilitySaving = ref(false);
+const busy = computed(() => requestBusy.value || visibilitySaving.value);
+const state = ref<api.CreationState>(), step = ref(1), loaded = ref(false), loadError = ref(false);
 const resumingMaterials = ref(false);
 const productStep = ref<InstanceType<typeof CreateProductsStep>>();
 const adjustmentAcknowledged = ref(!!props.adjustProductsOnOpen);
@@ -215,7 +218,7 @@ let productRequest: AbortController | undefined, pollRequest: AbortController | 
 async function run(task: () => Promise<void>) {
   if (busy.value || draftRestoring.value || recovering.value) return;
   if (draftUnresolved.value) { ElMessage.warning('请先核对本机未提交内容与服务器草稿'); return; }
-  operationFailure.value = undefined; busy.value = true;
+  operationFailure.value = undefined; requestBusy.value = true;
   try { await task(); }
   catch (error) {
     const failure = requestFailure(error,{method:'POST'});
@@ -224,7 +227,7 @@ async function run(task: () => Promise<void>) {
       if (state.value) { try { acceptRead(await api.creationGet(state.value.planId)); } catch { /* Keep local inputs for explicit recovery. */ } }
       void loadProducts();
     }
-  } finally { busy.value = false; }
+  } finally { requestBusy.value = false; }
 }
 async function recoverOperation() {
   if (busy.value || recovering.value || draftRestoring.value) return;
@@ -392,14 +395,23 @@ async function deleteFailure(issue: api.GenerationIssue) {
   await run(async () => { acceptWrite(await api.creationDeleteGenerationFailure(state.value!, issue)); });
 }
 async function editTitles(id: string, titles: string[]) { await run(async () => { acceptWrite(await api.creationTitles(state.value!, id, titles)); schedulePoll(); }); }
-async function setVisibility(hideInAweme: boolean) { await run(async () => { acceptWrite(await api.creationVisibility(state.value!, hideInAweme)); }); }
+const visibility = useCreationVisibility({
+  current: () => state.value, scope: () => [user.me?.tenantId,user.me?.userId,state.value?.planId,accountKey.value].join(':'),
+  blocked: () => requestBusy.value || recovering.value || draftRestoring.value || draftUnresolved.value || contentLocked.value || !state.value || working.value || !!state.value.titleGeneration && ['SENDING','PROCESSING'].includes(state.value.titleGeneration.status) || !['NONE','FAILED'].includes(state.value.publishStatus),
+  saving: visibilitySaving, save: api.creationVisibility,
+  accept: saved => { if(state.value?.planId===saved.planId && saved.revision>=state.value.revision) acceptWrite({...state.value,...saved}); },
+  recover: snapshot => api.creationGet(snapshot.planId), acceptRecovery: acceptRead,
+  message: error => requestFailure(error,{method:'PUT'}).message,
+});
+const {value:visibilityValue,error:visibilityError}=visibility;
+function setVisibility(hideInAweme: boolean) { visibility.select(hideInAweme); }
 async function analyzeContext(id: string) { await run(async () => { acceptWrite(await api.creationMaterialContext(state.value!, id)); schedulePoll(); }); }
 async function recheck(id: string) { await run(async () => { acceptWrite(await api.creationRecheck(state.value!, id)); schedulePoll(); }); }
 async function verifySync(id: string) {
   if (!state.value || busy.value || draftRestoring.value || recovering.value) return;
   const snapshot = state.value, planId = snapshot.planId, revision = snapshot.revision;
   pollRequest?.abort();
-  busy.value = true; operationFailure.value = undefined;
+  requestBusy.value = true; operationFailure.value = undefined;
   try {
     const result = await api.creationVerifySync(snapshot, id);
     if (disposed || state.value?.planId !== planId || state.value.revision !== revision || result.revision !== revision) return;
@@ -407,7 +419,7 @@ async function verifySync(id: string) {
     if (material) { material.processing = result.processing; ElMessage.info(result.message); }
   } catch (error) {
     if (!disposed && state.value?.planId === planId) operationFailure.value = requestFailure(error, {method:'GET'});
-  } finally { busy.value = false; }
+  } finally { requestBusy.value = false; }
 }
 async function retrySync(id: string) { await run(async () => { acceptWrite(await api.creationRetrySync(state.value!,id)); schedulePoll(); }); }
 async function repairTypography(id: string) { await run(async () => { acceptWrite(await api.creationTypography(state.value!, id)); schedulePoll(); }); }
@@ -572,9 +584,10 @@ async function initialize() {
   } catch (error) { if (!disposed) { const failure=requestFailure(error,{method:'GET'}); if (failure.kind !== 'CANCELLED') initialFailure.value = failure; } }
   finally { initializing.value = false; }
 }
-onMounted(initialize); onUnmounted(() => { disposed = true; clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++; });
-onBeforeRouteLeave(() => { if (!autosave.flush()) { ElMessage.warning('未提交内容尚未可靠保存，请先处理草稿提示或明确选择不保存'); return false; } });
-onBeforeRouteUpdate((to, from) => {
+onMounted(initialize); onUnmounted(() => { disposed = true; visibility.stop(); clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++; });
+onBeforeRouteLeave(async () => { if (!await visibility.flush()) return false; if (!autosave.flush()) { ElMessage.warning('未提交内容尚未可靠保存，请先处理草稿提示或明确选择不保存'); return false; } });
+onBeforeRouteUpdate(async (to, from) => {
+  if (to.query.draftId !== from.query.draftId && !await visibility.flush()) return false;
   if (!props.initialPlanId && to.query.draftId !== from.query.draftId && to.query.draftId !== state.value?.planId && !autosave.flush()) {
     ElMessage.warning('未提交内容尚未可靠保存，请先处理草稿提示或明确选择不保存'); return false;
   }

@@ -48,6 +48,11 @@ public class CreationController {
     @RequiresActiveTrial @PutMapping("/{id}/goal") public ApiResponse<CreationView> goal(@PathVariable String id,@RequestBody CreationWorkflowService.Goal req){return view(service.goal(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PutMapping("/{id}/step") public ApiResponse<CreationView> step(@PathVariable String id,@RequestBody CreationWorkflowService.Step req){return view(service.step(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PutMapping("/{id}/visibility") public ApiResponse<CreationView> visibility(@PathVariable String id,@RequestBody CreationWorkflowService.Visibility req){return view(service.visibility(TenantContext.requireTenantId(),id,req));}
+    public record VisibilitySetting(String planId,int revision,int packageVersion,Integer confirmedVersion,boolean hideInAweme) {}
+    @RequiresActiveTrial @PutMapping("/{id}/visibility/setting") public ApiResponse<VisibilitySetting> visibilitySetting(@PathVariable String id,@RequestBody CreationWorkflowService.Visibility req){
+        var saved=service.visibility(TenantContext.requireTenantId(),id,req);
+        return ApiResponse.ok(new VisibilitySetting(saved.planId,saved.revision,saved.packageVersion,saved.confirmedVersion,saved.hideInAweme));
+    }
     @RequiresActiveTrial @PostMapping("/{id}/generation") public ApiResponse<CreationView> generate(@PathVariable String id,@RequestBody CreationWorkflowService.Generate req){return view(service.generate(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PostMapping("/{id}/generation/additions") public ApiResponse<CreationView> addition(@PathVariable String id,@RequestBody CreationWorkflowService.Addition req){return view(service.addition(TenantContext.requireTenantId(),id,req));}
     @RequiresActiveTrial @PostMapping("/{id}/materials") public ApiResponse<CreationView> add(@PathVariable String id,@RequestBody CreationWorkflowService.MaterialSelection req){return view(service.add(TenantContext.requireTenantId(),id,req));}
