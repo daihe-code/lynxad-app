@@ -6,7 +6,7 @@
         <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><span v-else-if="p.id === 'pangolin'" class="plat__txt">▦</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
       </button>
     </div>
-    <PlatformPlacementPreview v-if="platform !== 'douyin'" :platform="platform" :material="material" :product="product" :account="account" @metadata="(id,data) => emit('metadata',id,data)" />
+    <PlatformPlacementPreview v-if="!usesDouyinPreview" :platform="platform" :material="material" :product="product" :account="account" @metadata="(id,data) => emit('metadata',id,data)" />
     <div v-else class="feed-phone" :class="{ 'feed-phone--landscape': landscape && material?.type === 'VIDEO', 'feed-phone--gallery': material?.type !== 'VIDEO', 'feed-phone--carousel': material?.type === 'CAROUSEL', 'feed-phone--landscape-carousel': imageLandscape && material?.type === 'CAROUSEL', 'feed-phone--product-card': material?.type === 'IMAGE', 'feed-phone--title': !!title }">
       <div class="feed-screen">
         <div class="feed-status" aria-hidden="true"><span>9:41</span><span class="feed-status-icons"><FeedPreviewIcon name="signal" /><FeedPreviewIcon name="wifi" /><span class="feed-battery" /></span></div>
@@ -52,7 +52,7 @@
       </div>
     </div>
     <p v-if="material?.type === 'CAROUSEL' && title" class="feed-title-preview">标题预览：{{ title }}</p>
-    <div v-if="hasMedia && platform === 'douyin'" class="feed-player-controls">
+    <div v-if="hasMedia && usesDouyinPreview" class="feed-player-controls">
       <div class="feed-player-row"><button type="button" :disabled="playPending" :aria-label="playing ? '暂停播放' : material?.type === 'VIDEO' ? '播放视频' : '播放图文配音'" @click="toggleVideo"><ReferenceIcon :name="playing ? 'pause' : 'play'" /></button><span>{{ material?.type === 'CAROUSEL' ? '图文配音 · ' : '' }}{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span><button type="button" :aria-label="muted ? '开启声音' : '静音'" :aria-pressed="muted" @click="muted = !muted"><FeedPreviewIcon :name="muted ? 'muted' : 'volume'" /></button></div>
       <input type="range" :min="0" :max="duration || 1" :value="currentTime" :disabled="!duration" step="0.1" aria-label="播放进度" @input="seek" />
     </div>
@@ -71,6 +71,7 @@ const props = defineProps<{ material?: CreationMaterial; product?: CreationProdu
 const emit = defineEmits<{ metadata: [id: string, data: { width: number; height: number; duration: number }] }>();
 const platforms = [{ id: 'douyin', name: '抖音' }, { id: 'toutiao', name: '头条' }, { id: 'xigua', name: '西瓜' }, { id: 'huoshan', name: '抖音火山版' }, { id: 'pangolin', name: '穿山甲' }];
 const platform = ref('douyin'), imageIndex = ref(0), error = ref('');
+const usesDouyinPreview = computed(() => platform.value === 'douyin' || platform.value === 'huoshan');
 watch(platform,()=>{videoElement.value?.pause();audioElement.value?.pause();error.value='';});
 const videoElement = ref<HTMLVideoElement | null>(null), audioElement = ref<HTMLAudioElement | null>(null), playing = ref(false), playPending = ref(false);
 const muted = ref(false), currentTime = ref(0), duration = ref(0), landscape = ref(false), imageLandscape = ref(false);
