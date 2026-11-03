@@ -52,7 +52,7 @@
         <div class="inline-filter-group" role="group" aria-label="创建时间"><span>创建时间</span><button v-for="days in [7, 30]" :key="days" type="button" :class="{ active: createdWithin === days }" :aria-pressed="createdWithin === days" @click="createdWithin = createdWithin === days ? null : days">近 {{ days }} 天</button></div>
       </div>
       <div class="table-scroll" v-loading="loading">
-        <table ref="tableRef" class="plan-table" :class="{ compact, 'without-tools': !showTools, 'is-resizing': !!resizingColumn }" :style="tableStyle">
+        <table ref="tableRef" class="plan-table" :class="{ compact, 'without-tools': !toolsColumnVisible, 'is-resizing': !!resizingColumn }" :style="tableStyle">
           <colgroup><col v-for="column in tableColumns" :key="column.key" :style="{width: `${columnWidth(column)}px`}" /></colgroup>
           <thead><tr>
             <th v-for="column in tableColumns" :key="column.key" :data-column-key="column.key">
@@ -84,15 +84,17 @@
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
               <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
-              <td v-if="showTools" class="tools-cell">
-                <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
-                  <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
-                  <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
-                  <el-tooltip v-if="canViewToolReport(row, tool)" :content="`查看${tool}报表`"><button type="button" class="tool-report" :aria-label="`查看${tool}报表 ${row.qcPlanId}`" @click="openToolReport(row, tool)"><el-icon><DataAnalysis /></el-icon></button></el-tooltip>
-                </div>
-                <div v-if="!isDeleted(row)" class="tool-shortcuts">
-                  <router-link class="tool-name tool-monitor" :to="insightsLink(row.planId, 'optimization')" :aria-label="`打开 ${row.name} 的自动盯盘`">自动盯盘</router-link>
-                </div>
+              <td v-if="toolsColumnVisible" class="tools-cell">
+                <template v-if="hasControlTools(row)">
+                  <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
+                    <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
+                    <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
+                    <el-tooltip v-if="canViewToolReport(row, tool)" :content="`查看${tool}报表`"><button type="button" class="tool-report" :aria-label="`查看${tool}报表 ${row.qcPlanId}`" @click="openToolReport(row, tool)"><el-icon><DataAnalysis /></el-icon></button></el-tooltip>
+                  </div>
+                  <div v-if="!isDeleted(row)" class="tool-shortcuts">
+                    <router-link class="tool-name tool-monitor" :to="insightsLink(row.planId, 'optimization')" :aria-label="`打开 ${row.name} 的自动盯盘`">自动盯盘</router-link>
+                  </div>
+                </template>
               </td>
               <td class="actions-cell">
                 <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
@@ -105,7 +107,7 @@
                 <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
             </tr>
-            <tr v-if="!pagedRows.length && !loading"><td :colspan="showTools ? 10 : 9" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p></td></tr>
+            <tr v-if="!pagedRows.length && !loading"><td :colspan="tableColumns.length" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p></td></tr>
           </tbody>
         </table>
       </div>
@@ -179,10 +181,12 @@ const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin
 const records = ref<PlanListVo[]>([]);
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
+const hasControlTools = (row: PlanListVo) => row.smartBidType === 'SMART_BID_CUSTOM';
+const toolsColumnVisible = computed(() => showTools.value && records.value.some(hasControlTools));
 type SortField = MetricField;
 const metricTemplate = ref<PlanMetricTemplate>('PAYMENT'), displayedMetricTemplate = ref<PlanMetricTemplate>('PAYMENT');
 const metricColumns = computed(() => metricTemplates[displayedMetricTemplate.value].columns);
-const tableColumns = computed(() => campaignTableColumns(displayedMetricTemplate.value, showTools.value));
+const tableColumns = computed(() => campaignTableColumns(displayedMetricTemplate.value, toolsColumnVisible.value));
 const columnWidthsStorageKey = computed(() => columnWidthsPreferenceKey(user.me?.tenantId, user.me?.userId));
 const { tableRef, columnWidth, tableStyle, resizingColumn, startResize, moveResize, endResize, cancelResize, resizeKey } = useCampaignColumnResize(tableColumns, columnWidthsStorageKey);
 const templateStorageKey = computed(() => templatePreferenceKey(user.me?.tenantId, user.me?.userId));
@@ -243,7 +247,7 @@ const quickReportOpen = ref(false), quickReportPlan = ref<PlanListVo>(), quickRe
 const quickReportTask = ref<ControlTask>(), quickReportTasks = ref<ControlTask[]>([]);
 const quickReportLoading = ref(false), quickReportError = ref(''), quickReportRange = ref<StatisticsRange>(recentRange(7));
 let quickReportSerial = 0;
-function canViewToolReport(row: PlanListVo, tool: string) { return !isDeleted(row) && row.smartBidType === 'SMART_BID_CUSTOM' && !!row.qcPlanId && ['一键起量', '素材追投'].includes(tool); }
+function canViewToolReport(row: PlanListVo, tool: string) { return !isDeleted(row) && hasControlTools(row) && !!row.qcPlanId && ['一键起量', '素材追投'].includes(tool); }
 function openToolReport(row: PlanListVo, tool: string) {
   if (!canViewToolReport(row, tool)) return;
   quickReportPlan.value = row; quickReportKind.value = tool; quickReportRange.value = [...displayedRange.value]; quickReportOpen.value = true;
