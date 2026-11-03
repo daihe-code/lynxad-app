@@ -36,6 +36,7 @@ class EngineAssetReferenceTest {
     @Test void registrationOnlyReadsMetadataAndCreatesNoFileOrReviewTask() {
         var a=storage.register(tenant,new UserId("user"),"request","job","mat","IMAGE_0","IMAGE",false);
         assertEquals("engine_oss",a.storageMode());assertEquals(1080,a.width());assertEquals(4,a.sizeBytes());assertTrue(a.filename().endsWith(".png"));
+        assertTrue(a.filename().startsWith("生成标题_图片1_"));assertTrue(a.filename().contains(a.id()));
         assertEquals(0,heads.get());assertEquals(1,reads.get());
         verify(repository).registerEngine(eq(a),argThat(r->r.materialId().equals("mat")&&r.component().equals("IMAGE_0")),any());
         verify(repository,never()).queueReview(anyString(),anyString());
@@ -86,6 +87,22 @@ class EngineAssetReferenceTest {
         var a=storage.register(tenant,new UserId("user"),"text-request","job","mat","TEXT","TEXT",true);
         assertEquals("生成标题\n生成文案",a.textContent());assertEquals(0,heads.get());assertEquals(0,reads.get());
         verify(repository).carouselComponent("tenant",a.id());verify(repository,never()).queueReview(anyString(),anyString());
+    }
+    @Test void retryingRegistrationReusesThePersistedName() {
+        var first=storage.register(tenant,new UserId("user"),"text-request","job","mat","TEXT","TEXT",true);
+        when(repository.request("tenant",first.requestId())).thenReturn(java.util.Optional.of(first));
+        var retry=storage.register(tenant,new UserId("user"),"text-request","job","mat","TEXT","TEXT",true);
+        assertSame(first,retry);assertEquals(first.filename(),retry.filename());
+        verify(repository,times(1)).registerEngine(any(),any(),any());
+    }
+    @Test void missingCreativeTitleFallsBackToProductName() throws Exception {
+        when(engine.get(any())).thenReturn(new ObjectMapper().readTree("""
+            {"job_id":"job","groups":[{"materials":[{"material_id":"mat","status":"succeeded",
+            "product_name":"长袖瑜伽服","content":{"title":"","text":"商品介绍"}}]}]}
+            """));
+        var asset=storage.register(tenant,new UserId("user"),"text-request","job","mat","TEXT","TEXT",false);
+        assertTrue(asset.filename().startsWith("长袖瑜伽服_文案_"));
+        assertTrue(asset.filename().endsWith(asset.id()+".txt"));
     }
     @Test void rangeUnsupportedFallsBackToFullObjectContentLength() throws Exception {
         server.removeContext("/oss-image");

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.creative.domain.port.*;
+import com.lynx.ad.modules.creative.domain.service.GeneratedAssetName;
 import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository;
 import com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.*;
 import java.io.*;
@@ -146,7 +147,10 @@ public class EngineAssetStorage implements StoragePort {
         double seconds=item.path("detail").path("duration_seconds").asDouble(0);
         Long duration=seconds>0?Math.round(seconds*1000):null;
         var metadata=new StorageMetadata(bucket,endpoint,version,"AI_GENERATED",duration,etag,null);
-        var asset=new Asset(id,tenant.value(),user.value(),request,kind,"generated"+extension,mime,size,key,"STORED",MODE,null,null,location.path("md5").asText(null),true,width,height,text,null,null,now,now);
+        String title=item.path("content").path("title").asText("");
+        if(title.isBlank())title=item.path("product_name").asText("");
+        String filename=GeneratedAssetName.create(title,component,now,id,extension);
+        var asset=new Asset(id,tenant.value(),user.value(),request,kind,filename,mime,size,key,"STORED",MODE,null,null,location.path("md5").asText(null),true,width,height,text,null,null,now,now);
         try{repository.registerEngine(asset,new EngineReference(id,tenant.value(),job,mid,component,"TEXT".equals(kind)?null:source.split("\\?",2)[0]),metadata);}
         catch(DuplicateKeyException e){return repository.request(tenant.value(),request).orElseThrow(()->new BizException(1520,"引擎产物已登记，请重新查询"));}
         if(composite)repository.carouselComponent(tenant.value(),id);
