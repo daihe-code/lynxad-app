@@ -13,7 +13,7 @@ const zeroBaseline = computed(() => props.previous === 0 && props.current != nul
 const known = computed(() => !zeroBaseline.value && props.value != null && Number.isFinite(Number(props.value)));
 const direction = computed(() => !known.value || Number(props.value) === 0 ? 'flat' : Number(props.value) > 0 ? 'up' : 'down');
 const tone = computed(() => props.lowerIsBetter && direction.value !== 'flat' ? direction.value === 'up' ? 'down' : 'up' : direction.value);
-const prefix = computed(() => props.basis === 'YESTERDAY_FULL_DAY' ? '较昨日' : props.basis === 'PREVIOUS_DAY' ? '较前日' : props.basis === 'PREVIOUS_PERIOD' ? '较前期' : '较上次');
+const prefix = computed(() => props.basis === 'YESTERDAY_FULL_DAY' ? '较昨日' : props.basis === 'PREVIOUS_DAY' ? '较前日' : props.basis === 'PREVIOUS_PERIOD' ? '环比' : '较上次');
 const formatted = computed(() => Math.abs(Number(props.value)).toFixed(props.compact ? 2 : 1));
 const description = computed(() => {
   const basis = props.basis === 'YESTERDAY_FULL_DAY' ? '昨日全天（今日为截至当前的累计数据）' : props.basis === 'PREVIOUS_DAY' ? '前一日全天' : props.basis === 'PREVIOUS_PERIOD' ? '前一个等长区间' : '上次同步';
