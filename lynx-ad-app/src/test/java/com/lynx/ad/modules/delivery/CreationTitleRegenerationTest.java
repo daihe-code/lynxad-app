@@ -69,4 +69,33 @@ class CreationTitleRegenerationTest {
         var image=new CreationState.Material();image.id="image";image.type="IMAGE";image.productId="p1";image.engineMaterialId="engine-image";image.titles.add("户外双肩包的外观展示");s.materials.add(image);
         var pool=ProductTitlePool.of(s,"p1");assertEquals(image.titles,pool.cardTitles);assertEquals(image.titles,pool.cardGeneratedTitles);
     }
+    @Test void addingGeneratedTitleAppendsWithoutReplacingExistingTitlesOrMedia(){
+        var before=new ArrayList<>(s.materials.getFirst().titles);
+        service.add(s,"p1","CUSTOM");
+        var pool=s.titlePools.get("p1");assertEquals(before,pool.customTitles.subList(0,before.size()));
+        assertEquals("看看双肩包的户外收纳细节",pool.customTitles.getLast());assertTrue(pool.customGeneratedTitles.contains(pool.customTitles.getLast()));
+        assertTrue(s.titleGeneration.addition);assertEquals("标题已新增",s.titleGeneration.message);
+        assertEquals(before,s.materials.getFirst().titles);assertEquals("original-video",s.materials.getFirst().videoAssetId);
+        verify(engine,times(1)).post(eq("/api/v1/capabilities/generation/titles"),any());
+    }
+    @Test void anEmptyCardPoolCanGenerateWithoutSavingAPlaceholder(){
+        assertTrue(ProductTitlePool.of(s,"p1").cardTitles.isEmpty());
+        service.add(s,"p1","CARD");
+        assertEquals(List.of("看看双肩包的户外收纳细节"),s.titlePools.get("p1").cardTitles);
+        assertEquals(s.titlePools.get("p1").cardTitles,s.titlePools.get("p1").cardGeneratedTitles);
+        assertEquals(2,s.titlePools.get("p1").customTitles.size());
+        verify(engine).post(anyString(),argThat(body->{var b=(Map<?,?>)body;return "户外双肩包".equals(b.get("original"))&&List.of("户外双肩包").equals(b.get("existing_titles"));}));
+    }
+    @Test void addingRejectsOverlongCardAndFullPoolBeforeChangingAnyExistingTitle(){
+        when(engine.post(anyString(),any())).thenAnswer(call->json.valueToTree(Map.of("request_id",s.titleGeneration.requestId,"status","SUCCEEDED","product_id","p1","kind","CARD","original",s.titleGeneration.original,"title","中".repeat(31))));
+        service.add(s,"p1","CARD");assertEquals("FAILED",s.titleGeneration.status);assertTrue(s.titlePools.isEmpty());verifyNoInteractions(importer);
+        var pool=ProductTitlePool.of(s,"p1");pool.customTitles=new ArrayList<>();for(int i=0;i<29;i++)pool.customTitles.add("背包收纳展示标题"+i);s.titlePools.put("p1",pool);
+        clearInvocations(engine);assertThrows(BizException.class,()->service.add(s,"p1","CUSTOM"));verifyNoInteractions(engine);
+    }
+    @Test void ambiguousAdditionRecoversOneRequestAndAppendsOnlyOnce(){
+        when(engine.post(anyString(),any())).thenThrow(new BizException(8003,"timeout"));
+        service.add(s,"p1","CUSTOM");assertTrue(s.titleGenerationPending());assertTrue(s.titlePools.isEmpty());
+        when(engine.find(anyString())).thenAnswer(call->json.valueToTree(Map.of("request_id",s.titleGeneration.requestId,"status","SUCCEEDED","product_id","p1","kind","CUSTOM","original",s.titleGeneration.original,"title","看看双肩包的户外收纳细节")));
+        service.refresh(s);service.refresh(s);assertEquals(3,s.titlePools.get("p1").customTitles.size());verify(engine,times(1)).post(anyString(),any());
+    }
 }

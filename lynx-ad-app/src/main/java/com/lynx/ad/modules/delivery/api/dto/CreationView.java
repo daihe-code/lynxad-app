@@ -45,14 +45,14 @@ public record CreationView(
                 com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s),
                 s.materials.stream().filter(CreationState.Material::pendingVersion).map(m->new MaterialVersionView(m.reviewSourceId,MaterialView.of(m,names.get(m.id)),m.versionDecision)).toList(),
                 s.regeneration==null?null:new RevisionView(s.regeneration.requestId,s.regeneration.sourceId,s.regeneration.resultMaterialId,s.regeneration.status),
-                s.titleGeneration==null?null:new TitleGenerationView(s.titleGeneration.status,s.titleGeneration.message));
+                s.titleGeneration==null?null:new TitleGenerationView(s.titleGeneration.status,s.titleGeneration.message,s.titleGeneration.requestId,s.titleGeneration.productId,s.titleGeneration.kind,s.titleGeneration.addition));
     }
     public record MaterialVersionView(String sourceId,MaterialView material,String decision) {}
     public record RevisionView(String requestId,String sourceId,String materialId,String status) {}
     public record ContentEditView(String targetPlanId,String status,String message,String planStatus) {}
     public record MaterialEditView(String status,String message) {}
     public record TitlePoolView(List<String> customTitles,List<String> cardTitles,List<String> customGeneratedTitles,List<String> cardGeneratedTitles) {}
-    public record TitleGenerationView(String status,String message) {}
+    public record TitleGenerationView(String status,String message,String requestId,String productId,String kind,boolean addition) {}
     private static java.util.Map<String,TitlePoolView> titlePools(CreationState s) {
         var result=new java.util.LinkedHashMap<String,TitlePoolView>();
         for(var product:s.products){var pool=com.lynx.ad.modules.delivery.domain.service.ProductTitlePool.of(s,product.qcProductId());result.put(product.qcProductId(),new TitlePoolView(List.copyOf(pool.customTitles),List.copyOf(pool.cardTitles),List.copyOf(pool.customGeneratedTitles),List.copyOf(pool.cardGeneratedTitles)));}

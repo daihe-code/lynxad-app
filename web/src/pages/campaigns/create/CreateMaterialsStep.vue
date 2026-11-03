@@ -25,7 +25,7 @@
         <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' }}</p>
         <div class="tabs" role="tablist" aria-label="素材类型"><button v-for="(label, key) in tabs" :key="key" class="tabs__item" type="button" role="tab" :aria-selected="tab === key" @click="tab = key">{{ label }}<span class="tabs__count">{{ key === 'TITLE' ? titleCount : materials.filter(m => m.type === key).length }}</span><span v-if="productHasFailure(state, productId, key)" class="material-failure-badge" role="img" :aria-label="`${label}有失败项`" :title="`${label}有生成失败项`">!</span></button></div>
         <div class="work" :class="{'work--titles':tab==='TITLE'}"><div class="work__main">
-          <MaterialTitleList v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" />
+          <MaterialTitleList :key="productId" v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" @add="(kind,source,text,receipt) => emit('addTitle',{productId,kind,source,text},receipt)" />
           <template v-else>
             <div class="matlist" role="list">
               <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
@@ -96,6 +96,7 @@ import GenerationNoticeResult from './GenerationNoticeResult.vue';
 import type { generationNoticeTarget } from '@/features/delivery/generationNoticeTarget';
 import MaterialPreview from './MaterialPreview.vue';
 import MaterialTitleList from './ProductTitleList.vue';
+import type { TitleAddition, TitleAdditionReceipt } from '@/features/delivery/titleAddition';
 import AddMaterialDialog from './AddMaterialDialog.vue';
 import type { LocalUploadBatch, UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import MaterialVersionDialog from './MaterialVersionDialog.vue';
@@ -112,7 +113,7 @@ const titlePending=computed(()=>!!props.state.titleGeneration && ['SENDING','PRO
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ retryFailure:[issue:GenerationIssue]; deleteFailure:[issue:GenerationIssue]; account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; regenerateTitle: [productId:string,kind:'CUSTOM'|'CARD',index:number,original:string]; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
+const emit = defineEmits<{ addTitle:[body:TitleAddition,receipt:TitleAdditionReceipt]; retryFailure:[issue:GenerationIssue]; deleteFailure:[issue:GenerationIssue]; account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; regenerateTitle: [productId:string,kind:'CUSTOM'|'CARD',index:number,original:string]; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[]]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });

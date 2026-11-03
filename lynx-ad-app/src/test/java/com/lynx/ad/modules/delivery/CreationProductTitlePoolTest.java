@@ -63,4 +63,16 @@ class CreationProductTitlePoolTest {
         service.regenerateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.RegenerateTitle(7,"CUSTOM",0,"原商品视频标题"));
         verify(generator).submit(s,"123","CUSTOM",0,"原商品视频标题");
     }
+    @Test void generationAdditionChecksPermissionsAndReplaysTheSameRequestWithoutAnotherGeneration(){
+        var generator=mock(com.lynx.ad.modules.delivery.application.CreationTitleRegeneration.class);service.titleRegeneration(generator);
+        assertThrows(BizException.class,()->service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(6,"CUSTOM","new-title")));
+        assertThrows(BizException.class,()->service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(7,"OTHER","new-title")));
+        s.publishStatus="CREATED";
+        assertThrows(BizException.class,()->service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(7,"CUSTOM","new-title")));verifyNoInteractions(generator);
+        s.publishStatus="NONE";service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(7,"CUSTOM","new-title"));
+        verify(generator).add(s,"123","CUSTOM","new-title");clearInvocations(generator);
+        s.titleGeneration=new CreationState.TitleGeneration();s.titleGeneration.requestId="new-title";s.titleGeneration.productId="123";s.titleGeneration.kind="CUSTOM";s.titleGeneration.addition=true;s.titleGeneration.status="SUCCEEDED";
+        assertSame(s,service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(6,"CUSTOM","new-title")));verifyNoInteractions(generator);
+        assertThrows(BizException.class,()->service.generateTitle(new TenantId("tenant"),"plan","123",new CreationWorkflowService.GenerateTitle(7,"CARD","new-title")));
+    }
 }

@@ -528,6 +528,20 @@ public class CreationWorkflowService {
     }
     public record ProductTitles(int revision,String kind,List<String> titles) {}
     public record RegenerateTitle(int revision,String kind,int index,String original) {}
+    public record GenerateTitle(int revision,String kind,String requestId) {}
+    public CreationState generateTitle(TenantId tenant,String requestedId,String product,GenerateTitle request) {
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        var s=store.get(tenant.value(),id);
+        if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
+        if(request.requestId==null||!request.requestId.matches("[A-Za-z0-9_-]{1,64}"))throw new BizException(1503,"标题请求标识不合法");
+        if(s.titleGeneration!=null&&request.requestId.equals(s.titleGeneration.requestId)) {
+            if(!s.titleGeneration.addition||!product.equals(s.titleGeneration.productId)||!request.kind.equals(s.titleGeneration.kind))throw new BizException(1404,"标题请求标识已用于其他操作");
+            return s;
+        }
+        editable(s);
+        if(s.revision!=request.revision)throw new BizException(1404,"草稿版本已变化，请刷新后新增标题");
+        return titleRegeneration.add(s,product,request.kind,request.requestId);
+    }
     public CreationState regenerateTitle(TenantId tenant,String requestedId,String product,RegenerateTitle request) {
         String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
         var s=store.get(tenant.value(),id);editable(s);

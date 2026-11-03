@@ -117,6 +117,7 @@ public class CreationState {
     public TitleGeneration titleGeneration;
     public static class TitleGeneration {
         public String requestId,productId,kind,original,status="SENDING",message;
+        public boolean addition;
         public int index;
         public long sentAt;
         public List<String> before=new ArrayList<>();

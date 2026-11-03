@@ -91,7 +91,7 @@ export interface CreationState {
   groupingDecision?: 'KEEP_CURRENT';
   publishRecovery?: 'REFRESH_ESTIMATE' | 'PRODUCTS' | 'GOAL' | 'MATERIALS' | 'ACCOUNTS' | 'UNKNOWN';
   titlePools?: Record<string,ProductTitlesPool>;
-  titleGeneration?: {status:string;message?:string};
+  titleGeneration?: TitleGeneration;
   planId: string; accountId: string; awemeId: string; name: string; revision: number; step: number;
   reachedStep?: number;
   packageVersion: number; confirmedVersion?: number; smartBidType: 'CUSTOM' | 'CONSERVATIVE';
@@ -155,9 +155,11 @@ export const creationPublish = (s: CreationState, requestKey: string) => apiPost
 export const creationDiscard = (id: string) => apiDelete(`${root}/${id}`);
 
 export const creationTitles = (s: CreationState, id: string, titles: string[]) => apiPut<CreationState>(`${root}/${s.planId}/materials/${id}/titles`, { revision: s.revision, titles }, slow);
-export const creationProductTitles = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', titles: string[]) => apiPut<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles`, { revision:s.revision,kind,titles }, slow);
+export const creationProductTitles = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', titles: string[], quiet=false) => apiPut<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles`, { revision:s.revision,kind,titles }, quiet?{...slow,headers:{'X-Quiet-Request':'true'}}:slow);
 export interface ProductTitlesPool {customTitles:string[];cardTitles:string[];customGeneratedTitles?:string[];cardGeneratedTitles?:string[]}
+export interface TitleGeneration {status:string;message?:string;requestId?:string;productId?:string;kind?:'CUSTOM'|'CARD';addition?:boolean}
 export const creationRegenerateTitle = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', index:number, original:string) => apiPost<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles/regenerate`, {revision:s.revision,kind,index,original},slow);
+export const creationGenerateTitle = (s: CreationState, product: string, kind: 'CUSTOM'|'CARD', requestId: string) => apiPost<CreationState>(`${root}/${s.planId}/products/${encodeURIComponent(product)}/titles/generate`, {revision:s.revision,kind,requestId},{...slow,headers:{'X-Quiet-Request':'true'}});
 export const creationRecheck = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/recheck`, { revision: s.revision });
 export const creationRetrySync = (s: CreationState, id: string) => apiPost<CreationState>(`${root}/${s.planId}/materials/${id}/sync/retry`, { revision:s.revision });
 export interface MaterialSyncVerification { materialId: string; revision: number; state: string; message: string; processing: MaterialProcessing }

@@ -31,7 +31,7 @@
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="transferring ? !transferAllowed : !editing || !canEdit" :allow-mode-change="transferring" :allow-schedule-change="!transferring && editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main v-if="!transferring" class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
@@ -60,6 +60,7 @@
 </template>
 
 <script setup lang="ts">
+import { addProductTitle, type TitleAddition, type TitleAdditionReceipt } from '@/features/delivery/titleAddition';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { persistUploadBatch, localUploadSelection, type LocalUploadBatch, type UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import { useRoute, useRouter } from 'vue-router';
@@ -143,6 +144,17 @@ function finishPublishedUploads() {
   contentDraftId.value = pendingUploadDraft.planId; pendingUploadDraft = undefined;
 }
 function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,s=>creationAddition(s,body),body.type);}
+async function addPublishedTitle(body:TitleAddition,receipt:TitleAdditionReceipt) {
+  if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value){receipt.done('暂时无法新增标题，请稍后重试。');return;}
+  materialBusy.value=true;mediaFailure.value=undefined;
+  try {
+    const draft=await beginContentEdit(plan.value.planId),next=await addProductTitle(draft,{...body,requestId:receipt.requestId});
+    receipt.done(undefined,body.source==='AI'?next.titleGeneration:undefined);
+    if(body.source==='AI'&&next.titleGeneration?.status==='FAILED')return;
+    contentTitleEditing.value=true;contentTitleProduct.value=body.productId;contentMaterialTab.value='TITLE';adjustProductsOnOpen.value=false;contentDraftId.value=next.planId;
+  }catch(error){receipt.done(requestFailure(error,{method:'POST'}).message);}
+  finally{materialBusy.value=false;}
+}
 function saveProductTitles(product:string,kind:'CUSTOM'|'CARD',titles:string[]){return editProductCopy(product,s=>creationProductTitles(s,product,kind,titles));}
 function regenerateProductTitle(product:string,kind:'CUSTOM'|'CARD',index:number,original:string){return editProductCopy(product,s=>creationRegenerateTitle(s,product,kind,index,original));}
 const plan = ref<PlanVo>(), creation = ref<CreationState>(), accounts = ref<AccountVo[]>([]);
