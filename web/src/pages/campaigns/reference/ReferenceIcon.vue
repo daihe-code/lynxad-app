@@ -375,6 +375,14 @@ const icons: Record<
     content:
       '<path d="M20.4 13.6V19a1.6 1.6 0 0 1-1.6 1.6H5.2A1.6 1.6 0 0 1 3.6 19V5.2A1.6 1.6 0 0 1 5.2 3.6h5.4"/>\n    <path d="M17.4 3.4v6M14.4 6.4h6"/>',
   },
+  "cloud-upload": {
+    attrs: {
+      viewBox: "0 0 24 24",
+      fill: "currentColor",
+    },
+    content:
+      '<path d="M6.3 20.5a5.8 5.8 0 0 1-1.2-11.4A7.1 7.1 0 0 1 18.7 8a6.3 6.3 0 0 1-.8 12.5H6.3Z"/><path d="M12 20V10m-4 4 4-4 4 4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  },
   upload: {
     attrs: {
       viewBox: "0 0 24 24",
