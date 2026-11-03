@@ -25,10 +25,11 @@ export async function addUploadFiles(files: FileList | File[] | undefined | null
   try { policy = await getUploadPolicy(); }
   catch { return ['无法加载上传规则，请检查网络后重新选择文件']; }
   ensureUploadSession(); if (session !== ownerToken) return errors;
+  const maxFiles = library === 'CAROUSEL' ? Math.max(policy.maxFiles, (policy.carouselMaxImages || 18) + 2) : policy.maxFiles;
   for (const file of candidates) {
     if (signal?.aborted) break;
     if (session !== localStorage.getItem('lynx.token')) break;
-    if (uploadRows.filter(r => r.library === library && r.scope === scope).length >= policy.maxFiles) { errors.push(`一次最多选择 ${policy.maxFiles} 个文件`); break; }
+    if (uploadRows.filter(r => r.library === library && r.scope === scope).length >= maxFiles) { errors.push(`一次最多选择 ${maxFiles} 个文件`); break; }
     if (uploadRows.some(r => r.library === library && r.scope === scope && r.file.name === file.name && r.file.size === file.size && r.file.lastModified === file.lastModified)) continue;
     const key = crypto.randomUUID();
     uploadRows.push({ key, file, library, scope, progress: 0, stage: '正在本地预检', busy: true, valid: false, error: '' });

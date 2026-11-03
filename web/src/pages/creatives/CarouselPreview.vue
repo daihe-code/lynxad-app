@@ -4,7 +4,7 @@
     <p v-else-if="!detail">正在读取图文素材…</p>
     <template v-if="detail">
       <AssetReviewStatus :review="detail.aiReview" composite />
-      <p class="note">文本、全部图片和音频共同质检。任意一项不合格，整条图文不合格。</p>
+      <p class="note">图文中已提供的文本、图片和音频共同质检。任意一项不合格，整条图文不合格。</p>
       <section v-for="part in detail.parts" :key="`${part.role}:${part.position}`">
         <h3>{{ part.role === 'TEXT' ? '文本' : part.role === 'AUDIO' ? '音频' : `图片 ${part.position + 1}` }}<small>{{ part.asset.filename }}</small></h3>
         <pre v-if="part.role === 'TEXT'">{{ part.asset.textContent }}</pre>

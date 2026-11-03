@@ -82,4 +82,28 @@ class CarouselServiceTest {
         assertEquals("图文音频仅支持 MP3、M4A 格式",error.getMessage());
         verify(groups,never()).insert(any(),any());
     }
+    @Test void thirtyFiveOrderedImagesCanBeCreatedWithoutAnOptionalDescription() {
+        var saved=new java.util.concurrent.atomic.AtomicReference<CarouselRepository.Bundle>();
+        var savedParts=new java.util.concurrent.atomic.AtomicReference<List<CarouselRepository.Part>>();
+        doAnswer(call->{saved.set(call.getArgument(0));savedParts.set(call.getArgument(1));return null;}).when(groups).insert(any(),any());
+        when(groups.require(eq("tenant-a"),anyString())).thenAnswer(call->saved.get());
+        when(groups.parts(any())).thenAnswer(call->savedParts.get());
+        var ids=java.util.stream.IntStream.range(0,35).mapToObj(i->"image-"+i).toList();
+        for(String id:java.util.stream.Stream.concat(ids.stream(),java.util.stream.Stream.of("audio")).toList()) {
+            String kind=id.equals("audio")?"AUDIO":"IMAGE";var value=asset(id,kind);
+            when(assets.require("tenant-a",id)).thenReturn(value);
+            var review=new AssetUploadRepository.Review(id,"tenant-a","APPROVED","job","APPROVED","ok",List.of(),null,0,Instant.now());
+            when(uploads.detail(new TenantId("tenant-a"),id)).thenReturn(new AssetUploadService.Detail(id,kind,value.filename(),100,"STORED","oss",false,"md5",1,1,null,"url",null,Instant.now().toString(),List.of(),review));
+        }
+        var created=service.create(new TenantId("tenant-a"),new com.lynx.ad.common.domain.Ids.UserId("user"),new CarouselService.Create("request-id-123456","图文名称",null,ids,"audio",List.of()));
+        assertEquals("APPROVED",created.aiReview().status());assertEquals(36,created.parts().size());
+        assertFalse(created.parts().stream().anyMatch(p->p.role().equals("TEXT")));
+        assertEquals(ids,created.parts().stream().filter(p->p.role().equals("IMAGE")).map(p->p.asset().id()).toList());
+        verify(assets,never()).require(eq("tenant-a"),isNull());
+    }
+    @Test void thirtySixImagesAreRejectedBeforeAnyComponentIsAccessed() {
+        var ids=java.util.stream.IntStream.range(0,36).mapToObj(i->"image-"+i).toList();
+        var error=assertThrows(BizException.class,()->service.create(new TenantId("tenant-a"),new com.lynx.ad.common.domain.Ids.UserId("user"),new CarouselService.Create("request-id-123456","图文名称",null,ids,"audio",List.of())));
+        assertEquals("图文需要 1-35 张不同的图片",error.getMessage());verifyNoInteractions(assets,uploads);
+    }
 }

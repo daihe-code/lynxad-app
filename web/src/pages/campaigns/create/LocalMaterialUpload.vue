@@ -1,6 +1,6 @@
 <template>
   <div class="local-material-upload">
-    <p v-if="type === 'CAROUSEL' || type === 'VIDEO' && !rows.length" class="account-note">素材将同步到当前计划的投放账户。</p>
+    <p v-if="type === 'VIDEO' && !rows.length" class="account-note">素材将同步到当前计划的投放账户。</p>
     <template v-if="type !== 'CAROUSEL'">
       <label v-if="!rows.length" class="aigc upload-aigc"><input v-model="aigc" type="checkbox" :disabled="blocked || busy" />包含 AI 生成内容</label>
       <input ref="input" class="sr-only" type="file" multiple :accept="policy.extensions.map(e => `.${e}`).join(',')" aria-label="选择本地素材文件" :disabled="blocked || busy" @change="changed" />
@@ -21,8 +21,7 @@
       <LocalUploadProgress v-if="rows.length" :type="type" :rows="rows" :state="uploadBatchState" :account-id="accountId" :added-ids="addedAssetIds || []" :saving="!!batchSaving" :retrying="retrying" :disabled="blocked || busy" :phase="phase" @retry-review="retryReview" @retry-sync="retrySync" @verify-sync="verify" @retry-upload="row => start([row.key])" @remove="remove" />
     </template>
     <div v-show="type === 'CAROUSEL'">
-      <CarouselUploadPanel v-if="carouselMounted" :default-account-ids="[accountId]" :fixed-account-id="accountId" embedded @close-blocked="carouselBlocked = $event" />
-      <div v-if="carouselReady(carouselDraft.result, accountId)" class="carousel-ready"><span>图文已就绪</span><button type="button" :disabled="busy" @click="selectCarousel">{{ selectedId === carouselDraft.result?.id ? '已选择' : '选择此图文' }}</button></div>
+      <CarouselLocalUpload v-if="carouselMounted" ref="carouselForm" :account-id="accountId" :busy="busy" @state="carouselStateChanged" @ready="item => emit('select', item)" />
     </div>
   </div>
 </template>
@@ -31,16 +30,16 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import LocalUploadProgress from './LocalUploadProgress.vue';
 import type { UploadBatchState } from '@/features/creative/localUploadBatch';
-import CarouselUploadPanel from '@/pages/creatives/CarouselUploadPanel.vue';
+import CarouselLocalUpload, { type CarouselFormState } from './CarouselLocalUpload.vue';
 import { addUploadFiles, beginUploadDialog, startUploads, stopUploadRows, uploadRows, type UploadRow } from '@/features/creative/assetUploads';
 import { libraryUploadPolicy } from '@/features/creative/assetUploadTypes';
-import { carouselDraft } from '@/features/creative/carouselUploads';
 import { reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync, type LibraryItemVo } from '@/features/creative/creativeApi';
-import { carouselItem, carouselReady, uploadedReady, uploadPhase } from '@/features/creative/materialSources';
+import { uploadedReady, uploadPhase } from '@/features/creative/materialSources';
 const props = defineProps<{ type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; accountId: string; busy: boolean; active: boolean; addedAssetIds?: string[]; batchSaving?: boolean }>();
-const emit = defineEmits<{ select: [item: LibraryItemVo | undefined]; blocked: [value: boolean]; filesChanged: [count: number]; uploadBatch: [state: UploadBatchState] }>();
+const emit = defineEmits<{ select: [item: LibraryItemVo | undefined]; blocked: [value: boolean]; filesChanged: [count: number]; carouselState: [state: CarouselFormState]; uploadBatch: [state: UploadBatchState] }>();
 beginUploadDialog();
 const uploadScope = crypto.randomUUID();
+const carouselForm = ref<InstanceType<typeof CarouselLocalUpload>>();
 const input = ref<HTMLInputElement>(), adding = ref(false), retrying = ref(''), error = ref(''), selectedId = ref(''), aigc = ref(false);
 const carouselMounted = ref(props.type === 'CAROUSEL' && props.active), carouselBlocked = ref(false);
 const scopedRows = computed(() => uploadRows.filter(r => r.scope === uploadScope));
@@ -102,7 +101,6 @@ async function start(requested?: string[]) {
     }
   }
 }
-function selectCarousel() { if (carouselReady(carouselDraft.result, props.accountId)) { selectedId.value = carouselDraft.result!.id; emit('select', carouselItem(carouselDraft.result!)); } }
 function remove(row: UploadRow) { if (blocked.value || props.busy) return; if (selectedId.value === row.result?.id) { selectedId.value = ''; emit('select', undefined); } const n = uploadRows.indexOf(row); if (n >= 0) uploadRows.splice(n, 1); }
 async function retryReview(row: UploadRow) {
   if (!row.result || retrying.value) return; retrying.value = row.result.id;
@@ -116,12 +114,6 @@ async function verify(row: UploadRow, sync: AssetSync) {
   if (!row.result || retrying.value) return; retrying.value = sync.id;
   try { row.result = (await reconcileAssetSync(row.result.id, props.accountId)).asset; } catch (e) { error.value = message(e); } finally { retrying.value = ''; }
 }
-// A polling update can revoke readiness; never leave an old selection enabled after a rejection.
-watch(() => [rows.value.map(r => [r.result?.id, uploadedReady(r.result, props.accountId)]), carouselDraft.result && carouselReady(carouselDraft.result, props.accountId)], () => {
-  if (!selectedId.value) return;
-  const valid = props.type === 'CAROUSEL' ? carouselDraft.result?.id === selectedId.value && carouselReady(carouselDraft.result, props.accountId) : rows.value.some(r => r.result?.id === selectedId.value && uploadedReady(r.result, props.accountId));
-  if (!valid) { selectedId.value = ''; emit('select', undefined); }
-}, { deep: true });
 onUnmounted(() => emit('blocked', false));
 async function stopUploads() {
   if (props.busy) return;
@@ -134,7 +126,9 @@ function continueUploads() {
   for (let index = uploadRows.length - 1; index >= 0; index--) if (keys.has(uploadRows[index]!.key)) uploadRows.splice(index, 1);
   chooseFiles();
 }
-defineExpose({ stopUploads, continueUploads });
+function carouselStateChanged(state: CarouselFormState) { carouselBlocked.value = state.processing; emit('carouselState', state); }
+function createLocalCarousel() { void carouselForm.value?.create(); }
+defineExpose({ stopUploads, continueUploads, createLocalCarousel });
 </script>
 <style scoped>
 .account-note{color:#7c7f99;font-size:12px;margin:12px 0}.drop-zone{border:1px dashed #bbb9ef;border-radius:12px;background:#fafaff;display:grid;justify-items:center;gap:10px;padding:22px;cursor:pointer}.drop-zone>svg{width:26px;height:26px;color:#5b55ff}.drop-zone small{color:#7c7f99;text-align:center;line-height:1.6}.drop-zone[aria-disabled=true]{opacity:.5;cursor:not-allowed}.aigc{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px}.aigc input{accent-color:#5b55ff}.carousel-ready{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:15px;color:#0cab76}.carousel-ready button{padding:9px 16px;background:#5b55ff;color:white;border-radius:8px;margin-left:auto}.error{color:#e5484d;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}button:disabled{opacity:.45;cursor:not-allowed}

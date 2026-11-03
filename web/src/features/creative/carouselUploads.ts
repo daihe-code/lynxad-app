@@ -55,12 +55,12 @@ export async function uploadCarousel() {
     const isAigc = (file: File) => file === textFile ? carouselDraft.textAigc ?? carouselDraft.aigc : carouselDraft.fileAigc[fileAigcKey(file)] ?? carouselDraft.aigc;
     for (let i = uploadRows.length - 1; i >= 0; i--) {
       const row = uploadRows[i]!;
-      if (row.library === 'CAROUSEL' && !row.busy && (row.result && row.result.isAigc !== isAigc(row.file) || !files.some(f => f.name === row.file.name && f.size === row.file.size && f.lastModified === row.file.lastModified))) uploadRows.splice(i, 1);
+      if (row.library === 'CAROUSEL' && !row.scope && !row.busy && (row.result && row.result.isAigc !== isAigc(row.file) || !files.some(f => f.name === row.file.name && f.size === row.file.size && f.lastModified === row.file.lastModified))) uploadRows.splice(i, 1);
     }
     // Validate every part before any transfer. Keep successful rows when a transfer or registration is retried.
     const errors = await addUploadFiles(files, 'CAROUSEL'); check();
     if (errors.length) throw new Error(errors.join('；'));
-    const rows = files.map(f => uploadRows.find(r => r.library === 'CAROUSEL' && r.file.name === f.name && r.file.size === f.size && r.file.lastModified === f.lastModified));
+    const rows = files.map(f => uploadRows.find(r => r.library === 'CAROUSEL' && !r.scope && r.file.name === f.name && r.file.size === f.size && r.file.lastModified === f.lastModified));
     if (rows.some(r => !r?.valid)) throw new Error(rows.find(r => !r?.valid)?.error || '图文组件预检未通过');
     rows.forEach((row, index) => { row!.isAigc = isAigc(files[index]!); });
     carouselDraft.keys = rows.map(r => r!.key);

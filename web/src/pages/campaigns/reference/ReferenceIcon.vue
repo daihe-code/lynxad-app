@@ -297,6 +297,10 @@ const icons: Record<
     content:
       '<path d="M6.2 3.4h11.6c.9 0 1.6.7 1.6 1.6v14.6c0 .9-1 1.4-1.7.9L12 16.4l-5.7 4.1c-.7.5-1.7 0-1.7-.9V5c0-.9.7-1.6 1.6-1.6Z"/>\n    <path fill="#fff" d="m12 7.1.95 1.95 2.15.3-1.55 1.5.37 2.13L12 11.98l-1.92 1 .37-2.13-1.55-1.5 2.15-.3L12 7.1Z"/>',
   },
+  music: {
+    attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" },
+    content: '<path d="M9 17V5l11-2v12M9 9l11-2"/><ellipse cx="5.5" cy="18" rx="3.5" ry="2.5"/><ellipse cx="16.5" cy="16" rx="3.5" ry="2.5"/>',
+  },
   image: {
     attrs: {
       viewBox: "0 0 24 24",

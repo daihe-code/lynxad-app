@@ -22,8 +22,8 @@ public final class CarouselReviewPolicy {
         }
         if (rejected) return new Result("REJECTED", "图文不合格：至少一个组件质检不合格，整条图文不可使用或同步。", reasons);
         if (failed) return new Result("FAILED", "图文质检失败：尚未全部合格，整条图文不予放行。", reasons);
-        if (pending) return new Result("PENDING", "图文质检中，文本、全部图片及音频均合格后才可使用或同步。", List.of());
+        if (pending) return new Result("PENDING", "图文质检中，已提供的全部组件均合格后才可使用或同步。", List.of());
         if (allEngine) return new Result("NOT_REQUIRED", "AI 引擎生成图文，无需上传审核。", List.of());
-        return new Result("APPROVED", "图文合格：文本、全部图片及音频均已通过质检。", List.of());
+        return new Result("APPROVED", "图文合格：已提供的全部组件均已通过质检。", List.of());
     }
 }

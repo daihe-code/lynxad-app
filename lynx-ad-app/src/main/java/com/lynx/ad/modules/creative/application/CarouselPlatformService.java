@@ -28,7 +28,8 @@ public class CarouselPlatformService {
         if(!java.util.Set.of("APPROVED","NOT_REQUIRED").contains(bundle.aiReview().status()))throw new BizException(1525,"上传图文质检未通过或引擎图文尚未就绪");
         var c=gateway.credential(tenant,account,null);
         var body=json.createObjectNode();body.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));
-        body.put("file_name",bundle.name());body.put("description",bundle.parts().stream().filter(p->p.role().equals("TEXT")).findFirst().orElseThrow().asset().textContent());
+        body.put("file_name",bundle.name());
+        bundle.parts().stream().filter(p->p.role().equals("TEXT")).findFirst().ifPresent(p->body.put("description",p.asset().textContent()));
         var images=body.putArray("images");
         for(var part:bundle.parts()) {
             if(part.role().equals("TEXT"))continue;

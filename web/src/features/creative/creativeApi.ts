@@ -92,7 +92,7 @@ export interface CarouselDetail {
   id: string; name: string; createdAt: string; accountIds: string[]; aiReview: AssetReview;
   parts: { role: 'TEXT' | 'IMAGE' | 'AUDIO'; position: number; asset: UploadedAsset }[];
 }
-export function createCarousel(body: { requestId: string; name: string; textAssetId: string; imageAssetIds: string[]; audioAssetId: string; accountIds: string[] }) {
+export function createCarousel(body: { requestId: string; name: string; textAssetId?: string; imageAssetIds: string[]; audioAssetId: string; accountIds: string[] }) {
   return apiPost<CarouselDetail>('/api/v1/creative/carousels', body);
 }
 export function getCarousel(id: string) {

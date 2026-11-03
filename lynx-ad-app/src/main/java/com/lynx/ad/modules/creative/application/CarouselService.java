@@ -36,15 +36,17 @@ public class CarouselService {
         String name=request.name()==null ? "" : request.name().trim();
         if(name.isBlank() || name.length()>100) throw new BizException(1520,"图文名称须为 1-100 个字符");
         var images=request.imageAssetIds()==null ? List.<String>of() : request.imageAssetIds();
-        if(images.isEmpty() || images.size()>AssetFilePolicy.policy().carouselMaxImages() || new HashSet<>(images).size()!=images.size()) throw new BizException(1520,"图文需要 1-18 张不同的图片");
+        if(images.isEmpty() || images.size()>AssetFilePolicy.policy().carouselMaxImages() || new HashSet<>(images).size()!=images.size()) throw new BizException(1520,"图文需要 1-"+AssetFilePolicy.policy().carouselMaxImages()+" 张不同的图片");
         var targets=request.accountIds()==null ? List.<String>of() : request.accountIds().stream().distinct().toList();
         if(targets.size()>20) throw new BizException(1520,"一次最多同步 20 个账户");
         List<CarouselRepository.Part> parts=new ArrayList<>();
-        parts.add(part(tenant,"TEXT",0,request.textAssetId()));
+        if(request.textAssetId()!=null && !request.textAssetId().isBlank()) {
+            parts.add(part(tenant,"TEXT",0,request.textAssetId()));
+            var text=assets.require(tenant.value(),request.textAssetId());
+            if(text.textContent()==null || text.textContent().isBlank()) throw new BizException(1520,"图文文本不能为空");
+        }
         for(int i=0;i<images.size();i++) parts.add(part(tenant,"IMAGE",i,images.get(i)));
         parts.add(part(tenant,"AUDIO",0,request.audioAssetId()));
-        var text=assets.require(tenant.value(),request.textAssetId());
-        if(text.textContent()==null || text.textContent().isBlank()) throw new BizException(1520,"图文文本不能为空");
         var audio=assets.require(tenant.value(),request.audioAssetId());
         if(!Set.of("audio/mpeg","audio/mp4").contains(AssetFilePolicy.spec(audio.filename()).contentType()))
             throw new BizException(1520,"图文音频仅支持 MP3、M4A 格式");
@@ -66,7 +68,7 @@ public class CarouselService {
         return detail(tenant,bundle.id());
     }
     private CarouselRepository.Part part(TenantId tenant,String role,int position,String id) {
-        if(id==null || id.isBlank()) throw new BizException(1520,"图文必须包含文本、图片及音频");
+        if(id==null || id.isBlank()) throw new BizException(1520,"图文组件不能为空");
         var asset=assets.require(tenant.value(),id);
         if(!"STORED".equals(asset.storageStatus()) || !role.equals(asset.kind())) throw new BizException(1520,"图文组件未入库或类型不匹配");
         return new CarouselRepository.Part(role,position,id);

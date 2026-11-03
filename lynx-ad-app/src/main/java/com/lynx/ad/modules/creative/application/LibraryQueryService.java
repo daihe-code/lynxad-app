@@ -332,7 +332,7 @@ public class LibraryQueryService {
                     "图文 · "+images.size()+" 张图片",Instant.parse(group.createdAt()),false,"NONE",null,group.id(),null,
                     image.url(),image.url(),image.width(),image.height());
             item.carouselId=group.id(); item.aiReview=group.aiReview();
-            item.textContent=group.parts().stream().filter(p->"TEXT".equals(p.role())).findFirst().orElseThrow().asset().textContent();
+            item.textContent=group.parts().stream().filter(p->"TEXT".equals(p.role())).findFirst().map(p->p.asset().textContent()).orElse("");
             item.syncs=group.parts().stream().flatMap(p->p.asset().syncs().stream()).filter(s->group.accountIds().contains(s.accountId())).toList();
             item.reviewBadge=effectiveBadge(item); result.add(item);
         }

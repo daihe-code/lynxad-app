@@ -14,5 +14,5 @@
   "maxFiles": 20,
   "videoCodec": "h264",
   "m4aCodec": "aac",
-  "carouselMaxImages": 18
+  "carouselMaxImages": 35
 }
