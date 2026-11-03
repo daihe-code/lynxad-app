@@ -122,4 +122,4 @@
 .feed-preview .preview__note { margin: 12px 0 0; font-size: 11px; line-height: 1.7; color: #808da5; text-align: center; }
 @media (max-width:639px) { .feed-preview.preview { padding: 15px 12px 12px; } .feed-preview .plats { gap: 15px; } .feed-top { gap: 19px; } .feed-actions { gap: 9px; } .feed-actions button svg { width: 27px; height: 27px; } .feed-avatar { width: 34px; height: 34px; } .feed-record { width: 30px; height: 30px; } }
 @media (prefers-reduced-motion: reduce) { .feed-record.is-playing { animation: none; } }
-.plat--pangolin{background:#ec763d;color:#fff;font-size:22px}.plat--pangolin .plat__txt{font-size:22px;line-height:1}
+.feed-preview .plat--pangolin{background:#ff0027;border-radius:50%;color:#fff}

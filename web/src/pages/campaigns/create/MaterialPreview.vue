@@ -3,7 +3,7 @@
     <p class="preview__title">投放效果预览</p>
     <div class="plats" role="tablist" aria-label="预览平台">
       <button v-for="p in platforms" :key="p.id" class="plat" type="button" role="tab" :aria-selected="platform === p.id" :aria-label="p.name" :title="`${p.name}效果示意`" @click="platform = p.id">
-        <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><span v-else-if="p.id === 'pangolin'" class="plat__txt">▦</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
+        <span class="plat__i" :class="`plat--${p.id}`"><span v-if="p.id === 'toutiao'" class="plat__txt">头条</span><ReferenceIcon v-else :name="`plat-${p.id}`" /></span>
       </button>
     </div>
     <PlatformPlacementPreview v-if="!usesDouyinPreview" :platform="platform" :material="material" :product="product" :account="account" @metadata="(id,data) => emit('metadata',id,data)" />

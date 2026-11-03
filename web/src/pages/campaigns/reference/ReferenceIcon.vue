@@ -438,6 +438,14 @@ const icons: Record<
     content:
       '<path fill="#F0A98A" d="M0 16.6c3.1 0 5.6-1.7 8.3-1.7 2.7 0 4.5 1.7 7.2 1.7 2.9 0 5.4-1.6 8.5-1.6V24H0Z"/>\n    <path fill="#fff" d="M12.7 3.2h2.3c.3 1.8 1.2 2.9 3 3.1v2.3c-1.1 0-2.1-.3-3-.8v5.5a4.7 4.7 0 1 1-4-4.65v2.4a2.2 2.2 0 1 0 1.7 2.15V3.2Z"/>',
   },
+  "plat-pangolin": {
+    attrs: {
+      viewBox: "0 0 24 24",
+      fill: "currentColor",
+    },
+    content:
+      '<path d="m3 14.8 5.6-4.9v4.9H3Zm6.4-5.6 2.2-1.9v8.2H9.4V9.2Zm3.1-1.9 2.2 1.9v6.3h-2.2V7.3Zm3.1 2.6 5.4 4.9h-5.4V9.9Z"/>',
+  },
   "plat-jisu": {
     attrs: {
       viewBox: "0 0 24 24",
