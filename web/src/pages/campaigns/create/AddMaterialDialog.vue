@@ -2,7 +2,7 @@
   <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': uploadBatchMode && type === 'VIDEO', 'carousel-upload-dialog': localCarousel }" title="新增素材" :width="1020" :busy="locked" @close="close">
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
-    <div class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
+    <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
     <div v-if="source === 'AI'" class="ai-source"><ReferenceIcon name="sparkle" /><div><strong>我会结合商品信息，为当前商品新增 {{ generationUnit }}。</strong><p>已有素材会保留，生成后可预览并决定是否用于投放。</p></div></div>
     <div v-if="source === 'LIBRARY'" class="library-source">
       <form class="library-search" @submit.prevent="search"><input v-model="query" aria-label="搜索素材名称" placeholder="搜索素材名称" :disabled="locked" /><button type="submit" :disabled="locked || loading">搜索</button><select :value="scope === 'AUTO' ? 'RELATED' : scope" aria-label="商品关联范围" :disabled="locked || loading" @change="scopeChanged"><option value="RELATED">当前商品相关</option><option value="ALL">{{ allLabel }}</option></select><button type="button" :disabled="locked || loading" @click="refresh"><ReferenceIcon name="refresh" />刷新</button></form>
@@ -13,12 +13,17 @@
       <div v-else class="asset-grid" role="group" :aria-label="`${kindLabel}素材库`"><article v-for="item in items" :key="`${item.id}:${previewVersion}`" :class="{ selected: librarySelected?.id === item.id }"><button type="button" class="asset-select" :aria-pressed="librarySelected?.id === item.id" :aria-label="`选择 ${item.filename}`" :disabled="locked" @click="librarySelected = item"><span class="asset-preview"><AssetThumbnail :item="item" fit="contain" /></span><span class="check-mark">{{ librarySelected?.id === item.id ? '✓' : '' }}</span><strong :title="item.filename">{{ item.filename }}</strong><small>{{ materialMeta(item) }}</small><small>{{ item.source === 'UPLOAD' ? '本地上传' : item.source === 'LYNX' ? '智能生成' : '千川素材' }} · {{ createdDate(item.createdAt) }}</small></button><button type="button" class="preview-button" :class="{ 'preview-button--carousel': type === 'CAROUSEL' }" :aria-label="`预览 ${item.filename}`" :title="type === 'VIDEO' ? '播放预览' : type === 'CAROUSEL' ? '图文预览' : '图片预览'" :disabled="locked" @click="preview(item)"><ReferenceIcon :name="type === 'VIDEO' ? 'play' : 'eye'" /></button></article></div>
       <nav v-if="!loadError && !loading && total > 0" class="library-pager" :aria-label="`${kindLabel}分页`"><span>共 {{ total }} 条，每页 {{ pageSize }} 条</span><div><button type="button" :aria-label="`${kindLabel}上一页`" :disabled="locked || page <= 1" @click="changePage(page - 1)">上一页</button><span>第 {{ page }} / {{ totalPages }} 页</span><button type="button" :aria-label="`${kindLabel}下一页`" :disabled="locked || page >= totalPages" @click="changePage(page + 1)">下一页</button></div></nav>
     </div>
-    <LocalMaterialUpload v-if="uploadMounted" ref="uploader" v-show="source === 'UPLOAD'" :active="source === 'UPLOAD'" :type="type" :account-id="state.accountId" :busy="busy || awaiting || batchSaving" :added-asset-ids="addedAssetIds" :batch-saving="batchSaving" @upload-batch="uploadBatch = $event" @blocked="uploadBlocked = $event" @files-changed="localFileCount = $event" @carousel-state="carouselForm = $event" @select="localSelected = $event" />
+    <LocalMaterialUpload v-if="uploadMounted" ref="uploader" v-show="source === 'UPLOAD'" :active="source === 'UPLOAD'" :type="type" :account-id="state.accountId" :busy="busy || awaiting || batchSaving" :added-asset-ids="addedAssetIds" :batch-saving="batchSaving" :attach-error="uploadAttachError" @upload-batch="uploadBatch = $event" @blocked="uploadBlocked = $event" @files-changed="localFileCount = $event" @carousel-state="carouselForm = $event" @select="localSelected = $event" />
     <div v-if="previewItem" ref="previewPanel" class="preview-panel"><div><strong>{{ previewItem.filename }}</strong><button type="button" aria-label="关闭素材预览" @click="previewItem = undefined">关闭预览</button></div><CarouselLibraryPreview v-if="previewItem.type === 'CAROUSEL'" :key="previewItem.id" :id="previewItem.carouselId" @ready="scrollPreview" /><video v-else-if="previewItem.type === 'VIDEO' && previewUrls?.playUrl" :key="previewItem.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls autoplay preload="metadata" @loadedmetadata="scrollPreview" @error="previewFailed" /><img v-else-if="imagePreviewUrl" :key="previewItem.id" :src="assetUrl(imagePreviewUrl)" :alt="previewItem.filename" @load="scrollPreview" /><p v-else class="hint">此素材暂不可预览，请刷新后重试。</p><p v-if="previewError" class="error">{{ previewError }}</p></div>
-    <p v-if="imageSpecError" class="error" role="alert">{{ imageSpecError }}</p><p v-if="uploadBatchMode && uploadAttachError || submitError" class="error" role="alert">{{ uploadBatchMode && uploadAttachError || submitError }}</p>
+    <p v-if="imageSpecError" class="error" role="alert">{{ imageSpecError }}</p><p v-if="(uploadBatchMode || localCarousel) && uploadAttachError || submitError" class="error" role="alert">{{ (uploadBatchMode || localCarousel) && uploadAttachError || submitError }}</p>
     <template #footer>
       <template v-if="localCarousel">
-        <span class="carousel-summary"><ReferenceIcon name="info" />{{ carouselForm.summary }}</span><button type="button" class="secondary" :disabled="locked" @click="close">取消</button><button type="button" class="primary" :disabled="locked || !(localSelected || carouselForm.canCreate)" @click="localSelected ? submit() : uploader?.createLocalCarousel()">{{ busy || awaiting ? '添加中…' : carouselForm.processing ? carouselForm.created ? '检查与同步中…' : '上传中…' : submitError && localSelected ? '重试添加图文' : '创建并添加图文' }}</button>
+        <template v-if="carouselForm.started">
+          <span class="carousel-summary"><ReferenceIcon name="info" />{{ carouselForm.added ? '新增图文已加入当前商品，确认素材后再发布投放。' : '已有素材会保留，请勿重复创建' }}</span>
+          <template v-if="carouselForm.added"><button type="button" class="secondary carousel-more" :disabled="locked" @click="continueCarousel">继续新增</button><button type="button" class="primary" :disabled="locked" @click="close">完成，返回素材列表</button></template>
+          <template v-else><button v-if="!locked && !localSelected" type="button" class="secondary" @click="editCarousel">返回修改</button><button type="button" class="primary" :disabled="locked || !(localSelected || carouselForm.canCreate)" @click="localSelected ? retryCarouselAdd() : uploader?.createLocalCarousel()">{{ locked ? '创建中…' : localSelected ? '重试添加图文' : carouselForm.canCreate ? '重试创建图文' : '创建中…' }}</button></template>
+        </template>
+        <template v-else><span class="carousel-summary"><ReferenceIcon name="info" />{{ carouselForm.summary }}</span><button type="button" class="secondary" :disabled="locked" @click="close">取消</button><button type="button" class="primary" :disabled="locked || !carouselForm.canCreate" @click="uploader?.createLocalCarousel()">{{ carouselForm.processing ? '上传中…' : '创建并添加图文' }}</button></template>
       </template>
       <template v-else-if="uploadBatchMode">
         <span class="selection-count">{{ uploadBatch.addedCount === uploadBatch.count ? `成功添加 ${uploadBatch.addedCount} ${uploadUnit}` : `已就绪 ${uploadBatch.readyCount}/${uploadBatch.count} ${uploadUnit}` }}</span>
@@ -67,8 +72,11 @@ function addReadyUploads() {
   if (type.value === 'CAROUSEL' || !uploadBatchMode.value || uploadBatch.value.processing || stoppingUploads.value || uploadBlocked.value || props.busy || batchSaving.value || uploadAttachError.value) return;
   const ids = uploadBatch.value.readyIds.filter(id => !addedAssetIds.value.includes(id));
   if (!ids.length) return;
+  attachUploads(type.value, ids);
+}
+function attachUploads(format: LocalUploadBatch['type'], ids: string[]) {
   batchSaving.value = true;
-  emit('addUploads', { productId: props.productId, type: type.value, assetIds: ids }, {
+  emit('addUploads', { productId: props.productId, type: format, assetIds: ids }, {
     added(id) { if (alive && !addedAssetIds.value.includes(id)) addedAssetIds.value.push(id); },
     done(error) { if (alive) { uploadAttachError.value = error || ''; batchSaving.value = false; } }
   });
@@ -86,7 +94,7 @@ const pageSize = 6, totalPages = computed(() => Math.max(1, Math.ceil(total.valu
 const selected = computed(() => source.value === 'LIBRARY' ? librarySelected.value : source.value === 'UPLOAD' ? localSelected.value : undefined);
 const localFileCount = ref(0);
 const localCarousel = computed(() => source.value === 'UPLOAD' && type.value === 'CAROUSEL');
-const carouselForm = ref<CarouselFormState>({ canCreate: false, processing: false, created: false, summary: '请填写图文名称，并添加图片和音频；本地文件选中后自动上传。' });
+const carouselForm = ref<CarouselFormState>({ canCreate: false, processing: false, created: false, started: false, added: false, summary: '请填写图文名称，并添加图片和音频；本地文件选中后自动上传。' });
 const needsUploadFile = computed(() => source.value === 'UPLOAD' && type.value !== 'CAROUSEL' && localFileCount.value === 0);
 const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。' : '');
 const canSubmit = computed(() => !!product.value && (source.value === 'AI' ? !props.generationBusy : !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
@@ -145,7 +153,15 @@ watch([() => props.state, () => props.busy, () => props.submissionError], () => 
   if (accepted) { if (submissionKey) sessionStorage.removeItem(submissionKey); emit('close'); }
   else if (!props.busy) { awaiting.value = false; submitError.value = props.submissionError || '提交状态暂未确认，请稍后重试。已选内容会保留。'; }
 });
-watch([localSelected, () => carouselForm.value.processing, () => props.busy, uploadBlocked], () => { if (localCarousel.value && localSelected.value && !locked.value && !submitError.value) submit(); }, { flush: 'post' });
+function addReadyCarousel() {
+  const id = localSelected.value?.carouselId;
+  if (localCarousel.value && id && !locked.value && !uploadAttachError.value && !addedAssetIds.value.includes(id)) attachUploads('CAROUSEL', [id]);
+}
+watch([localSelected, () => carouselForm.value.processing, () => props.busy, uploadBlocked], addReadyCarousel, { flush: 'post' });
+function retryCarouselAdd() { uploadAttachError.value = ''; addReadyCarousel(); }
+function continueCarousel() { if (!locked.value && carouselForm.value.added) { localSelected.value = undefined; uploadAttachError.value = ''; uploader.value?.resetLocalCarousel(); } }
+function editCarousel() { if (!locked.value) { localSelected.value = undefined; uploadAttachError.value = ''; uploader.value?.editLocalCarousel(); } }
+watch(() => carouselForm.value.started, async () => { await nextTick(); uploader.value?.$el.closest('.reference-modal__body')?.scrollTo({ top: 0, behavior: 'instant' }); });
 function close() { if (!locked.value) { if (addedAssetIds.value.length) emit('uploadBatchFinished'); emit('close'); } }
 function submit() {
   if (locked.value || !canSubmit.value) return;
@@ -167,6 +183,7 @@ onUnmounted(() => { alive = false; ++loadNumber; });
 .add-material-dialog{--add-material-scale:.85}
 .video-upload-dialog :deep(footer),.carousel-upload-dialog :deep(footer){border-top:1px solid #dedaff;padding-top:16px}
 .carousel-summary{display:flex;align-items:center;gap:9px;margin-right:auto;min-width:0;font-size:12px;line-height:1.6;color:#8781aa}.carousel-summary svg{width:18px;height:18px;flex-shrink:0}.carousel-upload-dialog .primary{min-width:185px}
+.carousel-upload-dialog .carousel-more{border-color:transparent;color:#5342ff;min-width:0}
 .video-upload-dialog .upload-more-link{border-color:transparent;color:#5342ff;min-width:0}
 .add-material-dialog :deep(.reference-modal__box){zoom:var(--add-material-scale);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
 .add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:34px 0 32px}

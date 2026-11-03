@@ -4,9 +4,9 @@ export interface UploadBatchState {
 }
 export interface UploadBatchReceipt { added: (id: string) => void; done: (error?: string) => void }
 
-export interface LocalUploadBatch { productId: string; type: 'IMAGE' | 'VIDEO'; assetIds: string[] }
+export interface LocalUploadBatch { productId: string; type: 'IMAGE' | 'VIDEO' | 'CAROUSEL'; assetIds: string[] }
 export function localUploadSelection(type: LocalUploadBatch['type'], id: string) {
-  return type === 'VIDEO' ? { videoAssetId: id } : { imageAssetIds: [id] };
+  return type === 'VIDEO' ? { videoAssetId: id } : type === 'CAROUSEL' ? { carouselId: id } : { imageAssetIds: [id] };
 }
 
 /** Each file is a separate material. Chain returned revisions and keep successful receipts. */

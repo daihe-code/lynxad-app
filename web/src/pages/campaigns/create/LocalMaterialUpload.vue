@@ -21,7 +21,7 @@
       <LocalUploadProgress v-if="rows.length" :type="type" :rows="rows" :state="uploadBatchState" :account-id="accountId" :added-ids="addedAssetIds || []" :saving="!!batchSaving" :retrying="retrying" :disabled="blocked || busy" :phase="phase" @retry-review="retryReview" @retry-sync="retrySync" @verify-sync="verify" @retry-upload="row => start([row.key])" @remove="remove" />
     </template>
     <div v-show="type === 'CAROUSEL'">
-      <CarouselLocalUpload v-if="carouselMounted" ref="carouselForm" :account-id="accountId" :busy="busy" @state="carouselStateChanged" @ready="item => emit('select', item)" />
+      <CarouselLocalUpload v-if="carouselMounted" ref="carouselForm" :account-id="accountId" :busy="busy" :added-ids="addedAssetIds" :attach-error="attachError" @state="carouselStateChanged" @ready="item => emit('select', item)" />
     </div>
   </div>
 </template>
@@ -35,7 +35,7 @@ import { addUploadFiles, beginUploadDialog, startUploads, stopUploadRows, upload
 import { libraryUploadPolicy } from '@/features/creative/assetUploadTypes';
 import { reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync, type LibraryItemVo } from '@/features/creative/creativeApi';
 import { uploadedReady, uploadPhase } from '@/features/creative/materialSources';
-const props = defineProps<{ type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; accountId: string; busy: boolean; active: boolean; addedAssetIds?: string[]; batchSaving?: boolean }>();
+const props = defineProps<{ type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; accountId: string; busy: boolean; active: boolean; addedAssetIds?: string[]; batchSaving?: boolean; attachError?: string }>();
 const emit = defineEmits<{ select: [item: LibraryItemVo | undefined]; blocked: [value: boolean]; filesChanged: [count: number]; carouselState: [state: CarouselFormState]; uploadBatch: [state: UploadBatchState] }>();
 beginUploadDialog();
 const uploadScope = crypto.randomUUID();
@@ -128,7 +128,9 @@ function continueUploads() {
 }
 function carouselStateChanged(state: CarouselFormState) { carouselBlocked.value = state.processing; emit('carouselState', state); }
 function createLocalCarousel() { void carouselForm.value?.create(); }
-defineExpose({ stopUploads, continueUploads, createLocalCarousel });
+function resetLocalCarousel() { carouselForm.value?.reset(); }
+function editLocalCarousel() { carouselForm.value?.edit(); }
+defineExpose({ stopUploads, continueUploads, createLocalCarousel, resetLocalCarousel, editLocalCarousel });
 </script>
 <style scoped>
 .account-note{color:#7c7f99;font-size:12px;margin:12px 0}.drop-zone{border:1px dashed #bbb9ef;border-radius:12px;background:#fafaff;display:grid;justify-items:center;gap:10px;padding:22px;cursor:pointer}.drop-zone>svg{width:26px;height:26px;color:#5b55ff}.drop-zone small{color:#7c7f99;text-align:center;line-height:1.6}.drop-zone[aria-disabled=true]{opacity:.5;cursor:not-allowed}.aigc{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px}.aigc input{accent-color:#5b55ff}.carousel-ready{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:15px;color:#0cab76}.carousel-ready button{padding:9px 16px;background:#5b55ff;color:white;border-radius:8px;margin-left:auto}.error{color:#e5484d;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}button:disabled{opacity:.45;cursor:not-allowed}

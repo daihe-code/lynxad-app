@@ -44,3 +44,17 @@ test('a partial failure preserves successful receipts; retry only writes the rem
   assert.deepEqual([...added], ['a', 'b', 'c']);
   assert.equal(latest.revision, 4);
 });
+
+test('carousel batches bind the composite ID once and acknowledge only a completed plan write', async () => {
+  const receipts = [], writes = [];
+  let finish;
+  const pending = persistUploadBatch({ revision: 5 }, ['bundle', 'bundle'], async (state, id) => {
+    writes.push({ revision: state.revision, type: 'CAROUSEL', ...localUploadSelection('CAROUSEL', id) });
+    await new Promise(resolve => { finish = resolve; });
+    return { revision: 6 };
+  }, id => receipts.push(id));
+  assert.deepEqual(writes, [{ revision: 5, type: 'CAROUSEL', carouselId: 'bundle' }]);
+  assert.deepEqual(receipts, []);
+  finish(); await pending;
+  assert.deepEqual(receipts, ['bundle']);
+});
