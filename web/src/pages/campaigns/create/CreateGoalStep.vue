@@ -163,8 +163,6 @@
                   </span>
                 </p>
 
-                <button v-if="canRefreshRecommendations && mode === 'SMART_BID_CONSERVATIVE' && !readOnly" type="button" class="budget-recommendation-refresh" :disabled="saving" @click="emit('refreshRecommendations')">{{ saving ? '正在获取千川推荐…' : '重新获取千川推荐' }}</button>
-
                 <p :class="['field-msg', budgetError ? 'field-msg--error' : 'field-msg--warn']" id="msg-budget" role="alert" v-if="budgetTouched && (budgetError || budgetWarn)">
                   <svg class="field-msg__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>{{ budgetError || budgetWarn }}</span>
@@ -310,13 +308,13 @@ import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 import { creationScheduleRecovery } from '@/features/delivery/creationSchedule';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; canRefreshRecommendations?:boolean; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
 const start = defineModel<string>('start', { required: true });
 const end = defineModel<string>('end', { required: true });
-const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: []; saveDraft: []; roiInput: []; refreshRecommendations: [] }>();
+const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUSTOM' | 'SMART_BID_CONSERVATIVE']; account: [key: string]; prev: []; next: []; cancel: []; saveDraft: []; roiInput: [] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const budgetTouched = ref(false), roiTouched = ref(false);
@@ -375,6 +373,5 @@ function nextStep() {
 </style>
 
 <style scoped>
-.budget-recommendation-refresh{margin-top:10px;color:#6256e8;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}.budget-recommendation-refresh:disabled{opacity:.5;cursor:wait}
 .schedule-recover{margin-left:10px;padding:0;border:0;background:transparent;color:#575cf6;font:inherit;text-decoration:underline;cursor:pointer}.schedule-recover:disabled{opacity:.5;cursor:wait}
 </style>
