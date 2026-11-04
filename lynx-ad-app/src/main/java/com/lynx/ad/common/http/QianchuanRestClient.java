@@ -83,9 +83,10 @@ public class QianchuanRestClient {
             HttpResponse<String> response = doExchange(spec);
             int status = response.statusCode();
             // A POST may have committed before a 5xx response; never blindly recreate a task.
-            boolean throttledGet="GET".equalsIgnoreCase(spec.method()) && status==200 && OceanJson.peekCode(response.body())==40100;
-            if ((throttledGet || (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429))) && attempt < MAX_RETRIES) {
-                log.warn("qianchuan retry status={} attempt={}", status, attempt + 1);
+            int businessCode=status==200?OceanJson.peekCode(response.body()):-1;
+            boolean retryableGet="GET".equalsIgnoreCase(spec.method()) && (businessCode==40100 || businessCode==50000);
+            if ((retryableGet || (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429))) && attempt < MAX_RETRIES) {
+                log.warn("qianchuan retry status={} code={} attempt={}", status, businessCode, attempt + 1);
                 sleepQuietly(BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
                 attempt++;
                 continue;

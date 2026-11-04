@@ -325,6 +325,37 @@ class QianchuanManagementContractTest {
         }
         assertThrows(BizException.class,()->adapter().report(credential,start.minusDays(1),end));assertEquals(2,queries.size());
     }
+    @ParameterizedTest @ValueSource(strings={"recovered","persistent","missing_metric","excluded_dimension","missing_dimension","schema_failure"})
+    void reportParameterRecoveryRequiresFreshCompatibleSchemaAndReplaysOnlyOnce(String scenario) throws Exception {
+        AtomicInteger reports=new AtomicInteger(),configs=new AtomicInteger();List<String> queries=new ArrayList<>();
+        var topic=json.createObjectNode().put("data_topic","SITE_PROMOTION_PRODUCT_AD");
+        topic.putArray("dimensions").addObject().put("field","missing_dimension".equals(scenario)?"stat_time_day":"ad_id");
+        var metrics=topic.putArray("metrics");
+        for(String field:List.of("stat_cost","total_pay_order_count_for_roi2","total_pay_order_gmv_include_coupon_for_roi2","total_prepay_and_pay_order_roi2")) {
+            if("missing_metric".equals(scenario) && "stat_cost".equals(field))continue;
+            var metric=metrics.addObject().put("field",field);
+            if("excluded_dimension".equals(scenario))metric.putArray("exclusion_dims").add("ad_id");
+        }
+        var config=json.createObjectNode().put("code",0);config.putObject("data").putArray("custom_config_datas").add(topic);
+        server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/",ex->{
+            String response;
+            if(ex.getRequestURI().getPath().contains("/config/get/")) {
+                configs.incrementAndGet();response="schema_failure".equals(scenario)?"{\"code\":40000,\"message\":\"unavailable\"}":config.toString();
+            }else {
+                reports.incrementAndGet();queries.add(ex.getRequestURI().getRawQuery());
+                response="recovered".equals(scenario) && reports.get()==2
+                        ?"{\"code\":0,\"data\":{\"rows\":[{\"dimensions\":{\"ad_id\":\"123\"},\"metrics\":{\"stat_cost\":12.34}}],\"page_info\":{\"total_page\":1}}}"
+                        :"{\"code\":400153,\"message\":\"请求参数设置错误，请先参考help_message自查\"}";
+            }
+            byte[] body=response.getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,body.length);ex.getResponseBody().write(body);ex.close();
+        });server.start();properties.getQianchuan().getReport().setCustomUrl("http://127.0.0.1:"+server.getAddress().getPort()+"/uni_promotion/data/get/");
+        var day=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        if("recovered".equals(scenario))assertEquals("12.34",adapter().report(credential,day).getFirst().path("metrics").path("stat_cost").asText());
+        else assertEquals("统计数据暂未更新，请稍后刷新",assertThrows(BizException.class,()->adapter().report(credential,day)).getMessage());
+        assertEquals(1,configs.get());assertEquals(Set.of("recovered","persistent").contains(scenario)?2:1,reports.get());
+        assertEquals(1,new HashSet<>(queries).size()); // Same range, fields, filters and page; never substitute or drop metrics.
+    }
     @ParameterizedTest @ValueSource(strings={"PAUSE","ENABLE","DISABLE","DELETE"})
     void controlActionsUseDedicatedEndpointWithExactNumericIdsAndExplicitAcknowledgement(String operation) throws Exception {
         start("{\"code\":0,\"data\":{\"task_ids\":[1878743575303385],\"errors\":[]}}",200);

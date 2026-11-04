@@ -71,6 +71,26 @@ class QianchuanRestClientRetryTest {
         hits.set(0);assertEquals("{\"code\":40100}",client().exchange(RequestSpec.post(url()).json("{}").build(),String.class));assertEquals(1,hits.get());
     }
 
+    @Test void businessServerFailureRetriesReadsWithLimitButNeverReplaysWrites() throws Exception {
+        AtomicInteger hits=new AtomicInteger();
+        start(ex->{
+            int n=hits.incrementAndGet();
+            byte[] body=(n<=2?"{\"code\":50000}":"{\"code\":0}").getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200,body.length);ex.getResponseBody().write(body);ex.close();
+        });
+        assertEquals("{\"code\":0}",client().exchange(RequestSpec.get(url()).build(),String.class));assertEquals(3,hits.get());
+        hits.set(0);assertEquals("{\"code\":50000}",client().exchange(RequestSpec.post(url()).json("{}").build(),String.class));assertEquals(1,hits.get());
+        server.stop(0);hits.set(0);
+        start(ex->{hits.incrementAndGet();byte[] bytes="{\"code\":50000}".getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();});
+        assertEquals("{\"code\":50000}",client().exchange(RequestSpec.get(url()).build(),String.class));assertEquals(4,hits.get());
+    }
+
+    @Test void parameterFailureIsNotBlindlyRetriedByTheTransport() throws Exception {
+        AtomicInteger hits=new AtomicInteger();
+        start(ex->{hits.incrementAndGet();byte[] bytes="{\"code\":400153}".getBytes(StandardCharsets.UTF_8);ex.sendResponseHeaders(200,bytes.length);ex.getResponseBody().write(bytes);ex.close();});
+        assertEquals("{\"code\":400153}",client().exchange(RequestSpec.get(url()).build(),String.class));assertEquals(1,hits.get());
+    }
+
     @Test void platformHttp401WithoutReplayNeverExpiresLynxLogin() throws Exception {
         AtomicInteger hits=new AtomicInteger();
         start(ex->{hits.incrementAndGet();ex.sendResponseHeaders(401,-1);ex.close();});

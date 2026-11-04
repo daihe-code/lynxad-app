@@ -78,4 +78,17 @@ class PlanAwemeSyncTest {
         assertNull(QianchuanPlanMapping.awemeId(json.readTree("{\"room_info\":[{\"aweme_id\":123},{\"aweme_id\":456}]}")));
         assertEquals("123",QianchuanPlanMapping.awemeId(json.readTree("{\"room_info\":[{\"aweme_id\":123}]}")));
     }
+    @Test void statisticsFailurePreservesPlansAndSnapshotsWithoutExposingPlatformDiagnostics() {
+        plan.restorePlatformAweme("4034544334551504");
+        when(management.report(eq(credential),any(java.time.LocalDate.class)))
+                .thenThrow(new com.lynx.ad.common.exception.BizException(1406,"请求参数设置错误，请先参考help_message自查"));
+        var result=sync.sync(tenant,account.value()).accounts().getFirst();
+        assertEquals(1,result.plans());assertEquals(List.of("统计数据暂未更新，请稍后刷新"),result.warnings());
+        verify(plans).save(plan);verify(store,never()).report(any(),any(),any(),any(),any(),any());
+        when(management.report(eq(credential),any(java.time.LocalDate.class))).thenReturn(List.of());
+        assertTrue(sync.sync(tenant,account.value()).accounts().getFirst().warnings().isEmpty());
+        when(management.report(eq(credential),any(java.time.LocalDate.class)))
+                .thenThrow(new com.lynx.ad.common.exception.BizException(1211,"授权已失效"));
+        assertEquals(List.of("广告账户授权已失效，请在账户管理中重新授权"),sync.sync(tenant,account.value()).accounts().getFirst().warnings());
+    }
 }

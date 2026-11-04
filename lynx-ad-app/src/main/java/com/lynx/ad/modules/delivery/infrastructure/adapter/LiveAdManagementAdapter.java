@@ -37,7 +37,34 @@ public class LiveAdManagementAdapter implements AdManagementPort {
     private JsonNode get(Credential c, String url, Map<String, Object> params) {
         StringJoiner query=new StringJoiner("&"); query.add("advertiser_id="+numericId(c.advertiserId().value()));
         params.forEach((key,value)->query.add(key+"="+encode(value)));
-        return ocean.dataOrThrow(client.exchange(RequestSpec.get(url+"?"+query).header("Access-Token",c.accessToken()).replayAccountId(c.accountId()).build(),String.class),1406,"千川查询失败");
+        var request=RequestSpec.get(url+"?"+query).header("Access-Token",c.accessToken()).replayAccountId(c.accountId()).build();
+        String response=client.exchange(request,String.class);
+        // The report service occasionally rejects a valid request with 400153. Refresh its
+        // schema first, then replay this read once only when every requested field is supported.
+        if(OceanJson.peekCode(response)==400153 && supportedUnfilteredPlanReport(c,url,params))
+            response=client.exchange(request,String.class);
+        if(OceanJson.peekCode(response)==400153 && url.equals(properties.getQianchuan().getReport().getCustomUrl()))
+            throw new BizException(1406,"统计数据暂未更新，请稍后刷新");
+        return ocean.dataOrThrow(response,1406,"千川查询失败");
+    }
+    private boolean supportedUnfilteredPlanReport(Credential c,String url,Map<String,Object> params) {
+        if(!url.equals(properties.getQianchuan().getReport().getCustomUrl())
+                || !"SITE_PROMOTION_PRODUCT_AD".equals(params.get("data_topic"))
+                || !(params.get("filters") instanceof Collection<?> filters) || !filters.isEmpty()
+                || !(params.get("dimensions") instanceof Collection<?> dimensions) || dimensions.isEmpty()
+                || !(params.get("metrics") instanceof Collection<?> metrics) || metrics.isEmpty())return false;
+        try {
+            var topic=planReportTopic(c,url);
+            Set<String> availableDimensions=new HashSet<>();topic.path("dimensions").forEach(d->availableDimensions.add(d.path("field").asText()));
+            if(!availableDimensions.containsAll(dimensions))return false;
+            Set<String> availableMetrics=new HashSet<>();
+            for(JsonNode metric:topic.path("metrics")) {
+                boolean excluded=false;
+                for(JsonNode dimension:metric.path("exclusion_dims"))if(dimensions.contains(dimension.asText()))excluded=true;
+                if(!excluded)availableMetrics.add(metric.path("field").asText());
+            }
+            return availableMetrics.containsAll(metrics);
+        }catch(BizException unavailable){return false;}
     }
     private JsonNode post(Credential c,String url,Map<String,Object> params) {
         Map<String,Object> body=new LinkedHashMap<>(params); body.put("advertiser_id",numericId(c.advertiserId().value()));

@@ -112,7 +112,11 @@ public class PlanSyncService {
                         LocalDate day=LocalDate.now(ZoneId.of("Asia/Shanghai"));
                         var today=reports(management.report(credential,day)); var yesterday=reports(management.report(credential,day.minusDays(1)));
                         Instant now=Instant.now(); ids.forEach((qc,id)->store.report(tenant,id,today.get(qc),yesterday.get(qc),day,now));
-                    } catch(RuntimeException ex) { warnings.add("统计数据："+failure(ex)); }
+                    } catch(RuntimeException ex) {
+                        warnings.add(ex instanceof com.lynx.ad.common.exception.BizException failure &&
+                                (failure.code()==1211 || com.lynx.ad.common.http.Qianchuan401ReplayCodes.isAuthExpired(failure))
+                                ?"广告账户授权已失效，请在账户管理中重新授权":"统计数据暂未更新，请稍后刷新");
+                    }
                 }
             } catch(RuntimeException ex) { warnings.add("计划同步："+failure(ex)); }
             results.add(new SyncAccount(account.id().value(),count,List.copyOf(warnings)));
