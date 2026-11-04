@@ -7,6 +7,7 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.AdListPort;
+import com.lynx.ad.modules.delivery.domain.port.AdManagementPort;
 import com.lynx.ad.modules.identity.domain.model.Credential;
 import java.math.BigDecimal;
 import java.util.List;
@@ -19,8 +20,9 @@ public class PlanTransferGateway {
     private final AdListPort list;
     private final LynxAdProperties properties;
     private final ObjectMapper json;
-    public PlanTransferGateway(CreationQianchuanGateway creation,AdListPort list,LynxAdProperties properties,ObjectMapper json) {
-        this.creation=creation;this.list=list;this.properties=properties;this.json=json;
+    private final AdManagementPort management;
+    public PlanTransferGateway(CreationQianchuanGateway creation,AdListPort list,LynxAdProperties properties,ObjectMapper json,AdManagementPort management) {
+        this.creation=creation;this.list=list;this.properties=properties;this.json=json;this.management=management;
     }
     public Credential credential(AdPlan p) { return creation.credential(p.tenantId(),p.accountId().value(),p.awemeId().value()); }
     public JsonNode detail(AdPlan p) { return creation.detail(p.tenantId(),p.accountId().value(),p.awemeId().value(),p.qcPlanId().orElseThrow().value()); }
@@ -44,5 +46,9 @@ public class PlanTransferGateway {
     }
     public List<com.lynx.ad.modules.delivery.domain.port.OceanPlanRow> findCreated(Credential c,SmartBidType mode,String name) {
         return list.list(c,mode).stream().filter(row->name.equals(row.name())).toList();
+    }
+    public void details(Credential c,String id,String name,String scheduleType,java.time.LocalDate endDate) {
+        if(name!=null)management.settings(c,id,name,null,null);
+        if(scheduleType!=null)management.schedule(c,id,scheduleType,endDate);
     }
 }

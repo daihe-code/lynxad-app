@@ -165,7 +165,7 @@ export interface PlanTransferContext {
   reuse: boolean; counterpartQcPlanId?: string | null; available: boolean; reason?: string | null;
   pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
 }
-export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number }
+export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number; name?: string; scheduleType?: 'FROM_NOW'|'DATE_RANGE'; endDate?: string }
 export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string }
 export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`); }
 export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000 }); }

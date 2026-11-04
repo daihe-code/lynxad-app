@@ -1,6 +1,7 @@
 package com.lynx.ad.modules.delivery.application;
 
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
+import com.lynx.ad.modules.delivery.domain.service.PlanSchedule;
 
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -88,11 +89,14 @@ public class PlanTransferService {
         SmartBidType mode=request.existingOnly()?opposite(source.setting().bidType()):SmartBidType.fromOcean(request.smartBidType());
         if(mode!=opposite(source.setting().bidType()))throw new BizException(1402,"请选择另一种投放方式");
         String targetId=group==null?null:group.target(mode);var target=targetId==null?null:require(tenant,targetId);
+        if(request.name()!=null && plans.existsUnfinishedName(tenant,source.awemeId(),new PlanName(request.name()),Optional.of(target==null?source.id():target.id())))
+            throw new BizException(1401,"同一抖音号存在同名计划");
         if(request.existingOnly() && target==null)throw new BizException(1403,"尚无另一种投放方式的计划，请先在设置页面完成首次转投");
         if(target!=null && (!source.accountId().equals(target.accountId()) || !source.awemeId().equals(target.awemeId()) || target.qcPlanId().isEmpty()))
             throw new BizException(1404,"转投关联的账户信息不一致，请先核查计划");
         var credential=gateway.credential(source);
         var sourceDetail=gateway.detail(source);checkMode(sourceDetail,source.setting().bidType());
+        transferSchedule(source,request);
         var sourceStatus=status(sourceDetail);if(!(editable(sourceStatus) || request.existingOnly() && enabled(sourceStatus)))throw new BizException(1404,"平台计划状态已变化，请先同步计划");
         BigDecimal updateBudget=null,updateRoi=null;
         JsonNode targetDetail=null;
@@ -118,12 +122,17 @@ public class PlanTransferService {
         store.claim(a,g.active());
         try {
             if(target!=null) {
-                if(updateBudget!=null || updateRoi!=null) {
+                if(updateBudget!=null || updateRoi!=null || request.name()!=null || request.scheduleType()!=null) {
                     store.phase(tenant,a.key(),"UPDATING",target.qcPlanId().orElseThrow().value());
-                    gateway.settings(credential,target.qcPlanId().orElseThrow().value(),updateBudget,updateRoi);
+                    if(updateBudget!=null || updateRoi!=null)gateway.settings(credential,target.qcPlanId().orElseThrow().value(),updateBudget,updateRoi);
+                    if(request.name()!=null || request.scheduleType()!=null) {
+                        gateway.details(credential,target.qcPlanId().orElseThrow().value(),request.name()==null?null:new PlanName(request.name()).text(),request.scheduleType(),request.endDate());
+                        targetDetail=gateway.detail(target);
+                        if(!matches(targetDetail,request))throw new BizException(1523,"计划修改结果尚未确认，请核查后继续");
+                    }
                 }
                 if(request.existingOnly())applyDetail(target,targetDetail);
-                else target.updateSetting(setting(target,request));
+                else {target.updateSetting(setting(target,request));if(request.name()!=null)target.rename(new PlanName(request.name()));}
                 plans.save(target);
             }
             store.phase(tenant,a.key(),"PAUSING",target==null?null:target.qcPlanId().orElseThrow().value());
@@ -142,6 +151,7 @@ public class PlanTransferService {
             if(targetDetail==null || !enabled(status(targetDetail)))gateway.status(credential,target.qcPlanId().orElseThrow().value(),true);
             store.phase(tenant,a.key(),"ENABLED",target.qcPlanId().orElseThrow().value());
             confirmEnabled(target);
+            if(!request.existingOnly() && !matches(gateway.detail(target),request))throw new BizException(1523,"计划修改结果尚未确认，请核查后继续");
             store.finish(tenant,a.key(),"SUCCEEDED",null);
         } catch(RuntimeException error) {
             var latest=store.attempt(tenant,a.key()).orElseThrow();
@@ -192,12 +202,12 @@ public class PlanTransferService {
             if(status(sd)!=PlanStatus.PAUSED)return pending(tenant,a,"原计划未暂停，请在千川后台核查两套计划的启停状态");
             if(status(td)==PlanStatus.PAUSED) {
                 // Recovery proceeds only when requested settings are confirmed, never by resending CREATE.
-                var ds=QianchuanPlanMapping.setting(td);
-                if(!req.existingOnly() && (!equal(QianchuanPlanMapping.number(ds,"budget"),req.budget()) || (SmartBidType.fromOcean(req.smartBidType())==SmartBidType.CUSTOM && !equal(QianchuanPlanMapping.number(ds,"roi2_goal"),req.roi2Goal()))))
-                    return pending(tenant,a,"目标计划的预算或ROI尚未确认，请核查千川设置");
+                if(!req.existingOnly() && !matches(td,req))
+                    return pending(tenant,a,"计划修改值尚未全部确认，请核查后继续");
                 store.phase(tenant,a.key(),"ENABLING",a.qcId());gateway.status(credential,a.qcId(),true);td=gateway.detail(target);
             }
             if(status(td)!=PlanStatus.DELIVERING && status(td)!=PlanStatus.PENDING_AUDIT)return pending(tenant,a,"目标计划状态尚未确认，请稍后核查");
+            if(!req.existingOnly() && !matches(td,req))return pending(tenant,a,"计划修改值尚未全部确认，请核查后继续");
             applyDetail(target,td);plans.save(target);remote.detail(tenant,target.id().value(),td);paused(source);
             store.finish(tenant,a.key(),"SUCCEEDED",null);return result(store.attempt(tenant,a.key()).orElseThrow());
         }
@@ -255,9 +265,12 @@ public class PlanTransferService {
             var ids=result.putArray("product_ids");for(var item:latest.path("product_ids"))if(allowed.contains(item.asText()))ids.add(item);
             if(creative.isEmpty())throw new BizException(1403,"当前计划没有可复用的商品创意，请先核查素材");
         }
-        String suffix="_转投_"+(request.smartBidType().endsWith("CUSTOM")?"控成本":"放量")+"_"+UUID.randomUUID().toString().replace("-","").substring(0,12);
-        String base=source.name().text();while((base+suffix).getBytes(StandardCharsets.UTF_8).length>100)base=base.substring(0,base.offsetByCodePoints(base.length(),-1));
-        result.put("name",base+suffix);
+        if(request.name()!=null)result.put("name",new PlanName(request.name()).text());
+        else {
+            String suffix="_转投_"+(request.smartBidType().endsWith("CUSTOM")?"控成本":"放量")+"_"+UUID.randomUUID().toString().replace("-","").substring(0,12);
+            String base=source.name().text();while((base+suffix).getBytes(StandardCharsets.UTF_8).length>100)base=base.substring(0,base.offsetByCodePoints(base.length(),-1));
+            result.put("name",base+suffix);
+        }
         ObjectNode ds=result.withObject("/delivery_setting");ds.put("smart_bid_type",request.smartBidType());ds.put("budget",request.budget());
         ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
         if(request.smartBidType().endsWith("CUSTOM"))ds.put("roi2_goal",request.roi2Goal());
@@ -270,20 +283,35 @@ public class PlanTransferService {
                 }break;
             }
         }
-        LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var schedule=source.setting().schedule();
+        LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var schedule=transferSchedule(source,request);
         if(schedule.endDate()!=null && schedule.endDate().isBefore(today))throw new BizException(1403,"计划已到期，无法转投");
-        if("SCHEDULE_START_END".equals(ds.path("video_schedule_type").asText()))ds.put("start_time",today.toString());
+        ds.put("video_schedule_type",schedule.type()==ScheduleType.FROM_NOW?"SCHEDULE_FROM_NOW":"SCHEDULE_START_END");
+        ds.remove(List.of("schedule_type","start_time","end_time"));
+        if(schedule.type()==ScheduleType.DATE_RANGE){ds.put("start_time",today.toString());ds.put("end_time",schedule.endDate().toString());}
         return result;
     }
-    private DeliverySetting setting(AdPlan p,PlanTransferRequest r) {var mode=SmartBidType.fromOcean(r.smartBidType());return new DeliverySetting(mode,Money.ofYuan(r.budget()),mode==SmartBidType.CUSTOM?Optional.of(new RoiGoal(r.roi2Goal())):Optional.empty(),p.setting().schedule(),p.setting().audience());}
+    private DeliverySetting setting(AdPlan p,PlanTransferRequest r) {var mode=SmartBidType.fromOcean(r.smartBidType());return new DeliverySetting(mode,Money.ofYuan(r.budget()),mode==SmartBidType.CUSTOM?Optional.of(new RoiGoal(r.roi2Goal())):Optional.empty(),transferSchedule(p,r),p.setting().audience());}
+    private static Schedule transferSchedule(AdPlan p,PlanTransferRequest r) {
+        var old=p.setting().schedule();var type=r.scheduleType()==null?old.type():ScheduleType.valueOf(r.scheduleType());
+        var end=type==ScheduleType.FROM_NOW?null:r.scheduleType()==null?old.endDate():r.endDate();
+        if(r.scheduleType()!=null && type==ScheduleType.DATE_RANGE && (end==null || end.isBefore(LocalDate.now(ZoneId.of("Asia/Shanghai"))) || old.startDate()!=null && end.isBefore(old.startDate())))throw new BizException(1402,"结束日期不得早于今天或原计划开始日期");
+        return new Schedule(type,old.startDate(),end);
+    }
+    private static boolean matches(JsonNode detail,PlanTransferRequest r) {
+        var ds=QianchuanPlanMapping.setting(detail);
+        return equal(QianchuanPlanMapping.number(ds,"budget"),r.budget()) && (!r.smartBidType().endsWith("CUSTOM") || equal(QianchuanPlanMapping.number(ds,"roi2_goal"),r.roi2Goal()))
+            && (r.name()==null || new PlanName(r.name()).text().equals(QianchuanPlanMapping.info(detail).path("name").asText()))
+            && (r.scheduleType()==null || PlanSchedule.complete(ds) && r.scheduleType().equals(PlanSchedule.type(ds).name()) && ("FROM_NOW".equals(r.scheduleType()) || r.endDate().equals(QianchuanPlanMapping.date(QianchuanPlanMapping.text(ds,"end_time")))));
+    }
     private void paused(AdPlan p){p.apply(PlanStatus.PAUSED);p.syncPlatformStatus("DISABLE");plans.save(p);}
     private void refresh(AdPlan p){var d=gateway.detail(p);applyDetail(p,d);plans.save(p);remote.detail(p.tenantId(),p.id().value(),d);}
     private void applyDetail(AdPlan p,JsonNode d){
         p.apply(status(d));p.syncPlatformStatus(p.status()==PlanStatus.PAUSED?"DISABLE":QianchuanPlanMapping.text(QianchuanPlanMapping.info(d),"status"));
+        if(QianchuanPlanMapping.info(d).hasNonNull("name"))p.rename(PlanName.fromPlatform(QianchuanPlanMapping.info(d).path("name").asText()));
         var ds=QianchuanPlanMapping.setting(d);BigDecimal budget=QianchuanPlanMapping.number(ds,"budget");
         if(budget!=null) {
             SmartBidType mode=ds.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(ds.path("smart_bid_type").asText()):p.setting().bidType();
-            p.updateSetting(new DeliverySetting(mode,Money.ofYuan(budget),mode==SmartBidType.CUSTOM?Optional.ofNullable(QianchuanPlanMapping.number(ds,"roi2_goal")).map(RoiGoal::new):Optional.empty(),p.setting().schedule(),p.setting().audience()));
+            p.updateSetting(new DeliverySetting(mode,Money.ofYuan(budget),mode==SmartBidType.CUSTOM?Optional.ofNullable(QianchuanPlanMapping.number(ds,"roi2_goal")).map(RoiGoal::new):Optional.empty(),PlanSchedule.read(ds,p.setting().schedule()),p.setting().audience()));
         }
     }
     private static PlanStatus status(JsonNode d){var n=QianchuanPlanMapping.info(d);if("DISABLE".equals(n.path("opt_status").asText(d.path("opt_status").asText())))return PlanStatus.PAUSED;return QianchuanPlanMapping.status(QianchuanPlanMapping.text(n,"status"));}
@@ -292,7 +320,7 @@ public class PlanTransferService {
     private static boolean editable(PlanStatus s){return s==PlanStatus.DELIVERING||s==PlanStatus.PAUSED;}
     private static SmartBidType opposite(SmartBidType m){return m==SmartBidType.CUSTOM?SmartBidType.CONSERVATIVE:SmartBidType.CUSTOM;}
     private static boolean equal(BigDecimal a,BigDecimal b){return a==null?b==null:b!=null&&a.compareTo(b)==0;}
-    private boolean sameRequest(String saved,PlanTransferRequest req){var old=decode(saved);return old.existingOnly()==req.existingOnly()&&Objects.equals(old.expectedQcPlanId(),req.expectedQcPlanId())&&(req.existingOnly()||(Objects.equals(old.smartBidType(),req.smartBidType())&&equal(old.budget(),req.budget())&&equal(old.roi2Goal(),req.roi2Goal())));}
+    private boolean sameRequest(String saved,PlanTransferRequest req){var old=decode(saved);return old.existingOnly()==req.existingOnly()&&Objects.equals(old.expectedQcPlanId(),req.expectedQcPlanId())&&(req.existingOnly()||(Objects.equals(old.smartBidType(),req.smartBidType())&&equal(old.budget(),req.budget())&&equal(old.roi2Goal(),req.roi2Goal())&&Objects.equals(old.name(),req.name())&&Objects.equals(old.scheduleType(),req.scheduleType())&&Objects.equals(old.endDate(),req.endDate())));}
     private Result result(Attempt a){return new Result("SUCCEEDED".equals(a.status())?a.target():a.source(),a.qcId(),a.status(),"SUCCEEDED".equals(a.status())?"转投成功，原计划已暂停":a.error()==null?"转投正在处理，请稍后核查":a.error());}
     private String encode(Object value){try{return json.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException(e);}}
     private JsonNode parse(String value){try{return json.readTree(value);}catch(Exception e){throw new IllegalStateException(e);}}
@@ -300,6 +328,9 @@ public class PlanTransferService {
     private static void validate(PlanTransferRequest r){
         if(r==null || r.requestKey()==null || !r.requestKey().matches("[a-zA-Z0-9_-]{8,64}") || r.expectedQcPlanId()==null || r.expectedQcPlanId().isBlank())throw new BizException(1402,"转投参数不完整");
         if(r.existingOnly())return;
+        if(r.name()!=null)new PlanName(r.name());
+        if(r.scheduleType()!=null && !Set.of("FROM_NOW","DATE_RANGE").contains(r.scheduleType()))throw new BizException(1402,"投放日期类型不正确");
+        if(r.scheduleType()==null && r.endDate()!=null || "FROM_NOW".equals(r.scheduleType()) && r.endDate()!=null)throw new BizException(1402,"投放日期参数不正确");
         if(!Set.of("SMART_BID_CUSTOM","SMART_BID_CONSERVATIVE").contains(r.smartBidType()==null?"":r.smartBidType()))throw new BizException(1402,"转投参数不完整");
         DeliveryInputPolicy.settings(DeliveryInputPolicy.mode(r.smartBidType()),r.budget(),r.roi2Goal(),DeliveryInputPolicy.RULES.creation());
     }

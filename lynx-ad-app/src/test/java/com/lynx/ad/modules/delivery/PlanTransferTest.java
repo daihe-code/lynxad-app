@@ -24,7 +24,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class PlanTransferTest {
     final TenantId tenant=new TenantId("tenant-a");final PlanId root=new PlanId("root");
-    final ObjectMapper json=new ObjectMapper();final AdPlanRepository plans=mock(AdPlanRepository.class);
+    final ObjectMapper json=new ObjectMapper().findAndRegisterModules();final AdPlanRepository plans=mock(AdPlanRepository.class);
     final PlanTransferStore store=mock(PlanTransferStore.class);final CreationStore creations=mock(CreationStore.class);
     final PlanRemoteStore remote=mock(PlanRemoteStore.class);final PlanTransferGateway gateway=mock(PlanTransferGateway.class);
     final BillingTrialService billing=mock(BillingTrialService.class);final Credential credential=mock(Credential.class);
@@ -71,6 +71,59 @@ class PlanTransferTest {
     }
     JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status);var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
     PlanTransferRequest cost(String key){return new PlanTransferRequest(key,"111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.18"));}
+    @Test void savingModeNameAndScheduleCreatesOneTargetWithAllRequestedSettings() throws Exception {
+        var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(12);
+        var request=new PlanTransferRequest("edit-fields","111","SMART_BID_CUSTOM",new BigDecimal("400"),new BigDecimal("4.2"),false,"修改后的计划","DATE_RANGE",end);
+        var source=physical.get("root");String originalName=source.name().text();var originalSchedule=source.setting().schedule();
+        var result=service.transfer(tenant,root,request);assertEquals("SUCCEEDED",result.status());
+        var payload=json.readTree(attempts.get(request.requestKey()).payload());var ds=payload.path("delivery_setting");
+        assertEquals("修改后的计划",payload.path("name").asText());assertEquals("SCHEDULE_START_END",ds.path("video_schedule_type").asText());
+        assertEquals(end.toString(),ds.path("end_time").asText());assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")).toString(),ds.path("start_time").asText());
+        var target=physical.get(result.planId());assertEquals("修改后的计划",target.name().text());assertEquals(end,target.setting().schedule().endDate());
+        assertEquals(originalName,source.name().text());assertEquals(originalSchedule,source.setting().schedule());
+        int writes=calls.size();assertEquals("SUCCEEDED",service.transfer(tenant,root,request).status());assertEquals(writes,calls.size());assertEquals(1,creates);
+        assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest(request.requestKey(),"111",request.smartBidType(),request.budget(),request.roi2Goal(),false,request.name(),"DATE_RANGE",end.plusDays(1))));
+    }
+    @Test void savingAnExistingModeMemberUpdatesItsNameAndDatesBeforePausingTheSource() {
+        service.transfer(tenant,root,cost("first-key"));calls.clear();
+        var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(15);
+        doAnswer(i->{calls.add("DETAILS "+i.getArgument(1));var detail=(com.fasterxml.jackson.databind.node.ObjectNode)platform.get(i.getArgument(1));detail.put("name",(String)i.getArgument(2));detail.withObject("/delivery_setting").put("video_schedule_type","SCHEDULE_START_END").put("end_time",end.toString());return null;}).when(gateway).details(eq(credential),eq("111"),anyString(),eq("DATE_RANGE"),eq(end));
+        var request=new PlanTransferRequest("edit-existing","222","SMART_BID_CONSERVATIVE",new BigDecimal("150"),null,false,"更新放量计划","DATE_RANGE",end);
+        var result=service.transfer(tenant,new PlanId(group.custom()),request);
+        assertEquals("SUCCEEDED",result.status());assertEquals(List.of("UPDATE 111","DETAILS 111","DISABLE 222","ENABLE 111"),calls);
+        assertEquals("更新放量计划",physical.get("root").name().text());assertEquals(end,physical.get("root").setting().schedule().endDate());assertEquals(1,creates);
+    }
+    @Test void unconfirmedExtraSettingsNeverPauseOrEnableAnotherPlanAndRecoveryDoesNotResendThem() {
+        service.transfer(tenant,root,cost("first-key"));calls.clear();
+        var request=new PlanTransferRequest("pending-fields","222","SMART_BID_CONSERVATIVE",new BigDecimal("100"),null,false,"待确认的名称",null,null);
+        assertEquals("UNCERTAIN",service.transfer(tenant,new PlanId(group.custom()),request).status());assertTrue(calls.isEmpty());
+        verify(gateway,times(1)).details(credential,"111","待确认的名称",null,null);
+        assertEquals("FAILED",service.reconcile(tenant,new PlanId(group.custom())).status());assertTrue(calls.isEmpty());
+        verify(gateway,times(1)).details(any(),anyString(),any(),any(),any());assertEquals(1,creates);
+    }
+    @Test void invalidScheduleOrDuplicateNameFailsBeforeAnyWrite() {
+        var yesterday=LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1);
+        var invalid=new PlanTransferRequest("invalid-date","111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.2"),false,null,"DATE_RANGE",yesterday);
+        assertThrows(BizException.class,()->service.transfer(tenant,root,invalid));assertTrue(calls.isEmpty());
+        when(plans.existsUnfinishedName(any(),any(),any(),any())).thenReturn(true);
+        var duplicate=new PlanTransferRequest("duplicate-name","111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.2"),false,"已存在的计划",null,null);
+        assertThrows(BizException.class,()->service.transfer(tenant,root,duplicate));assertTrue(calls.isEmpty());
+    }
+    @Test void enabledTargetWithUnconfirmedNameKeepsTheClaimUntilAllSavedFieldsMatch() {
+        doAnswer(i->{calls.add("ENABLE 222");((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("status","DELIVERY_OK").put("name","未确认的名称");return null;}).when(gateway).status(credential,"222",true);
+        var request=new PlanTransferRequest("verify-name","111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.2"),false,"请求保存的名称",null,null);
+        assertEquals("UNCERTAIN",service.transfer(tenant,root,request).status());
+        assertEquals("UNCERTAIN",service.reconcile(tenant,root).status());assertNotNull(group.requestKey());assertEquals(1,creates);
+        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("name",request.name());
+        assertEquals("SUCCEEDED",service.reconcile(tenant,root).status());assertNull(group.requestKey());assertEquals(1,creates);
+        verify(gateway,times(1)).status(credential,"222",true);
+    }
+    @Test void longTermTransferDoesNotCopyTheOldTenYearPlaceholderEndDate() throws Exception {
+        var source=physical.get("root");var old=source.setting();source.updateSetting(new DeliverySetting(old.bidType(),old.dailyBudget(),old.roi2Goal(),new Schedule(ScheduleType.FROM_NOW,LocalDate.of(2026,10,19),LocalDate.of(2036,10,19)),old.audience()));
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("legacy-end")).status());
+        var ds=json.readTree(attempts.get("legacy-end").payload()).path("delivery_setting");assertEquals("SCHEDULE_FROM_NOW",ds.path("video_schedule_type").asText());assertFalse(ds.has("end_time"));
+        assertNull(physical.get(group.custom()).setting().schedule().endDate());
+    }
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"300,0.01","100000.01,100","999999999.99,100"})
     void transferAcceptsPrdUpperBudgetAndRoiBoundaries(String budget,String roi) throws Exception {

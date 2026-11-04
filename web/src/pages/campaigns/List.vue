@@ -138,7 +138,7 @@ import MetricDelta from './components/MetricDelta.vue';
 import CampaignMetricCard from './components/CampaignMetricCard.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, switchTransferredPlan, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { actPlan, deletePlan, getCampaignTrend, listControlTasks, listPlans, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
 import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
 import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
@@ -395,21 +395,8 @@ async function confirmDelete() {
 async function onTransfer(row: PlanListVo) {
   if (transferringId.value || actingId.value || deletingId.value || !canManage(row) || !row.qcPlanId || row.canTransfer === false) return;
   transferringId.value = row.planId;
-  let submitted = false;
-  const settingsPath = `/campaigns/${row.planId}/transfer?step=2`;
   try {
-    const context = await getPlanTransfer(row.planId);
-    if (context.pendingKey) { await router.push(settingsPath); return; }
-    if (!context.available) { ElMessage.warning(context.reason || '当前计划无法转投，请刷新后重试'); return; }
-    if (context.currentQcPlanId !== row.qcPlanId) { ElMessage.warning('当前计划已变化，请确认刷新后的投放方式'); await load(); return; }
-    if (!context.reuse) { await router.push(settingsPath); return; }
-    submitted = true;
-    const result = await switchTransferredPlan(row.planId, { requestKey: crypto.randomUUID(), expectedQcPlanId: context.currentQcPlanId });
-    if (result.status === 'SUCCEEDED') { ElMessage.success(`已切换为${BID_TYPE[context.targetMode] || '另一种投放方式'}，原计划已暂停`); await load(); }
-    else if (result.status === 'FAILED') { ElMessage.error(result.message); await load(); }
-    else { ElMessage.warning(result.message); await router.push(settingsPath); }
-  } catch {
-    if (submitted) { ElMessage.warning('转投结果待确认，请核查结果后再操作'); await router.push(settingsPath); }
+    await router.push(`/campaigns/${row.planId}/transfer?step=2`);
   } finally { transferringId.value = ''; }
 }
 async function exportRows() {
