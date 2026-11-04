@@ -70,6 +70,15 @@ export interface LibraryResponse {
   productScope?: 'RELATED' | 'ALL';
 }
 
+export interface LibraryDeletionResult {
+  deletedIds: string[];
+  failures: { id: string; message: string }[];
+}
+export function deleteLibraryItems(ids: string[], accountId?: string) {
+  return apiPost<LibraryDeletionResult>('/api/v1/creative/library/delete', { ids, accountId },
+    { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } });
+}
+
 export interface AssetReview {
   status: 'QUEUED' | 'RUNNING' | 'PENDING' | 'APPROVED' | 'NOT_REQUIRED' | 'REJECTED' | 'MANUAL_REVIEW' | 'FAILED';
   reviewId?: string; decision?: string; summary?: string; reasons: string[]; errorMessage?: string;

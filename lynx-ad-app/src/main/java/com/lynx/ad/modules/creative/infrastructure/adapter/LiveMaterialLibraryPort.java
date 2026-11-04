@@ -102,6 +102,34 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
                 n.path("review_badge").asText("NONE"));
     }
 
+    @Override
+    public java.util.Set<String> delete(DeleteQuery query) {
+        if (query.type() == MaterialType.CAROUSEL || query.objectIds() == null || query.objectIds().isEmpty()
+                || query.objectIds().size() > 100 || query.objectIds().stream().anyMatch(id -> id == null || id.isBlank()))
+            throw new BizException(1520, "请选择 1-100 项视频或图片素材");
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        try { json.put("advertiser_id", new java.math.BigInteger(query.advertiserId())); }
+        catch (RuntimeException invalid) { throw new BizException(1520, "广告账户信息不完整"); }
+        boolean video = query.type() == MaterialType.VIDEO;
+        var ids = json.putArray(video ? "video_ids" : "image_ids");
+        query.objectIds().forEach(ids::add);
+        String body = restClient.exchange(RequestSpec.post(video ? properties.getQianchuan().getVideoDeleteUrl()
+                : properties.getQianchuan().getImageDeleteUrl()).header("Access-Token", query.accessToken())
+                .replayAccountId(query.accountId()).json(json.toString()).build(), String.class);
+        JsonNode data = oceanJson.dataOrThrow(body, 1523, "素材删除失败");
+        // The documented failure list is optional; malformed receipts cannot confirm deletion.
+        JsonNode failed = data.path(video ? "fail_video_ids" : "fail_image_ids");
+        if (!data.isObject() || !failed.isMissingNode() && !failed.isArray())
+            throw new BizException(1523, "删除结果暂未确认，请稍后重试");
+        var result = new java.util.HashSet<String>();
+        for (JsonNode id : failed) {
+            if (!id.isTextual() || !query.objectIds().contains(id.asText()))
+                throw new BizException(1523, "删除结果暂未确认，请稍后重试");
+            result.add(id.asText());
+        }
+        return result;
+    }
+
     private static Instant createdAt(JsonNode value) {
         if (!value.isNumber() && !value.isTextual()) return null;
         String raw = value.asText().trim();

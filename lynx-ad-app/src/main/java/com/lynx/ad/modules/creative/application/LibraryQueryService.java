@@ -48,6 +48,11 @@ public class LibraryQueryService {
     private com.lynx.ad.modules.identity.domain.port.OauthAccountRepository accounts;
     private com.lynx.ad.modules.identity.application.QianchuanCredentialFacade credentials;
     private com.lynx.ad.modules.creative.infrastructure.persistence.PlatformMaterialCatalog platformCatalog;
+    private com.lynx.ad.modules.creative.infrastructure.persistence.LibraryDeletionRepository libraryDeletions;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void deletionDependency(com.lynx.ad.modules.creative.infrastructure.persistence.LibraryDeletionRepository deletions) {
+        this.libraryDeletions = deletions;
+    }
     @org.springframework.beans.factory.annotation.Autowired
     public void catalogDependency(com.lynx.ad.modules.creative.infrastructure.persistence.PlatformMaterialCatalog catalog) {
         this.platformCatalog = catalog;
@@ -126,7 +131,7 @@ public class LibraryQueryService {
                 platformWarning="千川素材暂时无法查询，当前展示已保存到本平台的素材";
             }
         }
-        merged = dedup(merged);
+        merged = dedup(visible(tenantId,merged));
         if (!selectable && accountId != null && !accountId.isBlank()) {
             // Unsynced local assets are shared within the tenant; platform assets belong to an advertising account.
             merged = merged.stream().filter(item -> item.source == MaterialSource.EXTERNAL
@@ -202,13 +207,25 @@ public class LibraryQueryService {
                 throw new BizException(1506, "素材库查询失败");
             }
         }
-        return dedup(merged).stream()
+        return dedup(visible(tenantId,merged)).stream()
                 .filter(i -> i.type.equals("VIDEO"))
                 .map(i -> new LibraryVideoVo(
                         i.objectId == null ? "" : i.objectId,
                         productIdOf(i),
                         i.coverImageId))
                 .toList();
+    }
+
+    private List<Item> visible(TenantId tenant,List<Item> items) {
+        if (libraryDeletions==null) return items;
+        var hidden=libraryDeletions.hidden(tenant.value());
+        return items.stream().filter(item -> {
+            if (hidden.contains(item.id)) return false;
+            if (item.source != MaterialSource.EXTERNAL) return true;
+            var prefix="EXT:"+item.accountId+":"+item.type+":";
+            return !hidden.contains(prefix+"o:"+item.objectId) && !hidden.contains(prefix+item.objectId)
+                    && (item.materialId==null || !hidden.contains(prefix+"m:"+item.materialId));
+        }).toList();
     }
 
     private List<Item> localItems(TenantId tenantId) {

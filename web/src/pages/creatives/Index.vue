@@ -20,7 +20,7 @@
               <div class="ac-chips" role="group" aria-label="按使用状态筛选"><button v-for="chip in statuses" :key="chip.key" class="ac-chip" type="button" :aria-pressed="status === chip.key" @click="pickStatus(chip.key)">{{ chip.label }}<span class="ac-chip__n">{{ data.statusCounts[chip.count] ?? '—' }}</span></button></div>
               <div class="ac-bar__r"><button class="btn-create" type="button" @click="openModal('upload')"><AssetIcon name="upload" />上传素材</button></div>
             </div>
-            <div class="ac-batch" :data-on="picked.size > 0"><label class="check"><input class="checkbox" type="checkbox" aria-label="全选本页素材" :checked="allPicked" :indeterminate="somePicked && !allPicked" :disabled="!data.items.length || loading" @change="pickAll" /><span class="check__label">全选本页</span></label><span class="ac-batch__n">已选 <b>{{ picked.size }}</b> 项素材</span><span class="ac-batch__hint">勾选素材后即可批量删除</span><div class="ac-batch__ops"><button class="ltool__btn ltool__btn--danger" type="button" :disabled="!picked.size" @click="ElMessage.info('批量删除接口尚未接入，所选素材未删除')"><AssetIcon name="trash" />批量删除</button></div></div>
+            <div class="ac-batch" :data-on="picked.size > 0"><label class="check"><input class="checkbox" type="checkbox" aria-label="全选本页素材" :checked="allPicked" :indeterminate="somePicked && !allPicked" :disabled="!data.items.length || loading || deleting" @change="pickAll" /><span class="check__label">全选本页</span></label><span class="ac-batch__n">已选 <b>{{ picked.size }}</b> 项素材</span><span class="ac-batch__hint">勾选素材后即可批量删除</span><div class="ac-batch__ops"><button class="ltool__btn ltool__btn--danger" type="button" :disabled="!picked.size || loading || deleting" @click="openDelete"><AssetIcon name="trash" />批量删除</button></div></div>
             <p v-if="!data.qianchuanBound" class="asset-notice">尚未绑定巨量千川账户，当前展示本平台素材。<router-link to="/accounts?tab=oauth">前往绑定</router-link></p>
             <p v-if="data.platformWarning" class="asset-notice">{{ data.platformWarning }}</p>
             <p v-if="failMsg" class="asset-notice asset-notice--error" role="alert">{{ failMsg }} <button type="button" @click="reload">重试</button></p>
@@ -35,6 +35,7 @@
     </div>
     <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 灵投智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
     <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" @close="closeModal" @switch="switchModal" @changed="reload" />
+    <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
   </div>
 </template>
 
@@ -43,10 +44,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from 'pinia';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { ElMessage } from "element-plus";
-import { listLibraryFull, type LibraryItemVo, type LibraryResponse } from "@/features/creative/creativeApi";
+import { deleteLibraryItems, listLibraryFull, type LibraryItemVo, type LibraryResponse } from "@/features/creative/creativeApi";
 import AssetIcon from "./AssetIcon.vue";
 import AssetCard from "./AssetCard.vue";
 import AssetModal from "./AssetModal.vue";
+import AssetDeleteDialog from './AssetDeleteDialog.vue';
 import { uploadRows, reviewPending } from '@/features/creative/assetUploads';
 import { carouselDraft } from '@/features/creative/carouselUploads';
 
@@ -67,6 +69,8 @@ const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
 const data = ref<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
 const page = ref(1), loading = ref(false), failMsg = ref("");
 const picked = ref(new Set<string>()), modal = ref<Modal | null>(null), current = ref<LibraryItemVo | null>(null);
+const deleteItems = ref<LibraryItemVo[]>([]), deleting = ref(false), deleteError = ref('');
+let deleteAccount: string | undefined, alive = true;
 let searchTimer: ReturnType<typeof setTimeout> | undefined, requestId = 0, previousFocus: HTMLElement | null = null;
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 const totalPages = computed(() => Math.max(1, Math.ceil(data.value.pageInfo.total / 8)));
@@ -94,7 +98,7 @@ async function reload() {
   } finally { if (id === requestId) loading.value = false; }
 }
 function resetAndReload() { clearTimeout(searchTimer); page.value = 1; picked.value.clear(); void reload(); }
-watch(accountId, () => { closeModal(); resetAndReload(); });
+watch(accountId, () => { closeModal(); deleteItems.value = []; deleteError.value = ''; resetAndReload(); });
 function searchChanged() { clearTimeout(searchTimer); ++requestId; searchTimer = setTimeout(resetAndReload, 300); }
 function pickTab(key: AssetType) { type.value = key; status.value = "ALL"; resetAndReload(); }
 function pickStatus(key: Status) { status.value = key; resetAndReload(); }
@@ -112,8 +116,34 @@ async function tabKey(event: KeyboardEvent, key: AssetType) {
 function openModal(kind: Modal, item?: LibraryItemVo) { previousFocus = document.activeElement as HTMLElement; current.value = item || null; modal.value = kind; }
 function switchModal(kind: Modal) { modal.value = kind; }
 async function closeModal() { modal.value = null; current.value = null; await nextTick(); if (previousFocus?.isConnected) previousFocus.focus(); }
+function openDelete() {
+  if (loading.value || deleting.value) return;
+  deleteAccount = accountId.value || undefined;
+  deleteItems.value = data.value.items.filter(item => picked.value.has(item.id));
+  deleteError.value = '';
+}
+function closeDelete() { if (!deleting.value) { deleteItems.value = []; deleteError.value = ''; } }
+async function confirmDelete() {
+  if (deleting.value || !deleteItems.value.length) return;
+  deleting.value = true; deleteError.value = '';
+  const items = [...deleteItems.value], owner = deleteAccount;
+  try {
+    const result = await deleteLibraryItems(items.map(item => item.id), owner);
+    if (!alive || owner !== (accountId.value || undefined)) return;
+    const removed = new Set(result.deletedIds);
+    removed.forEach(id => picked.value.delete(id));
+    deleteItems.value = items.filter(item => !removed.has(item.id));
+    if (deleteItems.value.length) {
+      deleteError.value = removed.size ? `已删除 ${removed.size} 项，剩余 ${deleteItems.value.length} 项暂时无法删除，请重试。`
+        : result.failures[0]?.message || '暂时无法删除，请重试。';
+    } else ElMessage.success({ message: '删除成功', duration: 3000 });
+    await reload();
+  } catch (error) {
+    if (alive && owner === (accountId.value || undefined)) deleteError.value = error instanceof Error ? error.message : '暂时无法删除，请重试。';
+  } finally { if (alive) deleting.value = false; }
+}
 onMounted(() => { void reload(); pollTimer = setInterval(() => { if (!loading.value && (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status))))) void reload(); }, 5000); });
-onUnmounted(() => { ++requestId; clearTimeout(searchTimer); clearInterval(pollTimer); });
+onUnmounted(() => { alive = false; ++requestId; clearTimeout(searchTimer); clearInterval(pollTimer); });
 </script>
 
 <style src="./asset-center.css"></style>

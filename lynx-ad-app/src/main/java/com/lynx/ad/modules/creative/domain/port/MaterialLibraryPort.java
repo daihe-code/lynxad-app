@@ -33,4 +33,12 @@ public interface MaterialLibraryPort {
     }
 
     MaterialPage list(MaterialLibraryQuery query);
+
+    /** File-library deletion only; this must never remove a material from a published plan. */
+    record DeleteQuery(String advertiserId, MaterialType type, List<String> objectIds, String accessToken, String accountId) {
+        @Override public String toString() { return "DeleteQuery(type=" + type + ",count=" + objectIds.size() + ")"; }
+    }
+    default java.util.Set<String> delete(DeleteQuery query) {
+        throw new UnsupportedOperationException("Material deletion requires the live library adapter");
+    }
 }

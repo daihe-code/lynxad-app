@@ -664,6 +664,8 @@ public class LynxAdProperties {
         private String videoGetUrl = "https://ad.oceanengine.com/open_api/v1.0/qianchuan/video/get/";
         private String imageGetUrl = "https://ad.oceanengine.com/open_api/v1.0/qianchuan/image/get/";
         private String carouselGetUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/carousel/get/";
+        private String videoDeleteUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/file/video/delete/";
+        private String imageDeleteUrl = "https://api.oceanengine.com/open_api/v1.0/qianchuan/file/image/delete/";
         private OauthApi oauth = new OauthApi();
         private CatalogApi catalog = new CatalogApi();
         private DeliveryApi delivery = new DeliveryApi();
@@ -673,6 +675,11 @@ public class LynxAdProperties {
         public String getVideoGetUrl() {
             return videoGetUrl;
         }
+
+        public String getVideoDeleteUrl() { return videoDeleteUrl; }
+        public void setVideoDeleteUrl(String value) { videoDeleteUrl = value; }
+        public String getImageDeleteUrl() { return imageDeleteUrl; }
+        public void setImageDeleteUrl(String value) { imageDeleteUrl = value; }
 
         public void setVideoGetUrl(String videoGetUrl) {
             this.videoGetUrl = videoGetUrl;
