@@ -84,15 +84,16 @@
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
               <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
+              <td class="optimization-cell">
+                <span class="optimization-status" :class="optimizationPresentation(row).tone">{{ optimizationPresentation(row).label }}</span>
+                <button v-if="optimizationPresentation(row).action" type="button" class="optimization-link" @click="openOptimization(row)">{{ optimizationPresentation(row).action }}</button>
+              </td>
               <td v-if="toolsColumnVisible" class="tools-cell">
                 <template v-if="hasControlTools(row)">
                   <div v-for="tool in tools" :key="tool" class="tool-shortcuts">
                     <button class="tool-name" :disabled="!canManage(row) || !row.canControl" @click="openOperation(tool, row)">{{ tool }}</button>
                     <button class="tool-add" :disabled="!canManage(row) || !row.canControl" :aria-label="`创建${tool}任务 ${row.qcPlanId || row.planId}`" @click="openOperation(tool, row)">+</button>
                     <el-tooltip v-if="canViewToolReport(row, tool)" :content="`查看${tool}报表`"><button type="button" class="tool-report" :aria-label="`查看${tool}报表 ${row.qcPlanId}`" @click="openToolReport(row, tool)"><el-icon><DataAnalysis /></el-icon></button></el-tooltip>
-                  </div>
-                  <div v-if="!isDeleted(row)" class="tool-shortcuts">
-                    <router-link class="tool-name tool-monitor" :to="insightsLink(row.planId, 'optimization')" :aria-label="`打开 ${row.name} 的自动盯盘`">自动盯盘</router-link>
                   </div>
                 </template>
               </td>
@@ -121,6 +122,9 @@
       <button type="button" class="insights-close" aria-label="关闭计划运营面板" @click="closeInsights">×</button>
       <PlanInsights v-if="insightsPlanId" :key="insightsPlanId" :plan-id="insightsPlanId" :tab="insightsTab" :initial-range="insightsRange" @tab="setInsightsTab" @range="setInsightsRange" @changed="load()" />
     </el-drawer>
+    <el-drawer :model-value="!!optimizationPlanId" :title="optimizationPlan?.name || '盯盘优化'" size="min(980px, 92vw)" class="optimization-drawer" destroy-on-close @update:model-value="onInsightsVisible">
+      <PlanOptimization v-if="optimizationPlanId" :key="optimizationPlanId" :plan-id="optimizationPlanId" @saved="loadOptimizationStatuses(records)" @data="setInsightsTab('data')" />
+    </el-drawer>
   </div>
 </template>
 
@@ -128,6 +132,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { campaignTableColumns, columnWidthsPreferenceKey, maximumColumnWidth } from '@/features/delivery/campaignTableColumns';
 import { useCampaignColumnResize } from '@/features/delivery/useCampaignColumnResize';
+import { getOptimizationStatuses, type PlanOptimizationStatus } from '@/features/delivery/optimizationApi';
+import { planOptimizationPresentation } from '@/features/delivery/planOptimizationStatus';
+import PlanOptimization from './components/PlanOptimization.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
 import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort } from '@element-plus/icons-vue';
@@ -154,7 +161,9 @@ import { recentRange, rangeError, shanghaiToday, shiftDay, type StatisticsRange 
 
 const user = useUserStore();
 const router = useRouter(), route = useRoute(), wizard = useWizardStore();
-const insightsPlanId = computed(() => typeof route.query.plan === 'string' ? route.query.plan : '');
+const insightsPlanId = computed(() => route.query.tab !== 'optimization' && typeof route.query.plan === 'string' ? route.query.plan : '');
+const optimizationPlanId = computed(() => route.query.tab === 'optimization' && typeof route.query.plan === 'string' ? route.query.plan : '');
+const optimizationPlan = computed(() => records.value.find(row => row.planId === optimizationPlanId.value));
 const insightsTab = computed(() => typeof route.query.tab === 'string' ? route.query.tab : 'data');
 const insightsRange = computed<StatisticsRange>(() => typeof route.query.planStart === 'string' && typeof route.query.planEnd === 'string' ? [route.query.planStart, route.query.planEnd] : [...displayedRange.value]);
 function insightsLink(id: string, tab = 'data') { return { path: '/campaigns', query: { ...route.query, plan: id, tab, planStart: displayedRange.value[0], planEnd: displayedRange.value[1] } }; }
@@ -179,6 +188,25 @@ function selectStatusLabel(option: PlanStatusOption, event: MouseEvent) {
 }
 const filtersExpanded = ref(false), deliveryPlatform = ref('ALL'), createdWithin = ref<number | null>(null);
 const records = ref<PlanListVo[]>([]);
+const optimizationStatuses = ref<Record<string, PlanOptimizationStatus>>({});
+const optimizationLoading = ref(false), optimizationFailed = ref(false);
+let optimizationRevision = 0;
+function optimizationPresentation(row: PlanListVo) { return planOptimizationPresentation(row, optimizationStatuses.value[row.planId], optimizationLoading.value, optimizationFailed.value); }
+async function loadOptimizationStatuses(rows: PlanListVo[]) {
+  const revision = ++optimizationRevision;
+  const ids = rows.filter(row => row.qcPlanId && !isDeleted(row) && !isDraft(row)).map(row => row.planId);
+  optimizationStatuses.value = {}; optimizationFailed.value = false; optimizationLoading.value = !!ids.length;
+  if (!ids.length) return;
+  try {
+    const states = await getOptimizationStatuses(ids);
+    if (revision === optimizationRevision) optimizationStatuses.value = Object.fromEntries(states.map(state => [state.planId, state]));
+  } catch { if (revision === optimizationRevision) optimizationFailed.value = true; }
+  finally { if (revision === optimizationRevision) optimizationLoading.value = false; }
+}
+function openOptimization(row: PlanListVo) {
+  if (optimizationFailed.value) { void loadOptimizationStatuses(records.value); return; }
+  void router.push(insightsLink(row.planId, 'optimization'));
+}
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
 const hasControlTools = (row: PlanListVo) => row.smartBidType === 'SMART_BID_CUSTOM';
@@ -295,7 +323,7 @@ let requestVersion = 0;
 function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
 watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
-onUnmounted(() => { clearTimeout(loadTimer); clearInterval(draftRefreshTimer); requestVersion++; trendSerial++; });
+onUnmounted(() => { clearTimeout(loadTimer); clearInterval(draftRefreshTimer); requestVersion++; trendSerial++; optimizationRevision++; });
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function remainingDays(date: string) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -316,6 +344,7 @@ async function load(refreshStatistics = false) {
       if (!displayedFilters.value || campaignTrendScope(displayedFilters.value) !== campaignTrendScope(filters) || refreshStatistics) clearCampaignTrend(refreshStatistics);
       displayedFilters.value = filters;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
+      void loadOptimizationStatuses(result.records);
       displayedMetricTemplate.value = requestedTemplate;
       try { if (templateStorageKey.value) localStorage.setItem(templateStorageKey.value, requestedTemplate); } catch { /* Storage is optional. */ }
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
@@ -516,7 +545,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .number-cell { color: #1a1b2e; }.number-cell small { color: #7c7f99; font-size: 12px; }.number-cell.roi-good { color: #0ba05f; }
 .tools-cell button, .actions-cell button, .actions-cell a { font-size: 13px; line-height: 22px; }.tools-cell button { color: #4e5069; }.tools-cell button span { color: #575cf6; }.actions-cell a, .actions-cell button { color: #4348db; }.actions-cell button.pause-action, .actions-cell button.delete-action { color: #e5484d; }.actions-cell button.enable-action { color: #0ba05f; }.tools-cell button:disabled, .tools-cell button:disabled span, .actions-cell button:disabled { color: #a3a6bb; }
 .tool-shortcuts{display:flex;align-items:center;gap:4px;min-height:26px}.tools-cell .tool-name{width:auto;white-space:nowrap}.tools-cell .tool-report{width:22px;height:24px;justify-content:center;color:#575cf6;border-radius:4px}.tools-cell .tool-report:hover{background:#eeedff}.tool-report .el-icon{font-size:16px}.tools-cell .tool-add{width:18px;justify-content:center;font-size:16px;color:#575cf6}.tools-cell button:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
-.tools-cell .tool-monitor{color:#4348db;font-size:13px;line-height:22px}.tools-cell .tool-monitor:hover{color:#575cf6}.tools-cell .tool-monitor:focus-visible{outline:2px solid #575cf6;outline-offset:2px}
+.optimization-cell{vertical-align:top}.optimization-status{display:table;border-radius:5px;padding:1px 8px;font-size:12px;line-height:22px;white-space:nowrap;background:#f0eff7;color:#7c7f99}.optimization-status.success{background:#eaf8ef;color:#26976a}.optimization-status.warning{background:#fff4e4;color:#b27b27}.optimization-status.muted{color:#7c7f99}.optimization-link{display:block;margin-top:7px;padding:0;border:0;background:none;color:#575cf6;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}.optimization-link:hover{color:#4338db}.optimization-link:focus-visible{outline:2px solid #575cf6;outline-offset:3px}
 .muted { color: #7c7f99; }.pager { color: #7c7f99; font-size: 12px; }.pager :deep(.el-pagination__jump) { font-size: 12px; color: #7c7f99; }.column-setting { padding: 14px 0; border-bottom: 1px solid #eeeff4; }.column-setting small { display: block; font-size: 11px; color: #7c7f99; margin-top: 5px; }
 .toolbar.expanded { margin-bottom: 16px; }
 .extra-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; border-top: 1px solid #eeeff4; padding-top: 14px; margin-bottom: 18px; }

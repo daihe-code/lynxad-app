@@ -75,6 +75,8 @@ export interface CreativeJob { id: string; productId: string; status: string; re
 export const getCreativeJobs = (id: string) => apiGet<CreativeJob[]>(`${path(id)}/creative-jobs`, { headers: { 'X-Quiet-Request': 'true' } });
 export const reviewCreativeJob = (id: string, job: string, approved: boolean) => apiPost(`${path(id)}/creative-jobs/${encodeURIComponent(job)}/review`, { approved });
 const centerPath = '/api/v1/optimization';
+export interface PlanOptimizationStatus { planId: string; enabled: boolean; mode: string; holdReason?: string; stale: boolean; failed: boolean; state?: string }
+export const getOptimizationStatuses = (planIds: string[]) => apiGet<PlanOptimizationStatus[]>(`${centerPath}/statuses`, { params: { planIds: planIds.join(',') }, headers: { 'X-Quiet-Request': 'true' } });
 export interface CenterRow { planId: string; qcId: string; planName: string; accountId: string; accountName: string; planStatus: string; enabled: boolean; mode: string; version: number; holdReason?: string; lastSuccess?: string; lastAction?: string; error?: string; stale: boolean; result?: MonitoringReport }
 export interface CenterAccount { accountId: string; name: string; budgetLimit?: number }
 export interface CenterView { records: CenterRow[]; total: number; watched: number; automatic: number; held: number; accounts: CenterAccount[]; pageNum: number; pageSize: number }

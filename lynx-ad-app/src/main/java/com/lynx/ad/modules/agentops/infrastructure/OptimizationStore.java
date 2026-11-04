@@ -44,6 +44,11 @@ public class OptimizationStore {
     }
     public Optional<State> get(TenantId tenant,PlanId id) {return jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=? AND plan_id=?",this::row,tenant.value(),id.value()).stream().findFirst();}
     public List<State> forTenant(TenantId tenant){return jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=?",this::row,tenant.value());}
+    public List<State> forPlans(TenantId tenant,List<String> ids){
+        if(ids.isEmpty())return List.of();
+        var args=new ArrayList<Object>();args.add(tenant.value());args.addAll(ids);
+        return jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=? AND plan_id IN ("+String.join(",",Collections.nCopies(ids.size(),"?"))+")",this::row,args.toArray());
+    }
     public List<State> due(Instant now) {return jdbc.query("SELECT * FROM optimization_policy WHERE enabled=TRUE AND next_check_at<=? AND (lease_until IS NULL OR lease_until<?) ORDER BY next_check_at LIMIT 50",this::row,Timestamp.from(now),Timestamp.from(now));}
     public List<OptimizationPolicy.Economics> economics(AdPlan plan) {
         return jdbc.query("SELECT * FROM product_economics_profile WHERE tenant_id=? AND account_id=? AND aweme_id=?",

@@ -20,6 +20,7 @@ export function campaignTableColumns(template: PlanMetricTemplate, showTools: bo
     ...metricTemplates[template].columns.map((metric, index) => ({
       key: metric.field, label: metric.label, width: [108, 92, 122, 106][index]!, minWidth: 72, metric,
     })),
+    { key: 'optimization', label: '盯盘优化', width: 148, minWidth: 128 },
     ...(showTools ? [{ key: 'tools', label: '调控工具', width: 136, minWidth: 116 }] : []),
     { key: 'actions', label: '操作', width: 80, minWidth: 80 },
   ];

@@ -1,12 +1,12 @@
 <template>
   <div class="monitor" v-loading="loading">
-    <div class="heading"><div><h3>自动盯盘</h3><p>每5分钟查看真实投放数据，结合商品成本判断赚亏。后台服务持续运行时，关闭页面仍继续盯盘。</p></div><router-link :to="`/monitoring?planId=${planId}&tab=history`">全店中心与历史 →</router-link></div>
+    <div class="heading"><div><h3>盯盘优化</h3><p>每5分钟查看真实投放数据，结合商品成本判断赚亏。后台服务持续运行时，关闭页面仍继续盯盘。</p></div><router-link :to="`/monitoring?planId=${planId}&tab=history`">全店中心与历史 →</router-link></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="notice" />
     <template v-if="view && form">
       <el-alert v-if="!view.available" title="当前计划暂无法开启真实盯盘" :description="view.unavailableReason" type="warning" :closable="false" show-icon class="notice" />
       <el-alert v-if="view.error" title="本轮采集失败，系统将自动重试" :description="view.error" type="warning" :closable="false" show-icon class="notice" />
       <el-alert v-if="view.holdReason" title="自动执行已暂停，仍继续盯盘" :description="view.holdReason" type="warning" :closable="false" show-icon class="notice" />
-      <div class="status-line"><el-switch v-model="form.enabled" active-text="开启自动盯盘" :disabled="!view.available && !form.enabled" /><span>保存后生效</span><el-button :loading="checking" :disabled="saving || !view.policy.enabled || !view.available || dirty" @click="check">立即检查</el-button><el-button :icon="Refresh" aria-label="刷新盯盘状态" @click="load(false)">刷新状态</el-button></div>
+      <div class="status-line"><el-switch v-model="form.enabled" active-text="开启盯盘优化" :disabled="!view.available && !form.enabled" /><span>保存后生效</span><el-button :loading="checking" :disabled="saving || !view.policy.enabled || !view.available || dirty" @click="check">立即检查</el-button><el-button :icon="Refresh" aria-label="刷新盯盘状态" @click="load(false)">刷新状态</el-button></div>
       <p class="status-description">{{ statusText }} · 最近检查：{{ time(view.lastCheck) }} · 最近成功：{{ time(view.lastSuccess) }}</p>
       <el-alert v-if="view.result && view.stale" title="以下为历史判断，数据已过期；恢复采集后会更新" type="warning" :closable="false" class="notice" />
       <div class="metrics">
@@ -127,7 +127,7 @@ import OptimizationLabel from './OptimizationLabel.vue';
 import { COST_DAILY_BUDGET_MINIMUM } from '@/features/delivery/budgetValidation';
 import { checkOptimization, getOptimization, saveOptimization, defaultAutomation, defaultTactics, defaultCreativeGeneration, getCreativeJobs, reviewCreativeJob, type CreativeJob, type OptimizationPolicy, type OptimizationView } from '@/features/delivery/optimizationApi';
 const props = defineProps<{ planId: string; products?: { id: string; name: string }[] }>();
-const emit = defineEmits<{ data: [] }>();
+const emit = defineEmits<{ data: []; saved: [] }>();
 const view = ref<OptimizationView>(), form = ref<OptimizationPolicy>();
 const creativeJobs = ref<CreativeJob[]>([]), creativeError = ref(''), reviewing = ref('');
 const formats: Record<string,string> = { video: '视频', image_text: '图文', product_card: '商品卡图片' };
@@ -174,7 +174,7 @@ async function save() {
   }
   requestRevision++;
   saving.value = true;
-  try { const value = await saveOptimization(props.planId, body(), savedVersion); if (!disposed) { apply(value, true); error.value = ''; ElMessage.success('盯盘设置已保存'); } }
+  try { const value = await saveOptimization(props.planId, body(), savedVersion); if (!disposed) { apply(value, true); error.value = ''; ElMessage.success('盯盘设置已保存'); emit('saved'); } }
   catch (err) { if (!disposed) error.value = message(err); }
   finally { saving.value = false; }
 }
