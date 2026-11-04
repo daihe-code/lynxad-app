@@ -1,14 +1,7 @@
 import type { UploadRow } from './assetUploads';
 import type { FileMetadata } from './assetPreflight';
 
-/** Storage confirmation is separate from later review/sync receipts. */
-export function videoLibraryUploadState(row: Pick<UploadRow, 'stopped' | 'error' | 'result' | 'progress'>) {
-  if (row.stopped) return '已停止';
-  if (row.error || row.result?.storageStatus === 'FAILED') return '上传失败';
-  if (row.result?.storageStatus === 'STORED') return '已入库';
-  if (row.progress >= 100) return '上传完成';
-  return '上传中';
-}
+export { libraryUploadState as videoLibraryUploadState } from './libraryUploadState.ts';
 
 export function videoLibraryFileError(metadata?: FileMetadata) {
   if (!metadata?.width || !metadata.height || !Number.isFinite(metadata.duration)) return '无法读取视频信息，请重新选择文件';

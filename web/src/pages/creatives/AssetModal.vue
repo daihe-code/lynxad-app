@@ -1,8 +1,9 @@
 <template>
   <div class="modal" role="dialog" aria-modal="true" :aria-labelledby="kind === 'detail' ? 'asset-detail-title' : 'asset-modal-title'" @keydown="onKey">
     <div class="modal__mask" @click="requestClose"></div>
-    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--video-upload': kind === 'upload' && libraryType === 'VIDEO' }]" tabindex="-1">
+    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--file-upload': kind === 'upload' && ['VIDEO', 'IMAGE'].includes(libraryType) }]" tabindex="-1">
       <VideoLibraryUpload v-if="kind === 'upload' && libraryType === 'VIDEO'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
+      <ImageLibraryUpload v-else-if="kind === 'upload' && libraryType === 'IMAGE'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       <template v-else-if="kind === 'upload'">
         <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">上传素材</h2><button class="modal__close" type="button" aria-label="关闭" :disabled="closeBlocked" @click="requestClose"><AssetIcon name="close" /></button></div>
         <CarouselUploadPanel v-if="libraryType === 'CAROUSEL'" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
@@ -34,6 +35,7 @@ import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import { assetGeometry } from '@/features/creative/assetGeometry';
 import AssetStatistics from "./AssetStatistics.vue";
 import VideoLibraryUpload from './VideoLibraryUpload.vue';
+import ImageLibraryUpload from './ImageLibraryUpload.vue';
 import { referenceLabel } from "@/features/creative/assetReferences";
 import AssetIcon from "./AssetIcon.vue";
 import AssetUploadPanel from "./AssetUploadPanel.vue";
@@ -98,7 +100,7 @@ onUnmounted(() => { disposed = true; ++detailRequestNo; document.body.style.over
 <style scoped>
 .modal { z-index: 200; }
 .modal__box { max-height:calc(100dvh - 48px); overflow-y:auto; }
-.modal__box.modal__box--video-upload { max-width:640px; padding:0; display:flex; flex-direction:column; overflow:hidden; }
+.modal__box.modal__box--file-upload { max-width:640px; padding:0; display:flex; flex-direction:column; overflow:hidden; }
 .modal__box.modal__box--drawer { width:min(1200px,calc(100vw - 64px)); max-width:none; height:100dvh; max-height:100dvh; overflow:hidden; }
 @media(max-width:600px){.modal__box.modal__box--drawer{width:100%;border-radius:0;}}
 .modal__close:disabled { opacity:.45; cursor:not-allowed; }
