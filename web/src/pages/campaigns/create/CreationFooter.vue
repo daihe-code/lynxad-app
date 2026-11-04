@@ -49,6 +49,8 @@ const emit = defineEmits<{ back: []; save: [] }>();
 .creation-footer__buttons :deep(svg){width:15px;height:15px}
 .creation-footer__back:hover:not(:disabled){color:#343be0}
 .creation-footer__save:hover:not(:disabled),.creation-footer__buttons :deep(.btn-prev:hover:not(:disabled)){border-color:#575cf6;color:#575cf6}
+.creation-footer__buttons :deep(.btn-pause){border-color:#f6cccc;color:#e5585e}
+.creation-footer__buttons :deep(.btn-pause:hover:not(:disabled)){border-color:#e5585e;color:#e5585e}
 .creation-footer button:focus-visible,.creation-footer__buttons :deep(button:focus-visible){outline:2px solid #575cf6;outline-offset:3px}
 .creation-footer button:disabled,.creation-footer__buttons :deep(button:disabled){opacity:.45;cursor:not-allowed;box-shadow:none}
 .creation-footer__buttons :deep(.btn-next:disabled),.creation-footer__buttons :deep(.btn-next-primary:disabled){opacity:1;border-color:#cbcbd9;background:#cbcbd9;color:#fff}

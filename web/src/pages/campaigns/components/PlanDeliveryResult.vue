@@ -15,7 +15,7 @@
       <p class="delivery-data__footnote">{{ statistics ? `最近读取 ${reviewTime(statistics.fetchedAt, '时间待同步')}。` : loading ? '正在读取当日平台报表。' : '暂未取得当日报表。' }}数据可能存在延迟，未返回的指标显示 —。</p>
     </section>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="busy || loading || pauseDisabled" @click="pauseOpen = true; pauseError = ''"><ReferenceIcon name="pause" />暂停投放</button><PlanListButton primary label="查看所有投放计划" /></footer>
+    <footer v-if="showFooter !== false" class="delivery-result__footer"><button v-if="canPause" type="button" class="delivery-result__pause" :disabled="actionDisabled" @click="openPause"><ReferenceIcon name="pause" />暂停投放</button><PlanListButton primary label="查看所有投放计划" /></footer>
     <CampaignPlanActionDialog v-model="pauseOpen" :plan="plan" action="pause" :busy="busy" :error="pauseError" @confirm="pause" />
   </section>
 </template>
@@ -41,6 +41,9 @@ const canPause = computed(() => !props.readOnly && user.trialActive && props.pla
 const statistics = ref<InsightStatistics>(), statisticsDay = ref(shanghaiToday()), loading = ref(false), error = ref('');
 const cards = computed(() => deliveryMetricCards(props.plan, statistics.value?.summary));
 const pauseOpen = ref(false), busy = ref(false), pauseError = ref('');
+const actionDisabled = computed(() => busy.value || loading.value || props.pauseDisabled);
+function openPause() { if (canPause.value && !actionDisabled.value) { pauseOpen.value = true; pauseError.value = ''; } }
+defineExpose({ canPause, actionDisabled, busy, openPause });
 let context = 0, controller: AbortController | undefined, timer: ReturnType<typeof setInterval> | undefined;
 async function read(force = false) {
   if (loading.value || busy.value) return;

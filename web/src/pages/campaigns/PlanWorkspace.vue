@@ -28,7 +28,7 @@
       </KeepAlive>
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else-if="!contentDraftId || step === 2 || step === 4">
-        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving" @navigate="navigate" />
+        <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="!editing || !canEdit || transferring && transferPending" :allow-mode-change="transferring && !!transferAllowed" :disabled-mode="transferring ? plan.smartBidType : undefined" :allow-schedule-change="editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
@@ -37,17 +37,19 @@
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
         </template>
-        <main v-else-if="completedResult" class="ad-main workspace-audit"><div class="container-page"><PlanCompletedResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
-        <main v-else-if="terminatedResult" class="ad-main workspace-audit"><div class="container-page"><PlanTerminatedResult :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
-        <main v-else-if="pausedResult" class="ad-main workspace-audit"><div class="container-page"><PlanPausedResult :show-footer="!editing" :read-only="!canEdit" :inline-footer="editing" :restore-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
-        <main v-else-if="deliveryResult" class="ad-main workspace-audit"><div class="container-page"><PlanDeliveryResult :show-footer="!editing" :read-only="!canEdit" :inline-footer="editing" :pause-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
-        <main v-else-if="auditResult" class="ad-main workspace-audit"><div class="container-page"><PlanAuditResult :read-only="!editing || !canEdit" :show-footer="!editing" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="completedResult" class="ad-main workspace-audit"><div class="container-page"><PlanCompletedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="terminatedResult" class="ad-main workspace-audit"><div class="container-page"><PlanTerminatedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="pausedResult" class="ad-main workspace-audit"><div class="container-page"><PlanPausedResult ref="pausedView" :show-footer="false" :read-only="!canEdit" inline-footer :restore-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="deliveryResult" class="ad-main workspace-audit"><div class="container-page"><PlanDeliveryResult ref="deliveryView" :show-footer="false" :read-only="!canEdit" inline-footer :pause-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="auditResult" class="ad-main workspace-audit"><div class="container-page"><PlanAuditResult :read-only="!editing || !canEdit" :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="recoverFailedPlan" @back="backToPlans" /></div></main>
         <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放结果</h2><p class="panel__sub">{{ plan.rejectReason || '投放状态与效果以千川同步数据为准' }}</p><dl class="workspace-result"><div><dt>投放状态</dt><dd>{{ planStatusLabel(plan.status, plan.qcStatus) }}</dd></div><div><dt>投放时间</dt><dd>{{ plan.startDate || '—' }} 至 {{ publishedSchedule(plan).duration === 'long' ? '不限' : plan.endDate || '不限' }}</dd></div><div><dt>统计日期</dt><dd>{{ plan.statisticsDate || '—' }}{{ plan.historicalMetrics ? '（今日暂无报表，展示历史数据）' : '' }}</dd></div><div><dt>数据同步时间</dt><dd>{{ dateText(plan.snapshotTs) }}</dd></div></dl><PlanKpis :metrics="{ cost: plan.costYuan, gmv: plan.gmvYuan, roi: plan.roi, orders: plan.convert }" /><div class="workspace-analysis"><router-link class="panel__toggle" :to="`/campaigns/${plan.planId}/analysis`">查看投放效果分析<ReferenceIcon name="forward" /></router-link></div></div></section></div></main>
-        <CreationFooter v-if="!(!editing && (auditResult || deliveryResult || pausedResult || terminatedResult || completedResult) && step === 4) && (step !== 4 || !submissionPhase || editing)" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+        <CreationFooter v-if="step !== 4 || auditResult || deliveryResult || pausedResult || terminatedResult || completedResult || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy || resultActionBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
-            <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
+            <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy || resultActionBusy" @click="navigate(step - 1)">上一步</button>
           </template>
+          <button v-if="!editing && step === 4 && deliveryView?.canPause" class="btn-prev btn-pause" type="button" :disabled="deliveryView.actionDisabled" @click="deliveryView.openPause()"><ReferenceIcon name="pause" />暂停投放</button>
+          <button v-if="!editing && step === 4 && pausedView?.canRestore" class="btn-next-primary" type="button" :disabled="pausedView.actionDisabled" @click="pausedView.openRestore()"><ReferenceIcon name="play" />恢复投放</button>
           <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
           <button v-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || (!transferPending && (settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError || changedMode && !transferAllowed))" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
           <button v-if="editing" class="btn-cancel-edit" type="button" :disabled="saving || materialBusy" @click="backToPlans">取消修改</button>
@@ -167,6 +169,8 @@ const deliveryResult = computed(() => hasPlanDeliveryResult(plan.value));
 const pausedResult = computed(() => hasPlanPausedResult(plan.value));
 const terminatedResult = computed(() => hasPlanTerminatedResult(plan.value));
 const completedResult = computed(() => hasPlanCompletedResult(plan.value));
+const pausedView = ref<InstanceType<typeof PlanPausedResult>>(), deliveryView = ref<InstanceType<typeof PlanDeliveryResult>>();
+const resultActionBusy = computed(() => !!(pausedView.value?.busy || deliveryView.value?.busy));
 const submissionPhase = computed(() => planSubmissionPhase({ ...plan.value, publishStatus: !plan.value?.qcPlanId && creation.value?.publishStatus === 'FAILED' ? 'FAILED' : undefined }));
 const submissionSummary = computed(() => planSubmissionSummary(plan.value || {}, account.value?.awemeName));
 function recoverFailedPlan(choice: PublishFailureTarget) {
@@ -243,7 +247,7 @@ const productAdjustmentAvailable = computed(() => editing.value && canEdit.value
 const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
 const footerHint = computed(() => {
-  if (!editing.value || !canEdit.value) return '当前为查看详情';
+  if (!editing.value || !canEdit.value) return '';
   if (!plan.value?.qcPlanId) return '保存修改后更新草稿';
   return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '';
 });
@@ -319,8 +323,8 @@ async function reloadMedia() {
   } catch(error) { if (version === loadNumber && plan.value?.planId === id) mediaFailure.value=requestFailure(error,{method:'GET'}); }
   finally { mediaLoading.value=false; }
 }
-function navigate(value: number) { if (!saving.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
-function backToPlans() { if (!saving.value && !materialBusy.value) void router.push('/campaigns'); }
+function navigate(value: number) { if (!saving.value && !resultActionBusy.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
+function backToPlans() { if (!saving.value && !materialBusy.value && !resultActionBusy.value) void router.push('/campaigns'); }
 function changeTransferMode(value: string) {
   if (!transferring.value || !transferAllowed.value || saving.value || value === plan.value?.smartBidType || value === transferMode.value) return;
   transferMode.value = value;
@@ -499,7 +503,6 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 <style scoped>
 .plan-workspace { padding-bottom: 132px; }
 .plan-workspace.plan-workspace--submission { padding-bottom: 0; }
-.plan-workspace.plan-workspace--audit { padding-bottom: 0; }
 .plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }

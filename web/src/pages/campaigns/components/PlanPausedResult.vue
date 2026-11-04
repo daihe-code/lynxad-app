@@ -31,7 +31,7 @@
       <div class="paused-fold__body"><ol class="paused-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!history.length && !createdAtKnown" class="paused-muted">暂无已记录的状态流转事件。</p><p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p><p class="paused-current">当前状态：已暂停</p></div>
     </details>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <footer v-if="showFooter !== false" class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="busy || loading || restoreDisabled" @click="restoreOpen = true; actionError = ''"><ReferenceIcon name="play" />恢复投放</button><PlanListButton /></div></footer>
+    <footer v-if="showFooter !== false" class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="actionDisabled" @click="openRestore"><ReferenceIcon name="play" />恢复投放</button><PlanListButton /></div></footer>
     <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :blocked-reason="restoreBlockedReason" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
   </section>
 </template>
@@ -65,7 +65,10 @@ const createdAtKnown = computed(() => Number.isFinite(pauseTimestamp(props.plan.
 const statistics = ref<InsightStatistics>(), cards = computed(() => pausedMetricCards(props.plan,statistics.value?.summary));
 const loading = ref(false), actionsLoading = ref(false), actionsError = ref(''), statisticsError = ref('');
 const restoreOpen = ref(false), busy = ref(false), actionError = ref('');
+const actionDisabled = computed(() => busy.value || loading.value || props.restoreDisabled);
+function openRestore() { if (canRestore.value && !actionDisabled.value) { restoreOpen.value = true; actionError.value = ''; } }
 const canRestore = computed(() => !props.readOnly && user.trialActive && props.plan.status === 'PAUSED' && !!props.plan.qcPlanId && props.plan.source !== 'EXTERNAL' && props.plan.canControl !== false);
+defineExpose({ canRestore, actionDisabled, busy, openRestore });
 const restoreBlockedReason = computed(() => {
   void now.value; // Recheck the schedule when the elapsed-time clock advances.
   return restoreUnavailableReason(props.plan,shanghaiToday());

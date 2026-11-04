@@ -24,7 +24,7 @@
       <div class="terminated-body"><ol class="terminated-timeline"><li v-if="createdAtKnown"><h4>计划创建 <time>{{ reviewTime(plan.createdAt) }}</time></h4><p>{{ plan.name }}</p></li><li v-for="action in history" :key="action.id"><h4>{{ action.type === 'MANUAL_FINISH' ? '终止计划' : pauseActionLabel(action.type) }} <time>{{ reviewTime(action.snapshotTs) }}</time></h4><p v-if="action.summary && action.summary !== action.type">{{ action.summary }}</p></li></ol><p v-if="!createdAtKnown && !history.length" class="terminated-muted">暂无已记录的状态流转事件。</p><p v-if="recordsError" class="terminated-error" role="status">{{ recordsError }}</p><p class="terminated-current">当前状态：已终止，无法恢复投放。</p></div>
     </details>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
-    <div class="terminated-links"><PlanListButton /></div>
+    <div v-if="showFooter !== false" class="terminated-links"><PlanListButton /></div>
   </section>
 </template>
 
@@ -40,7 +40,7 @@ import { reviewTime } from '@/features/delivery/planReview';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import PlanListButton from './PlanListButton.vue';
 import PlanResultSummary from './PlanResultSummary.vue';
-const props = defineProps<{plan:PlanListVo;awemeName?:string}>();
+const props = defineProps<{plan:PlanListVo;awemeName?:string;showFooter?:boolean}>();
 const emit = defineEmits<{updated:[plan:PlanVo]}>();
 const actions = ref<PauseAction[]>([]),readAt = ref(Date.now()),statistics = ref<InsightStatistics>();
 const loading = ref(false),recordsError = ref(''),statisticsError = ref('');
