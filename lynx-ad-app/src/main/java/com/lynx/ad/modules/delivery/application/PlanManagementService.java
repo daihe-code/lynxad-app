@@ -95,7 +95,7 @@ public class PlanManagementService {
             editable(plan);validateSettings(plan,request);
             var c=credentials.getUsableCredential(tenant,plan.accountId());
             var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
-            PlanEditVersion.platformUnchanged(plan,detail);
+            PlanEditVersion.platformUnchanged(plan,detail,request.scheduleType()!=null);
             if(request.scheduleType()!=null && !com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(detail.path("delivery_setting")))
                 throw new BizException(1406,"千川未返回完整投放日期，暂不提交修改");
             if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))

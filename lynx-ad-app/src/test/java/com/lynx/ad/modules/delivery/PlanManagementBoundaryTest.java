@@ -282,6 +282,44 @@ class PlanManagementBoundaryTest {
         assertEquals(PlanStatus.PAUSED,plan.status());assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());verify(plans,never()).save(other);
         assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(audit).record(any());
     }
+    @ParameterizedTest
+    @CsvSource({"BUDGET,PAUSED,LEGACY_END", "ROI,PAUSED,LEGACY_END", "BUDGET,DELIVERING,CHANGED_RANGE", "ROI,DELIVERING,CHANGED_RANGE", "BUDGET,PAUSED,MISSING", "ROI,PAUSED,MISSING"})
+    void budgetAndRoiEditsDoNotRequireMatchingDatesOrDispatchScheduleChanges(String field,PlanStatus status,String dates) {
+        plan.apply(status);
+        var start=LocalDate.of(2026,10,19);var oldEnd=start.plusYears(10);
+        var localSchedule=new Schedule("CHANGED_RANGE".equals(dates)?ScheduleType.DATE_RANGE:ScheduleType.FROM_NOW,start,oldEnd);
+        plan.updateSetting(new DeliverySetting(plan.setting().bidType(),plan.setting().dailyBudget(),plan.setting().roi2Goal(),localSchedule,plan.setting().audience()));
+        var before=facts("{}");var ds=before.withObject("/delivery_setting");
+        ds.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
+        if("LEGACY_END".equals(dates))ds.put("video_schedule_type","SCHEDULE_FROM_NOW").put("start_time",start+" 00:00:00").put("end_time",oldEnd+" 23:59:59");
+        if("CHANGED_RANGE".equals(dates))ds.put("video_schedule_type","SCHEDULE_START_END").put("start_time",start.minusDays(1)+" 00:00:00").put("end_time",oldEnd.plusDays(3)+" 23:59:59");
+        var updated=before.deepCopy();boolean budget="BUDGET".equals(field);
+        updated.withObject("/delivery_setting").put(budget?"budget":"roi2_goal",new BigDecimal(budget?"400":"1.6"));
+        when(port.detail(credential,"456")).thenReturn(before,updated);
+
+        service.settings(tenant,id,request(null,budget?new BigDecimal("400"):null,budget?null:new BigDecimal("1.6")));
+
+        if(budget)verify(port).settings(credential,"456",null,new BigDecimal("400"),null);
+        else verify(port).settings(credential,"456",null,null,new BigDecimal("1.6"),"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
+        verify(port,times(2)).detail(credential,"456");verifyNoMoreInteractions(port);
+        assertEquals(status,plan.status());assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());
+        assertEquals(0,new BigDecimal(budget?"400":"300").compareTo(plan.setting().dailyBudget().amount()));
+        assertEquals(0,new BigDecimal(budget?"2":"1.6").compareTo(plan.setting().roi2Goal().orElseThrow().value()));
+        if("LEGACY_END".equals(dates))assertNull(plan.setting().schedule().endDate());
+        if("CHANGED_RANGE".equals(dates))assertEquals(oldEnd.plusDays(3),plan.setting().schedule().endDate());
+        verify(settingsEdits,never()).uncertain(any());verify(audit).record(any());
+    }
+    @ParameterizedTest
+    @CsvSource({"BUDGET,budget,500", "ROI,roi2_goal,3", "BUDGET,smart_bid_type,SMART_BID_CONSERVATIVE", "ROI,status,DISABLE"})
+    void ignoringUnrelatedDatesStillRejectsChangedBusinessSettingsBeforeDispatch(String field,String changedField,String value) {
+        var before=facts("{}");before.withObject("/delivery_setting").put("video_schedule_type","SCHEDULE_START_END").put("end_time","2036-10-29 23:59:59");
+        if("status".equals(changedField))before.put(changedField,value);else before.withObject("/delivery_setting").put(changedField,value);
+        when(port.detail(credential,"456")).thenReturn(before);boolean budget="BUDGET".equals(field);
+        var error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,budget?new BigDecimal("400"):null,budget?null:new BigDecimal("1.6"))));
+        assertEquals(1404,error.code());assertFalse(error.getMessage().contains("投放日期"));
+        verify(port).detail(credential,"456");verifyNoMoreInteractions(port);
+        verify(settingsEdits,never()).dispatched(any());verify(plans,never()).save(any());verifyNoInteractions(audit);
+    }
     @Test void platformRoiRejectionDoesNotPersistRequestedValueOrWriteSuccessAudit() throws Exception {
         when(port.detail(credential,"456")).thenReturn(facts("{\"delivery_setting\":{\"deep_external_action\":\"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI\"}}"));
         doThrow(new BizException(1406,"千川ROI修改失败：ROI不可修改")).when(port).settings(credential,"456",null,null,new BigDecimal("1.6"),"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
@@ -471,6 +509,15 @@ class PlanManagementBoundaryTest {
         verify(port).schedule(credential,"456","DATE_RANGE",end);
         verify(port,never()).settings(any(),any(),any(),any(),any());
         verify(settingsEdits,never()).uncertain(any());
+    }
+    @Test void anActualScheduleEditStillRejectsDatesChangedInQianchuanBeforeDispatch() {
+        var before=facts("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_START_END\",\"end_time\":\"2036-10-29 23:59:59\"}}");
+        when(port.detail(credential,"456")).thenReturn(before);
+        var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(10);
+        var error=assertThrows(BizException.class,()->service.settings(tenant,id,new PlanSettingsRequest(null,null,null,PlanEditVersion.version(plan,0),"DATE_RANGE",end)));
+        assertEquals(1404,error.code());assertTrue(error.getMessage().contains("投放日期"));
+        verify(port).detail(credential,"456");verifyNoMoreInteractions(port);
+        verify(settingsEdits,never()).dispatched(any());verifyNoInteractions(audit);
     }
     @Test void publishedDateRangeCanReturnToLongTermWithoutChangingOriginalStartOrMode() {
         var end=java.time.LocalDate.now().plusDays(10);var start=plan.setting().schedule().startDate();
