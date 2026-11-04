@@ -65,7 +65,7 @@ class PlanListPresentationTest {
         var row = service.list(tenant, 1, 10).records().getFirst();
         assertEquals(0, new BigDecimal("300").compareTo(row.budget()));
         assertEquals(new BigDecimal("2.5"), row.roi2Goal());
-        assertEquals(LocalDate.of(2026, 10, 31), row.endDate());
+        assertNull(row.endDate(), "长期投放在列表中应显示不限，即使历史记录保留了结束日期");
         assertEquals(3L, row.convert());
         assertEquals(ts, row.snapshotTs());
         assertEquals(createdAt, row.createdAt());

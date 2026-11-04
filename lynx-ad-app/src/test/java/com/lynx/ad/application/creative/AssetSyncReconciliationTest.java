@@ -134,7 +134,7 @@ class AssetSyncReconciliationTest {
         database(mode);insert("tenant","exhausted","account");insert("tenant","unchecked","account");
         jdbc.update("INSERT INTO creative_asset_review(asset_id,tenant_id,status,next_attempt_at,created_at,updated_at) VALUES('asset','tenant','APPROVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),('exhausted','tenant','APPROVED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         assertTrue(repository.uncertainSyncs().size()<=2);assertTrue(repository.uncertainSyncs().stream().allMatch(s->"UNCERTAIN".equals(s.status())));
-        jdbc.update("UPDATE creative_asset_platform SET status='FAILED',next_attempt_at=CURRENT_TIMESTAMP WHERE tenant_id='tenant'");
+        jdbc.update("UPDATE creative_asset_platform SET status='FAILED',next_attempt_at=? WHERE tenant_id='tenant'",Timestamp.from(Instant.now().minusSeconds(1)));
         jdbc.update("UPDATE creative_asset_platform SET attempts=3 WHERE asset_id='exhausted'");
         repository.resumeRecoverableSyncs();assertEquals("QUEUED",sync().status());assertEquals("FAILED",repository.syncs("tenant","exhausted").getFirst().status());assertEquals("FAILED",repository.syncs("tenant","unchecked").getFirst().status());
         jdbc.update("UPDATE creative_asset_platform SET status='UNCERTAIN' WHERE asset_id='asset'");repository.resumeRecoverableSyncs();assertEquals("UNCERTAIN",sync().status());
