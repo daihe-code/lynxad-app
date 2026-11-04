@@ -225,7 +225,6 @@
                     <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '待平台评估' }}</b></span>
                   </div>
                 </div>
-                <p v-if="estimateHint" class="est__message" role="status">{{ estimateHint }}</p>
               </div>
             </div>
           </div>
