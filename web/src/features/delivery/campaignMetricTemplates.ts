@@ -32,4 +32,11 @@ export function metricDelta(row: Pick<PlanListVo, 'comparison'>, column: MetricC
     basis: comparison?.basis, previousTs: comparison?.previousSnapshotTs, previousStartDate: comparison?.previousStartDate,
     previousEndDate: comparison?.previousEndDate, unavailableReason: comparison?.unavailableReason };
 }
+export function metricDeltaDisplay(input: { value?: number | null; current?: number | null; previous?: number | null }) {
+  if (input.previous === 0) {
+    return { value: input.current === 0 ? 0 : null,
+      added: input.current != null && Number.isFinite(input.current) && input.current > 0 };
+  }
+  return { value: input.value != null && Number.isFinite(input.value) ? input.value : null, added: false };
+}
 export function templatePreferenceKey(tenant?: string, user?: string) { return tenant && user ? `lynx.campaign.metricTemplate:${tenant}:${user}` : null; }

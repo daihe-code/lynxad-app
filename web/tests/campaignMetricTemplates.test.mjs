@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { metricTemplates, metricText, metricRowValues, metricDelta, templatePreferenceKey } from '../src/features/delivery/campaignMetricTemplates.ts';
+import { metricTemplates, metricText, metricRowValues, metricDelta, metricDeltaDisplay, templatePreferenceKey } from '../src/features/delivery/campaignMetricTemplates.ts';
 
 const row = { costYuan: 100, convert: 12, gmvYuan: 1000, roi: 10, netGmvYuan: 810, netRoi: 8.1, refundRate: 19 };
 test('payment and net templates export their own figures in displayed order', () => {
@@ -27,4 +27,24 @@ test('template preferences are scoped to user and tenant', () => {
   assert.notEqual(templatePreferenceKey('a', 'u'), templatePreferenceKey('b', 'u'));
   assert.notEqual(templatePreferenceKey('a', 'u'), templatePreferenceKey('a', 'v'));
   assert.equal(templatePreferenceKey(undefined, 'u'), null);
+});
+
+test('zero to zero remains a visible flat comparison across both metric templates', () => {
+  for (const template of Object.values(metricTemplates)) for (const column of template.columns) {
+    const comparison = { current: { [column.key]: 0 }, previous: { [column.key]: 0 } };
+    assert.deepEqual(metricDeltaDisplay(metricDelta({ comparison }, column)), { value: 0, added: false });
+    comparison.current[column.key] = 60.38;
+    assert.deepEqual(metricDeltaDisplay(metricDelta({ comparison }, column)), { value: null, added: true });
+  }
+});
+
+test('new activity is distinguished from missing data without inventing a percentage', () => {
+  assert.deepEqual(metricDeltaDisplay({ value: 100, current: 10, previous: 0 }), { value: null, added: true });
+  for (const current of [null, undefined, NaN, Infinity]) {
+    assert.deepEqual(metricDeltaDisplay({ value: 0, current, previous: 0 }), { value: null, added: false });
+  }
+  for (const [value, current] of [[50, 30], [-100, 0], [0, 20]]) {
+    assert.deepEqual(metricDeltaDisplay({ value, current, previous: 20 }), { value, added: false });
+  }
+  assert.deepEqual(metricDeltaDisplay({ current: 10 }), { value: null, added: false });
 });
