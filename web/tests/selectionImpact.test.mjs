@@ -1,24 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { productAdjustmentText, selectionImpact, selectionImpactText } from '../src/features/delivery/selectionImpact.ts';
+import { productAdjustmentNotice, selectionImpact, selectionImpactText } from '../src/features/delivery/selectionImpact.ts';
 import { shouldPromptGeneration, selectedGenerationProducts, hasGenerationDecision } from '../src/features/delivery/generationSelection.ts';
 const a={productId:'a',qcProductId:'123',name:'原商品A'},b={productId:'b',qcProductId:'456',name:'原商品B'},c={productId:'c',qcProductId:'789',name:'新增商品C'};
 
-test('调整前按当前成果提示影响，空计划不误报已有素材和目标',()=>{
-  const empty=productAdjustmentText({materialCount:0,hasAnalysis:false,hasGoal:false});
-  assert.match(empty,/暂无可用素材/);assert.doesNotMatch(empty,/原智能分析结果将失效|投放目标将清空|生成用量不会退回/);
-  const analyzed=productAdjustmentText({materialCount:0,hasAnalysis:true,hasGoal:false});
-  assert.match(analyzed,/重新分析/);assert.doesNotMatch(analyzed,/投放目标将清空/);
-  const ready=productAdjustmentText({materialCount:6,hasAnalysis:true,hasGoal:true});
-  assert.match(ready,/6 条可用素材/);assert.match(ready,/不会保留在本计划预览/);assert.match(ready,/继续保留/);
-  assert.match(ready,/也可重新生成/);assert.match(ready,/生成用量不会退回/);assert.match(ready,/投放目标将清空/);
-  assert.match(ready,/尚未增删或替换商品时.*不会改变/);
+test('统一调整提示说明实际保存后的影响，保留素材中心原文件和已有素材',()=>{
+  const notice=productAdjustmentNotice();
+  assert.match(notice.analysisGoal,/已有分析.*已设预算.*目标将清空/);
+  assert.match(notice.materials,/保留商品的素材仍可用/);assert.match(notice.materials,/仅从本计划移除.*原文件保留在素材中心/);
+  assert.match(notice.added,/生成或添加素材/);assert.match(notice.usage,/如已生成素材.*不退回.*新额度/);
+  assert.match(notice.effective,/仅进入选择不会改变.*保存实际变更后才生效/);
 });
 
 test('已投放计划明确保留原目标并在保存成功后更新，避免误报立即清空',()=>{
-  const text=productAdjustmentText({materialCount:3,hasAnalysis:true,hasGoal:true,published:true});
-  assert.match(text,/预算和 ROI 目标会保留/);assert.match(text,/重新核对/);
-  assert.match(text,/保存修改.*同步成功后/);assert.doesNotMatch(text,/投放目标将清空/);
+  const notice=productAdjustmentNotice(true);
+  assert.match(notice.analysisGoal,/预算、ROI 等目标保留/);assert.match(notice.analysisGoal,/重新核对/);
+  assert.match(notice.effective,/保存修改.*同步成功后/);assert.doesNotMatch(notice.analysisGoal,/目标将清空/);
 });
 test('新增商品提示保留原素材，只默认选中新商品生成',()=>{
   const impact=selectionImpact([a,b],[a,b,c],[{productId:'123'},{productId:'456'}]);

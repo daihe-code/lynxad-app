@@ -1,21 +1,17 @@
 interface Product { productId: string; qcProductId: string; name: string }
 interface Material { productId: string }
-interface AdjustmentContext { materialCount: number; hasAnalysis: boolean; hasGoal: boolean; published?: boolean }
-
-export function productAdjustmentText(context: AdjustmentContext) {
-  const rows = ['实际增删或替换商品后，将产生以下影响：'];
-  if (context.materialCount > 0) {
-    rows.push(`当前计划已有 ${context.materialCount} 条可用素材。删除或替换商品后，被移出商品的素材不会保留在本计划预览和待投放内容中；素材中心原文件仍保留。`);
-    rows.push('增加商品时，保留商品已生成的素材继续保留，可继续使用，也可重新生成；新增商品需要生成或添加素材。');
-    rows.push('已发生的生成用量不会退回；重新生成会产生新的生成用量。');
-  } else rows.push('当前计划暂无可用素材，调整商品后可为所选商品生成或添加素材。');
-  if (context.hasAnalysis) rows.push('原智能分析结果将失效，需要按调整后的商品组合重新分析。');
-  if (context.hasGoal) rows.push(context.published
-    ? '原计划的预算和 ROI 目标会保留，需要按新的商品组合重新核对；如需修改，请在计划的目标设置中调整。'
-    : '已设置的投放目标将清空，需要重新设置预算、ROI 等投放目标。');
-  if (context.published) rows.push('点击“保存修改”并同步成功后，才会更新原投放计划。');
-  rows.push('点击确定仅进入商品调整，尚未增删或替换商品时，当前商品、素材和设置不会改变。');
-  return rows.join('\n\n');
+export function productAdjustmentNotice(published = false) {
+  return {
+    analysisGoal: published
+      ? '已有分析需按新组合重新分析；原计划预算、ROI 等目标保留，请重新核对。'
+      : '已有分析将失效；已设预算、ROI 等目标将清空，需重新分析并设置。',
+    materials: '保留商品的素材仍可用；移出商品的素材仅从本计划移除，原文件保留在素材中心。',
+    added: '新增商品需生成或添加素材。',
+    usage: '如已生成素材，已用生成额度不退回；重新生成会消耗新额度。',
+    effective: published
+      ? '仅进入选择不会改变原计划，点击“保存修改”并同步成功后才生效。'
+      : '仅进入选择不会改变当前内容，保存实际变更后才生效。',
+  };
 }
 
 export function selectionImpact(before: Product[], after: Product[], materials: Material[]) {

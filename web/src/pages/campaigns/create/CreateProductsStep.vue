@@ -113,12 +113,12 @@
 import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import CreationFooter from './CreationFooter.vue';
 import PreparationIcon from '@/components/PreparationIcon.vue';
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, h, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
 import { canContinueProductAnalysis, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
 import { ElMessageBox } from 'element-plus';
-import { productAdjustmentText } from '@/features/delivery/selectionImpact';
+import ProductAdjustmentNotice from './ProductAdjustmentNotice.vue';
 import ProductPreparationAnalysis from './ProductPreparationAnalysis.vue';
 import { useProductSuggestions } from '@/features/delivery/useProductSuggestions';
 import ProductPrice from '@/components/ProductPrice.vue';
@@ -126,7 +126,7 @@ import { productPriceText } from '@/features/catalog/productPrice';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; adjustmentMessage?: string; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {
@@ -222,8 +222,8 @@ async function adjustProducts() {
   if (props.saving || props.selectionLocked || props.adjustmentBlockedReason || adjustmentConfirming.value) return;
   adjustmentConfirming.value = true;
   try {
-    await ElMessageBox.confirm(props.adjustmentMessage || productAdjustmentText({ materialCount: 0, hasAnalysis: !!props.analysis, hasGoal: false }), '调整商品前请确认', {
-      confirmButtonText: '确定，调整商品', cancelButtonText: '取消', type: 'warning', customClass: 'selection-impact-confirm product-adjustment-confirm', closeOnClickModal: false,
+    await ElMessageBox.confirm(h(ProductAdjustmentNotice, { published: props.contentEditing }), '调整商品', {
+      confirmButtonText: '去调整商品 →', cancelButtonText: '暂不调整', customClass: 'selection-impact-confirm product-adjustment-confirm', closeOnClickModal: false,
     });
   } catch { return; }
   finally { adjustmentConfirming.value = false; }
