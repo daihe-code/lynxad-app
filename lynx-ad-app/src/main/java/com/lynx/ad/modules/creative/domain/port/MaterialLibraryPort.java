@@ -39,6 +39,11 @@ public interface MaterialLibraryPort {
     default List<CarouselImage> carouselImages(MaterialLibraryQuery query) {
         throw new UnsupportedOperationException("Carousel image lookup requires the live library adapter");
     }
+    record CarouselMediaImage(String id,String url,Integer width,Integer height) {}
+    record CarouselMedia(List<CarouselMediaImage> images,String audioUrl,String description) {}
+    default CarouselMedia carouselMedia(MaterialLibraryQuery query) {
+        throw new UnsupportedOperationException("Carousel preview requires the live library adapter");
+    }
 
     /** File-library deletion only; this must never remove a material from a published plan. */
     record DeleteQuery(String advertiserId, MaterialType type, List<String> objectIds, String accessToken, String accountId) {

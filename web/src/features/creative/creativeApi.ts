@@ -118,8 +118,15 @@ export interface CarouselDetail {
 export function createCarousel(body: { requestId: string; name: string; textAssetId?: string; imageAssetIds: string[]; audioAssetId: string; accountIds: string[] }) {
   return apiPost<CarouselDetail>('/api/v1/creative/carousels', body);
 }
-export function getCarousel(id: string) {
-  return apiGet<CarouselDetail>(`/api/v1/creative/carousels/${encodeURIComponent(id)}`, { headers: { 'X-Quiet-Request': 'true' } });
+export function getCarousel(id: string, signal?: AbortSignal) {
+  return apiGet<CarouselDetail>(`/api/v1/creative/carousels/${encodeURIComponent(id)}`, { signal, headers: { 'X-Quiet-Request': 'true' } });
+}
+export interface CarouselMedia {
+  images: { id: string; url: string; width?: number | null; height?: number | null; assetId?: string }[];
+  audioUrl: string; description: string;
+}
+export function getLibraryCarouselPreview(id: string, signal?: AbortSignal) {
+  return apiGet<CarouselMedia>(`/api/v1/creative/library/carousel-preview?id=${encodeURIComponent(id)}`, { signal, readRetry: false, headers: { 'X-Quiet-Request': 'true' } });
 }
 export interface UploadPolicy {
   files: { extension: string; kind: string; maxBytes: number; qianchuanSupported: boolean }[];

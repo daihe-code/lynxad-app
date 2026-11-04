@@ -17,6 +17,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -87,6 +88,29 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
 
     @Override
     public List<CarouselImage> carouselImages(MaterialLibraryQuery query) {
+        var images = carouselEntry(query).path("images");
+        var result = new java.util.LinkedHashMap<String, CarouselImage>();
+        for (var image : images) {
+            result.put(image.path("image_id").asText(), new CarouselImage(image.path("image_id").asText(), image.path("image_material_id").asText(null)));
+        }
+        return List.copyOf(result.values());
+    }
+
+    @Override
+    public CarouselMedia carouselMedia(MaterialLibraryQuery query) {
+        var entry=carouselEntry(query);
+        var images=new ArrayList<CarouselMediaImage>();
+        for(var image:entry.path("images")) images.add(new CarouselMediaImage(image.path("image_id").asText(),safeMediaUrl(image.path("url").asText()),
+                image.path("width").isIntegralNumber()?image.path("width").asInt():null,image.path("height").isIntegralNumber()?image.path("height").asInt():null));
+        return new CarouselMedia(List.copyOf(images),safeMediaUrl(entry.path("audio").path("url").asText()),entry.path("description").asText(""));
+    }
+
+    private static String safeMediaUrl(String value) {
+        try { var uri=java.net.URI.create(value);return uri.getHost()!=null && Set.of("http","https").contains(uri.getScheme().toLowerCase(java.util.Locale.ROOT))?value:""; }
+        catch(RuntimeException invalid) { return ""; }
+    }
+
+    private JsonNode carouselEntry(MaterialLibraryQuery query) {
         if (query.type() != MaterialType.CAROUSEL || query.materialId() == null || !query.materialId().matches("[1-9][0-9]*"))
             throw new BizException(1520, "图文素材信息不完整，请刷新后重试");
         var json = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
@@ -100,13 +124,11 @@ public class LiveMaterialLibraryPort implements MaterialLibraryPort {
             throw new BizException(1523, "图文图片信息暂未确认，请刷新后重试");
         var images = entries.get(0).path("images");
         if (!images.isArray() || images.isEmpty()) throw new BizException(1523, "图文图片信息暂未确认，请刷新后重试");
-        var result = new java.util.LinkedHashMap<String, CarouselImage>();
         for (var image : images) {
             var id = image.path("image_id");
             if (!id.isTextual() || id.asText().isBlank()) throw new BizException(1523, "图文图片信息暂未确认，请刷新后重试");
-            result.put(id.asText(), new CarouselImage(id.asText(), image.path("image_material_id").asText(null)));
         }
-        return List.copyOf(result.values());
+        return entries.get(0);
     }
 
     private static PlatformMaterial map(JsonNode n, MaterialType type) {

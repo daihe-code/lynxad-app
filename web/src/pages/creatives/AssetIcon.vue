@@ -6,6 +6,7 @@ import { computed } from "vue";
 const props = defineProps<{ name: string }>();
 // Trusted SVG paths from the supplied asset-center reference; no server HTML is rendered.
 const icons: Record<string, { attrs: Record<string, string>; content: string }> = {
+  "volume": { attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" }, content: '<path d="m11 4-5 4H2v8h4l5 4V4Z"/><path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>' },
   "chevron-down": { attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" }, content: '<path d="m6 9 6 6 6-6"/>' },
   "audio": { attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.7", "stroke-linecap": "round", "stroke-linejoin": "round" }, content: '<path d="M9 17V5l11-2v12M9 5l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/>' },
   "user": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<circle cx=\"12\" cy=\"8.4\" r=\"4.1\"/>\n    <path d=\"M4.4 20.4c0-3.6 3.4-6.2 7.6-6.2s7.6 2.6 7.6 6.2v.4H4.4v-.4Z\"/>" },

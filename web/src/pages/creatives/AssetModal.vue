@@ -1,7 +1,7 @@
 <template>
   <div class="modal" role="dialog" aria-modal="true" :aria-labelledby="kind === 'detail' ? 'asset-detail-title' : 'asset-modal-title'" @keydown="onKey">
     <div class="modal__mask" @click="requestClose"></div>
-    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--file-upload': kind === 'upload' && ['VIDEO', 'IMAGE'].includes(libraryType) }]" tabindex="-1">
+    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--file-upload': kind === 'upload' && ['VIDEO', 'IMAGE'].includes(libraryType), 'modal__box--carousel-preview': kind === 'preview' && item?.type === 'CAROUSEL' }]" tabindex="-1">
       <VideoLibraryUpload v-if="kind === 'upload' && libraryType === 'VIDEO'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       <ImageLibraryUpload v-else-if="kind === 'upload' && libraryType === 'IMAGE'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       <template v-else-if="kind === 'upload'">
@@ -11,9 +11,9 @@
       </template>
       <template v-else-if="item">
         <AssetStatistics v-if="kind === 'detail'" :item="item" :account-id="accountId" @close="emit('close')" @preview="emit('switch', 'preview')" />
-        <template v-else-if="item.carouselId">
-          <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
-          <CarouselPreview :id="item.carouselId" @changed="emit('changed')" />
+        <template v-else-if="item.type === 'CAROUSEL'">
+          <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }} · 图文预览</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
+          <CarouselPreview :item="item" />
           <div class="modal__foot"><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
         </template>
         <template v-else>
@@ -65,7 +65,7 @@ async function previewFailed() {
 }
 watch(() => [props.kind, props.item?.id], () => {
   const item = props.item;
-  if (item?.id.startsWith('EXT:') && props.kind === 'preview') void resolveAssetPreview(item, true);
+  if (item?.id.startsWith('EXT:') && item.type !== 'CAROUSEL' && props.kind === 'preview') void resolveAssetPreview(item, true);
 }, { immediate: true });
 let previousOverflow = "";
 let disposed = false, detailRequestNo = 0;
@@ -101,6 +101,8 @@ onUnmounted(() => { disposed = true; ++detailRequestNo; document.body.style.over
 .modal { z-index: 200; }
 .modal__box { max-height:calc(100dvh - 48px); overflow-y:auto; }
 .modal__box.modal__box--file-upload { max-width:640px; padding:0; display:flex; flex-direction:column; overflow:hidden; }
+.modal__box.modal__box--carousel-preview { display:flex; flex-direction:column; overflow:hidden; }
+.modal__box--carousel-preview>.modal__head,.modal__box--carousel-preview>.modal__foot { flex:none; }
 .modal__box.modal__box--drawer { width:min(1200px,calc(100vw - 64px)); max-width:none; height:100dvh; max-height:100dvh; overflow:hidden; }
 @media(max-width:600px){.modal__box.modal__box--drawer{width:100%;border-radius:0;}}
 .modal__close:disabled { opacity:.45; cursor:not-allowed; }
