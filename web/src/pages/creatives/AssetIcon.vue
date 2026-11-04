@@ -6,6 +6,7 @@ import { computed } from "vue";
 const props = defineProps<{ name: string }>();
 // Trusted SVG paths from the supplied asset-center reference; no server HTML is rendered.
 const icons: Record<string, { attrs: Record<string, string>; content: string }> = {
+  "chevron-down": { attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" }, content: '<path d="m6 9 6 6 6-6"/>' },
   "audio": { attrs: { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.7", "stroke-linecap": "round", "stroke-linejoin": "round" }, content: '<path d="M9 17V5l11-2v12M9 5l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/>' },
   "user": { attrs: {"viewBox":"0 0 24 24","fill":"currentColor"}, content: "<circle cx=\"12\" cy=\"8.4\" r=\"4.1\"/>\n    <path d=\"M4.4 20.4c0-3.6 3.4-6.2 7.6-6.2s7.6 2.6 7.6 6.2v.4H4.4v-.4Z\"/>" },
   "bell": { attrs: {"viewBox":"0 0 24 24","fill":"none","stroke":"currentColor","stroke-width":"1.7","stroke-linecap":"round","stroke-linejoin":"round"}, content: "<path d=\"M18.2 8.8a6.2 6.2 0 1 0-12.4 0c0 5.3-2.1 6.9-2.1 6.9h16.6s-2.1-1.6-2.1-6.9Z\"/>\n    <path d=\"M13.7 19.2a1.9 1.9 0 0 1-3.4 0\"/>" },

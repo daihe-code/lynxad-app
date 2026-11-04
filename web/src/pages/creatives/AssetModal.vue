@@ -8,11 +8,11 @@
         <AssetUploadPanel v-else :library-type="libraryType" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       </template>
       <template v-else-if="item">
-        <template v-if="item.carouselId">
-          <div class="modal__head"><h2 :id="kind === 'detail' ? 'asset-detail-title' : 'asset-modal-title'" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
+        <AssetStatistics v-if="kind === 'detail'" :item="item" :account-id="accountId" @close="emit('close')" @preview="emit('switch', 'preview')" />
+        <template v-else-if="item.carouselId">
+          <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
           <CarouselPreview :id="item.carouselId" @changed="emit('changed')" />
-          <AssetPlanReferences v-if="kind === 'detail'" :item="item" />
-          <div class="modal__foot"><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button></div>
+          <div class="modal__foot"><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
         </template>
         <template v-else>
         <template v-if="kind === 'preview'">
@@ -20,19 +20,6 @@
           <div class="ac-pmedia ac-t0" :class="{ 'asset-text-media': item.type === 'TEXT', 'asset-media-frame': geometry.ratio }" :style="mediaStyle"><pre v-if="item.type === 'TEXT'">{{ uploaded?.textContent || detailError || '正在读取文本…' }}</pre><audio v-else-if="item.type === 'AUDIO' && item.playUrl" :src="assetUrl(item.playUrl)" controls preload="metadata" @error="mediaError = true"></audio><video v-else-if="item.type === 'VIDEO' && previewUrls?.playUrl" :key="item.id" :src="assetUrl(previewUrls.playUrl)" :poster="assetUrl(previewUrls.posterUrl)" controls playsinline preload="metadata" @loadedmetadata="readDimensions" @error="previewFailed"></video><img v-else-if="previewUrls?.playUrl || previewUrls?.posterUrl" :src="assetUrl(previewUrls.playUrl || previewUrls.posterUrl)" :alt="item.filename" @load="readDimensions" @error="previewFailed" /><span v-else class="asset-media-error">{{ previewUrls?.message || '暂无可预览的文件' }}</span><span v-if="mediaError" class="asset-media-error" role="status">{{ previewUrls?.message || '素材文件暂不可播放或预览' }}</span></div>
           <div class="ac-pinfo"><span v-if="geometry.label">画面 <b>{{ geometry.label }}</b></span><span>规格 <b>{{ dimensions }} · {{ displayItem ? assetRatio(displayItem) : '—' }}</b></span><span>大小 <b>{{ fileSize(item.sizeBytes) }}</b></span><span v-if="item.type === 'VIDEO'">时长 <b>{{ duration(item.durationSec) }}</b></span><span>引用计划 <b>{{ referenceLabel(item) }}</b></span><span v-if="assetStatus(item).label">状态 <b>{{ assetStatus(item).label }}</b></span></div>
           <div class="modal__foot"><button v-if="item.type === 'TEXT' && uploaded?.textContent" class="btn-modal-ghost" type="button" @click="copyText">复制文本</button><button class="btn-modal-ghost" type="button" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" @click="emit('switch', 'detail')">查看素材详情</button></div>
-        </template>
-        <template v-else>
-          <div class="ac-dmedia ac-t0" :class="{ 'asset-media-frame': geometry.ratio }" :style="mediaStyle"><AssetThumbnail :item="item" fit="contain" :read-metadata="item.type === 'VIDEO' && !geometry.width" @metadata="observed = $event" /><span class="ac-src" :class="{ 'ac-src--plat': item.source === 'EXTERNAL' }">{{ sourceLabel(item) }}</span><button class="ac-hbtn asset-detail-play" type="button" aria-label="预览该素材" @click="emit('switch', 'preview')"><AssetIcon name="expand" />预览</button></div>
-          <div class="ac-dbody">
-            <div class="modal__head"><h2 id="asset-detail-title" class="ac-dtitle">{{ item.filename }}</h2><button class="modal__close" type="button" aria-label="关闭" @click="emit('close')"><AssetIcon name="close" /></button></div>
-            <div class="ac-dmeta"><span>素材 ID：{{ assetIdentifier(item) }}</span><span>{{ { VIDEO: '视频库', IMAGE: '图片库', CAROUSEL: '图文库', AUDIO: '音频库', TEXT: '文本库' }[item.type] }}</span><span v-if="assetStatus(item).label" class="ac-use" :class="assetStatus(item).cls"><i></i>{{ assetStatus(item).label }}</span></div>
-            <div class="ac-tags"><span v-if="item.category" class="ac-tag">{{ item.category }}</span></div><p class="ac-dnote">{{ item.reviewBadge === 'REJECTED' ? '素材审核未通过，请检查素材内容后重新提交审核。' : item.reviewBadge === 'REVIEWING' ? '素材正在审核中，请等待平台审核结果。' : '素材信息来自当前素材库，预览以实际文件为准。' }}</p>
-            <div class="ac-dl"><div v-for="spec in specs" :key="spec[0]"><p class="ac-dl__k">{{ spec[0] }}</p><p class="ac-dl__v">{{ spec[1] }}</p></div></div>
-            <div v-if="item.assetId" class="ac-dsec asset-sync-detail"><div class="ac-dsec__t"><span>平台入库与千川同步</span></div><p v-if="detailError" role="alert">{{ detailError }} <button type="button" @click="loadDetail">重新加载</button></p><p>平台存储：{{ uploaded?.storageStatus === 'STORED' ? '已入库' : item.storageStatus }}</p><p v-if="item.type === 'TEXT'">{{ uploaded?.aiReview?.status === 'NOT_REQUIRED' ? '引擎文案已登记，无需上传审核。' : '文本已入库，须通过 AI 审核后使用。' }}文本不作为独立千川文件上传。</p><p v-else-if="uploaded && !uploaded.syncs.length">上传时未选择千川同步账户，仅保存在本平台。</p><div v-for="s in uploaded?.syncs || item.syncs || []" :key="s.id" class="asset-sync-row"><div><b>{{ s.advertiserId ? `广告账户 ${s.advertiserId}` : `授权记录 ${s.accountId}` }}</b><p>{{ syncLabel(s.status, s.reviewStatus) }}</p><small>{{ s.errorMessage }}</small><p v-if="s.objectId">文件 ID：{{ s.objectId }}<br>素材 ID：{{ s.materialId }}</p></div><AssetSyncAction :sync="s" :busy="retrying === s.id" :can-retry="['APPROVED','NOT_REQUIRED'].includes(uploaded?.aiReview?.status || '')" @retry="retrySync(s)" @verify="verifySync(s)" /></div></div>
-            <AssetReviewStatus v-if="item.assetId" :review="uploaded?.aiReview || item.aiReview" :retrying="reviewRetrying" @retry="retryReview" />
-            <div class="ac-dsec"><div class="ac-dsec__t"><span>投放效果</span><span class="ac-dsec__h">近 7 天 · 净成交口径</span></div><div class="ac-dempty">当前接口尚未返回该素材的投放效果数据。</div></div>
-            <AssetPlanReferences :item="item" />
-          </div>
         </template>
         </template>
       </template>
@@ -44,27 +31,22 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
 import { assetGeometry } from '@/features/creative/assetGeometry';
-import AssetPlanReferences from "./AssetPlanReferences.vue";
+import AssetStatistics from "./AssetStatistics.vue";
 import { referenceLabel } from "@/features/creative/assetReferences";
 import AssetIcon from "./AssetIcon.vue";
-import AssetThumbnail from "./AssetThumbnail.vue";
 import AssetUploadPanel from "./AssetUploadPanel.vue";
 import CarouselUploadPanel from './CarouselUploadPanel.vue';
 import CarouselPreview from './CarouselPreview.vue';
-import AssetReviewStatus from './AssetReviewStatus.vue';
-import AssetSyncAction from './AssetSyncAction.vue';
-import { getUploadedAsset, reconcileAssetSync, retryAssetSync, retryAssetReview, type AssetSync, type UploadedAsset } from "@/features/creative/creativeApi";
-import { reviewPending } from "@/features/creative/assetUploads";
+import { getUploadedAsset, type UploadedAsset } from "@/features/creative/creativeApi";
 import { assetPreview, resolveAssetPreview } from '@/features/creative/assetPreviews';
-const reviewRetrying = ref(false);
-import { assetUrl, duration, fileSize, sourceLabel, assetStatus, assetIdentifier, assetSyncLabel as syncLabel, assetRatio, assetDimensions, assetDateTime } from "./assetFormat";
-const props = withDefaults(defineProps<{ kind: "upload" | "detail" | "preview"; item: LibraryItemVo | null; libraryType?: LibraryItemVo['type'] }>(), { libraryType: 'VIDEO' });
+import { assetUrl, duration, fileSize, assetStatus, assetRatio, assetDimensions } from "./assetFormat";
+const props = withDefaults(defineProps<{ kind: "upload" | "detail" | "preview"; item: LibraryItemVo | null; libraryType?: LibraryItemVo['type']; accountId?: string }>(), { libraryType: 'VIDEO' });
 const emit = defineEmits<{ close: []; switch: [kind: "detail" | "preview"]; changed: [] }>();
 const uploadCloseBlocked = ref(false);
 const closeBlocked = computed(() => props.kind === 'upload' && uploadCloseBlocked.value);
 function requestClose() { if (!closeBlocked.value) emit('close'); }
 const box = ref<HTMLElement>();
-const uploaded = ref<UploadedAsset>(), detailError = ref(""), retrying = ref("");
+const uploaded = ref<UploadedAsset>(), detailError = ref("");
 const mediaError = ref(false), observed = ref<{width:number;height:number}>();
 const geometry = computed(() => props.item ? assetGeometry(props.item, observed.value) : {orientation:'unknown',label:''} as ReturnType<typeof assetGeometry>);
 const displayItem = computed(() => props.item && geometry.value.width ? {...props.item,width:geometry.value.width,height:geometry.value.height} : props.item);
@@ -79,53 +61,18 @@ async function previewFailed() {
 }
 watch(() => [props.kind, props.item?.id], () => {
   const item = props.item;
-  if (item?.id.startsWith('EXT:') && props.kind !== 'upload') void resolveAssetPreview(item, true);
+  if (item?.id.startsWith('EXT:') && props.kind === 'preview') void resolveAssetPreview(item, true);
 }, { immediate: true });
 let previousOverflow = "";
-let disposed = false, detailRequestNo = 0, syncRequestNo = 0;
-let detailTimer: ReturnType<typeof setInterval> | undefined;
+let disposed = false, detailRequestNo = 0;
 async function loadDetail() {
-  const id = props.item?.assetId; if (!id || retrying.value) return;
+  const id = props.item?.assetId; if (!id || props.kind !== 'preview' || props.item?.type !== 'TEXT') return;
   const current = ++detailRequestNo;
   try { const result = await getUploadedAsset(id); if (!disposed && current === detailRequestNo && props.item?.assetId === id) { uploaded.value = result; detailError.value = ''; } }
   catch { if (!disposed && current === detailRequestNo && props.item?.assetId === id) detailError.value = '素材详情暂时无法加载'; }
 }
 async function copyText() { try { await navigator.clipboard.writeText(uploaded.value?.textContent || ''); ElMessage.success('文本已复制'); } catch { ElMessage.warning('无法自动复制，请选中文本后复制'); } }
-async function retryReview() {
-  if (!props.item?.assetId) return;
-  reviewRetrying.value = true;
-  try { uploaded.value = await retryAssetReview(props.item.assetId); emit('changed'); }
-  finally { reviewRetrying.value = false; }
-}
-async function retrySync(sync: AssetSync) {
-  const id = props.item?.assetId;
-  if (!id || sync.status === 'UNCERTAIN' || retrying.value) return;
-  const current = ++syncRequestNo;
-  ++detailRequestNo;
-  retrying.value = sync.id;
-  try { const result = await retryAssetSync(id, sync.accountId); if (!disposed && current === syncRequestNo && props.item?.assetId === id) { uploaded.value = result; emit('changed'); } }
-  finally { if (current === syncRequestNo) retrying.value = ''; }
-}
-async function verifySync(sync: AssetSync) {
-  const id = props.item?.assetId;
-  if (!id || retrying.value) return;
-  const current = ++syncRequestNo;
-  ++detailRequestNo;
-  retrying.value = sync.id;
-  try {
-    const result = await reconcileAssetSync(id, sync.accountId);
-    if (!disposed && current === syncRequestNo && props.item?.assetId === id) { uploaded.value = result.asset; emit('changed'); }
-  } catch { if (!disposed && current === syncRequestNo && props.item?.assetId === id) ElMessage.warning('核查暂未完成，上传记录已保留，请稍后重试'); }
-  finally { if (current === syncRequestNo) retrying.value = ''; }
-}
-watch(() => props.item?.assetId, () => { ++syncRequestNo; retrying.value = ''; uploaded.value = undefined; detailError.value = ''; void loadDetail(); });
-const specs = computed(() => {
-  const a = displayItem.value; if (!a) return [];
-  const values = [["素材规格", dimensions.value], ["画幅比例", assetRatio(a)], ["文件大小", fileSize(a.sizeBytes)]];
-  if (geometry.value.label) values.unshift(['画面方向',geometry.value.label]);
-  if (a.type === "VIDEO") values.push(["视频时长", duration(a.durationSec)]);
-  return [...values, ["所属类目", a.category || "—"], [a.source === 'EXTERNAL' ? '千川上传时间' : '上传时间', assetDateTime(a.createdAt)], ["素材来源", sourceLabel(a)], ...(assetStatus(a).label ? [["入库状态", assetStatus(a).label]] : [])];
-});
+watch(() => props.item?.assetId, () => { uploaded.value = undefined; detailError.value = ''; void loadDetail(); });
 function readDimensions(event: Event) {
   const target = event.target as HTMLImageElement | HTMLVideoElement;
   if (props.item?.type === 'VIDEO' && !(target instanceof HTMLVideoElement)) return;
@@ -142,24 +89,22 @@ function onKey(event: KeyboardEvent) {
   if (event.shiftKey && (document.activeElement === first || document.activeElement === box.value)) { event.preventDefault(); last.focus(); }
   else if (!event.shiftKey && (document.activeElement === last || document.activeElement === box.value)) { event.preventDefault(); first.focus(); }
 }
-watch(() => props.kind, async () => { mediaError.value = false; await nextTick(); box.value?.focus(); });
-onMounted(() => { previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; box.value?.focus(); void loadDetail(); detailTimer = setInterval(() => { if (reviewPending(uploaded.value?.aiReview?.status) || uploaded.value?.syncs.some(s => ['QUEUED', 'RUNNING'].includes(s.status))) void loadDetail(); }, 4000); });
-onUnmounted(() => { disposed = true; ++detailRequestNo; ++syncRequestNo; document.body.style.overflow = previousOverflow; clearInterval(detailTimer); });
+watch(() => props.kind, async () => { mediaError.value = false; await nextTick(); box.value?.focus(); if (props.kind === 'preview') void loadDetail(); });
+onMounted(() => { previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; box.value?.focus(); void loadDetail(); });
+onUnmounted(() => { disposed = true; ++detailRequestNo; document.body.style.overflow = previousOverflow; });
 </script>
 <style scoped>
 .modal { z-index: 200; }
 .modal__box { max-height:calc(100dvh - 48px); overflow-y:auto; }
+.modal__box.modal__box--drawer { width:min(1200px,calc(100vw - 64px)); max-width:none; height:100dvh; max-height:100dvh; overflow:hidden; }
+@media(max-width:600px){.modal__box.modal__box--drawer{width:100%;border-radius:0;}}
 .modal__close:disabled { opacity:.45; cursor:not-allowed; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.ac-file__ic svg { width: 18px; height: 18px; }
 .ac-pmedia video, .ac-pmedia > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-.ac-pmedia.asset-media-frame, .ac-dmedia.asset-media-frame { height:auto; width:min(100%,calc(60dvh * var(--asset-ratio))); margin-inline:auto; }
-.ac-dmedia.asset-media-frame { width:min(100%,calc(40dvh * var(--asset-ratio))); }
-.asset-detail-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.ac-pmedia.asset-media-frame { height:auto; width:min(100%,calc(60dvh * var(--asset-ratio))); margin-inline:auto; }
 .asset-media-error { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-size: 13px; color: #4e5069; background: rgba(255,255,255,.9); padding: 8px; }
-.ac-dmeta span:first-child, .ac-dl__v, .ac-dtitle, .modal__title { overflow-wrap: anywhere; }
+.modal__title { overflow-wrap: anywhere; }
 .ac-pmedia audio { position:absolute; width:calc(100% - 48px); top:50%; left:24px; transform:translateY(-50%); }
 .asset-text-media { aspect-ratio:auto; max-height:420px; min-height:200px; overflow:auto; background:#f7f7fc; }
 .asset-text-media pre { padding:24px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.8; color:#50536f; }
-.asset-sync-detail { font-size:13px; line-height:1.8; }.asset-sync-detail > p { margin-top:10px; }.asset-sync-detail button { color:#5b55ff; }.asset-sync-row { display:flex; gap:16px; justify-content:space-between; border-bottom:1px solid #eeeef7; padding:12px 0; overflow-wrap:anywhere; }.asset-sync-row small { color:#8b8ea6; }.asset-sync-row button { flex:none; align-self:center; }
 </style>

@@ -131,6 +131,12 @@ public class PlatformMaterialCatalog {
                 Integer.class, tenant);
         return count != null && count == 0;
     }
+    public Optional<Material> findObject(String tenant,String account,MaterialType type,String objectId) {
+        var matches=jdbc.query("SELECT c.* FROM platform_material_catalog c JOIN oauth_account a ON a.id=c.account_id "
+                + "WHERE c.tenant_id=? AND a.tenant_id=? AND a.status='ACTIVE' AND a.platform='QIANCHUAN' "
+                + "AND c.account_id=? AND c.material_type=? AND c.object_id=?",mapper,tenant,tenant,account,type.name(),objectId);
+        return matches.size()==1?Optional.of(matches.getFirst()):Optional.empty();
+    }
 
     public boolean hasFailedSync(String tenant) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM platform_material_sync s JOIN oauth_account a ON a.id=s.account_id "

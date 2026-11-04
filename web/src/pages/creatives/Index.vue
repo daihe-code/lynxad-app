@@ -40,7 +40,7 @@
       </div>
     </div>
     <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 灵投智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
-    <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
+    <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" :account-id="accountId || undefined" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
     <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
   </div>
 </template>

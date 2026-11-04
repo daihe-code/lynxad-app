@@ -228,6 +228,38 @@ public class LiveAdManagementAdapter implements AdManagementPort {
         LocalDate today=LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
         return materialReport(c,adId,today,today,"VIDEO");
     }
+    @Override public LibraryMaterialReport libraryMaterialReport(Credential c,String type,String materialId,LocalDate start,LocalDate end) {
+        new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
+        numericId(materialId);
+        String topicName=LibraryMaterialReportReader.topic(type),reportUrl=properties.getQianchuan().getReport().getCustomUrl();
+        String configUrl=reportUrl.replace("/uni_promotion/data/get/","/uni_promotion/config/get/");
+        if(configUrl.equals(reportUrl))throw new BizException(1406,"素材报表接口尚未配置");
+        JsonNode topic=null;
+        for(var t:get(c,configUrl,Map.of("data_topics",List.of(topicName))).path("custom_config_datas"))
+            if(topicName.equals(t.path("data_topic").asText()))topic=t;
+        if(topic==null)throw new BizException(1406,"当前账户暂未提供此类型的投放数据");
+        var total=LibraryMaterialReportReader.select(topic,false);
+        var daily=LibraryMaterialReportReader.select(topic,true);
+        var summary=libraryMaterialRows(c,reportUrl,topicName,materialId,start,end,total);
+        var trend=daily.daily()?libraryMaterialRows(c,reportUrl,topicName,materialId,start,end,daily):List.<JsonNode>of();
+        return LibraryMaterialReportReader.read(materialId,start,end,total,summary,daily,trend);
+    }
+    private List<JsonNode> libraryMaterialRows(Credential c,String reportUrl,String topic,String material,LocalDate start,LocalDate end,
+            LibraryMaterialReportReader.Selection selection) {
+        var rows=new ArrayList<JsonNode>();
+        for(int page=1;page<=5;page++) {
+            var data=get(c,reportUrl,Map.of("data_topic",topic,"dimensions",selection.dimensions(),"metrics",new LinkedHashSet<>(selection.fields().values()),
+                "filters",List.of(Map.of("field","material_id","operator",7,"values",List.of(material))),
+                "order_by",List.of(Map.of("type",1,"field",selection.daily()?"stat_time_day":"material_id")),
+                "start_time",start+" 00:00:00","end_time",end+" 23:59:59","page",page,"page_size",100));
+            if(!data.path("rows").isArray())throw new BizException(1406,"素材报表返回不完整");
+            data.path("rows").forEach(rows::add);
+            int pages=data.path("page_info").path("total_page").asInt();
+            if(pages>0 && page>=pages || pages==0 && data.path("rows").size()<100)return rows;
+            if(data.path("rows").isEmpty())break;
+        }
+        throw new BizException(1406,"素材报表返回不完整");
+    }
     @Override public List<JsonNode> materialReport(Credential c,String adId,LocalDate start,LocalDate end,String type) {
         new com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange(start,end);
         if(!Set.of("VIDEO","IMAGE","CAROUSEL","TITLE","LIVE_ROOM").contains(type))throw new BizException(1402,"素材类型不正确");

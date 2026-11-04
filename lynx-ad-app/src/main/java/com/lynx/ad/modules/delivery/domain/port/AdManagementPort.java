@@ -32,6 +32,13 @@ public interface AdManagementPort {
     default List<JsonNode> materialReport(Credential credential,String adId,LocalDate start,LocalDate end,String type) {
         throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供素材报表");
     }
+    record MaterialDay(LocalDate date,Map<String,java.math.BigDecimal> metrics) {}
+    record LibraryMaterialReport(Map<String,java.math.BigDecimal> summary,List<MaterialDay> trend,
+            boolean hasData,boolean trendAvailable) {}
+    /** Account-wide material statistics, independent of the plans currently referencing the file. */
+    default LibraryMaterialReport libraryMaterialReport(Credential credential,String type,String materialId,LocalDate start,LocalDate end) {
+        throw new com.lynx.ad.common.exception.BizException(1406,"当前账户暂未提供素材投放数据");
+    }
     default List<JsonNode> materialMetadata(Credential credential,String type,List<String> materialIds) { return List.of(); }
     /** Image object IDs (including a plan's selected video cover), distinct from numeric material IDs. */
     default List<JsonNode> materialImageMetadata(Credential credential,List<String> imageIds) { return List.of(); }

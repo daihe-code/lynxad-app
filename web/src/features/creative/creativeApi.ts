@@ -58,6 +58,20 @@ export interface LibraryItemVo {
   aiReview?: AssetReview | null;
 }
 
+export interface MaterialStatistics {
+  state: 'READY' | 'NO_DATA' | 'ACCOUNT_REQUIRED' | 'UNSUPPORTED';
+  accountId: string | null;
+  materialId: string | null;
+  summary: Record<string, number | null>;
+  trend: { date: string; metrics: Record<string, number | null> }[];
+  trendAvailable: boolean;
+  fetchedAt: string;
+}
+export function getMaterialStatistics(params: { id: string; accountId?: string; from: string; to: string }, signal?: AbortSignal) {
+  return apiGet<MaterialStatistics>('/api/v1/creative/library/statistics', { params, signal, timeout: 90000,
+    readRetry: false, headers: { 'X-Quiet-Request': 'true' } });
+}
+
 export interface LibraryResponse {
   usagePending?: boolean;
   qianchuanBound: boolean;
