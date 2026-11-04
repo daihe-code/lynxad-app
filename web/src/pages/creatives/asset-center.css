@@ -1300,16 +1300,6 @@ to {
 .asset-center .ac-tab[aria-selected=true] .ac-tab__n {
   color: rgb(var(--c-primary-ink))
 }
-.asset-center .ac-tab[aria-selected=true]:after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 3px;
-  border-radius: 9999px;
-  background-color: rgb(var(--c-primary))
-}
 .asset-center .ac-bar {
   margin-top: 20px;
   -moz-column-gap: .75rem;
