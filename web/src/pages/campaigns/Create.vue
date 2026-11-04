@@ -57,6 +57,7 @@ import { planSubmissionPhase, planSubmissionSummary } from '@/features/delivery/
 import { planPublishFailure, showPublishFailureResult, publishFailureTarget, publishFailureStep, type PublishFailureTarget } from '@/features/delivery/planPublishFailure';
 import { creationScheduleDefaults, canRefreshCreationSchedule, resumeDraftDates } from '@/features/delivery/creationSchedule';
 import { canContinueProductAnalysis, isCurrentCreationPoll, productAnalysisInput } from '@/features/delivery/productAnalysisReadiness';
+import { materialIsReady } from '@/features/delivery/materialProcessing';
 import { DRAFT_INPUT_FIELDS, recalledDraftAccount, type DraftInputs, type DraftScope } from '@/features/delivery/creationDraftCache';
 import { draftGoalFields, serverDraftInputs, useCreationDraftAutosave } from '@/features/delivery/useCreationDraftAutosave';
 import { changedDraftFields } from '@/features/delivery/creationDraftCache';
@@ -71,7 +72,8 @@ import PlanResult from './reference/PlanResult.vue';
 import PlanSubmissionCard from './components/PlanSubmissionCard.vue';
 import './create/create-theme.css';
 const route = useRoute(), router = useRouter(), user = useUserStore();
-const props = defineProps<{ initialPlanId?: string; initialStep?: number; initialMaterialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; initialMaterialProduct?:string; publishedEditTarget?: string; adjustProductsOnOpen?: boolean }>();
+const props = defineProps<{ initialPlanId?: string; initialStep?: number; initialMaterialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; initialMaterialProduct?:string; publishedEditTarget?: string; adjustProductsOnOpen?: boolean; publishedWorkspace?:boolean; onPublishedSaved?:()=>Promise<void> }>();
+const emit=defineEmits<{navigate:[step:number]}>();
 const requestBusy = ref(false), visibilitySaving = ref(false);
 const busy = computed(() => requestBusy.value || visibilitySaving.value);
 const state = ref<api.CreationState>(), step = ref(1), loaded = ref(false), loadError = ref(false);
@@ -122,7 +124,7 @@ const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].inc
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
 const selectionLocked=computed(()=>contentLocked.value || productSelectionLocked(state.value));
 const reconcileId = ref(''), reviewedQuote=ref('');
-const maxStep = computed(() => analysisReady.value || resumeMaterialEntry.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
+const maxStep = computed(() => contentEditing.value ? 4 : analysisReady.value || resumeMaterialEntry.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
 const { budget, budgets: modeBudgets, restore: restoreBudgets, reset: resetBudgets, applyRecommendation: applyBudgetRecommendation } = useCreationModeBudgets(mode);
@@ -199,7 +201,7 @@ const budgetError = computed(() => contentEditing.value ? '' : creationBudgetErr
 const roiError = computed(() => contentEditing.value ? '' : roiInputError(roi.value, mode.value));
 const dateError = computed(() => contentEditing.value ? '' : scheduleInputError(duration.value,start.value,end.value,today()));
 const goalChanged = computed(() => creationGoalChanged(state.value, { mode:mode.value,budget:budget.value,roi:roi.value,duration:duration.value,start:start.value,end:end.value }));
-const reachedStep = computed(() => validReachedStep(creationReachedStep(state.value,step.value),!sameAnalysisInput.value,goalChanged.value));
+const reachedStep = computed(() => contentEditing.value ? 4 : validReachedStep(creationReachedStep(state.value,step.value),!sameAnalysisInput.value,goalChanged.value));
 const draftHasGoal = computed(() => step.value >= 2 || sameSelection.value && state.value?.budget != null);
 const canSaveDraft = computed(() => !!account.value && !!selected.value.length && !selectionLocked.value
   && (!draftHasGoal.value || !!name.value.trim() && !budgetError.value && !roiError.value && !dateError.value));
@@ -318,9 +320,11 @@ async function persistStep(target: number) {
   if (state.value) autosave.acknowledge(['step'],state.value.revision,{ ...captureDraft(),step: target });
 }
 async function goToStep(target: number) {
+  if(props.publishedWorkspace && contentEditing.value && (target===2 || target===4)) {emit('navigate',target);return;}
   if (target > 1 && state.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
   if (target < 1 || target > 3 || target > maxStep.value) return;
   await run(async () => { if(step.value === 2 && (target === 3 || !budgetError.value && !roiError.value && !dateError.value)) await persistGoal(); await persistStep(target); step.value = target; window.scrollTo(0,0); });
+  if(props.publishedWorkspace && step.value===target)emit('navigate',target);
   if(target === 2 && step.value === 2) await refreshRecommendations();
 }
 async function nextGoal() {
@@ -475,7 +479,8 @@ async function reviewPublishEstimate() {
   });
 }
 async function verifyContent(){await run(async()=>{if(!state.value)return;acceptRead(await api.verifyContentEdit(state.value));await contentSaved();});}
-async function contentSaved(){const s=state.value;if(s?.contentEdit?.status==='SUCCEEDED'){autosave.discard();ElMessage.success('修改已保存到原投放计划');await router.replace({path:`/campaigns/${s.contentEdit.targetPlanId}`,query:{step:'3'}});}}
+let contentSaveHandled=false;
+async function contentSaved(){const s=state.value;if(s?.contentEdit?.status==='SUCCEEDED' && !contentSaveHandled){contentSaveHandled=true;autosave.discard();if(props.publishedWorkspace){await props.onPublishedSaved?.();return;}ElMessage.success('修改已保存到原投放计划');await router.replace({path:`/campaigns/${s.contentEdit.targetPlanId}`,query:{step:'3'}});}}
 async function publish() {
   if(contentEditing.value){
     try{await ElMessageBox.confirm('将当前商品、标题与素材保存到原投放计划。保留商品的现有素材继续使用，移出的商品及其素材将停止在本计划中展示和投放；素材中心文件保留。已发生的生成用量不会撤销。','保存商品与素材修改',{confirmButtonText:'保存修改',cancelButtonText:'返回核对',type:'warning'});}catch{return;}
@@ -595,6 +600,16 @@ onBeforeRouteUpdate(async (to, from) => {
   }
 });
 watch(() => route.query.draftId, id => { if (!props.initialPlanId && id !== state.value?.planId) void initialize(); });
+watch(()=>props.initialStep,value=>{if(props.publishedWorkspace && contentEditing.value && (value===1 || value===3))step.value=value;});
+async function savePublished() {
+  const s=state.value;if(!s)return false;
+  if(busy.value || contentLocked.value || working.value || s.titleGeneration && ['SENDING','PROCESSING'].includes(s.titleGeneration.status)
+    || !s.materials.length || !s.materials.every(materialIsReady) || s.products.some(p=>!s.materials.some(m=>m.productId===p.qcProductId&&materialIsReady(m)))) {
+    return false;
+  }
+  await publish();return true;
+}
+defineExpose({savePublished});
 watch(() => route.query.notice, () => {
   if (route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3) { step.value = 3; resumingMaterials.value = true; }
 });

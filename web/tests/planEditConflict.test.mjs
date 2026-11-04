@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { changedPlanInputs, canRebasePlan, rebasePlanInputs, planEditComparison } from '../src/features/delivery/planEditConflict.ts';
+import { changedPlanInputs, canRebasePlan, canContinueSettingsAfterContent, rebasePlanInputs, planEditComparison } from '../src/features/delivery/planEditConflict.ts';
 const base={planId:'p',qcPlanId:'456',accountId:'a',awemeId:'w',smartBidType:'SMART_BID_CUSTOM',name:'原计划',status:'PAUSED',budget:300,roi2Goal:2,settingsEdit:{version:'0.before',status:'IDLE'}};
+test('商品素材保存后只更新版本，未保存的预算可以继续提交',()=>{
+  const latest={...base,products:[{id:'new-product'}],settingsEdit:{version:'1.content-saved',status:'IDLE'}};
+  assert.equal(canContinueSettingsAfterContent(base,latest),true);
+  assert.equal(canContinueSettingsAfterContent({...base,scheduleType:'FROM_NOW',endDate:'2036-10-19'},{...latest,scheduleType:'FROM_NOW',endDate:null}),true);
+});
+test('商品素材编辑期间其他窗口更改目标或状态时不能自动覆盖',()=>{
+  for(const patch of [{budget:500},{roi2Goal:3},{name:'其他窗口改名'},{status:'DELIVERING'},{smartBidType:'SMART_BID_CONSERVATIVE'},{scheduleType:'DATE_RANGE',endDate:'2026-12-01'},{settingsEdit:{version:'1.pending',status:'UNCERTAIN'}}])
+    assert.equal(canContinueSettingsAfterContent(base,{...base,...patch}),false);
+});
 test('旧窗口保留自己的修改，未改字段采用另一窗口保存的新值',()=>{
   const latest={...base,name:'其他窗口改名',budget:500,roi2Goal:3,settingsEdit:{version:'1.after',status:'IDLE'}};
   const mine={name:'原计划',budget:'400',roi:'2.00'};

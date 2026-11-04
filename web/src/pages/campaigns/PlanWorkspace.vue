@@ -23,14 +23,16 @@
         <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
-      <Create v-if="contentDraftId" :key="contentDraftId" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="adjustProductsOnOpen ? 1 : contentTitleEditing ? 3 : undefined" :initial-material-product="contentTitleProduct" :initial-material-tab="contentTitleEditing ? contentMaterialTab : undefined" :adjust-products-on-open="adjustProductsOnOpen" />
-      <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
-      <template v-else>
+      <KeepAlive v-if="contentDraftId" :max="1">
+        <Create v-if="contentDraftId && (step === 1 || step === 3)" :key="contentDraftId" :ref="rememberContentEditor" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="step" :initial-material-product="contentTitleProduct" :initial-material-tab="contentTitleEditing ? contentMaterialTab : undefined" :adjust-products-on-open="adjustProductsOnOpen" published-workspace :on-published-saved="finishContentSave" @navigate="navigate" />
+      </KeepAlive>
+      <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
+      <template v-else-if="!contentDraftId || step === 2 || step === 4">
         <CreationFrame :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-message="adjustmentMessage" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" read-only embedded />
         <CreateGoalStep v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="bidType" :saving="saving" :read-only="!editing || !canEdit || transferring && transferPending" :allow-mode-change="transferring && !!transferAllowed" :disabled-mode="transferring ? plan.smartBidType : undefined" :allow-schedule-change="editing && canEdit" :date-error="dateError" settings-only embedded :budget-options="budgetOptions(creation?.recommendations)" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :order-lo="0" :order-hi="0" :estimate-roi-hint="estimates.roi" :estimate-orders-hint="estimates.orders" :estimate-hint="estimates.message" :budget-hint="budgetHint" :roi-hint="editing ? '输入修改后的净成交ROI目标' : '当前计划的净成交ROI目标'" selection-warning="" :demo-mode="false" :account="account" :accounts="[]" :account-chips="accountChips" @mode="changeTransferMode" />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && canEdit" :title-actions="productAdjustmentAvailable && !dirty && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && canEdit" :title-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">投放计划名称</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError" class="workspace-error" role="alert">{{ nameError }}</p></div></section></div></main>
@@ -48,7 +50,7 @@
             <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">取消修改</button>
           </template>
           <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
-          <button v-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || (!transferPending && (settingsBlocked || !dirty || !!nameError || !!budgetError || !!roiError || !!dateError || changedMode && !transferAllowed))" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
+          <button v-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || (!transferPending && (settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError || changedMode && !transferAllowed))" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
         </CreationFooter>
       </template>
       <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :error="mediaFailure?.message" :material="creation?.materials.find(m => m.id === materialAction?.id)" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
@@ -63,7 +65,7 @@ import { persistUploadBatch, localUploadSelection, type LocalUploadBatch, type U
 import { useRoute, useRouter } from 'vue-router';
 import { useCreationActionNotices } from '@/features/delivery/useCreationActionNotices';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
+import { canContinueSettingsAfterContent, canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
@@ -113,9 +115,11 @@ const route = useRoute(), router = useRouter(), user = useUserStore();
 const contentTitleEditing=ref(false), contentTitleProduct=ref('');
 const contentMaterialTab=ref<'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'>('TITLE');
 const contentDraftId=ref(''), adjustProductsOnOpen=ref(false);
-async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
+let contentEditor: {savePublished:()=>Promise<boolean>} | undefined;
+function rememberContentEditor(value:unknown){if(value)contentEditor=value as NonNullable<typeof contentEditor>;}
+async function startContentEdit(){if(!plan.value||!productAdjustmentAvailable.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;saving.value=true;try{const result=await beginContentEdit(plan.value.planId);adjustProductsOnOpen.value=true;contentDraftId.value=result.planId;}catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}finally{saving.value=false;}}
 async function editProductCopy(product:string,change:(state:CreationState)=>Promise<CreationState>,tab:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'='TITLE') {
-  if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;
+  if(!plan.value||!productAdjustmentAvailable.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value)return;
   materialBusy.value=true;mediaFailure.value=undefined;
   try{const draft=await beginContentEdit(plan.value.planId);await change(draft);contentTitleEditing.value=true;contentTitleProduct.value=product;contentMaterialTab.value=tab;adjustProductsOnOpen.value=false;contentDraftId.value=draft.planId;}
   catch(error){mediaFailure.value=requestFailure(error,{method:'POST'});}
@@ -124,7 +128,7 @@ async function editProductCopy(product:string,change:(state:CreationState)=>Prom
 function addPublishedMaterial(body:Parameters<typeof creationAdd>[1]) {return editProductCopy(body.productId,async s=>{const next=await creationAdd(s,body);notices.added(s,next);return next;},body.type as 'VIDEO'|'IMAGE'|'CAROUSEL');}
 let pendingUploadDraft: CreationState | undefined;
 async function addPublishedUploads(body: LocalUploadBatch, receipt: UploadBatchReceipt) {
-  if (!plan.value || !productAdjustmentAvailable.value || dirty.value || settingsBlocked.value || selectionLocked.value || saving.value || materialBusy.value) { receipt.done('暂时无法添加素材，请稍后重试。'); return; }
+  if (!plan.value || !productAdjustmentAvailable.value || settingsBlocked.value || selectionLocked.value || saving.value || materialBusy.value) { receipt.done('暂时无法添加素材，请稍后重试。'); return; }
   materialBusy.value = true; mediaFailure.value = undefined;
   try {
     pendingUploadDraft = pendingUploadDraft ? await creationGet(pendingUploadDraft.planId) : await beginContentEdit(plan.value.planId);
@@ -143,7 +147,7 @@ function finishPublishedUploads() {
 }
 function generatePublishedAddition(body:CreationAdditionBody) {return editProductCopy(body.productId,async s=>{const next=await creationAddition(s,body);notices.addition(next,body.requestId);return next;},body.type);}
 async function addPublishedTitle(body:TitleAddition,receipt:TitleAdditionReceipt) {
-  if(!plan.value||!productAdjustmentAvailable.value||dirty.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value){receipt.done('暂时无法新增标题，请稍后重试。');return;}
+  if(!plan.value||!productAdjustmentAvailable.value||settingsBlocked.value||selectionLocked.value||saving.value||materialBusy.value){receipt.done('暂时无法新增标题，请稍后重试。');return;}
   materialBusy.value=true;mediaFailure.value=undefined;
   try {
     const draft=await beginContentEdit(plan.value.planId),next=await addProductTitle(draft,{...body,requestId:receipt.requestId});
@@ -236,7 +240,7 @@ const adjustmentMessage = computed(() => productAdjustmentText({
   hasGoal: plan.value?.budget != null || plan.value?.roi2Goal != null, published: true,
 }));
 const productAdjustmentAvailable = computed(() => editing.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
-const productAdjustmentBlockedReason = computed(() => dirty.value ? '请先保存当前投放目标或名称修改，再调整商品。' : settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
+const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
 const footerHint = computed(() => {
   if (!editing.value || !canEdit.value) return '当前为查看详情';
@@ -279,7 +283,7 @@ function resetForm() {
   }
 }
 async function load() {
-  clearTimeout(materialTimer);pendingUploadDraft=undefined;materialAction.value=undefined;materialBusy.value=false;contentTitleEditing.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
+  clearTimeout(materialTimer);contentEditor=undefined;pendingUploadDraft=undefined;materialAction.value=undefined;materialBusy.value=false;contentTitleEditing.value=false;contentDraftId.value='';adjustProductsOnOpen.value=false;
   const request = ++loadNumber, id = String(route.params.id || ''); clearSettingsRecovery(); loading.value = true; loadError.value = ''; loadFailure.value = undefined; mediaFailure.value = undefined; contextFailure.value = undefined;
   const results = await Promise.allSettled([getPlan(id), listAccounts(), creationGet(id), transferring.value ? getPlanTransfer(id) : Promise.resolve(undefined)]);
   if (request !== loadNumber) return;
@@ -367,8 +371,17 @@ async function save() {
   const p = plan.value;
   if (!editing.value || !canEdit.value || !p || saving.value) return;
   if (transferring.value && transferPending.value) { await reconcileTransfer(); return; }
-  if (!dirty.value || settingsBlocked.value || nameError.value || budgetError.value || roiError.value || dateError.value) return;
-  if (transferring.value && changedMode.value) { await submitTransfer(); return; }
+  if ((!dirty.value && !contentDraftId.value) || settingsBlocked.value || nameError.value || budgetError.value || roiError.value || dateError.value) return;
+  if (contentDraftId.value) {
+    if (!contentEditor) return;
+    let ready=false;saving.value=true;try{ready=await contentEditor.savePublished();}finally{saving.value=false;}
+    if(!ready)navigate(3);return;
+  }
+  await saveSettings();
+}
+async function saveSettings() {
+  const p=plan.value;if(!p)return;
+  if (transferring.value && changedMode.value) { saving.value=false;await submitTransfer();return; }
   const body: { name?: string; budget?: number; roi2Goal?: number; scheduleType?: 'FROM_NOW' | 'DATE_RANGE'; endDate?: string } = {};
   if (name.value.trim() !== p.name) body.name = name.value.trim();
   if (changedBudget.value) body.budget = Number(budget.value);
@@ -388,6 +401,24 @@ async function save() {
     }
   }
   finally { saving.value = false; }
+}
+async function finishContentSave() {
+  const before=plan.value;if(!before)return;
+  const hadSettings=dirty.value;saving.value=true;
+  try {
+    const latest=await refreshPlanSettings(before.planId);
+    creation.value=await creationGet(before.planId);
+    contentDraftId.value='';contentEditor=undefined;contentTitleEditing.value=false;adjustProductsOnOpen.value=false;
+    if(hadSettings && !canContinueSettingsAfterContent(before,latest)) {
+      latestSettings.value=latest;settingsConflict.value=true;settingsMessage.value='计划设置已变化，请核对后保存。';await router.replace({path:route.path,query:{...route.query,step:'2'}});return;
+    }
+    plan.value=latest;
+    if(hadSettings)await saveSettings();
+    else {resetForm();ElMessage.success('计划修改已保存');await router.replace({path:`/campaigns/${before.planId}`,query:{step:'3'}});}
+  } catch(error) {
+    settingsFailure.value=requestFailure(error,{method:'GET'});
+    settingsConflict.value=true;contentDraftId.value='';contentEditor=undefined;
+  } finally{saving.value=false;}
 }
 async function readLatestSettings() {
   if (transferring.value && transferPending.value) { await reconcileTransfer(); return; }

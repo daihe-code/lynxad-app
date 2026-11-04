@@ -17,6 +17,11 @@ export function canRebasePlan(base: PlanEditSnapshot, latest: PlanEditSnapshot) 
   return !!latest.settingsEdit?.version && latest.settingsEdit.status === 'IDLE' && ['DELIVERING','PAUSED'].includes(latest.status)
     && ['planId','qcPlanId','accountId','awemeId','smartBidType'].every(key=>base[key as keyof PlanEditSnapshot] === latest[key as keyof PlanEditSnapshot]);
 }
+/** A content save advances the plan version; unrelated goal changes still need explicit review. */
+export function canContinueSettingsAfterContent(base: PlanEditSnapshot, latest: PlanEditSnapshot) {
+  return canRebasePlan(base,latest) && ['name','status','budget','roi2Goal','startDate'].every(key=>base[key as keyof PlanEditSnapshot] === latest[key as keyof PlanEditSnapshot])
+    && duration(base) === duration(latest) && (duration(base)==='long' || base.endDate===latest.endDate);
+}
 export function rebasePlanInputs(base: PlanEditSnapshot, latest: PlanEditSnapshot, inputs: PlanEditInputs): PlanEditInputs {
   if (!canRebasePlan(base,latest)) throw new Error('计划绑定、投放方式或状态已变化，请采用最新设置后重新编辑');
   const changed=changedPlanInputs(base,inputs);
