@@ -62,6 +62,8 @@ const steps = ["选择商品", "设置投放目标", "定素材并投放", "查�
 </script>
 <style scoped>
 .step--nav { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.ad-stepper .step.step--nav { border: 1px solid transparent; }
+.ad-stepper .step.step--nav[aria-current="step"] { border-color: #6256ff; }
 .step--nav:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 12px; }
 .ad-banner__tag svg {
   width: 13px;
