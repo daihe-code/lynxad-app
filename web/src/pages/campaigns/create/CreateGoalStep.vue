@@ -101,7 +101,7 @@
             <p class="field__label" id="lbl-mode">投放方式</p>
 
             <div class="form-grid mt-2" role="radiogroup" aria-labelledby="lbl-mode">
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CUSTOM')" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CUSTOM'" :disabled="saving || readOnly || disabledMode === 'SMART_BID_CUSTOM' || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CUSTOM')" @click="emit('mode', 'SMART_BID_CUSTOM')" data-mode="cost">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">控成本投放</span>
@@ -110,7 +110,7 @@
                 <span class="opt__sub">按你设置的 ROI 目标争取成交，目标设置过高可能影响起量</span>
               </button>
 
-              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CONSERVATIVE')" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
+              <button type="button" class="opt" role="radio" tabindex="0" :aria-checked="mode === 'SMART_BID_CONSERVATIVE'" :disabled="saving || readOnly || disabledMode === 'SMART_BID_CONSERVATIVE' || (settingsOnly && !allowModeChange && mode !== 'SMART_BID_CONSERVATIVE')" @click="emit('mode', 'SMART_BID_CONSERVATIVE')" data-mode="volume">
                 <span class="opt__row">
                   <span class="opt__radio" aria-hidden="true"></span>
                   <span class="opt__title">放量投放</span>
@@ -308,7 +308,7 @@ import type { BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 import { creationScheduleRecovery } from '@/features/delivery/creationSchedule';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; disabledMode?: string; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
