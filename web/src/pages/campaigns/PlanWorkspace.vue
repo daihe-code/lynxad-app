@@ -4,7 +4,6 @@
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
     <template v-else-if="plan">
       <div v-if="!draftEditor" class="workspace-feedback container-page">
-        <p v-if="transferring && transferMessage" class="workspace-notice" role="status">{{ transferMessage }}</p>
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
         <section v-if="editing && !transferring && plan.qcPlanId && (settingsFailure || settingsMessage || settingsPending || settingsConflict || !plan.settingsEdit?.version || latestSettings)" class="settings-recovery" aria-label="计划修改核对" aria-live="polite">
           <p v-if="settingsMessage">{{ settingsMessage }}</p>
