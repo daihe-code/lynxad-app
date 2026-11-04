@@ -23,6 +23,7 @@ export function sourceLabel(item: LibraryItemVo) {
 export function assetStatus(item: LibraryItemVo) {
   if (item.carouselId) {
     const status = item.aiReview?.status;
+    if (!status || status === 'NOT_REQUIRED') return { cls: 'ac-use--off', label: '' };
     return { cls: status === 'APPROVED' ? 'ac-use--on' : ['REJECTED', 'FAILED', 'MANUAL_REVIEW'].includes(status || '') ? 'ac-use--bad' : 'ac-use--wait',
       label: status === 'APPROVED' ? '图文质检合格' : status === 'FAILED' ? '图文质检失败' : ['REJECTED', 'MANUAL_REVIEW'].includes(status || '') ? '图文不合格' : '图文质检中' };
   }
