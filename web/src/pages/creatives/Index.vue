@@ -56,7 +56,6 @@ import AssetCard from "./AssetCard.vue";
 import AssetModal from "./AssetModal.vue";
 import AssetDeleteDialog from './AssetDeleteDialog.vue';
 import { uploadRows, reviewPending } from '@/features/creative/assetUploads';
-import { carouselDraft } from '@/features/creative/carouselUploads';
 
 type AssetType = LibraryItemVo["type"];
 type Status = "ALL" | "USED" | "UNUSED" | "REVIEWING" | "REJECTED";
@@ -96,7 +95,6 @@ const visiblePages = computed(() => {
 const allPicked = computed(() => data.value.items.length > 0 && data.value.items.every(i => picked.value.has(i.id)));
 const somePicked = computed(() => data.value.items.some(i => picked.value.has(i.id)));
 watch(() => uploadRows.map(r => `${r.result?.id}:${r.result?.aiReview?.status}:${r.result?.syncs.map(s => s.status).join(',')}`).join(';'), () => { void reload('refresh'); });
-watch(() => carouselDraft.result, () => { void reload('refresh'); });
 async function reload(mode: 'query' | 'refresh' | 'background' = 'refresh') {
   if (mode === 'background' && (activeQuery || loading.value || deleting.value || document.hidden)) return;
   clearTimeout(searchTimer); activeQuery?.abort(); const id = ++requestId;

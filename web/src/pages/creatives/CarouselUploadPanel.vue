@@ -1,129 +1,176 @@
 <template>
-  <div class="carousel-upload">
-    <p class="tip">文本、图片和音频组成一条图文，检查通过并同步完成后可添加。</p>
-    <p v-if="differentAccount" class="error">另一投放账户的图文仍在处理中，请完成后再上传当前账户的图文。</p>
-    <section><h3>1. 文本 <span>必填</span></h3>
-      <label>图文名称<div class="counted-field"><input v-model="draft.name" aria-label="图文名称" :maxlength="carouselTextLimits.name" :disabled="locked" :aria-invalid="!!nameError" placeholder="选填，默认使用第一张图片的名称" /><span class="field-counter" aria-hidden="true">{{ draft.name.length }}/{{ carouselTextLimits.name }}</span></div></label>
-      <p v-if="nameError" class="error" role="alert">{{ nameError }}</p>
-      <input ref="textInput" class="sr-only" type="file" accept=".txt" aria-label="导入图文文本" :disabled="locked" @change="textChanged" />
-      <button class="choose-file" type="button" :disabled="locked" @click="textInput?.click()">导入 TXT 文件</button>
-      <div class="counted-field counted-field--multiline"><textarea v-model="draft.text" aria-label="图文文本" :disabled="locked" :aria-invalid="!!textError" :maxlength="carouselTextLimits.text" rows="4" placeholder="请输入图文内容，将单独进行文本质检" @input="textImportError = ''"></textarea><span class="field-counter" aria-hidden="true">{{ draft.text.length }}/{{ carouselTextLimits.text }}</span></div>
-      <p v-if="textError" class="error" role="alert">{{ textError }}</p>
-      <label v-if="embedded" class="aigc"><input v-model="draft.textAigc" type="checkbox" :disabled="locked" />文本包含 AI 生成内容</label>
-    </section>
-    <section @dragover.prevent @drop.prevent="chooseImages($event.dataTransfer?.files)"><h3>2. 图片 <span>必填 · 支持多张</span></h3>
-      <input ref="imageInput" class="sr-only" type="file" :accept="imagePolicy.extensions.map(e => `.${e}`).join(',')" multiple aria-label="选择图文图片" :disabled="locked" @change="imagesChanged" />
-      <button class="choose-file" type="button" :disabled="locked" @click="imageInput?.click()">{{ draft.images.length ? '继续添加图片' : '选择图片（支持多选）' }}</button>
-      <div class="images"><div v-for="(image, index) in previews" :key="image.url" class="image"><img :src="image.url" :alt="image.name" /><button type="button" :disabled="locked" :aria-label="`移除图片 ${index + 1}`" @click="draft.images.splice(index, 1)">×</button><small>{{ image.name }}</small><label v-if="embedded" class="aigc"><input v-model="draft.fileAigc[fileAigcKey(draft.images[index]!)]" type="checkbox" :disabled="locked" />AI 生成</label></div></div>
-      <small>{{ draft.images.length }} / {{ assetFileRules.carouselMaxImages }} 张 · 支持jpg，png，jpeg等图片格式，9:16≤宽高比≤16:9，360px≤宽度≤2560px，单个图片大小不超过10M</small>
-    </section>
-    <section @dragover.prevent @drop.prevent="chooseAudio($event.dataTransfer?.files)"><h3>3. 音频 <span>必填</span></h3>
-      <input ref="audioInput" class="sr-only" type="file" :accept="audioPolicy.extensions.map(e => `.${e}`).join(',')" aria-label="选择图文音频" :disabled="locked" @change="audioChanged" />
-      <button class="choose-file" type="button" :disabled="locked" @click="audioInput?.click()">{{ draft.audio ? '更换音频' : '选择音频' }}</button>
-      <p v-if="draft.audio">{{ draft.audio.name }} · {{ fileSize(draft.audio.size) }} <button type="button" :disabled="locked" @click="draft.audio = undefined; audioSelectionError = ''">移除</button></p>
-      <label v-if="embedded && draft.audio" class="aigc"><input v-model="draft.fileAigc[fileAigcKey(draft.audio)]" type="checkbox" :disabled="locked" />音频包含 AI 生成内容</label>
-      <small>{{ audioPolicy.hint }}</small>
-      <p v-if="audioSelectionError" class="error" role="alert">{{ audioSelectionError }}</p>
-    </section>
-    <label v-if="!fixedAccountId" class="accounts">同步到千川账户<el-select v-model="draft.accounts" multiple collapse-tags :disabled="locked" placeholder="不选则仅保存到平台"><el-option v-for="a in accounts" :key="a.accountId" :value="a.accountId" :label="`${a.accountName}（${a.advertiserId}）`" /></el-select></label>
-    <p v-if="accountError" class="error">{{ accountError }} <button type="button" @click="loadAccounts">重试</button></p>
-    <label v-if="!embedded" class="aigc"><input v-model="draft.aigc" type="checkbox" :disabled="locked" />包含 AI 生成内容（如实申报）</label>
-    <div v-if="rows.length" class="progress-list" aria-live="polite"><div v-for="row in rows" :key="row.key"><b>{{ row.file.name }}</b><span>{{ row.stage }}</span><progress :value="row.progress" max="100"></progress><p v-if="row.error" class="error">{{ row.error }}</p></div></div>
-    <p v-if="draft.error" class="error" role="alert">{{ draft.error }}</p>
-    <AssetReviewStatus v-if="draft.result && !ready" :review="draft.result.aiReview" composite />
-    <div v-if="draft.result && !ready" class="parts"><div v-for="part in draft.result.parts" :key="`${part.role}:${part.position}`"><span>{{ part.role === 'TEXT' ? '文本' : part.role === 'AUDIO' ? '音频' : `图片 ${part.position + 1}` }}</span><b>{{ reviewLabel(part.asset.aiReview?.status) }}</b><button v-if="part.asset.aiReview?.status === 'FAILED'" type="button" :disabled="!!retrying" @click="retryPart(part.asset.id)">重试检查</button><template v-for="sync in part.asset.syncs.filter(s => !fixedAccountId || s.accountId === fixedAccountId)" :key="sync.id"><span>{{ syncLabel(sync.status, sync.reviewStatus) }}<small v-if="sync.errorMessage" class="error">{{ sync.errorMessage }}</small></span><AssetSyncAction :sync="sync" :busy="retrying === sync.id" :can-retry="['APPROVED', 'NOT_REQUIRED'].includes(part.asset.aiReview?.status || '')" @retry="retrySync(part.asset.id, sync)" @verify="verifySync(part.asset.id, sync)" /></template></div></div>
-    <p v-if="!embedded" class="tip">三部分全部质检通过后，才同步图片和音频组件到所选千川账户。</p>
-    <p v-if="draft.busy" class="tip" role="status">正在预检、上传并保存图文，进入审核后即可关闭。</p>
-    <p v-else-if="draft.result" class="tip" role="status">{{ ready ? '图文已就绪，检查、同步均已完成。' : '图文已保存，正在检查或同步。' }}</p>
-    <div class="modal__foot"><button v-if="!embedded" class="btn-modal-ghost" type="button" :disabled="draft.busy" @click="emit('close')">关闭</button><button class="btn-modal-primary" type="button" :disabled="locked || !!nameError || !!textError || !draft.text.trim() || !draft.images.length || !draft.audio" @click="start">{{ draft.busy ? '正在上传…' : draft.result ? '图文已保存' : '上传图文并检查' }}</button></div>
-  </div>
+  <section class="carousel-library-upload">
+    <header class="carousel-upload-head"><h2 id="asset-modal-title">上传图文</h2><button class="close-button" type="button" aria-label="关闭" :disabled="busy" @click="close"><AssetIcon name="close" /></button></header>
+    <div ref="body" class="carousel-upload-body">
+      <p class="carousel-intro">上传图片、音频并填写信息，创建图文素材，完成后将保存至图文库。</p>
+      <template v-if="!result">
+        <div class="form-field">
+          <label for="library-carousel-name">图文名称 <em>*</em></label>
+          <div class="counted-field"><input id="library-carousel-name" v-model="name" aria-label="图文名称" maxlength="50" :disabled="creating" :aria-invalid="!!nameError" placeholder="请输入名称，最多50个字" @blur="nameTouched = true" /><span>{{ name.length }}/50</span></div>
+          <p v-if="nameError" class="error" role="alert">{{ nameError }}</p>
+        </div>
+        <div class="form-field">
+          <label for="library-carousel-description">图文作品描述（选填）</label>
+          <div class="counted-field multiline"><textarea id="library-carousel-description" v-model="description" aria-label="图文作品描述" maxlength="1000" :disabled="creating" :aria-invalid="!!descriptionError" placeholder="可补充作品介绍，最多1000个字" /><span>{{ description.length }}/1000</span></div>
+          <p v-if="descriptionError" class="error" role="alert">{{ descriptionError }}</p>
+        </div>
+        <div class="form-field images-field" @dragover.prevent @drop.prevent="chooseImages($event.dataTransfer?.files)">
+          <div class="field-heading"><label>图片 <em>*</em><small>{{ images.length }}/{{ assetFileRules.carouselMaxImages }}张 · 拖动可调整顺序</small></label><button class="choose-button" type="button" :disabled="creating" @click="imageInput?.click()"><AssetIcon name="plus" />{{ images.length ? '继续添加' : '选择图片' }}</button></div>
+          <input ref="imageInput" class="sr-only" type="file" accept=".jpg,.jpeg,.png" multiple aria-label="选择图文图片" :disabled="creating" @change="imagesChanged" />
+          <div v-if="!images.length" class="empty-images"><AssetIcon name="image" /><span>添加1—{{ assetFileRules.carouselMaxImages }}张图片，按顺序组成图文</span></div>
+          <div v-else class="image-list" role="list" aria-label="已选图文图片">
+            <article v-for="(entry, index) in images" :key="entry.key" role="listitem" :draggable="!busy" tabindex="0" :aria-label="`图片 ${index + 1}：${entry.file.name}`" @dragstart="dragStart($event, index)" @dragend="dragging = -1" @dragover.prevent @drop.stop.prevent="dropImage($event, index)" @keydown.alt.left.prevent="moveImage(index, index - 1)" @keydown.alt.right.prevent="moveImage(index, index + 1)">
+              <div class="image-thumb"><img :src="entry.url" :alt="entry.file.name" /><span class="image-number">{{ index + 1 }}</span><button type="button" :disabled="busy" :aria-label="`移除图片 ${index + 1}`" @click="removeImage(index)">×</button></div>
+              <p v-if="!allImagesStored || entryError(entry)" class="file-status" :class="{ uploaded: stored(entry), failed: !!entryError(entry) }"><span>{{ phase(entry) }}</span><button v-if="entryError(entry) && entry.row?.valid !== false" type="button" :disabled="busy" @click="retryUpload(entry)">重试</button></p>
+              <progress v-if="entry.row?.busy" :value="entry.row.progress" max="100" :aria-label="`${entry.file.name}上传进度`" />
+              <p v-if="entryError(entry)" class="error" role="alert">{{ entryError(entry) }}</p>
+            </article>
+          </div>
+          <p v-if="allImagesStored" class="image-complete"><AssetIcon name="check-circle" />{{ images.length }}张图片已上传并检查。</p>
+          <p v-if="imageError" class="error" role="alert">{{ imageError }}</p>
+          <p class="image-requirements">JPG / PNG / JPEG · 单张≤10M<br />宽高比9:16—16:9 · 宽度360—2560px</p>
+        </div>
+        <div class="audio-field" @dragover.prevent @drop.prevent="chooseAudio($event.dataTransfer?.files)">
+          <label>音频 <em>*</em></label><div class="audio-content">
+            <input ref="audioInput" class="sr-only" type="file" accept=".mp3,.m4a" aria-label="选择图文音频" :disabled="busy" @change="audioChanged" />
+            <button v-if="!audio" class="choose-button" type="button" :disabled="busy" @click="audioInput?.click()"><AssetIcon name="audio" />选择音频</button>
+            <div v-else class="audio-file"><AssetIcon name="audio" /><span class="audio-filename" :title="audio.file.name">{{ audio.file.name }} · {{ fileSize(audio.file.size) }}<template v-if="audio.row?.metadata?.duration"> · {{ duration(audio.row.metadata.duration) }}</template></span><span class="file-status" :class="{ uploaded: stored(audio), failed: !!entryError(audio) }"><AssetIcon v-if="stored(audio)" name="check-circle" />{{ phase(audio) }}</span><button v-if="entryError(audio) && audio.row?.valid !== false" type="button" :disabled="busy" @click="retryUpload(audio)">重试</button><button type="button" :disabled="busy" @click="audioInput?.click()">更换</button><progress v-if="audio.row?.busy" :value="audio.row.progress" max="100" aria-label="音频上传进度" /></div>
+            <details class="audio-requirements"><summary><span v-if="!audio">MP3 / M4A · </span>查看音频要求</summary><p>{{ carouselAudioPolicy.hint }}</p></details>
+            <p v-if="audioError || audio && entryError(audio)" class="error" role="alert">{{ audioError || audio && entryError(audio) }}</p>
+          </div>
+        </div>
+        <label class="aigc"><input v-model="isAigc" type="checkbox" :disabled="busy || !!images.length || !!audio" />包含 AI 生成内容</label>
+        <p v-if="createError" class="error" role="alert">{{ createError }}</p>
+      </template>
+      <div v-else class="carousel-created" aria-live="polite">
+        <AssetIcon :name="reviewState === '已入库' ? 'check-circle' : reviewState === '检查未通过' ? 'warn-fill' : 'refresh'" :class="{ spinning: reviewState === '检查中' }" />
+        <h3>{{ reviewState === '已入库' ? '1套图文已入库' : reviewState === '检查未通过' ? '图文检查未通过' : '图文已创建，检查中' }}</h3>
+        <div class="created-summary"><img :src="images[0]?.url" alt="图文封面" /><div><strong>{{ result.name }}</strong><p>{{ images.length }}张图片 · 1段音频<template v-if="description.trim()"> · 已填写作品描述</template></p></div></div>
+        <p v-if="reviewState === '检查未通过'" class="error">请调整文件后重新创建。</p>
+        <p v-if="refreshError" class="error" role="alert">暂时无法获取检查结果。<button type="button" @click="refresh">重试</button></p>
+      </div>
+    </div>
+    <footer class="carousel-upload-foot">
+      <span class="footer-state" :class="{ complete: canCreate || reviewState === '已入库' }"><AssetIcon :name="canCreate || reviewState === '已入库' ? 'check-circle' : 'info-line'" />{{ result ? reviewState === '已入库' ? '图文已保存至图文库' : '图文已保存' : busy ? creating ? '正在创建图文…' : '正在上传文件…' : canCreate ? '名称、图片和音频已齐全。' : '请填写名称，并添加图片和音频' }}</span>
+      <button type="button" :disabled="busy" @click="close">{{ result ? '完成，返回图文库' : '关闭' }}</button>
+      <button v-if="!result" class="primary" type="button" :disabled="!canCreate" @click="create">{{ creating ? '创建中…' : '创建图文' }}</button><button v-else class="primary" type="button" @click="reset">继续上传</button>
+    </footer>
+  </section>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
-import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
-import { beginCarouselDialog, carouselDraft as draft, fileAigcKey, uploadCarousel } from '@/features/creative/carouselUploads';
-import { uploadRows, reviewLabel, syncLabel } from '@/features/creative/assetUploads';
-import { carouselReady } from '@/features/creative/materialSources';
-import { getCarousel, reconcileAssetSync, retryAssetReview, retryAssetSync, type AssetSync } from '@/features/creative/creativeApi';
-import { assetFileRules, libraryUploadPolicy, libraryFileError, carouselAudioPolicy as audioPolicy, carouselAudioError, carouselTextLimits, carouselTextLengthError } from '@/features/creative/assetUploadTypes';
-import { decodeText, preflight } from '@/features/creative/assetPreflight';
-import { getUploadPolicy } from '@/features/creative/creativeApi';
-import AssetReviewStatus from './AssetReviewStatus.vue';
-import AssetSyncAction from './AssetSyncAction.vue';
-import { fileSize } from './assetFormat';
-const emit = defineEmits<{ close: []; closeBlocked: [blocked: boolean]; changed: [] }>();
-const props = defineProps<{ defaultAccountIds?: string[]; fixedAccountId?: string; embedded?: boolean }>();
-beginCarouselDialog();
-if (!draft.busy && !draft.result && !draft.accounts.length && props.defaultAccountIds) draft.accounts = [...props.defaultAccountIds];
-const retrying = ref('');
-const differentAccount = computed(() => !!props.fixedAccountId && (draft.busy || !!draft.result) && !draft.accounts.includes(props.fixedAccountId));
-const locked = computed(() => draft.busy || !!draft.result || differentAccount.value || !!retrying.value);
-const ready = computed(() => !!props.fixedAccountId && carouselReady(draft.result, props.fixedAccountId));
-const rows = computed(() => uploadRows.filter(r => draft.keys.includes(r.key)));
-const accounts = ref<AccountVo[]>([]), accountError = ref(''), textInput = ref<HTMLInputElement>(), imageInput = ref<HTMLInputElement>(), audioInput = ref<HTMLInputElement>();
-const audioSelectionError = ref('');
-const textImportError = ref('');
-const nameError = computed(() => carouselTextLengthError(draft.name, 'name'));
-const textError = computed(() => textImportError.value || carouselTextLengthError(draft.text, 'text'));
-const imagePolicy = libraryUploadPolicy('IMAGE');
-const previews = ref<{ url: string; name: string }[]>([]);
-watch(() => [...draft.images], images => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); previews.value = images.map(f => ({ url: URL.createObjectURL(f), name: f.name })); }, { immediate: true });
-watch(() => draft.busy, blocked => emit('closeBlocked', blocked), { immediate: true, flush: 'sync' });
-watch(() => draft.result, () => emit('changed'));
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { addUploadFiles, startUploads, stopUploadRows, uploadRows, type UploadRow } from '@/features/creative/assetUploads';
+import { assetFileRules, carouselAudioError, carouselAudioPolicy, carouselTextLengthError } from '@/features/creative/assetUploadTypes';
+import { carouselImageError } from '@/features/creative/carouselLibraryUpload';
+import { createCarousel, getCarousel, type CarouselDetail } from '@/features/creative/creativeApi';
+import { duration, fileSize } from './assetFormat';
+import AssetIcon from './AssetIcon.vue';
+
+interface Entry { key: string; file: File; url: string; isAigc: boolean; queued: boolean; row?: UploadRow; error: string }
+const props = defineProps<{ accountId?: string }>();
+const emit = defineEmits<{ close: []; changed: []; closeBlocked: [value: boolean] }>();
+const name = ref(''), description = ref(''), nameTouched = ref(false), isAigc = ref(false);
+const images = ref<Entry[]>([]), audio = ref<Entry>(), textEntry = ref<Entry>(), result = ref<CarouselDetail>();
+const imageError = ref(''), audioError = ref(''), createError = ref(''), refreshError = ref(false);
+const imageInput = ref<HTMLInputElement>(), audioInput = ref<HTMLInputElement>(), body = ref<HTMLElement>();
+const pumping = ref(false), creating = ref(false);
+const scope = crypto.randomUUID(), token = localStorage.getItem('lynx.token'), controller = new AbortController();
+const targetAccounts = props.accountId ? [props.accountId] : [];
+let alive = true, dragging = -1, requestId = '', signature = '', polling = false, revision = 0;
+const busy = computed(() => pumping.value || creating.value);
+const nameError = computed(() => carouselTextLengthError(name.value, 'name') || (nameTouched.value && !name.value.trim() ? '请输入图文名称' : ''));
+const descriptionError = computed(() => carouselTextLengthError(description.value, 'text'));
+const stored = (entry: Entry) => entry.row?.result?.storageStatus === 'STORED';
+const entryError = (entry: Entry) => entry.error || entry.row?.error || (entry.row?.result?.storageStatus === 'FAILED' ? '文件入库失败，请重试' : '');
+const allImagesStored = computed(() => !!images.value.length && images.value.every(stored));
+const canCreate = computed(() => !busy.value && !result.value && !!name.value.trim() && !nameError.value && !descriptionError.value && allImagesStored.value && !!audio.value && stored(audio.value));
+const reviewState = computed(() => !result.value ? '' : ['APPROVED', 'NOT_REQUIRED'].includes(result.value.aiReview.status) ? '已入库' : ['REJECTED', 'MANUAL_REVIEW', 'FAILED'].includes(result.value.aiReview.status) ? '检查未通过' : '检查中');
+watch(busy, value => emit('closeBlocked', value), { immediate: true, flush: 'sync' });
+function check() { if (!alive || token !== localStorage.getItem('lynx.token')) throw new DOMException('上传已停止', 'AbortError'); }
+function entry(file: File): Entry { return { key: crypto.randomUUID(), file, url: file.type === 'text/plain' ? '' : URL.createObjectURL(file), isAigc: isAigc.value, queued: true, error: '' }; }
+function entries() { return [...images.value, ...(audio.value ? [audio.value] : []), ...(textEntry.value ? [textEntry.value] : [])]; }
+function release(value?: Entry) { if (!value) return; if (value.url) URL.revokeObjectURL(value.url); if (value.row) { const index = uploadRows.findIndex(row => row.key === value.row!.key); if (index >= 0) uploadRows.splice(index, 1); } }
+function phase(value: Entry) { return entryError(value) ? '上传失败' : stored(value) ? '已上传' : value.row?.progress === 100 ? '检查中' : value.row?.busy && value.row.stage !== '正在本地预检' ? `上传中 ${value.row.progress}%` : '检查中'; }
+async function pump() {
+  if (pumping.value) return;
+  pumping.value = true;
+  try {
+    for (let pending = entries().filter(e => e.queued); pending.length; pending = entries().filter(e => e.queued)) {
+      pending.forEach(e => { e.queued = false; e.error = ''; });
+      const errors = await addUploadFiles(pending.map(e => e.file), 'CAROUSEL', scope, controller.signal); check();
+      for (const item of pending) {
+        item.row = uploadRows.find(row => row.scope === scope && row.file === item.file);
+        if (!item.row) { item.error = errors.join('；') || '文件上传失败，请重试'; continue; }
+        item.row.isAigc = item.isAigc;
+        if (images.value.includes(item) && item.row.valid) { const error = carouselImageError(item.file, item.row.metadata); if (error) { item.row.valid = false; item.row.error = error; } }
+      }
+      const keys = pending.filter(e => e.row?.valid && !stored(e)).map(e => e.row!.key);
+      if (keys.length) await startUploads([], false, 'CAROUSEL', keys);
+      check();
+    }
+  } catch { if (alive) for (const item of entries().filter(e => !stored(e) && !entryError(e))) item.error = '暂时无法上传文件，请重试。'; }
+  finally { pumping.value = false; }
+}
 function chooseImages(files?: FileList | null) {
-  if (locked.value) return;
-  for (const f of Array.from(files || [])) {
-    const error = libraryFileError(f.name, 'IMAGE');
-    if (error) { ElMessage.warning(error); continue; }
-    if (draft.images.length >= assetFileRules.carouselMaxImages) { ElMessage.warning(`最多上传 ${assetFileRules.carouselMaxImages} 张图片`); break; }
-    if (!draft.images.some(v => v.name === f.name && v.size === f.size && v.lastModified === f.lastModified)) draft.images.push(f);
+  if (creating.value || result.value) return;
+  imageError.value = '';
+  for (const file of Array.from(files || [])) {
+    if (!/\.(jpe?g|png)$/i.test(file.name)) { imageError.value = '图片仅支持 JPG、PNG、JPEG 格式'; continue; }
+    if (images.value.some(e => e.file.name === file.name && e.file.size === file.size && e.file.lastModified === file.lastModified)) continue;
+    if (images.value.length >= assetFileRules.carouselMaxImages) { imageError.value = `最多选择${assetFileRules.carouselMaxImages}张图片`; break; }
+    images.value.push(entry(file));
   }
+  void pump();
 }
 function chooseAudio(files?: FileList | null) {
-  if (locked.value || !files?.length) return;
-  if (files.length !== 1) { audioSelectionError.value = '音频区域只允许选择一个音频文件'; return; }
-  const f = files[0]!; const error = carouselAudioError(f);
-  audioSelectionError.value = error;
-  if (!error) draft.audio = f;
+  if (busy.value || result.value || !files?.length) return;
+  audioError.value = files.length === 1 ? carouselAudioError(files[0]!) : '请选择一个音频文件';
+  if (audioError.value) return;
+  release(audio.value); audio.value = entry(files[0]!); void pump();
 }
-function imagesChanged(e: Event) { const el = e.target as HTMLInputElement; chooseImages(el.files); el.value = ''; }
-function audioChanged(e: Event) { const el = e.target as HTMLInputElement; chooseAudio(el.files); el.value = ''; }
-async function textChanged(e: Event) {
-  const el = e.target as HTMLInputElement, file = el.files?.[0]; el.value = '';
-  if (!file || locked.value) return;
-  textImportError.value = '';
-  const invalid = libraryFileError(file.name, 'TEXT'); if (invalid) { textImportError.value = invalid; return; }
-  draft.busy = true;
+function imagesChanged(event: Event) { const input = event.target as HTMLInputElement; chooseImages(input.files); input.value = ''; }
+function audioChanged(event: Event) { const input = event.target as HTMLInputElement; chooseAudio(input.files); input.value = ''; }
+function retryUpload(value: Entry) { if (!busy.value) { if (value.row?.result?.storageStatus === 'FAILED') value.row.result = undefined; value.queued = true; value.error = ''; void pump(); } }
+function removeImage(index: number) { if (!busy.value) { release(images.value[index]); images.value.splice(index, 1); imageError.value = ''; } }
+function moveImage(from: number, to: number) { if (!busy.value && from >= 0 && from < images.value.length && to >= 0 && to < images.value.length) images.value.splice(to, 0, images.value.splice(from, 1)[0]!); }
+function dragStart(event: DragEvent, index: number) { if (busy.value) { event.preventDefault(); return; } dragging = index; event.dataTransfer?.setData('text/plain', String(index)); }
+function dropImage(event: DragEvent, index: number) { if (event.dataTransfer?.files.length) chooseImages(event.dataTransfer.files); else moveImage(dragging, index); dragging = -1; }
+async function create() {
+  if (!canCreate.value) return;
+  creating.value = true; createError.value = '';
   try {
-    await preflight(file, await getUploadPolicy());
-    const text = decodeText(new Uint8Array(await file.arrayBuffer()));
-    const error = carouselTextLengthError(text, 'text'); if (error) throw new Error(error);
-    draft.text = text;
-  }
-  catch (error) { textImportError.value = error instanceof Error ? error.message : '文本导入失败'; }
-  finally { draft.busy = false; }
+    const text = description.value.trim();
+    if (text && (!textEntry.value || await textEntry.value.file.text() !== text)) { release(textEntry.value); textEntry.value = entry(new File([text], '图文作品描述.txt', { type: 'text/plain' })); }
+    if (!text) { release(textEntry.value); textEntry.value = undefined; }
+    if (textEntry.value && !stored(textEntry.value)) await pump(); check();
+    if (textEntry.value && !stored(textEntry.value)) throw new Error('description');
+    const imageIds = images.value.map(e => e.row!.result!.id);
+    if (new Set(imageIds).size !== imageIds.length) { imageError.value = '图片内容重复，请移除重复图片'; return; }
+    const payload = { name: name.value.trim(), ...(textEntry.value ? { textAssetId: textEntry.value.row!.result!.id } : {}), imageAssetIds: imageIds, audioAssetId: audio.value!.row!.result!.id, accountIds: targetAccounts };
+    const current = JSON.stringify(payload); if (signature !== current) { signature = current; requestId = crypto.randomUUID(); }
+    result.value = await createCarousel({ requestId, ...payload }); check();
+    emit('changed'); await nextTick(); body.value?.scrollTo({ top: 0 });
+  } catch { if (alive) createError.value = textEntry.value && !stored(textEntry.value) ? '描述上传失败，请重试。' : '暂时无法创建图文，请重试。'; }
+  finally { creating.value = false; }
 }
-async function loadAccounts() { try { accounts.value = (await listAccounts()).filter(a => a.platform === 'QIANCHUAN' && a.status !== 'DELETED'); accountError.value = ''; } catch { accountError.value = '授权账户加载失败，可先仅保存平台'; } }
-async function start() { if(props.fixedAccountId)draft.accounts=[props.fixedAccountId]; await uploadCarousel(); emit('changed'); }
-async function refreshed() { if(draft.result)draft.result=await getCarousel(draft.result.id);emit('changed'); }
-async function retryPart(id: string) { retrying.value=id;try{await retryAssetReview(id);await refreshed();}catch{ElMessage.warning('检查重试失败，请稍后重试');}finally{retrying.value='';} }
-async function retrySync(id: string,sync: AssetSync) { if(sync.status==='UNCERTAIN')return;retrying.value=sync.id;try{await retryAssetSync(id,sync.accountId);await refreshed();}catch{ElMessage.warning('同步重试失败，请稍后重试');}finally{retrying.value='';} }
-async function verifySync(id: string,sync: AssetSync) { retrying.value=sync.id;try{await reconcileAssetSync(id,sync.accountId);await refreshed();}catch{ElMessage.warning('核查未完成，请稍后重试');}finally{retrying.value='';} }
-onMounted(() => { if(!props.fixedAccountId)void loadAccounts(); });
-onUnmounted(() => { previews.value.forEach(p => URL.revokeObjectURL(p.url)); });
+async function refresh() {
+  if (!result.value || polling) return;
+  const id = result.value.id, current = revision; polling = true;
+  try { const updated = await getCarousel(id, controller.signal); check(); if (revision === current && result.value?.id === id) { result.value = updated; refreshError.value = false; emit('changed'); } }
+  catch { if (alive && revision === current) refreshError.value = true; }
+  finally { polling = false; }
+}
+function close() { if (!busy.value) emit('close'); }
+function reset() {
+  if (busy.value) return;
+  entries().forEach(release); revision++; images.value = []; audio.value = undefined; textEntry.value = undefined; result.value = undefined;
+  name.value = ''; description.value = ''; nameTouched.value = false; isAigc.value = false; imageError.value = ''; audioError.value = ''; createError.value = ''; refreshError.value = false; signature = ''; requestId = ''; dragging = -1;
+}
+const timer = setInterval(() => { if (reviewState.value === '检查中') void refresh(); }, 4000);
+onBeforeUnmount(() => { alive = false; controller.abort(); clearInterval(timer); void stopUploadRows(uploadRows.filter(row => row.scope === scope && !row.result).map(row => row.key)); entries().forEach(release); emit('closeBlocked', false); });
 </script>
 <style scoped>
-.counted-field { position:relative; min-width:0; }
-.counted-field input { padding-right:64px; }
-.counted-field--multiline { display:grid; }
-.counted-field textarea { padding:10px 10px 32px; }
-.field-counter { position:absolute; right:14px; bottom:10px; color:#7c7f99; font-size:12px; line-height:18px; pointer-events:none; }
-</style>
-<style scoped>
-.carousel-upload { color:#50536f; font-size:13px; }.tip { color:#7c7f99; line-height:1.7; margin:12px 0; }section { padding:16px; border:1px solid #e3e4f3; border-radius:14px; margin:14px 0; background:#fcfcff; }h3 { font-size:15px; font-weight:700; margin-bottom:12px; color:#1b1d32; }h3 span { font-size:12px; font-weight:400; color:#7c7f99; margin-left:8px; }section label,.accounts { display:grid; gap:8px; margin-bottom:12px; }input:not([type=checkbox]),textarea { width:100%; border:1px solid #dddff0; border-radius:8px; padding:10px; font:inherit; color:inherit; background:white; }textarea { resize:vertical; }small { display:block; margin-top:8px; color:#7c7f99; line-height:1.5; }.images { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:12px; }.image { position:relative; min-width:0; }.image img { width:100%; height:85px; object-fit:cover; border-radius:8px; }.image button { position:absolute; right:3px; top:3px; border-radius:50%; background:white; width:22px; height:22px; }.image small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.aigc { display:flex; gap:8px; align-items:center; }input[type=checkbox],progress { accent-color:#5b55ff; }.error { color:#e5484d; line-height:1.7; margin:8px 0; }button:disabled { opacity:.45; cursor:not-allowed; }.parts>div { display:flex; gap:16px; padding:8px 0; border-bottom:1px solid #eeeef7; }.parts b { font-weight:400; }.progress-list { margin-top:16px; }.progress-list>div { display:grid; gap:6px; padding:8px 0; }progress { width:100%; height:6px; }section p button,.error button { color:#5b55ff; }
-</style>
-<style scoped>
-.modal__foot{display:flex;justify-content:flex-end;gap:12px;margin-top:18px}.btn-modal-primary,.btn-modal-ghost{padding:9px 16px;border-radius:8px;border:1px solid #dedff2}.btn-modal-primary{background:#5b55ff;color:white}.btn-modal-ghost{background:white;color:#555978}.parts>div{flex-wrap:wrap;align-items:center}.parts button{color:#5b55ff}.aigc input{flex-shrink:0}
-.choose-file { padding:8px 14px; margin-bottom:8px; border:1px solid #dcd9ff; background:#efedff; border-radius:8px; color:#5b55ff; font:inherit; font-weight:600; }.sr-only { position:absolute; width:1px !important; height:1px; padding:0 !important; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0 !important; }
+.carousel-library-upload{display:flex;flex-direction:column;min-height:0;color:#25233f;font-size:13px}.carousel-upload-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 24px 8px;flex:none}.carousel-upload-head h2{margin:0;font-size:22px;font-weight:700;line-height:1.4}.carousel-library-upload button{font:inherit;cursor:pointer}.carousel-library-upload button:disabled{opacity:.45;cursor:not-allowed}.carousel-library-upload svg{width:18px;height:18px;flex:none}.close-button{display:grid;place-items:center;width:30px;height:30px;background:white;border:0;border-radius:7px;color:#777294}.carousel-upload-body{min-height:0;overflow-y:auto;padding:0 24px 12px}.carousel-intro{font-size:13px;line-height:1.6;color:#77718e;margin:0 0 20px}.form-field{margin-bottom:20px}.form-field>label,.field-heading>label,.audio-field>label{font-weight:600;font-size:14px}em{font-style:normal;color:#ee425c;margin-left:4px}.counted-field{position:relative;margin-top:7px}.counted-field input,.counted-field textarea{box-sizing:border-box;width:100%;border:1px solid #dcd8ef;border-radius:7px;background:white;color:#34304d;font:inherit;padding:9px 65px 9px 12px;line-height:20px}.counted-field input{height:38px}.counted-field textarea{display:block;height:76px;min-height:76px;resize:vertical;padding-bottom:28px}.counted-field ::placeholder{color:#a5a0b7}.counted-field>span{position:absolute;right:12px;bottom:9px;color:#9891ae;font-size:12px;pointer-events:none}.field-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.field-heading small{font-weight:400;color:#827b9d;margin-left:14px;font-size:12px}.choose-button{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;background:white;border:1px solid #7865ff;border-radius:6px;color:#5940ff;white-space:nowrap}.empty-images{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;min-height:92px;border:1px dashed #d4caff;border-radius:8px;background:#faf8ff;color:#8c84a4;text-align:center;padding:12px}.empty-images svg{color:#c6b9f4;width:34px;height:34px}.image-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.image-list article{min-width:0}.image-list article[draggable=true]{cursor:grab}.image-thumb{position:relative;aspect-ratio:1.6;border:1px solid #e0dbf2;border-radius:8px;overflow:hidden;background:#f7f5ff}.image-thumb img{display:block;width:100%;height:100%;object-fit:contain}.image-number{position:absolute;top:5px;left:5px;display:grid;place-items:center;min-width:22px;height:22px;padding:0 3px;border-radius:6px;background:#6244ff;color:white;font-size:12px}.image-thumb button{position:absolute;right:5px;top:5px;border:0;border-radius:50%;width:22px;height:22px;background:#fffffff0;font-size:20px;color:#514b65;line-height:20px}.image-complete{display:flex;align-items:center;gap:6px;color:#20a358;font-size:12px;margin:7px 0 0}.image-requirements{margin:8px 0 0;color:#817998;line-height:1.8;font-size:12px}.file-status{display:flex;align-items:center;gap:5px;font-size:12px;margin:6px 0;color:#7968cc}.file-status.uploaded{color:#20a358}.file-status.failed{color:#dc5966}.file-status button,.audio-file button,.error button{border:0;background:none;color:#5940ff;padding:0}.file-status svg{width:15px;height:15px}.audio-field{display:flex;align-items:flex-start;gap:18px;margin:22px 0 10px}.audio-field>label{padding-top:8px;flex:none}.audio-content{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0;flex:1}.audio-file{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:9px 12px;border:1px solid #e4def9;border-radius:8px;background:#f8f6ff}.audio-file>svg{color:#6041ff}.audio-filename{overflow-wrap:anywhere;min-width:0;flex:1;line-height:1.6;font-size:12px}.audio-file .file-status{margin:0;white-space:nowrap}.audio-file button{white-space:nowrap}.audio-requirements{font-size:12px;color:#5b43ff}.audio-requirements summary{cursor:pointer;list-style:none}.audio-requirements summary::-webkit-details-marker{display:none}.audio-requirements summary span{color:#817998}.audio-requirements p{margin:8px 0;color:#817998;line-height:1.7}.audio-content>.error{width:100%}.aigc{display:flex;align-items:center;gap:7px;font-size:12px;color:#827b98;margin:14px 0 0}.aigc input{accent-color:#6244ff;margin:0}.error{color:#dc5966;font-size:12px;line-height:1.6;margin:6px 0 0;overflow-wrap:anywhere}progress{display:block;width:100%;height:5px;accent-color:#6244ff;margin-top:5px}.audio-file:has(progress){flex-wrap:wrap}.carousel-upload-foot{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:14px 24px;border-top:1px solid #e4dff4;flex:none;background:white}.carousel-upload-foot>button{border:1px solid #ddd7ef;border-radius:7px;background:white;padding:9px 14px;color:#3d3557;white-space:nowrap}.carousel-upload-foot>button.primary{color:white;background:#6244ff;border-color:#6244ff}.footer-state{display:flex;align-items:center;gap:7px;margin-right:auto;min-width:0;font-size:12px;color:#77708e;line-height:1.5}.footer-state.complete{color:#238746}.carousel-created{text-align:center;padding:22px 0}.carousel-created>svg{width:36px;height:36px;color:#6244ff}.carousel-created h3{font-size:20px;margin:14px 0 22px}.created-summary{display:flex;align-items:center;gap:16px;background:#f7f5ff;border:1px solid #e4def9;border-radius:10px;padding:14px;text-align:left}.created-summary img{width:74px;height:74px;object-fit:contain;border-radius:7px}.created-summary strong{font-size:14px;overflow-wrap:anywhere}.created-summary p{color:#827b98;font-size:12px;margin-top:7px}.spinning{animation:carousel-spin .9s linear infinite}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}input:focus-visible,textarea:focus-visible,button:focus-visible,article:focus-visible,summary:focus-visible{outline:2px solid #8b79ff;outline-offset:2px}@keyframes carousel-spin{to{transform:rotate(360deg)}}
+@media(max-width:600px){.carousel-upload-head{padding:18px 16px 8px}.carousel-upload-body{padding:0 16px 12px}.carousel-upload-foot{padding:12px 16px;gap:8px;flex-wrap:wrap}.footer-state{flex-basis:100%}.carousel-upload-head h2{font-size:20px}.field-heading{flex-wrap:wrap}.field-heading small{margin-left:8px;font-size:11px}.image-list{gap:8px}.image-thumb{aspect-ratio:1}.image-number,.image-thumb button{width:20px;min-width:20px;height:20px}.audio-field{gap:12px}.audio-file{flex-wrap:wrap;gap:8px}.audio-filename{flex-basis:calc(100% - 28px)}.audio-file .file-status{margin-left:auto}.form-field{margin-bottom:18px}}
+@media(prefers-reduced-motion:reduce){.spinning{animation:none}}
 </style>

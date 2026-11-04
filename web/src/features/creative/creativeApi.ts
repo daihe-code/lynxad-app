@@ -116,7 +116,7 @@ export interface CarouselDetail {
   parts: { role: 'TEXT' | 'IMAGE' | 'AUDIO'; position: number; asset: UploadedAsset }[];
 }
 export function createCarousel(body: { requestId: string; name: string; textAssetId?: string; imageAssetIds: string[]; audioAssetId: string; accountIds: string[] }) {
-  return apiPost<CarouselDetail>('/api/v1/creative/carousels', body);
+  return apiPost<CarouselDetail>('/api/v1/creative/carousels', body, { headers: { 'X-Quiet-Request': 'true' } });
 }
 export function getCarousel(id: string, signal?: AbortSignal) {
   return apiGet<CarouselDetail>(`/api/v1/creative/carousels/${encodeURIComponent(id)}`, { signal, headers: { 'X-Quiet-Request': 'true' } });

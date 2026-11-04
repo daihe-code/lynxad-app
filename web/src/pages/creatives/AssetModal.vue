@@ -1,13 +1,13 @@
 <template>
   <div class="modal" role="dialog" aria-modal="true" :aria-labelledby="kind === 'detail' ? 'asset-detail-title' : 'asset-modal-title'" @keydown="onKey">
     <div class="modal__mask" @click="requestClose"></div>
-    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--file-upload': kind === 'upload' && ['VIDEO', 'IMAGE'].includes(libraryType), 'modal__box--carousel-preview': kind === 'preview' && item?.type === 'CAROUSEL' }]" tabindex="-1">
+    <div ref="box" class="modal__box" :class="[`modal__box--${kind === 'upload' ? 'md' : kind === 'preview' ? 'lg' : 'drawer'}`, { 'modal__box--file-upload': kind === 'upload' && ['VIDEO', 'IMAGE', 'CAROUSEL'].includes(libraryType), 'modal__box--carousel-preview': kind === 'preview' && item?.type === 'CAROUSEL' }]" tabindex="-1">
       <VideoLibraryUpload v-if="kind === 'upload' && libraryType === 'VIDEO'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       <ImageLibraryUpload v-else-if="kind === 'upload' && libraryType === 'IMAGE'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
+      <CarouselUploadPanel v-else-if="kind === 'upload' && libraryType === 'CAROUSEL'" :account-id="accountId" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       <template v-else-if="kind === 'upload'">
         <div class="modal__head"><h2 id="asset-modal-title" class="modal__title">上传素材</h2><button class="modal__close" type="button" aria-label="关闭" :disabled="closeBlocked" @click="requestClose"><AssetIcon name="close" /></button></div>
-        <CarouselUploadPanel v-if="libraryType === 'CAROUSEL'" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
-        <AssetUploadPanel v-else :library-type="libraryType" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
+        <AssetUploadPanel :library-type="libraryType" @close="requestClose" @close-blocked="uploadCloseBlocked = $event" @changed="emit('changed')" />
       </template>
       <template v-else-if="item">
         <AssetStatistics v-if="kind === 'detail'" :item="item" :account-id="accountId" @close="emit('close')" @preview="emit('switch', 'preview')" />
