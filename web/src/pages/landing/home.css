@@ -561,6 +561,12 @@ img,video {
   background-color: rgb(var(--c-footer-bg));
   background-image: linear-gradient(90deg,#5e63f0,#5e63ee 8.33%,#5c60eb 16.67%,#565be6 25%,#5356e0 33.33%,#4e50da 41.67%,#4a4ad4 50%,#4746ce 58.33%,#4341c6 66.67%,#403ebf 75%,#3d3bb7 83.33%,#3a38b0 91.67%,#3634a8);
 }
+
+.footer-records{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;column-gap:16px;row-gap:6px;text-align:center}
+.footer-records a{display:inline-flex;align-items:center;justify-content:center;gap:6px;color:inherit;text-decoration:none}
+.footer-records a:hover{color:white;text-decoration:underline;text-underline-offset:3px}
+.footer-records a:focus-visible{outline:2px solid white;outline-offset:4px;border-radius:2px}
+.footer-records img{display:block;object-fit:contain;flex:none}
 .faq-item {
   border-radius: 20px;
   border-width: 1px;
