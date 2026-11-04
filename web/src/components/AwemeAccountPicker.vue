@@ -26,7 +26,7 @@ function change(key: string) {
 }
 </script>
 <style scoped>
-.aweme-account-picker{display:block!important;width:300px;max-width:100%}
+.ad-account.aweme-account-picker{display:block!important;flex:0 0 360px;width:360px;max-width:100%}
 .aweme-account-picker .ad-account__card{position:relative;box-sizing:border-box;padding:16px;border:1px solid #ffffff30;border-radius:18px;background:#ffffff24;color:#fff}
 .aweme-account-picker--switchable{padding-right:48px!important}
 .aweme-account-picker--switchable:focus-within{outline:2px solid #fff;outline-offset:3px}
@@ -35,5 +35,5 @@ function change(key: string) {
 .aweme-account-picker__select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;color:#1a1b2e;background:#fff}
 .aweme-account-picker__select:disabled{cursor:not-allowed}
 .aweme-account-picker .ad-account__hint{margin-top:10px;text-align:right;font-size:12px;line-height:18px;color:#ffffffb3}
-@media(max-width:639px){.aweme-account-picker{width:100%}}
+@media(max-width:639px){.ad-account.aweme-account-picker{flex:0 1 auto;width:100%}}
 </style>
