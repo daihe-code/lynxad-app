@@ -341,16 +341,18 @@ public class LibraryQueryService {
     private List<Item> carouselItems(TenantId tenant) {
         if(carousels==null) return List.of();
         List<Item> result=new ArrayList<>();
-        for(var group:carousels.list(tenant)) {
-            var images=group.parts().stream().filter(p->"IMAGE".equals(p.role())).toList();
-            var image=images.getFirst().asset();
-            long size=group.parts().stream().mapToLong(p->p.asset().sizeBytes()).sum();
-            var item=new Item("CAROUSEL:"+group.id(),"CAROUSEL","NOT_REQUIRED".equals(group.aiReview().status())?MaterialSource.LYNX:MaterialSource.UPLOAD,group.name(),size,"",null,
-                    "图文 · "+images.size()+" 张图片",Instant.parse(group.createdAt()),false,"NONE",null,group.id(),null,
-                    image.url(),image.url(),image.width(),image.height());
+        for(var group:carousels.library(tenant)) {
+            var image=group.cover();
+            var item=new Item("CAROUSEL:"+group.id(),"CAROUSEL","NOT_REQUIRED".equals(group.aiReview().status())?MaterialSource.LYNX:MaterialSource.UPLOAD,group.name(),group.sizeBytes(),"",null,
+                    "图文 · "+group.imageCount()+" 张图片",group.createdAt(),false,"NONE",null,group.id(),null,
+                    "","",image==null?null:image.width(),image==null?null:image.height());
+            if(image!=null) {
+                item.storageObjectKey=image.objectKey();item.storageObjectMode=image.storageMode();
+                item.storageCoverKey=image.objectKey();item.storageCoverMode=image.storageMode();
+            }
             item.carouselId=group.id(); item.aiReview=group.aiReview();
-            item.textContent=group.parts().stream().filter(p->"TEXT".equals(p.role())).findFirst().map(p->p.asset().textContent()).orElse("");
-            item.syncs=group.parts().stream().flatMap(p->p.asset().syncs().stream()).filter(s->group.accountIds().contains(s.accountId())).toList();
+            item.textContent=group.textContent();
+            item.syncs=group.syncs();
             item.reviewBadge=effectiveBadge(item); result.add(item);
         }
         return result;
@@ -404,6 +406,7 @@ public class LibraryQueryService {
                     var owner=local;
                     owner.syncs=owner.syncs.stream().map(s -> {
                         if(!s.accountId().equals(item.accountId) || !(s.materialId()!=null && s.materialId().equals(item.materialId) || s.objectId()!=null && s.objectId().equals(item.objectId))) return s;
+                        if(item.reviewBadge.equals(s.reviewStatus())) return s;
                         if(uploads!=null) uploads.review(s,item.reviewBadge);
                         return new com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository.Sync(s.id(),s.tenantId(),s.assetId(),s.accountId(),s.advertiserId(),s.status(),s.objectId(),s.materialId(),s.requestId(),item.reviewBadge,s.attempts(),s.nextAttemptAt(),s.leaseUntil(),s.errorMessage());
                     }).toList();

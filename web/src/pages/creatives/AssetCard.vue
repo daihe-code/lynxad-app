@@ -1,7 +1,7 @@
 <template>
   <article class="ac-card" :class="{ 'is-picked': picked }">
     <div class="ac-box">
-      <div class="ac-media" :class="`ac-t${tone}`"><AssetThumbnail :item="item" fit="contain" :read-metadata="item.type === 'VIDEO' && !geometry.width" @metadata="observed = $event" /></div>
+      <div class="ac-media" :class="`ac-t${tone}`"><AssetThumbnail :item="item" fit="contain" @metadata="observed = $event" /></div>
       <span v-if="geometry.label" class="ac-format" :title="`${geometry.label} · ${assetDimensions(displayItem)}`">{{ geometry.label }}</span>
       <span v-if="item.reviewBadge !== 'NONE'" class="ac-st" :class="item.reviewBadge === 'REVIEWING' ? 'ac-st--reviewing' : 'ac-st--rejected'"><AssetIcon :name="item.reviewBadge === 'REVIEWING' ? 'clock' : 'warn-fill'" />{{ item.aiReview && !['APPROVED','NOT_REQUIRED'].includes(item.aiReview.status) ? assetStatus(item).label : item.reviewBadge === 'REVIEWING' ? '千川审核中' : '千川审核未通过' }}</span>
       <span v-if="item.type === 'VIDEO' && item.durationSec != null" class="ac-dur"><AssetIcon name="video" />{{ duration(item.durationSec) }}</span>

@@ -46,6 +46,14 @@ public class CarouselRepository {
                 (r,n) -> new Part(r.getString("role"),r.getInt("position"),r.getString("asset_id")), bundle.tenant(),bundle.id());
     }
     public List<Bundle> list(String tenant) { return jdbc.query("SELECT * FROM creative_carousel WHERE tenant_id=? ORDER BY created_at DESC", BUNDLE, tenant); }
+    public Map<String,List<Part>> libraryParts(String tenant) {
+        Map<String,List<Part>> result=new HashMap<>();
+        jdbc.query("SELECT carousel_id,role,position,asset_id FROM creative_carousel_part WHERE tenant_id=? "
+                + "ORDER BY carousel_id,CASE role WHEN 'TEXT' THEN 0 WHEN 'IMAGE' THEN 1 ELSE 2 END,position",
+                (org.springframework.jdbc.core.RowCallbackHandler) r -> result.computeIfAbsent(r.getString("carousel_id"),ignored->new ArrayList<>())
+                        .add(new Part(r.getString("role"),r.getInt("position"),r.getString("asset_id"))),tenant);
+        return result;
+    }
     public List<Bundle> due() { return jdbc.query("SELECT * FROM creative_carousel WHERE review_status IN ('PENDING','FAILED') AND next_check_at<=? ORDER BY next_check_at LIMIT 50", BUNDLE, Timestamp.from(Instant.now())); }
     public void reviewed(Bundle bundle, String status) {
         jdbc.update("UPDATE creative_carousel SET review_status=?,next_check_at=? WHERE tenant_id=? AND id=?",

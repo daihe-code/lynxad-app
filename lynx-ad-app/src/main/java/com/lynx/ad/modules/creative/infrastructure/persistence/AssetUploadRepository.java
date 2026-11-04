@@ -145,10 +145,35 @@ public class AssetUploadRepository {
     public record LibraryDetails(Map<String, LibraryMetadata> metadata, Map<String, List<Sync>> syncs,
             Map<String, Review> reviews) {}
 
+    public Map<String,Asset> libraryAssets(String tenant,Collection<String> requested) {
+        var ids=new ArrayList<>(new LinkedHashSet<>(requested));var result=new HashMap<String,Asset>();
+        for(int start=0;start<ids.size();start+=500) {
+            var page=ids.subList(start,Math.min(start+500,ids.size()));
+            var params=new ArrayList<Object>();params.add(tenant);params.addAll(page);
+            for(var asset:jdbc.query("SELECT * FROM creative_asset WHERE tenant_id=? AND id IN ("
+                    +String.join(",",Collections.nCopies(page.size(),"?"))+")",ASSET,params.toArray()))result.put(asset.id(),asset);
+        }
+        return result;
+    }
+
+    public LibraryDetails componentLibraryDetails(String tenant,List<Asset> assets) {
+        var metadata=new HashMap<String,LibraryMetadata>();var syncs=new HashMap<String,List<Sync>>();var reviews=new HashMap<String,Review>();
+        for(int start=0;start<assets.size();start+=500) {
+            var page=assets.subList(start,Math.min(start+500,assets.size()));
+            var params=new ArrayList<Object>();params.add(tenant);page.forEach(a->params.add(a.id()));
+            var detail=readLibraryDetails(tenant,page,"a.tenant_id=? AND a.id IN ("+String.join(",",Collections.nCopies(page.size(),"?"))+")",params.toArray());
+            metadata.putAll(detail.metadata());syncs.putAll(detail.syncs());reviews.putAll(detail.reviews());
+        }
+        return new LibraryDetails(metadata,syncs,reviews);
+    }
+
     /** Load all list decorations in bounded query count instead of querying each asset separately. */
     public LibraryDetails libraryDetails(String tenant, List<Asset> assets) {
         if (assets.isEmpty()) return new LibraryDetails(Map.of(), Map.of(), Map.of());
         String eligible = "a.tenant_id=? AND a.storage_status='STORED' AND (a.library_type IS NULL OR a.library_type<>'CAROUSEL')";
+        return readLibraryDetails(tenant,assets,eligible,new Object[]{tenant});
+    }
+    private LibraryDetails readLibraryDetails(String tenant,List<Asset> assets,String eligible,Object[] parameters) {
         Map<String, LibraryMetadata> metadata = new HashMap<>();
         jdbc.query("SELECT a.id,a.duration_ms,cover.object_key AS preview_key,cover.storage_mode AS preview_mode,"
                         + "e.asset_id AS engine_id FROM creative_asset a "
@@ -157,15 +182,15 @@ public class AssetUploadRepository {
                 (org.springframework.jdbc.core.RowCallbackHandler) r -> {
                     metadata.put(r.getString("id"), new LibraryMetadata((Long) r.getObject("duration_ms"),
                             r.getString("preview_key"), r.getString("preview_mode"), r.getString("engine_id") != null));
-                }, tenant);
+                }, parameters);
         Map<String, List<Sync>> syncs = new HashMap<>();
         for (Sync sync : jdbc.query("SELECT p.* FROM creative_asset_platform p JOIN creative_asset a "
                         + "ON a.id=p.asset_id AND a.tenant_id=p.tenant_id WHERE " + eligible + " ORDER BY p.created_at,p.id",
-                SYNC, tenant)) syncs.computeIfAbsent(sync.assetId(), ignored -> new ArrayList<>()).add(sync);
+                SYNC, parameters)) syncs.computeIfAbsent(sync.assetId(), ignored -> new ArrayList<>()).add(sync);
         Map<String, Review> reviews = new HashMap<>();
         for (Review review : jdbc.query("SELECT r.* FROM creative_asset_review r JOIN creative_asset a "
                         + "ON a.id=r.asset_id AND a.tenant_id=r.tenant_id WHERE " + eligible,
-                REVIEW, tenant)) reviews.put(review.assetId(), review);
+                REVIEW, parameters)) reviews.put(review.assetId(), review);
         for (Asset asset : assets) {
             LibraryMetadata meta = metadata.get(asset.id());
             if (meta != null && meta.engine()) reviews.put(asset.id(), new Review(asset.id(), tenant,

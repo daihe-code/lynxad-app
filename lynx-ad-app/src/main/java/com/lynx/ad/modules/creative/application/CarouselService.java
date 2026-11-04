@@ -88,6 +88,44 @@ public class CarouselService {
     private static String label(Part part) { return switch(part.role()) { case "TEXT" -> "文本"; case "AUDIO" -> "音频"; default -> "图片 " + (part.position()+1); }; }
     public List<Detail> list(TenantId tenant) { return bundles.list(tenant.value()).stream().map(this::detail).toList(); }
 
+    public record LibraryEntry(String id,String name,Instant createdAt,long sizeBytes,int imageCount,
+            AssetUploadRepository.Asset cover,AssetUploadRepository.Review aiReview,String textContent,
+            List<AssetUploadRepository.Sync> syncs) {}
+
+    /** List metadata only. File URLs and full component details belong to the requested page/preview. */
+    public List<LibraryEntry> library(TenantId tenant) {
+        var groups=bundles.list(tenant.value());
+        if(groups.isEmpty())return List.of();
+        var parts=bundles.libraryParts(tenant.value());
+        var requested=groups.stream().flatMap(g->parts.getOrDefault(g.id(),List.of()).stream()).map(CarouselRepository.Part::assetId).collect(java.util.stream.Collectors.toSet());
+        var files=assets.libraryAssets(tenant.value(),requested);
+        var canonical=files.values().stream().map(AssetUploadRepository.Asset::canonicalId).filter(Objects::nonNull).filter(id->!files.containsKey(id)).toList();
+        files.putAll(assets.libraryAssets(tenant.value(),canonical));
+        var decoration=assets.componentLibraryDetails(tenant.value(),new ArrayList<>(files.values()));
+        var result=new ArrayList<LibraryEntry>();
+        for(var group:groups) {
+            var componentParts=parts.getOrDefault(group.id(),List.of());
+            var checks=new ArrayList<CarouselReviewPolicy.Part>();var syncs=new ArrayList<AssetUploadRepository.Sync>();
+            AssetUploadRepository.Asset cover=null;long size=0;int imageCount=0;String text="";
+            for(var part:componentParts) {
+                var file=files.get(part.assetId());
+                if(file!=null && file.canonicalId()!=null)file=files.get(file.canonicalId());
+                var review=file==null ? null : decoration.reviews().get(file.id());
+                String label="TEXT".equals(part.role()) ? "文本" : "AUDIO".equals(part.role()) ? "音频" : "图片 "+(part.position()+1);
+                checks.add(new CarouselReviewPolicy.Part(label,review==null?null:review.status(),review==null?List.of():review.reasons(),review==null?null:review.errorMessage()));
+                if("IMAGE".equals(part.role())) { imageCount++; if(cover==null)cover=file; }
+                if(file==null)continue;
+                size+=file.sizeBytes();
+                if("TEXT".equals(part.role()))text=Objects.toString(file.textContent(),"");
+                decoration.syncs().getOrDefault(file.id(),List.of()).stream().filter(s->group.accounts().contains(s.accountId())).forEach(syncs::add);
+            }
+            var aggregate=CarouselReviewPolicy.aggregate(checks);
+            var review=new AssetUploadRepository.Review(group.id(),group.tenant(),aggregate.status(),null,aggregate.status(),aggregate.summary(),aggregate.reasons(),null,0,group.createdAt());
+            result.add(new LibraryEntry(group.id(),group.name(),group.createdAt(),size,imageCount,cover,review,text,List.copyOf(syncs)));
+        }
+        return result;
+    }
+
     /** No component platform tasks are created until the entire composite has passed. */
     @Transactional
     public void refresh(CarouselRepository.Bundle bundle) {

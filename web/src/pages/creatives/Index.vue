@@ -5,28 +5,34 @@
         <div class="mg-title">
           <div class="mg-title__l"><h1 class="mg-title__h">素材中心</h1><span class="mg-title__bar" aria-hidden="true"></span><span class="mg-title__tag"><AssetIcon name="mountain" />抖音·巨量千川</span></div>
           <div class="mg-title__r">
-            <el-popover v-model:visible="calendarOpen" trigger="click" :width="350" placement="bottom-end">
-              <template #reference><button class="mg-range" type="button" aria-haspopup="dialog" aria-label="按上传日期筛选素材" @click="draftRange = range ? [...range] : defaultRange()"><AssetIcon class="mg-range__ic" name="calendar" /><span>{{ range ? `${range[0]} ~ ${range[1]}` : '全部日期' }}</span><AssetIcon class="mg-range__ic" name="caret" /></button></template>
+            <el-popover v-model:visible="calendarOpen" trigger="click" role="dialog" :show-after="0" :hide-after="0" :transition="''" :width="350" placement="bottom-end">
+              <template #reference><button class="mg-range" :class="{ 'is-open': calendarOpen }" type="button" aria-haspopup="dialog" :aria-expanded="calendarOpen" aria-label="按上传日期筛选素材" @click="draftRange = range ? [...range] : defaultRange()"><AssetIcon class="mg-range__ic" name="calendar" /><span>{{ range ? `${range[0]} ~ ${range[1]}` : '全部日期' }}</span><AssetIcon class="mg-range__ic" name="caret" /></button></template>
               <div class="asset-calendar"><label>开始日期<input v-model="draftRange[0]" type="date" aria-label="开始日期" /></label><label>结束日期<input v-model="draftRange[1]" type="date" aria-label="结束日期" /></label><p v-if="dateError" role="alert">{{ dateError }}</p><div><el-button size="small" @click="allDates">全部日期</el-button><el-button size="small" @click="quickRange(1)">今天</el-button><el-button size="small" @click="quickRange(7)">近 7 天</el-button><el-button size="small" @click="quickRange(30)">近 30 天</el-button><el-button size="small" type="primary" @click="applyRange">确定</el-button></div></div>
             </el-popover>
-            <button class="mg-ibtn" type="button" aria-label="刷新素材数据" :data-busy="loading" :disabled="loading" @click="reload"><AssetIcon name="refresh" /></button>
+            <button class="mg-ibtn" type="button" aria-label="刷新素材数据" :data-busy="loading" :disabled="loading" @click="reload('refresh')"><AssetIcon name="refresh" /></button>
           </div>
         </div>
         <section class="mg-panel" aria-label="素材库" :aria-busy="loading">
           <div class="mg-panel__pad pb-[26px]">
-            <div class="ac-tabs" role="tablist" aria-label="素材库分组"><button v-for="tab in tabs" :id="`asset-tab-${tab.key}`" :key="tab.key" class="ac-tab" type="button" role="tab" :aria-selected="type === tab.key" aria-controls="asset-results" :tabindex="type === tab.key ? 0 : -1" @click="pickTab(tab.key)" @keydown="tabKey($event, tab.key)"><AssetIcon :name="tab.icon" />{{ tab.label }}<span class="ac-tab__n">{{ data.tabCounts[tab.count] }}</span></button></div>
+            <div class="ac-tabs" role="tablist" aria-label="素材库分组"><button v-for="tab in tabs" :id="`asset-tab-${tab.key}`" :key="tab.key" class="ac-tab" type="button" role="tab" :aria-selected="type === tab.key" :aria-busy="loading && type === tab.key" aria-controls="asset-results" :tabindex="type === tab.key ? 0 : -1" @click="pickTab(tab.key)" @keydown="tabKey($event, tab.key)"><AssetIcon :name="loading && type === tab.key ? 'refresh' : tab.icon" :class="{ 'asset-control-spinner': loading && type === tab.key }" />{{ tab.label }}<span class="ac-tab__n">{{ data.tabCounts[tab.count] }}</span></button></div>
             <div class="ac-bar">
               <div class="lsearch"><AssetIcon class="lsearch__ic h-[16px] w-[16px]" name="search" /><input v-model="q" class="lsearch__input" type="search" placeholder="搜索素材名称 / ID" aria-label="搜索素材名称或 ID" @input="searchChanged" @keydown.enter="resetAndReload" /></div>
-              <div class="ac-chips" role="group" aria-label="按使用状态筛选"><button v-for="chip in statuses" :key="chip.key" class="ac-chip" type="button" :aria-pressed="status === chip.key" @click="pickStatus(chip.key)">{{ chip.label }}<span class="ac-chip__n">{{ data.statusCounts[chip.count] ?? '—' }}</span></button></div>
+              <div class="ac-chips" role="group" aria-label="按使用状态筛选"><button v-for="chip in statuses" :key="chip.key" class="ac-chip" type="button" :aria-pressed="status === chip.key" :aria-busy="loading && status === chip.key" @click="pickStatus(chip.key)">{{ chip.label }}<span class="ac-chip__n"><AssetIcon v-if="loading && status === chip.key" name="refresh" class="asset-control-spinner" /><template v-else>{{ data.statusCounts[chip.count] ?? '—' }}</template></span></button></div>
               <div class="ac-bar__r"><button class="btn-create" type="button" @click="openModal('upload')"><AssetIcon name="upload" />上传素材</button></div>
             </div>
             <div class="ac-batch" :data-on="picked.size > 0"><label class="check"><input class="checkbox" type="checkbox" aria-label="全选本页素材" :checked="allPicked" :indeterminate="somePicked && !allPicked" :disabled="!data.items.length || loading || deleting" @change="pickAll" /><span class="check__label">全选本页</span></label><span class="ac-batch__n">已选 <b>{{ picked.size }}</b> 项素材</span><span class="ac-batch__hint">勾选素材后即可批量删除</span><div class="ac-batch__ops"><button class="ltool__btn ltool__btn--danger" type="button" :disabled="!picked.size || loading || deleting" @click="openDelete"><AssetIcon name="trash" />批量删除</button></div></div>
             <p v-if="!data.qianchuanBound" class="asset-notice">尚未绑定巨量千川账户，当前展示本平台素材。<router-link to="/accounts?tab=oauth">前往绑定</router-link></p>
             <p v-if="data.platformWarning" class="asset-notice">{{ data.platformWarning }}</p>
-            <p v-if="failMsg" class="asset-notice asset-notice--error" role="alert">{{ failMsg }} <button type="button" @click="reload">重试</button></p>
+            <p v-if="failMsg" class="asset-notice asset-notice--error" role="alert">{{ failMsg }} <button type="button" @click="reload('refresh')">重试</button></p>
             <div id="asset-results" class="ac-grid" role="tabpanel" :aria-labelledby="`asset-tab-${type}`">
+              <div v-if="loading" class="asset-fetch-line" role="progressbar" aria-label="正在加载素材"></div>
+              <template v-if="switching">
+                <div v-for="n in 8" :key="n" class="asset-card-skeleton" aria-hidden="true"><div></div><span></span><span></span><span></span></div>
+              </template>
+              <template v-else>
               <div v-if="!data.items.length" class="nodata" style="grid-column: 1 / -1" role="status"><span class="nodata__ic"><AssetIcon name="search" /></span><p class="nodata__t">{{ loading ? '正在加载素材' : failMsg ? '素材加载失败' : '没有匹配的素材' }}</p><p class="nodata__d">{{ loading ? '请稍候…' : '试着换个关键词或放宽筛选条件；也可以在新建计划时让灵投按商品信息智能生成素材。' }}</p></div>
               <AssetCard v-for="(item, index) in data.items" :key="item.id" :item="item" :tone="index % 8" :picked="picked.has(item.id)" :busy="loading" @pick="pickOne(item.id)" @preview="openModal('preview', item)" @detail="openModal('detail', item)" />
+              </template>
             </div>
             <div class="ac-pager pager"><span class="tnum">共 {{ data.pageInfo.total }} 条素材</span><button class="pager__btn" type="button" aria-label="上一页" :disabled="page <= 1 || loading" @click="goPage(page - 1)"><AssetIcon class="h-4 w-4 asset-flip" name="chevron-right" /></button><div class="flex items-center gap-3"><template v-for="n in visiblePages" :key="n"><span v-if="typeof n === 'string'">…</span><button v-else class="pager__num" :class="{ 'pager__num--on': n === page }" type="button" :aria-current="n === page ? 'page' : undefined" :disabled="loading" @click="goPage(n)">{{ n }}</button></template></div><button class="pager__btn" type="button" aria-label="下一页" :disabled="page >= totalPages || loading" @click="goPage(page + 1)"><AssetIcon class="h-4 w-4" name="chevron-right" /></button></div>
           </div>
@@ -34,13 +40,13 @@
       </div>
     </div>
     <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 灵投智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
-    <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" @close="closeModal" @switch="switchModal" @changed="reload" />
+    <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
     <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { storeToRefs } from 'pinia';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { ElMessage } from "element-plus";
@@ -66,13 +72,21 @@ const range = ref<[string, string] | null>(null), draftRange = ref<[string, stri
 const { accountId } = storeToRefs(useAdvertisingAccountsStore());
 const calendarOpen = ref(false), dateError = ref("");
 const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
-const data = ref<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
+const data = shallowRef<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
 const page = ref(1), loading = ref(false), failMsg = ref("");
 const picked = ref(new Set<string>()), modal = ref<Modal | null>(null), current = ref<LibraryItemVo | null>(null);
 const deleteItems = ref<LibraryItemVo[]>([]), deleting = ref(false), deleteError = ref('');
 let deleteAccount: string | undefined, alive = true;
 let searchTimer: ReturnType<typeof setTimeout> | undefined, requestId = 0, previousFocus: HTMLElement | null = null;
 let pollTimer: ReturnType<typeof setInterval> | undefined;
+let activeQuery: AbortController | undefined;
+const displayKey = ref('');
+const queryParams = computed(() => ({ type: type.value, platform: 'QIANCHUAN', accountId: accountId.value || undefined,
+  from: range.value?.[0], to: range.value?.[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 }));
+const queryKey = computed(() => JSON.stringify(queryParams.value));
+const switching = computed(() => loading.value && displayKey.value !== queryKey.value);
+const queryCache = new Map<string, { data: LibraryResponse; at: number }>();
+let cacheOwner = localStorage.getItem('lynx.token');
 const totalPages = computed(() => Math.max(1, Math.ceil(data.value.pageInfo.total / 8)));
 const visiblePages = computed(() => {
   const result: (number | string)[] = []; let last = 0;
@@ -81,28 +95,42 @@ const visiblePages = computed(() => {
 });
 const allPicked = computed(() => data.value.items.length > 0 && data.value.items.every(i => picked.value.has(i.id)));
 const somePicked = computed(() => data.value.items.some(i => picked.value.has(i.id)));
-watch(() => uploadRows.map(r => `${r.result?.id}:${r.result?.aiReview?.status}:${r.result?.syncs.map(s => s.status).join(',')}`).join(';'), () => { void reload(); });
-watch(() => carouselDraft.result, () => { void reload(); });
-async function reload() {
-  clearTimeout(searchTimer); const id = ++requestId; loading.value = true; failMsg.value = "";
+watch(() => uploadRows.map(r => `${r.result?.id}:${r.result?.aiReview?.status}:${r.result?.syncs.map(s => s.status).join(',')}`).join(';'), () => { void reload('refresh'); });
+watch(() => carouselDraft.result, () => { void reload('refresh'); });
+async function reload(mode: 'query' | 'refresh' | 'background' = 'refresh') {
+  if (mode === 'background' && (activeQuery || loading.value || deleting.value || document.hidden)) return;
+  clearTimeout(searchTimer); activeQuery?.abort(); const id = ++requestId;
+  const owner = localStorage.getItem('lynx.token');
+  if (mode === 'refresh' || owner !== cacheOwner) queryCache.clear();
+  cacheOwner = owner;
+  const params = { ...queryParams.value }, key = queryKey.value, cached = queryCache.get(key);
+  if (mode === 'query' && cached && Date.now() - cached.at < 15000) {
+    activeQuery = undefined; data.value = cached.data; displayKey.value = key; loading.value = false; failMsg.value = ''; return;
+  }
+  const controller = new AbortController(); activeQuery = controller;
+  loading.value = mode !== 'background';
+  if (mode !== 'background') failMsg.value = '';
   try {
-    const result = await listLibraryFull({ type: type.value, platform: "QIANCHUAN", accountId: accountId.value || undefined, from: range.value?.[0], to: range.value?.[1], status: status.value, q: q.value.trim(), page: page.value, pageSize: 8 });
+    const result = await listLibraryFull(params, { signal: controller.signal, headers: { 'X-Quiet-Request': 'true' } });
     if (id !== requestId) return;
-    data.value = result;
+    queryCache.delete(key); queryCache.set(key, { data: result, at: Date.now() });
+    if (queryCache.size > 12) queryCache.delete(queryCache.keys().next().value!);
+    data.value = result; displayKey.value = key; failMsg.value = '';
     if (current.value) current.value = result.items.find(item => item.id === current.value?.id) || current.value;
-    if (page.value > totalPages.value) { page.value = totalPages.value; await reload(); }
+    if (page.value > totalPages.value) { page.value = totalPages.value; await reload('query'); }
   } catch (error) {
-    if (id !== requestId) return;
+    if (id !== requestId || controller.signal.aborted || mode === 'background') return;
     failMsg.value = error instanceof Error ? error.message : "素材库查询失败";
     data.value = { ...data.value, items: [], pageInfo: { page: page.value, pageSize: 8, total: 0 } }; picked.value.clear();
-  } finally { if (id === requestId) loading.value = false; }
+    displayKey.value = key;
+  } finally { if (id === requestId) { loading.value = false; activeQuery = undefined; } }
 }
-function resetAndReload() { clearTimeout(searchTimer); page.value = 1; picked.value.clear(); void reload(); }
-watch(accountId, () => { closeModal(); deleteItems.value = []; deleteError.value = ''; resetAndReload(); });
-function searchChanged() { clearTimeout(searchTimer); ++requestId; searchTimer = setTimeout(resetAndReload, 300); }
-function pickTab(key: AssetType) { type.value = key; status.value = "ALL"; resetAndReload(); }
-function pickStatus(key: Status) { status.value = key; resetAndReload(); }
-function goPage(n: number) { page.value = Math.max(1, Math.min(n, totalPages.value)); void reload(); }
+function resetAndReload() { clearTimeout(searchTimer); page.value = 1; picked.value.clear(); void reload('query'); }
+watch(accountId, () => { queryCache.clear(); closeModal(); deleteItems.value = []; deleteError.value = ''; resetAndReload(); });
+function searchChanged() { clearTimeout(searchTimer); ++requestId; activeQuery?.abort(); activeQuery = undefined; loading.value = true; failMsg.value = ''; searchTimer = setTimeout(resetAndReload, 200); }
+function pickTab(key: AssetType) { if (type.value === key) return; type.value = key; status.value = "ALL"; resetAndReload(); }
+function pickStatus(key: Status) { if (status.value === key) return; status.value = key; resetAndReload(); }
+function goPage(n: number) { const next = Math.max(1, Math.min(n, totalPages.value)); if (page.value === next) return; page.value = next; picked.value.clear(); void reload('query'); }
 function pickOne(id: string) { if (picked.value.has(id)) picked.value.delete(id); else picked.value.add(id); }
 function pickAll() { const remove = allPicked.value; data.value.items.forEach(i => remove ? picked.value.delete(i.id) : picked.value.add(i.id)); }
 function applyRange() { const [from, to] = draftRange.value; if (!from || !to || from > to) { dateError.value = "请选择有效日期，开始日期不能晚于结束日期"; return; } range.value = [...draftRange.value]; dateError.value = ""; calendarOpen.value = false; resetAndReload(); }
@@ -125,7 +153,7 @@ function openDelete() {
 function closeDelete() { if (!deleting.value) { deleteItems.value = []; deleteError.value = ''; } }
 async function confirmDelete() {
   if (deleting.value || !deleteItems.value.length) return;
-  deleting.value = true; deleteError.value = '';
+  deleting.value = true; deleteError.value = ''; queryCache.clear();
   const items = [...deleteItems.value], owner = deleteAccount;
   try {
     const result = await deleteLibraryItems(items.map(item => item.id), owner);
@@ -142,8 +170,8 @@ async function confirmDelete() {
     if (alive && owner === (accountId.value || undefined)) deleteError.value = error instanceof Error ? error.message : '暂时无法删除，请重试。';
   } finally { if (alive) deleting.value = false; }
 }
-onMounted(() => { void reload(); pollTimer = setInterval(() => { if (!loading.value && (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status))))) void reload(); }, 5000); });
-onUnmounted(() => { alive = false; ++requestId; clearTimeout(searchTimer); clearInterval(pollTimer); });
+onMounted(() => { void reload('query'); pollTimer = setInterval(() => { if (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status)))) void reload('background'); }, 5000); });
+onUnmounted(() => { alive = false; ++requestId; activeQuery?.abort(); queryCache.clear(); clearTimeout(searchTimer); clearInterval(pollTimer); });
 </script>
 
 <style src="./asset-center.css"></style>
@@ -152,6 +180,23 @@ onUnmounted(() => { alive = false; ++requestId; clearTimeout(searchTimer); clear
 .asset-notice { margin-top: 14px; padding: 10px 14px; border-radius: 10px; background: #f7f8fe; font-size: 13px; }
 .asset-notice a, .asset-notice button { color: #4348db; }
 .asset-notice--error { color: #e5484d; background: #fff4f4; }
+.asset-control-spinner { animation:asset-spin .8s linear infinite; }
+.ac-chip__n { display:inline-grid; place-items:center; min-width:1.5ch; }
+.ac-chip__n > svg { width:12px; height:12px; }
+.mg-range.is-open { border-color:#6555ff; color:#5549e7; }
+.ac-tab, .ac-chip, .mg-range { transition-duration:80ms; }
+:is(.ac-tab,.ac-chip,.mg-range,.mg-ibtn):active { transform:scale(.97); }
+:is(.ac-tab,.ac-chip,.mg-range,.mg-ibtn):focus-visible { outline:2px solid #8c80ff; outline-offset:3px; }
+.asset-fetch-line { grid-column:1/-1; height:3px; margin-bottom:-12px; overflow:hidden; border-radius:3px; background:#eeebff; }
+.asset-fetch-line::after { content:''; display:block; width:35%; height:100%; background:#6555ff; animation:asset-loading-line 1s ease-in-out infinite; }
+.asset-card-skeleton { border:1px solid #e5e5f1; border-radius:14px; padding:10px; min-width:0; }
+.asset-card-skeleton > div { aspect-ratio:16/9; border-radius:10px; }
+.asset-card-skeleton > span { display:block; height:13px; margin-top:12px; width:75%; border-radius:4px; }
+.asset-card-skeleton > span:last-child { width:45%; margin-bottom:4px; }
+.asset-card-skeleton > * { background:linear-gradient(100deg,#f0eff8 25%,#fafaff 45%,#f0eff8 65%); background-size:250% 100%; animation:asset-skeleton 1.2s linear infinite; }
+@keyframes asset-loading-line { from { transform:translateX(-100%); } to { transform:translateX(385%); } }
+@keyframes asset-skeleton { from { background-position:100% 0; } to { background-position:-100% 0; } }
+@media(prefers-reduced-motion:reduce) { .asset-control-spinner,.asset-fetch-line::after,.asset-card-skeleton > * { animation:none; } }
 </style>
 <style>
 .asset-calendar { font-family: system-ui, "Microsoft YaHei", sans-serif; font-size: 13px; }

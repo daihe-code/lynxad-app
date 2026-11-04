@@ -46,6 +46,11 @@ class LibraryReviewFilterTest {
         assertEquals("REJECTED",result.items().getFirst().reviewBadge()); assertEquals(1,result.statusCounts().rejected());
         assertEquals("REJECTED",result.items().getFirst().syncs().getFirst().reviewStatus());
         org.mockito.Mockito.verify(uploads).review(sync,"REJECTED");
+        when(uploads.syncs(tenant.value(),asset.id())).thenReturn(result.items().getFirst().syncs());
+        org.mockito.Mockito.clearInvocations(uploads);
+        service.query(tenant,"IMAGE","QIANCHUAN",LocalDate.of(2026,10,1),LocalDate.of(2026,10,7),"ALL",null,1,8);
+        org.mockito.Mockito.verify(uploads,org.mockito.Mockito.never()).review(any(),org.mockito.ArgumentMatchers.anyString());
+        when(uploads.syncs(tenant.value(),asset.id())).thenReturn(List.of(sync));
         var other=mock(com.lynx.ad.modules.identity.domain.model.OauthAccount.class);
         when(other.id()).thenReturn(new com.lynx.ad.common.domain.Ids.AccountId("account-b")); when(other.status()).thenReturn("ACTIVE"); when(other.platform()).thenReturn(com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN);
         when(accounts.findByTenant(tenant)).thenReturn(List.of(other));
