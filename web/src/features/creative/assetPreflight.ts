@@ -1,7 +1,7 @@
 import type { UploadPolicy } from './creativeApi';
 import fileRules from '../../../../lynx-ad-app/src/main/resources/asset-file-policy.json' with { type: 'json' };
 
-export interface FileMetadata { width?: number; height?: number; duration?: number; characters?: number; summary: string }
+export interface FileMetadata { width?: number; height?: number; duration?: number; characters?: number; posterDataUrl?: string; summary: string }
 export function targetError(file: File, sync: boolean) {
   const rule = fileRules.files.find(r => r.extension === file.name.split('.').pop()?.toLowerCase());
   return sync && rule && rule.kind !== 'TEXT' && !rule.qianchuanSupported ? '千川仅支持 MP3/M4A 音频，请转换 WAV 或取消同步账户后仅保存到平台' : '';
@@ -113,7 +113,16 @@ function mediaMetadata(file: File, video: boolean): Promise<FileMetadata> {
     const media = document.createElement(video ? 'video' : 'audio'), url = URL.createObjectURL(file);
     const finish = (error?: string) => {
       clearTimeout(timer); media.onloadeddata = null; media.onerror = null;
-      const result = { width: video ? (media as HTMLVideoElement).videoWidth : undefined, height: video ? (media as HTMLVideoElement).videoHeight : undefined, duration: media.duration, summary: '' };
+      const result: FileMetadata = { width: video ? (media as HTMLVideoElement).videoWidth : undefined, height: video ? (media as HTMLVideoElement).videoHeight : undefined, duration: media.duration, summary: '' };
+      // Reuse the preflight decode; a batch must not start a second decoder for each thumbnail.
+      if (!error && video && result.width && result.height) {
+        try {
+          const canvas = document.createElement('canvas'), scale = Math.min(1, 280 / Math.max(result.width, result.height));
+          canvas.width = Math.round(result.width * scale); canvas.height = Math.round(result.height * scale);
+          const context = canvas.getContext('2d');
+          if (context) { context.drawImage(media as HTMLVideoElement, 0, 0, canvas.width, canvas.height); result.posterDataUrl = canvas.toDataURL('image/jpeg', .8); }
+        } catch { /* A missing thumbnail must not reject an otherwise valid video. */ }
+      }
       media.removeAttribute('src'); media.load(); URL.revokeObjectURL(url);
       if (error) reject(new Error(error)); else resolve(result);
     };
