@@ -19,4 +19,3 @@ public class OptimizationRuleDetailsService {
         return new Details(view,metrics.seconds(tenant.value(),id.value(),today),journal.ruleSummary(tenant.value(),id.value(),today),journal.rulePending(tenant.value(),id.value()),journal.ruleHistory(tenant.value(),id.value(),category,days,page,size),account==null?"UNAVAILABLE":account.status(),account==null?null:account.accountName());
     }
 }
-
