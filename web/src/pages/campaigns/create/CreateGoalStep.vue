@@ -217,12 +217,12 @@
                   <div class="est__row">
                     <span class="est__k">预估ROI</span>
                     <span class="est__vwrap">
-                      <b class="est__v">{{ estimateRoiHint || '待平台评估' }}</b>
+                      <b class="est__v">{{ estimateRoiHint || '--' }}</b>
                     </span>
                   </div>
                   <div class="est__row">
                     <span class="est__k">预估成交订单量</span>
-                    <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '待平台评估' }}</b></span>
+                    <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '--' }}</b></span>
                   </div>
                 </div>
               </div>

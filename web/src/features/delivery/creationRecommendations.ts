@@ -46,12 +46,12 @@ export function budgetEstimateHints(data: Recommendations, budget: string): { ro
       : rows(data).length ? '当前日预算未对应平台预估档位，预估暂不展示。'
       : recommendedBudget(data) ? '千川已返回推荐日预算，暂未提供该商品组合的 ROI 和订单预估。'
       : '千川暂未返回预算预估，可手动填写日预算。';
-    return { roi: '暂未提供', orders: '暂未提供', message };
+    return { roi: '--', orders: '--', message };
   }
   const lo = number(row.min_estimate_roi), hi = number(row.max_estimate_roi), roi = number(row.estimate_roi);
   const min = number(row.min_estimate_convert), max = number(row.max_estimate_convert), orders = number(row.estimate_convert);
   return {
-    roi: lo !== undefined && hi !== undefined ? `${lo} ～ ${hi}` : lo !== undefined ? `不低于 ${lo}` : roi !== undefined ? String(roi) : '暂未提供',
-    orders: min !== undefined && max !== undefined ? `${min} ～ ${max}单` : orders !== undefined ? `${orders}单` : '暂未提供',
+    roi: lo !== undefined && hi !== undefined ? `${lo} ～ ${hi}` : lo !== undefined ? `不低于 ${lo}` : roi !== undefined ? String(roi) : '--',
+    orders: min !== undefined && max !== undefined ? `${min} ～ ${max}单` : orders !== undefined ? `${orders}单` : '--',
   };
 }

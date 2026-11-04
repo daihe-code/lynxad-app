@@ -6,9 +6,9 @@ test('千川仅返回推荐预算时保留该档位，并明确预估缺失，�
   const data = { budget: { budget: 50, is_update: false, estimate_trans_cost_list: [] }, roi: { ecp_roi2_goal: 4.82 } };
   assert.equal(recommendedBudget(data), 50);
   assert.deepEqual(budgetChoices(data), [50]);
-  assert.deepEqual(budgetOptions(data), [{ budget: 50, roi: '暂未提供', orders: '暂未提供', badge: '推荐档位' }]);
+  assert.deepEqual(budgetOptions(data), [{ budget: 50, roi: '--', orders: '--', badge: '推荐档位' }]);
   assert.deepEqual(budgetEstimateHints(data, '50'), {
-    roi: '暂未提供', orders: '暂未提供', message: '千川已返回推荐日预算，暂未提供该商品组合的 ROI 和订单预估。',
+    roi: '--', orders: '--', message: '千川已返回推荐日预算，暂未提供该商品组合的 ROI 和订单预估。',
   });
 });
 
@@ -21,7 +21,7 @@ test('完整预估按当前预算精确匹配，零值仍正常显示', () => {
   assert.deepEqual(budgetEstimateHints(data, '50.00'), { roi: '0 ～ 0.01', orders: '0 ～ 2单' });
   assert.deepEqual(budgetEstimateHints(data, '100'), { roi: '0.3', orders: '0单' });
   assert.deepEqual(budgetEstimateHints(data, '80'), {
-    roi: '暂未提供', orders: '暂未提供', message: '当前日预算未对应平台预估档位，预估暂不展示。',
+    roi: '--', orders: '--', message: '当前日预算未对应平台预估档位，预估暂不展示。',
   });
 });
 
@@ -30,7 +30,7 @@ test('接口失败和没有推荐预算时不给出虚构的推荐档位', () =>
   assert.deepEqual(budgetChoices(failure), []);
   assert.deepEqual(budgetOptions(failure), []);
   assert.deepEqual(budgetEstimateHints(failure, '50'), {
-    roi: '暂未提供', orders: '暂未提供', message: '千川预算预估暂不可用，可手动填写日预算。',
+    roi: '--', orders: '--', message: '千川预算预估暂不可用，可手动填写日预算。',
   });
   assert.equal(budgetEstimateHints(undefined, '').message, '填写日预算后查看平台提供的预估。');
 });
@@ -49,6 +49,6 @@ test('旧推荐缺少时间或账户、抖音号、商品不一致时必须刷�
 
 test('失败时保留的预算标注为上次推荐，不能当作本次平台预估', () => {
   const data={budget:{budget:50},budgetFromCache:true,budgetError:'请求频率受限'};
-  assert.deepEqual(budgetOptions(data),[{budget:50,roi:'暂未提供',orders:'暂未提供',badge:'上次推荐'}]);
+  assert.deepEqual(budgetOptions(data),[{budget:50,roi:'--',orders:'--',badge:'上次推荐'}]);
   assert.equal(budgetEstimateHints(data,'50').message,'千川本次预算推荐获取失败，已保留上次推荐金额；ROI 和订单预估暂不可用。');
 });
