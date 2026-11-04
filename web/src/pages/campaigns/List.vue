@@ -122,8 +122,8 @@
       <button type="button" class="insights-close" aria-label="关闭计划运营面板" @click="closeInsights">×</button>
       <PlanInsights v-if="insightsPlanId" :key="insightsPlanId" :plan-id="insightsPlanId" :tab="insightsTab" :initial-range="insightsRange" @tab="setInsightsTab" @range="setInsightsRange" @changed="load()" />
     </el-drawer>
-    <el-drawer :model-value="!!optimizationPlanId" :title="optimizationPlan?.name || '盯盘优化'" size="min(980px, 92vw)" class="optimization-drawer" destroy-on-close @update:model-value="onInsightsVisible">
-      <PlanOptimization v-if="optimizationPlanId" :key="optimizationPlanId" :plan-id="optimizationPlanId" @saved="loadOptimizationStatuses(records)" @data="setInsightsTab('data')" />
+    <el-drawer :model-value="!!optimizationPlanId" :with-header="false" size="min(760px, 100vw)" class="optimization-drawer" destroy-on-close @update:model-value="onInsightsVisible">
+      <PlanOptimization v-if="optimizationPlanId" :key="optimizationPlanId" :plan-id="optimizationPlanId" :plan="optimizationPlan" :account="accounts.find(account => account.accountId === optimizationPlan?.accountId)" :configured="!!optimizationStatuses[optimizationPlanId]" @saved="loadOptimizationStatuses(records)" @close="closeInsights" @data="setInsightsTab($event)" />
     </el-drawer>
   </div>
 </template>
@@ -581,5 +581,6 @@ tr:hover .bid-edit, tr:focus-within .bid-edit { max-width: 120px; opacity: 1; }
 :global(.campaign-status-menu.el-cascader__dropdown .status-option-label){display:block;width:100%}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-menu){min-width:185px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-menu__wrap){height:310px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-node){font-size:13px;min-height:34px}:global(.campaign-status-menu.el-cascader__dropdown .el-cascader-node__label){padding-right:16px}
 </style>
 <style>
+.optimization-drawer .el-drawer__body{padding:0;overflow:hidden}
 .plan-insights-drawer .el-drawer__body{padding:0;overflow:auto}.plan-insights-drawer .insights-header{padding-right:65px}.plan-insights-drawer .insights-close{position:absolute;right:15px;top:16px;z-index:2;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid #e8e9f4;border-radius:7px;background:white;color:#737892;font-size:25px;cursor:pointer}.plan-insights-drawer .insights-close:hover{color:#5b57ff;background:#f6f6ff}@media(max-width:700px){.plan-insights-drawer{width:100%!important}}
 </style>

@@ -6,8 +6,19 @@ import java.util.*;
 
 /** Ratios include goods, fulfilment, platform and other variable costs before ad spend. */
 public record OptimizationPolicy(boolean enabled,String mode,BigDecimal dailySpendLimit,BigDecimal maxLoss,
-        BigDecimal minSpend,int minOrders,int persistenceWindows,int conversionDelayMinutes,List<Economics> economics,Automation automation,Tactics tactics,CreativeGeneration creativeGeneration) {
-    public OptimizationPolicy {if(automation==null)automation=Automation.defaults();if(tactics==null)tactics=Tactics.defaults();if(creativeGeneration==null)creativeGeneration=CreativeGeneration.defaults();tactics=new Tactics(tactics.boost(),tactics.materialFollow(),creativeGeneration.enabled(),tactics.materialRemove(),false,tactics.productRemove(),tactics.taskBudget(),tactics.taskHours(),tactics.extraBudgetPerDay(),tactics.entityDays(),tactics.retainProducts(),tactics.retainMaterials(),List.of());}
+        BigDecimal minSpend,int minOrders,int persistenceWindows,int conversionDelayMinutes,List<Economics> economics,Automation automation,Tactics tactics,CreativeGeneration creativeGeneration,OptimizationRules rules) {
+    public OptimizationPolicy {
+        if(rules!=null){
+            rules.validate();
+            mode=OptimizationRules.AUTO_PAUSE.equals(rules.protectionAction())?"AUTO_LIMITED":"OBSERVE";
+            dailySpendLimit=rules.spendProtection();
+            automation=new Automation(false,false,OptimizationRules.AUTO_PAUSE.equals(rules.protectionAction()),false,new BigDecimal("50"),new BigDecimal("500"),new BigDecimal("0.01"),new BigDecimal("100"),BigDecimal.TEN,120,3,9);
+            tactics=Tactics.defaults();creativeGeneration=CreativeGeneration.defaults();
+            economics=List.of();
+        }
+        if(automation==null)automation=Automation.defaults();if(tactics==null)tactics=Tactics.defaults();if(creativeGeneration==null)creativeGeneration=CreativeGeneration.defaults();tactics=new Tactics(tactics.boost(),tactics.materialFollow(),creativeGeneration.enabled(),tactics.materialRemove(),false,tactics.productRemove(),tactics.taskBudget(),tactics.taskHours(),tactics.extraBudgetPerDay(),tactics.entityDays(),tactics.retainProducts(),tactics.retainMaterials(),List.of());
+    }
+    public OptimizationPolicy(boolean enabled,String mode,BigDecimal limit,BigDecimal loss,BigDecimal spend,int orders,int windows,int delay,List<Economics> economics,Automation automation,Tactics tactics,CreativeGeneration generation){this(enabled,mode,limit,loss,spend,orders,windows,delay,economics,automation,tactics,generation,null);}
     public OptimizationPolicy(boolean enabled,String mode,BigDecimal limit,BigDecimal loss,BigDecimal spend,int orders,int windows,int delay,List<Economics> economics,Automation automation,Tactics tactics){this(enabled,mode,limit,loss,spend,orders,windows,delay,economics,automation,tactics,CreativeGeneration.defaults());}
     public OptimizationPolicy(boolean enabled,String mode,BigDecimal limit,BigDecimal loss,BigDecimal spend,int orders,int windows,int delay,List<Economics> economics,Automation automation) {
         this(enabled,mode,limit,loss,spend,orders,windows,delay,economics,automation,Tactics.defaults());
@@ -27,7 +38,7 @@ public record OptimizationPolicy(boolean enabled,String mode,BigDecimal dailySpe
         public Map<String,Object> engine(){return Map.ofEntries(Map.entry("enabled",enabled),Map.entry("auto_publish",autoPublish),Map.entry("formats",formats),Map.entry("min_materials",minMaterials),Map.entry("max_pending",maxPending),Map.entry("daily_cost_limit",dailyCostLimit.toPlainString()),Map.entry("per_asset_cost_limit",perAssetCostLimit.toPlainString()),Map.entry("trial_loss_limit",trialLossLimit.toPlainString()),Map.entry("min_impressions",minImpressions),Map.entry("min_clicks",minClicks),Map.entry("brand_style",brandStyle),Map.entry("forbidden_claims",forbiddenClaims));}
         public CreativeGeneration authorized(String user){return new CreativeGeneration(enabled,autoPublish,formats,minMaterials,maxPending,dailyCostLimit,perAssetCostLimit,trialLossLimit,minImpressions,minClicks,brandStyle,forbiddenClaims,user);}
     }
-    public OptimizationPolicy authorized(String user){return new OptimizationPolicy(enabled,mode,dailySpendLimit,maxLoss,minSpend,minOrders,persistenceWindows,conversionDelayMinutes,economics,automation,tactics,creativeGeneration.authorized(user));}
+    public OptimizationPolicy authorized(String user){return new OptimizationPolicy(enabled,mode,dailySpendLimit,maxLoss,minSpend,minOrders,persistenceWindows,conversionDelayMinutes,economics,automation,tactics,creativeGeneration.authorized(user),rules);}
     public record Tactics(boolean boost,boolean materialFollow,boolean materialAdd,boolean materialRemove,boolean productAdd,boolean productRemove,
             BigDecimal taskBudget,BigDecimal taskHours,BigDecimal extraBudgetPerDay,int entityDays,int retainProducts,int retainMaterials,List<String> candidatePlanIds) {
         // Retain the JSON field for old saved policies, but never authorize automatic product addition.
@@ -42,6 +53,7 @@ public record OptimizationPolicy(boolean enabled,String mode,BigDecimal dailySpe
                 new BigDecimal("100"),3,3,60,List.of());
     }
     public void validate(Set<String> products) {
+        if(rules!=null){rules.validate();return;}
         if(!Set.of("OBSERVE","AUTO_LIMITED").contains(mode==null?"":mode))throw new BizException(1802,"请选择观察模式或自动调控");
         money(dailySpendLimit,"每日消耗限额",new BigDecimal("0.01"));money(maxLoss,"亏损警戒线",new BigDecimal("0.01"));money(minSpend,"最低样本消耗",BigDecimal.TEN);
         if(minOrders<1 || minOrders>10000 || persistenceWindows<3 || persistenceWindows>8 || conversionDelayMinutes<60 || conversionDelayMinutes>1440)
@@ -70,7 +82,7 @@ public record OptimizationPolicy(boolean enabled,String mode,BigDecimal dailySpe
             throw new BizException(1802,"贡献率应在0–100%之间，额外退款预留应在0–100%之间且不含100%");
     }
     public OptimizationPolicy withEconomics(List<Economics> values) {
-        return new OptimizationPolicy(enabled,mode,dailySpendLimit,maxLoss,minSpend,minOrders,persistenceWindows,conversionDelayMinutes,values,automation,tactics,creativeGeneration);
+        return new OptimizationPolicy(enabled,mode,dailySpendLimit,maxLoss,minSpend,minOrders,persistenceWindows,conversionDelayMinutes,values,automation,tactics,creativeGeneration,rules);
     }
     public Map<String,Object> enginePolicy() {
         return Map.ofEntries(Map.entry("mode",mode),Map.entry("daily_spend_limit",dailySpendLimit.toPlainString()),Map.entry("max_loss",maxLoss.toPlainString()),Map.entry("min_spend",minSpend.toPlainString()),Map.entry("min_orders",minOrders),Map.entry("persistence_windows",persistenceWindows),Map.entry("conversion_delay_minutes",conversionDelayMinutes),Map.entry("execution",automation.engine()),Map.entry("tactics",tactics.engine()),Map.entry("creative_generation",creativeGeneration.engine()));

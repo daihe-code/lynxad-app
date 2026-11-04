@@ -43,6 +43,21 @@ class OptimizationMonitoringTest {
         when(management.monitoringFacts(tenant,id)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
         verify(store).discard(s,"old");verify(store).release(eq(s),anyString(),eq("授权失效"));verify(engine,never()).submit(anyString(),anyString());
     }
+    OptimizationStore.State rulesState() {
+        var rules=new OptimizationRules(new BigDecimal("4"),new BigDecimal("400"),new BigDecimal("480"),"CONFIRM",5,new BigDecimal("100"),new BigDecimal("100"),new BigDecimal("200"));
+        var policy=new OptimizationPolicy(true,"OBSERVE",BigDecimal.valueOf(480),BigDecimal.valueOf(200),BigDecimal.valueOf(100),3,3,60,List.of(),null,null,null,rules);
+        return new OptimizationStore.State("a","p",1,true,policy,null,null,null,null);
+    }
+    @Test void ruleDetailsDoNotFetchPlatformIdsOrCallExternalServices() {
+        when(plan.productIds()).thenReturn(List.of());when(store.get(tenant,id)).thenReturn(Optional.of(rulesState()));
+        assertTrue(service.rulesView(tenant,id).available());verifyNoInteractions(management,insights,engine);
+    }
+    @Test void ruleObservationOlderThanTwoMinutesIsRecollected() {
+        var s=rulesState();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
+        when(store.pending(s)).thenReturn(Optional.of(new OptimizationStore.Pending("stale-rules",1,"{}",Instant.now().minusSeconds(121))));
+        when(management.monitoringFacts(tenant,id)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
+        verify(store).discard(s,"stale-rules");verify(store).release(eq(s),anyString(),eq("授权失效"));verifyNoInteractions(engine);
+    }
     @Test void networkFailureRetainsOutboxForIdenticalRetry() {
         var s=state();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         var pending=new OptimizationStore.Pending("retry",1,"payload",Instant.now());when(store.pending(s)).thenReturn(Optional.of(pending));

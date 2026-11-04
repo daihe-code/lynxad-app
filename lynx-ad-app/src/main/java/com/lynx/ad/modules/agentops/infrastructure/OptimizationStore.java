@@ -31,6 +31,8 @@ public class OptimizationStore {
     private final ObjectMapper json;
     private final TransactionTemplate tx;
     private OptimizationAutomationStore automationStore;
+    private OptimizationRuleMetricsStore ruleMetrics;
+    @org.springframework.beans.factory.annotation.Autowired public void ruleMetrics(OptimizationRuleMetricsStore value){ruleMetrics=value;}
     @org.springframework.beans.factory.annotation.Autowired public void automationStore(OptimizationAutomationStore value){automationStore=value;}
     public OptimizationStore(JdbcTemplate jdbc,ObjectMapper json,PlatformTransactionManager manager) {this.jdbc=jdbc;this.json=json;tx=new TransactionTemplate(manager);}
     private String encode(Object value) {try{return json.writeValueAsString(value);}catch(Exception ex){throw new IllegalStateException("Invalid monitoring payload",ex);}}
@@ -71,13 +73,21 @@ public class OptimizationStore {
                 if(changed==0)jdbc.update("INSERT INTO product_economics_profile VALUES(?,?,?,?,?,?,?,?)",plan.tenantId().value(),plan.accountId().value(),plan.awemeId().value(),e.productId(),e.contributionMarginRate(),e.refundReserveRate(),e.verified(),now);
             }
             // Economics are shared across mode variants. Invalidate old advice and unsent revisions.
-            jdbc.update("UPDATE optimization_policy SET policy_version=policy_version+1,result_json=NULL,last_error=NULL,next_check_at=? WHERE tenant_id=?",now,plan.tenantId().value());
-            jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE tenant_id=? AND status='PENDING'",now,plan.tenantId().value());
-            jdbc.update("UPDATE optimization_event SET status='SKIPPED',error_message='盯盘设置或利润资料已更新',finished_at=? WHERE tenant_id=? AND status='READY'",now,plan.tenantId().value());
+            if(policy.rules()!=null){
+                jdbc.update("UPDATE optimization_policy SET policy_version=policy_version+1,result_json=NULL,last_error=NULL,next_check_at=? WHERE tenant_id=? AND plan_id=?",now,plan.tenantId().value(),plan.id().value());
+                jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE tenant_id=? AND plan_id=? AND status='PENDING'",now,plan.tenantId().value(),plan.id().value());
+                jdbc.update("UPDATE optimization_event SET status='SKIPPED',error_message='盯盘规则已更新',finished_at=? WHERE tenant_id=? AND plan_id=? AND status='READY'",now,plan.tenantId().value(),plan.id().value());
+            }else{
+                jdbc.update("UPDATE optimization_policy SET policy_version=policy_version+1,result_json=NULL,last_error=NULL,next_check_at=? WHERE tenant_id=?",now,plan.tenantId().value());
+                jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE tenant_id=? AND status='PENDING'",now,plan.tenantId().value());
+                jdbc.update("UPDATE optimization_event SET status='SKIPPED',error_message='盯盘设置或利润资料已更新',finished_at=? WHERE tenant_id=? AND status='READY'",now,plan.tenantId().value());
+            }
             jdbc.update("UPDATE optimization_policy SET baseline_json=NULL,auto_paused_reason=NULL,auto_paused_at=NULL WHERE tenant_id=? AND plan_id=?",plan.tenantId().value(),plan.id().value());
-            if(!"AUTO_LIMITED".equals(policy.mode()))jdbc.update("UPDATE optimization_policy SET hold_reason=NULL WHERE tenant_id=? AND plan_id=?",plan.tenantId().value(),plan.id().value());
+            if(policy.rules()!=null || !"AUTO_LIMITED".equals(policy.mode()))jdbc.update("UPDATE optimization_policy SET hold_reason=NULL WHERE tenant_id=? AND plan_id=?",plan.tenantId().value(),plan.id().value());
             int changed=jdbc.update("UPDATE optimization_policy SET enabled=?,config_json=?,next_check_at=? WHERE tenant_id=? AND plan_id=?",policy.enabled(),encode(policy.withEconomics(List.of())),now,plan.tenantId().value(),plan.id().value());
             if(changed==0)jdbc.update("INSERT INTO optimization_policy(tenant_id,plan_id,policy_version,enabled,config_json,next_check_at) VALUES(?,?,1,?,?,?)",plan.tenantId().value(),plan.id().value(),policy.enabled(),encode(policy.withEconomics(List.of())),now);
+            if(ruleMetrics!=null)ruleMetrics.reset(plan.tenantId().value(),plan.id().value());
+            if(policy.rules()!=null && automationStore!=null)automationStore.ruleChanged(plan,policy,version+1);
         });
     }
     public boolean claim(State state,String owner,Instant now) {
@@ -104,6 +114,7 @@ public class OptimizationStore {
             assertLease(state,owner);var now=Timestamp.from(Instant.now());
             jdbc.update("UPDATE optimization_outbox SET status='SENT',updated_at=? WHERE id=? AND tenant_id=? AND plan_id=? AND status='PENDING'",now,pending.id(),state.tenant(),state.plan());
             jdbc.update("UPDATE optimization_policy SET result_json=?,last_success_at=?,last_error=NULL WHERE tenant_id=? AND plan_id=? AND lease_owner=?",encode(result),now,state.tenant(),state.plan(),owner);
+            if(ruleMetrics!=null)ruleMetrics.observed(state,result);
             if(automationStore!=null){automationStore.recordAdvice(state,result);if(state.error()!=null)automationStore.notice(state.tenant(),state.plan(),"OPTIMIZATION_RECOVERED","盯盘采集已恢复","已重新获取最新平台数据。");}
         });
     }
@@ -118,7 +129,7 @@ public class OptimizationStore {
         tx.executeWithoutResult(txStatus->{
         var now=Instant.now();String safe=error==null?null:error.substring(0,Math.min(500,error.length()));
         int changed=jdbc.update("UPDATE optimization_policy SET lease_owner=NULL,lease_until=NULL,next_check_at=CASE WHEN policy_version=? THEN ? ELSE next_check_at END,last_error=CASE WHEN policy_version=? THEN ? ELSE last_error END WHERE tenant_id=? AND plan_id=? AND lease_owner=?",
-            s.version(),Timestamp.from(now.plusSeconds(error==null || s.error()!=null?300:60)),s.version(),safe,s.tenant(),s.plan(),owner);
+            s.version(),Timestamp.from(now.plusSeconds(s.policy().rules()!=null?60:error==null || s.error()!=null?300:60)),s.version(),safe,s.tenant(),s.plan(),owner);
         if(error!=null)jdbc.update("UPDATE optimization_outbox SET attempts=attempts+1,updated_at=? WHERE tenant_id=? AND plan_id=? AND status='PENDING'",Timestamp.from(now),s.tenant(),s.plan());
         if(changed==1 && error!=null && !Objects.equals(s.error(),safe) && automationStore!=null && get(new TenantId(s.tenant()),new PlanId(s.plan())).map(v->v.version()==s.version()).orElse(false))automationStore.notice(s.tenant(),s.plan(),"OPTIMIZATION_ERROR","盯盘采集异常",safe);
         });

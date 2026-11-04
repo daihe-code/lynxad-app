@@ -7,6 +7,7 @@ export interface ProductEconomics {
   verified: boolean;
 }
 export interface OptimizationPolicy {
+  rules?: OptimizationRules | null;
   enabled: boolean;
   mode: 'OBSERVE' | 'AUTO_LIMITED';
   automation: Automation;
@@ -20,6 +21,7 @@ export interface OptimizationPolicy {
   conversionDelayMinutes: number;
   economics: ProductEconomics[];
 }
+export interface OptimizationRules { roiFloor: number; spendReminder: number; spendProtection: number; protectionAction: 'CONFIRM' | 'AUTO_PAUSE'; runawayMinutes: number; runawaySpend: number; maxAddition: number; dailyAddition: number }
 export interface Automation { budget: boolean; roi: boolean; pause: boolean; resumeNextDay: boolean; minBudget: number; maxBudget: number; minRoi: number; maxRoi: number; maxStepPercent: number; cooldownMinutes: number; maxActionsPerDay: number; resumeHour: number }
 export const defaultAutomation = (): Automation => ({ budget: true, roi: false, pause: true, resumeNextDay: false, minBudget: 50, maxBudget: 500, minRoi: .01, maxRoi: 100, maxStepPercent: 10, cooldownMinutes: 120, maxActionsPerDay: 3, resumeHour: 9 });
 export interface Tactics { boost: boolean; materialFollow: boolean; materialAdd: boolean; materialRemove: boolean; productAdd: false; productRemove: boolean; taskBudget: number; taskHours: number; extraBudgetPerDay: number; entityDays: number; retainProducts: number; retainMaterials: number; candidatePlanIds: string[] }
@@ -29,6 +31,13 @@ export const defaultCreativeGeneration = (): CreativeGeneration => ({ enabled: f
 export interface CreativeStrategy { scene_strategy?: { mode: string; avoid_scenes: string[]; avoid_styles: string[]; avoid_angles: string[] }; product_id: string; target: string; trigger: string; hypothesis: string; visual_style?: string; evidence_summary: string; reserved_cost: string; cost_note: string; experiment_mode: string; test_dimension?: string; baseline_material_id?: string; warnings: string[] }
 export interface ProposedAction { kind: 'BUDGET' | 'ROI' | 'PAUSE' | 'ENABLE' | 'BOOST' | 'MATERIAL_FOLLOW' | 'MATERIAL_GENERATE' | 'MATERIAL_ADD' | 'MATERIAL_REMOVE' | 'PRODUCT_ADD' | 'PRODUCT_REMOVE'; expected?: string; target?: string; cause: string; budget?: string; duration?: string; entity_id?: string; product_id?: string; material_type?: string; source_plan_id?: string; generation_id?: string; strategy?: CreativeStrategy }
 export interface MonitoringReport {
+  rules?: OptimizationRules;
+  actual_net_roi?: string | null;
+  mature_spend?: string | null;
+  mature_net_revenue?: string | null;
+  daily_net_revenue?: string | null;
+  complete?: boolean;
+  roi_windows?: { window_start: string; window_end: string; metrics: { spend: string | null; net_revenue: string | null } }[];
   plan_id?: string;
   state: 'READY' | 'WAITING_DATA' | 'PAUSED';
   observed_at: string;
@@ -51,6 +60,7 @@ export interface MonitoringReport {
   recommendations: { type: string; title: string; evidence: string; requires_confirmation: boolean; execution_allowed?: boolean; action?: ProposedAction }[];
 }
 export interface OptimizationView {
+  planName?: string; accountId?: string; planStatus?: string; qcStatus?: string;
   policy: OptimizationPolicy;
   version: number;
   productIds: string[];
@@ -67,6 +77,8 @@ export interface OptimizationView {
 }
 const path = (id: string) => `/api/v1/delivery/plans/${encodeURIComponent(id)}/optimization`;
 export const getOptimization = (id: string) => apiGet<OptimizationView>(path(id), { headers: { 'X-Quiet-Request': 'true' } });
+export const getOptimizationRules = (id: string) => apiGet<OptimizationView>(`${path(id)}/rules`, { headers: { 'X-Quiet-Request': 'true' } });
+export const saveOptimizationRules = (id: string, rules: OptimizationRules, enabled: boolean, expectedVersion: number) => apiPut<OptimizationView>(`${path(id)}/rules`, { rules, enabled, expectedVersion }, { headers: { 'X-Quiet-Request': 'true' } });
 export interface CandidatePlan { id: string; name: string; qcId: string }
 export const getOptimizationCandidates = (id: string) => apiGet<CandidatePlan[]>(`${path(id)}/candidates`, { headers: { 'X-Quiet-Request': 'true' } });
 export const saveOptimization = (id: string, policy: OptimizationPolicy, expectedVersion: number) => apiPut<OptimizationView>(path(id), { policy, expectedVersion });
@@ -75,13 +87,15 @@ export interface CreativeJob { id: string; productId: string; status: string; re
 export const getCreativeJobs = (id: string) => apiGet<CreativeJob[]>(`${path(id)}/creative-jobs`, { headers: { 'X-Quiet-Request': 'true' } });
 export const reviewCreativeJob = (id: string, job: string, approved: boolean) => apiPost(`${path(id)}/creative-jobs/${encodeURIComponent(job)}/review`, { approved });
 const centerPath = '/api/v1/optimization';
-export interface PlanOptimizationStatus { planId: string; enabled: boolean; mode: string; holdReason?: string; stale: boolean; failed: boolean; state?: string }
+export interface PlanOptimizationStatus { planId: string; enabled: boolean; mode: string; holdReason?: string; stale: boolean; failed: boolean; state?: string; ruleBased?: boolean }
 export const getOptimizationStatuses = (planIds: string[]) => apiGet<PlanOptimizationStatus[]>(`${centerPath}/statuses`, { params: { planIds: planIds.join(',') }, headers: { 'X-Quiet-Request': 'true' } });
 export interface CenterRow { planId: string; qcId: string; planName: string; accountId: string; accountName: string; planStatus: string; enabled: boolean; mode: string; version: number; holdReason?: string; lastSuccess?: string; lastAction?: string; error?: string; stale: boolean; result?: MonitoringReport }
 export interface CenterAccount { accountId: string; name: string; budgetLimit?: number }
 export interface CenterView { records: CenterRow[]; total: number; watched: number; automatic: number; held: number; accounts: CenterAccount[]; pageNum: number; pageSize: number }
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
+export interface OptimizationDetails { view: OptimizationView; effectiveSeconds: number; summary: { found: number; completed: number; protectedCount: number }; pending: OptimizationEvent[]; history: HistoryPage; accountStatus?: string; accountName?: string }
+export const getOptimizationDetails = (id: string, params: Record<string, unknown>) => apiGet<OptimizationDetails>(`${path(id)}/details`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getMonitoringCenter = (params: Record<string, unknown>) => apiGet<CenterView>(`${centerPath}/center`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationHistory = (params: Record<string, unknown>, signal?: AbortSignal) => apiGet<HistoryPage>(`${centerPath}/history`, { params, signal, headers: { 'X-Quiet-Request': 'true' } });
 export const setAccountBudgetLimit = (id: string, budgetLimit: number) => apiPut(`${centerPath}/accounts/${encodeURIComponent(id)}/limit`, { budgetLimit });

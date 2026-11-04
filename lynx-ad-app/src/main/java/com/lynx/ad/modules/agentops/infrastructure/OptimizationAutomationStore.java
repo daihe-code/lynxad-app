@@ -39,11 +39,30 @@ public class OptimizationAutomationStore {
             String fingerprint=hash(encode(List.of(state.tenant(),state.plan(),state.version(),item.path("type").asText(),proposal==null?"":proposal.toString(),window,report.path("rule_version").asText())));
             if(jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE tenant_id=? AND fingerprint=?",Integer.class,state.tenant(),fingerprint)>0)continue;
             String id=UUID.randomUUID().toString(),kind=proposal==null?null:proposal.path("kind").asText();
+            if(kind==null && state.policy().rules()!=null)kind="RULE_"+item.path("type").asText();
             boolean automatic=state.enabled() && "AUTO_LIMITED".equals(state.policy().mode()) && state.holdReason()==null && item.path("execution_allowed").asBoolean(false) && proposal!=null;
             String status=automatic?"READY":"RECOMMENDED",title=item.path("title").asText(),evidence=item.path("evidence").asText();
             jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,proposal_json,report_json,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,state.tenant(),state.plan(),plan.accountId().value(),plan.name().text(),fingerprint,state.version(),kind,title,evidence,proposal==null?null:encode(proposal),encode(report),status,Timestamp.from(Instant.now()));
             notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE",automatic?"自动调控建议已进入执行检查":"新的盯盘建议",plan.name().text()+"："+title+"。"+evidence);
         }
+    }
+    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version){
+        String id=UUID.randomUUID().toString();var report=json.createObjectNode().put("rule_version","merchant-rules-v1");report.set("rules",json.valueToTree(policy.rules()));report.put("enabled",policy.enabled());
+        jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",policy.enabled()?"盯盘规则已更新":"盯盘优化已关闭",policy.enabled()?"当前规则已保存并开启":"停止新的经营判断与自动执行；已提交操作继续只读核查",encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
+    }
+    public record RuleSummary(long found,long completed,long protectedCount){}
+    public RuleSummary ruleSummary(String tenant,String plan,boolean today){
+        String sql="SELECT COUNT(*) AS found, COALESCE(SUM(CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status='SUCCEEDED' AND kind='PAUSE' THEN 1 ELSE 0 END),0) AS protected_count FROM optimization_event WHERE tenant_id=? AND plan_id=? AND (kind IS NULL OR kind<>'RULES_CHANGE')";
+        var args=new ArrayList<Object>(List.of(tenant,plan));if(today){sql+=" AND created_at>=?";args.add(Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant()));}
+        return jdbc.queryForObject(sql,(r,n)->new RuleSummary(r.getLong("found"),r.getLong("completed"),r.getLong("protected_count")),args.toArray());
+    }
+    public List<Event> rulePending(String tenant,String plan){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN') ORDER BY created_at DESC LIMIT 20",this::row,tenant,plan);}
+    public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
+        if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
+        String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));
+        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK'))";default->"";};
+        long count=jdbc.queryForObject("SELECT COUNT(*)"+sql,Long.class,args.toArray());args.add(size);args.add((long)(page-1)*size);
+        return new Page(jdbc.query("SELECT *"+sql+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",this::row,args.toArray()),count,page,size);
     }
     private static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
     public void notice(String tenant,String plan,String type,String title,String body){jdbc.update("INSERT INTO notification(id,tenant_id,channel,title,body,biz_type,biz_id,sent_at) VALUES(?,?,'INBOX',?,?,?,?,?)",UUID.randomUUID().toString(),tenant,title,body,type,plan,Timestamp.from(Instant.now()));}

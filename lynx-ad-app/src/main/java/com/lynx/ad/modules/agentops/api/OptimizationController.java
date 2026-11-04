@@ -11,10 +11,16 @@ import org.springframework.web.bind.annotation.*;
 public class OptimizationController {
     private final OptimizationMonitoringService service;
     private OptimizationCreativeService creative;
+    private OptimizationRuleDetailsService details;
+    @org.springframework.beans.factory.annotation.Autowired public void details(OptimizationRuleDetailsService value){details=value;}
     @org.springframework.beans.factory.annotation.Autowired public void creative(OptimizationCreativeService value){creative=value;}
     public record Change(long expectedVersion,OptimizationPolicy policy) {}
     public OptimizationController(OptimizationMonitoringService service) {this.service=service;}
     @GetMapping public ApiResponse<OptimizationMonitoringService.View> view(@PathVariable String id) {return ApiResponse.ok(service.view(TenantContext.requireTenantId(),new PlanId(id)));}
+    public record RulesChange(long expectedVersion,boolean enabled,OptimizationRules rules) {}
+    @GetMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id) {return ApiResponse.ok(service.rulesView(TenantContext.requireTenantId(),new PlanId(id)));}
+    @GetMapping("/details") public ApiResponse<OptimizationRuleDetailsService.Details> details(@PathVariable String id,@RequestParam(defaultValue="false") boolean today,@RequestParam(defaultValue="ALL") String category,@RequestParam(defaultValue="7") int days,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize){return ApiResponse.ok(details.details(TenantContext.requireTenantId(),new PlanId(id),today,category,days,pageNum,pageSize));}
+    @PutMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id,@RequestBody RulesChange body) {return ApiResponse.ok(service.saveRules(TenantContext.requireTenantId(),new PlanId(id),body.rules(),body.enabled(),body.expectedVersion()));}
     @PutMapping public ApiResponse<OptimizationMonitoringService.View> save(@PathVariable String id,@RequestBody Change body) {return ApiResponse.ok(service.save(TenantContext.requireTenantId(),new PlanId(id),body.policy()==null?null:body.policy().authorized(TenantContext.userId().value()),body.expectedVersion()));}
     @PostMapping("/check") public ApiResponse<OptimizationMonitoringService.View> check(@PathVariable String id) {return ApiResponse.ok(service.run(TenantContext.requireTenantId(),new PlanId(id)));}
     @GetMapping("/candidates") public ApiResponse<?> candidates(@PathVariable String id){return ApiResponse.ok(service.candidates(TenantContext.requireTenantId(),new PlanId(id)));}

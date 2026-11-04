@@ -16,5 +16,5 @@ export function planOptimizationPresentation(plan: { qcPlanId?: string | null; s
   if (status.group === 'PAUSED') return { label: '观察暂停', tone: 'muted', action };
   if (status.group !== 'DELIVERING') return { label: '投放受限', tone: 'warning', action };
   if (state.stale || state.state !== 'READY') return { label: '等待数据', tone: 'muted', action };
-  return { label: state.mode === 'AUTO_LIMITED' ? '优化中' : '观察中', tone: 'success', action };
+  return { label: state.ruleBased ? '盯盘中' : state.mode === 'AUTO_LIMITED' ? '优化中' : '观察中', tone: 'success', action };
 }

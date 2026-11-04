@@ -32,7 +32,7 @@ public class OptimizationMonitoringService {
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(com.lynx.ad.modules.creative.application.MaterialCreativeContextService value){creativeContexts=value;}
     @org.springframework.beans.factory.annotation.Autowired public void execution(OptimizationExecutionService execution,OptimizationExecutionGateway gateway,OptimizationAutomationStore journal){this.execution=execution;this.gateway=gateway;this.journal=journal;}
     public record View(OptimizationPolicy policy,long version,List<String> productIds,boolean available,String unavailableReason,
-                       Instant lastCheck,Instant lastSuccess,String error,boolean stale,JsonNode result,String holdReason,Instant lastAction,String bidType) {}
+                       Instant lastCheck,Instant lastSuccess,String error,boolean stale,JsonNode result,String holdReason,Instant lastAction,String bidType,String planName,String accountId,String planStatus,String qcStatus) {}
     public OptimizationMonitoringService(AdPlanRepository plans,OptimizationStore store,MonitoringEngineClient engine,
             PlanInsightsService insights,PlanManagementService management,PlanTransferStore transfers,LynxAdProperties properties) {
         this.plans=plans;this.store=store;this.engine=engine;this.insights=insights;this.management=management;this.transfers=transfers;this.properties=properties;
@@ -44,8 +44,16 @@ public class OptimizationMonitoringService {
         if(!engine.ready())return "盯盘服务尚未就绪，请联系管理员完成服务配置";
         return null;
     }
+    private String unavailable(AdPlan p,OptimizationPolicy policy) {
+        if(policy.rules()==null)return unavailable(p);
+        if(p.qcPlanId().isEmpty())return "草稿尚未发布";
+        return properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
+    }
     private List<OptimizationPolicy.Economics> economics(AdPlan p,Set<String> ids) {return store.economics(p).stream().filter(e->ids.contains(e.productId())).toList();}
     public View view(TenantId tenant,PlanId id) {
+        return view(tenant,id,true);
+    }
+    private View view(TenantId tenant,PlanId id,boolean fetchPlatformIds) {
         var p=plan(tenant,id);var state=store.get(tenant,id).orElse(null);var config=state==null?OptimizationPolicy.defaults():state.policy();
         var ids=p.productIds().stream().map(QcProductId::value).toList();
         if(state!=null && state.result()!=null && state.result().path("product_ids").isArray()) {
@@ -53,30 +61,42 @@ public class OptimizationMonitoringService {
             if(!savedIds.isEmpty())ids=List.copyOf(savedIds);
         }
         // Synchronized detail metadata also covers imported/transfer plans with no local draft bindings.
-        if(ids.isEmpty() && p.qcPlanId().isPresent() && unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
-        if(config.tactics().content()&&p.qcPlanId().isPresent()&&unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
+        if(fetchPlatformIds && ids.isEmpty() && p.qcPlanId().isPresent() && unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
+        if(fetchPlatformIds && config.tactics().content()&&p.qcPlanId().isPresent()&&unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         var result=state==null?null:state.result();
-        boolean stale=result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(600).isBefore(Instant.now());
-        if(result!=null)try {stale=stale || Instant.parse(result.path("observed_at").asText()).plusSeconds(600).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
-        return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p)==null,unavailable(p),
-            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name());
+        boolean stale=result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
+        if(result!=null)try {stale=stale || Instant.parse(result.path("observed_at").asText()).plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
+        return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p,config)==null,unavailable(p,config),
+            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus());
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
         var p=plan(tenant,id);if(policy==null)throw new BizException(1802,"请填写盯盘设置");
-        if(policy.enabled() && unavailable(p)!=null)throw new BizException(1801,unavailable(p));
+        if(policy.enabled() && unavailable(p,policy)!=null)throw new BizException(1801,unavailable(p,policy));
         var ids=p.productIds().stream().map(QcProductId::value).toList();
-        if(unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
+        if(policy.rules()==null && unavailable(p,policy)==null)ids=management.monitoringFacts(tenant,id).productIds();
         if(expectedVersion<0)throw new BizException(1802,"盯盘设置版本不正确");
         policy.validate(Set.copyOf(ids));
         if(gateway!=null && gateway.tactics()!=null)gateway.tactics().validateCandidates(p,policy);
         if("AUTO_LIMITED".equals(policy.mode()) && policy.automation().budget() && p.setting().bidType()==SmartBidType.CUSTOM && policy.automation().minBudget().compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1802,"控成本自动预算下限不能低于 300 元");
         String owner="policy:"+UUID.randomUUID();
         if(journal!=null && !journal.claimAccount(tenant.value(),p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中，请稍后保存授权");
-        try{if(journal!=null && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return view(tenant,id);
+        try{if(journal!=null && policy.enabled() && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return policy.rules()==null?view(tenant,id):rulesView(tenant,id);
+    }
+    public View saveRules(TenantId tenant,PlanId id,OptimizationRules rules,boolean enabled,long expectedVersion) {
+        if(rules==null)throw new BizException(1802,"请填写盯盘规则");rules.validate();
+        var defaults=OptimizationPolicy.defaults();
+        var policy=new OptimizationPolicy(enabled,"OBSERVE",rules.spendProtection(),defaults.maxLoss(),defaults.minSpend(),defaults.minOrders(),defaults.persistenceWindows(),defaults.conversionDelayMinutes(),List.of(),null,null,null,rules);
+        return save(tenant,id,policy,expectedVersion);
+    }
+    public View rulesView(TenantId tenant,PlanId id) {
+        var value=view(tenant,id,false);var p=plan(tenant,id);
+        String reason=p.qcPlanId().isEmpty()?"草稿尚未发布":properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
+        return new View(value.policy(),value.version(),value.productIds(),reason==null,reason,value.lastCheck(),value.lastSuccess(),value.error(),value.stale(),value.result(),value.holdReason(),value.lastAction(),value.bidType(),value.planName(),value.accountId(),value.planStatus(),value.qcStatus());
     }
     public View run(TenantId tenant,PlanId id) {
-        var p=plan(tenant,id);if(unavailable(p)!=null)throw new BizException(1801,unavailable(p));
+        var p=plan(tenant,id);
         var state=store.get(tenant,id).filter(OptimizationStore.State::enabled).orElseThrow(()->new BizException(1802,"请先开启并保存自动盯盘"));
+        if(unavailable(p,state.policy())!=null)throw new BizException(1801,unavailable(p,state.policy()));
         cycle(state);return view(tenant,id);
     }
     public void cycle(OptimizationStore.State state) {
@@ -84,12 +104,13 @@ public class OptimizationMonitoringService {
         String failure=null;
         try {
             var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());var p=plan(tenant,id);
-            if(unavailable(p)!=null)throw new BizException(1801,unavailable(p));
+            if(unavailable(p,state.policy())!=null)throw new BizException(1801,unavailable(p,state.policy()));
             var pending=store.pending(state).orElse(null);
             // Old revisions must not overwrite a changed policy, or starve fresh observations after an outage.
-            if(pending!=null && (pending.version()!=state.version() || pending.created().plusSeconds(600).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
-            if(pending==null)pending=store.enqueue(state,owner,collect(p,state));
-            var result=engine.submit(state.tenant(),pending.payload());
+            long observationTtl=state.policy().rules()==null?600:120;
+            if(pending!=null && (pending.version()!=state.version() || pending.created().plusSeconds(observationTtl).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
+            if(pending==null)pending=store.enqueue(state,owner,state.policy().rules()==null?collect(p,state):collectRules(p,state));
+            var result=state.policy().rules()==null?engine.submit(state.tenant(),pending.payload()):OptimizationRulesEvaluator.evaluate(pending.payload(),state.result(),state.policy());
             if(creativeContexts!=null)creativeContexts.saveAssessments(state.tenant(),p.accountId().value(),result);
             store.complete(state,owner,pending,result);
         }catch(RuntimeException ex) {
@@ -97,6 +118,20 @@ public class OptimizationMonitoringService {
             failure=ex instanceof BizException?ex.getMessage():"盯盘采集失败，将自动重试";
             org.slf4j.LoggerFactory.getLogger(getClass()).warn("monitor unavailable plan={} type={}",state.plan(),ex.getClass().getSimpleName());
         }finally{store.release(state,owner,failure);}
+    }
+    Map<String,Object> collectRules(AdPlan p,OptimizationStore.State state) {
+        var facts=management.monitoringFacts(p.tenantId(),p.id());
+        if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()))throw new BizException(1802,"平台计划绑定不一致");
+        if(execution!=null)execution.observe(p,state,gateway.facts(p));
+        var today=LocalDate.now(ZONE);var current=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);
+        var observed=Instant.now().atZone(ZONE);
+        if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()))throw new BizException(1803,"等待当天最新报表");
+        var data=new LinkedHashMap<String,Object>();data.put("request_id",UUID.randomUUID().toString());data.put("store_id",p.tenantId().value());data.put("account_id",p.accountId().value());data.put("plan_id",facts.qcId());data.put("product_ids",facts.productIds());
+        data.put("observed_at",observed.toOffsetDateTime().toString());data.put("plan_status",facts.status());data.put("daily_spend_date",today.toString());
+        data.put("daily_spend",decimal(current.summary().get("cost")));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));data.put("complete",current.warning()==null || current.warning().isBlank());
+        data.put("observations",hourly(current,observed));
+        data.put("execution_pending",journal!=null && !journal.rulePending(p.tenantId().value(),p.id().value()).isEmpty());
+        return data;
     }
     Map<String,Object> collect(AdPlan p,OptimizationStore.State state) {
         var facts=management.monitoringFacts(p.tenantId(),p.id());
