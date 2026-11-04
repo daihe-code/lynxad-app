@@ -13,14 +13,14 @@
         <el-form-item label="计划名称" prop="name"><el-input v-model="form.name" maxlength="30" show-word-limit placeholder="请输入自定义计划名称" aria-label="计划名称" /><p class="field-hint">可自定义 1–30 字的名称，用于区分不同投放计划。</p></el-form-item>
       </template>
       <template v-if="kind === '调整预算' || kind === '修改计划'">
-        <el-form-item label="日预算" prop="budget"><el-input v-model="form.budget" inputmode="decimal" placeholder="请输入日预算" aria-label="日预算金额（元）"><template #suffix><span class="input-unit">元</span></template></el-input><p class="field-hint">参考范围 {{ budgetMinimum }}–999,999,999.99 元，最多两位小数。</p></el-form-item>
+        <el-form-item label="日预算" prop="budget" :error="quickSetting ? editError : undefined"><el-input v-model="form.budget" inputmode="decimal" placeholder="请输入日预算" aria-label="日预算金额（元）" @input="clearQuickError"><template #suffix><span class="input-unit">元</span></template></el-input><p class="field-hint">参考范围 {{ budgetMinimum }}–999,999,999.99 元，最多两位小数。</p></el-form-item>
       </template>
       <template v-if="kind === '调整 ROI 目标' || (kind === '修改计划' && form.bidType === 'SMART_BID_CUSTOM')">
-        <el-form-item prop="roi"><template #label><span>净成交ROI目标</span><el-tooltip content="计划设置的净成交ROI目标，用于投放优化。" popper-class="campaign-tooltip"><el-icon class="label-help" tabindex="0" aria-label="净成交ROI目标说明"><QuestionFilled /></el-icon></el-tooltip></template><el-input v-model="form.roi" inputmode="decimal" placeholder="请输入净成交ROI目标" aria-label="净成交ROI目标" /><p class="field-hint">参考范围 0.01–100。目标过高可能影响获取流量。</p></el-form-item>
+        <el-form-item prop="roi" :error="quickSetting ? editError : undefined"><template #label><span>净成交ROI目标</span><el-tooltip content="计划设置的净成交ROI目标，用于投放优化。" popper-class="campaign-tooltip"><el-icon class="label-help" tabindex="0" aria-label="净成交ROI目标说明"><QuestionFilled /></el-icon></el-tooltip></template><el-input v-model="form.roi" inputmode="decimal" placeholder="请输入净成交ROI目标" aria-label="净成交ROI目标" @input="clearQuickError" /><p class="field-hint">参考范围 0.01–100。目标过高可能影响获取流量。</p></el-form-item>
       </template>
 
     </el-form>
-    <section v-if="editError || loading || comparison || blocked" class="operation-recovery" aria-live="polite">
+    <section v-if="!quickSetting && (editError || loading || comparison || blocked)" class="operation-recovery" aria-live="polite">
       <p v-if="loading">正在读取当前计划版本…</p><p v-if="editError" role="alert">{{ editError }}</p>
       <div class="operation-recovery-actions"><button type="button" :disabled="loading || saving" @click="baseline ? readLatest() : loadBaseline()">读取最新值并核对</button><router-link v-if="blocked && baseline?.qcPlanId" :to="`/campaigns/${baseline.planId}/edit?step=2`" target="_blank">在新窗口核查修改结果</router-link></div>
       <template v-if="comparison"><p>当前输入已保留。请核对后选择，修改不会自动重发。</p><table><thead><tr><th>字段</th><th>原值</th><th>我的输入</th><th>最新值</th></tr></thead><tbody><tr v-for="row in compareRows" :key="row.key"><th>{{ row.label }}</th><td>{{ row.before }}</td><td>{{ row.mine }}</td><td>{{ row.latest }}</td></tr></tbody></table><div class="operation-recovery-actions"><button type="button" :disabled="comparison.settingsEdit?.status !== 'IDLE' || !comparison.settingsEdit?.version" @click="adopt(false)">采用最新值</button><button v-if="canKeep" type="button" @click="adopt(true)">保留我的修改，采用最新版本</button></div></template>
@@ -45,6 +45,7 @@ const props = defineProps<{ modelValue: boolean; kind: string; plan: PlanListVo 
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; saved: [] }>();
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) });
 const isTool = computed(() => ['一键起量', '素材追投'].includes(props.kind));
+const quickSetting = computed(() => ['调整预算', '调整 ROI 目标'].includes(props.kind));
 const title = computed(() => props.kind === '调整 ROI 目标' ? '调整净成交ROI目标' : props.kind);
 const formRef = ref<FormInstance>();
 const saving = ref(false), loading=ref(false), blocked=ref(false), editError=ref('');
@@ -62,7 +63,12 @@ async function save() {
   editError.value='';
   saving.value = true;
   try { await updatePlanSettings(props.plan.planId, {...body,expectedVersion:baseline.value.settingsEdit.version}); ElMessage.success('计划已更新'); open.value = false; emit('saved'); }
-  catch(error) {const failure=requestFailure(error,{method:'PUT'});editError.value=failure.message;blocked.value=['CONFLICT','UNCERTAIN'].includes(failure.kind);}
+  catch(error) {
+    const failure=requestFailure(error,{method:'PUT'});
+    blocked.value=['CONFLICT','UNCERTAIN'].includes(failure.kind);
+    if(quickSetting.value && failure.kind==='CONFLICT')await refreshQuickBaseline();
+    else editError.value=failure.message;
+  }
   finally { saving.value = false; }
 }
 const form = reactive({ name: '', budget: '', roi: '', bidType: '' });
@@ -75,10 +81,30 @@ const rules = computed<FormRules>(() => ({
   roi:[rule(()=>unchanged('roi')?'':roiInputError(form.roi,form.bidType,'update'))],
 }));
 function fill(plan:PlanVo){Object.assign(form,{name:plan.name,budget:String(plan.budget??''),roi:String(plan.roi2Goal??''),bidType:plan.smartBidType||''});void nextTick(()=>formRef.value?.clearValidate());}
+function clearQuickError(){if(quickSetting.value&&!blocked.value)editError.value='';}
+async function refreshQuickBaseline(){
+  const before=baseline.value,id=props.plan?.planId,version=loadVersion;
+  if(!before||!id)return;
+  try{
+    const latest=await refreshPlanSettings(id);if(version!==loadVersion)return;
+    if(!canRebasePlan(before,latest)){editError.value='计划状态已变化，请重新打开后修改。';return;}
+    const inputs=rebasePlanInputs(before,latest,form);
+    baseline.value=latest;fill(latest);Object.assign(form,inputs);
+    await nextTick();if(version!==loadVersion)return;
+    blocked.value=!editableBaseline.value;
+    editError.value=blocked.value?'当前计划暂不能修改。':'计划设置已更新，请重新保存。';
+  }catch(error){if(version===loadVersion)editError.value=requestFailure(error,{method:'GET'}).message;}
+}
 async function loadBaseline(){
   const id=props.plan?.planId,version=++loadVersion;if(!id || isTool.value)return;
   loading.value=true;editError.value='';
-  try{const result=await getPlan(id);if(version!==loadVersion)return;baseline.value=result;fill(result);blocked.value=!result.settingsEdit?.version || result.settingsEdit.status!=='IDLE' || !editableBaseline.value;if(blocked.value)editError.value=result.settingsEdit?.message || (!editableBaseline.value?'当前计划状态或投放方式不支持此修改，请核对最新设置':'请读取最新计划版本后再修改');}
+  try{
+    const result=quickSetting.value?await refreshPlanSettings(id):await getPlan(id);if(version!==loadVersion)return;
+    baseline.value=result;fill(result);
+    await nextTick();if(version!==loadVersion)return;
+    blocked.value=!result.settingsEdit?.version || result.settingsEdit.status!=='IDLE' || !editableBaseline.value;
+    if(blocked.value)editError.value=quickSetting.value?'当前计划暂不能修改，请稍后重新打开。':result.settingsEdit?.message || (!editableBaseline.value?'当前计划状态或投放方式不支持此修改，请核对最新设置':'请读取最新计划版本后再修改');
+  }
   catch(error){if(version===loadVersion){editError.value=requestFailure(error,{method:'GET'}).message;blocked.value=true;}}
   finally{if(version===loadVersion)loading.value=false;}
 }
