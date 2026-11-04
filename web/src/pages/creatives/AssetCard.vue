@@ -9,13 +9,14 @@
       <span class="ac-src" :class="{ 'ac-src--plat': item.source === 'EXTERNAL' }">{{ sourceLabel(item) }}</span>
       <button class="asset-preview-target" type="button" :aria-label="`预览素材 ${item.filename}`" @click="emit('preview')"></button>
       <div class="ac-hover">
-        <div class="ac-hops"><button v-if="item.type === 'VIDEO'" class="ac-hbtn" type="button" :aria-label="`试播 ${item.filename}`" @click="emit('preview')"><AssetIcon name="play" />试播</button><button class="ac-hbtn" type="button" :aria-label="`放大预览 ${item.filename}`" @click="emit('preview')"><AssetIcon name="expand" />预览</button><button class="ac-hbtn" type="button" :aria-label="`查看 ${item.filename} 的详情`" @click="emit('detail')"><AssetIcon name="info-line" />详情</button></div>
+        <div class="ac-hops"><button class="ac-hbtn" type="button" :aria-label="`放大预览 ${item.filename}`" @click="emit('preview')"><AssetIcon name="expand" />预览</button><button class="ac-hbtn" type="button" :aria-label="`查看 ${item.filename} 的详情`" @click="emit('detail')"><AssetIcon name="info-line" />详情</button></div>
         <div class="ac-hinfo"><div class="ac-hrow"><span>规格</span><b>{{ assetDimensions(displayItem) }}</b></div><div class="ac-hrow"><span>大小</span><b>{{ fileSize(item.sizeBytes) }}</b></div><div class="ac-hrow"><span>{{ item.type === 'VIDEO' ? '时长' : '比例' }}</span><b>{{ item.type === 'VIDEO' ? duration(item.durationSec) : assetRatio(displayItem) }}</b></div><div class="ac-hrow"><span>引用计划</span><b>{{ referenceLabel(item) }}</b></div></div>
       </div>
     </div>
     <p class="ac-card__n" :title="item.filename">{{ item.filename }}</p>
+    <p class="ac-card__id" :title="assetIdentifier(item)">素材 ID：{{ assetIdentifier(item) }}</p>
     <p class="ac-card__m"><span>{{ fileSize(item.sizeBytes) }}</span><i class="ac-card__dot">·</i><template v-if="item.type === 'VIDEO' && item.durationSec != null"><span>{{ duration(item.durationSec) }}</span><i class="ac-card__dot">·</i></template><span>{{ item.category || '—' }}</span><i class="ac-card__dot">·</i><span :title="`${item.source === 'EXTERNAL' ? '千川上传时间' : '上传时间'}：${assetDateTime(item.createdAt)}`">{{ assetDay(item.createdAt) }}</span></p>
-    <p class="ac-card__m ac-card__m--st"><span class="ac-use" :class="assetStatus(item).cls"><i aria-hidden="true"></i>{{ assetStatus(item).label }}</span><i class="ac-card__dot">·</i><button v-if="item.used" class="ac-card__ref" type="button" @click="emit('detail')">{{ referenceLabel(item) }}</button><span v-else class="ac-card__ref ac-card__ref--off">{{ referenceLabel(item) }}</span></p>
+    <p class="ac-card__m ac-card__m--st"><template v-if="assetStatus(item).label"><span class="ac-use" :class="assetStatus(item).cls"><i aria-hidden="true"></i>{{ assetStatus(item).label }}</span><i class="ac-card__dot">·</i></template><button v-if="item.used" class="ac-card__ref" type="button" @click="emit('detail')">{{ referenceLabel(item) }}</button><span v-else class="ac-card__ref ac-card__ref--off">{{ referenceLabel(item) }}</span></p>
   </article>
 </template>
 <script setup lang="ts">
@@ -25,7 +26,7 @@ import { referenceLabel } from '@/features/creative/assetReferences';
 import { assetGeometry } from '@/features/creative/assetGeometry';
 import AssetIcon from "./AssetIcon.vue";
 import AssetThumbnail from "./AssetThumbnail.vue";
-import { duration, fileSize, assetDay, assetDateTime, sourceLabel, assetStatus, assetRatio, assetDimensions } from "./assetFormat";
+import { duration, fileSize, assetDay, assetDateTime, sourceLabel, assetStatus, assetIdentifier, assetRatio, assetDimensions } from "./assetFormat";
 const props = defineProps<{ item: LibraryItemVo; tone: number; picked: boolean; busy: boolean }>();
 const observed = ref<{width:number;height:number}>();
 const geometry = computed(() => assetGeometry(props.item, observed.value));
@@ -36,6 +37,7 @@ const emit = defineEmits<{ pick: []; preview: []; detail: [] }>();
 <style scoped>
 .asset-preview-target { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
 .ac-box { flex-shrink: 0; aspect-ratio: 16 / 9; }
+.ac-card__id { margin-top:6px; color:rgb(var(--c-text-3)); font-size:12px; line-height:16px; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .ac-format { position:absolute; left:9px; bottom:9px; z-index:2; padding:4px 7px; border-radius:5px; background:rgba(26,27,46,.72); color:#fff; font-size:11px; line-height:1.2; pointer-events:none; }
 .ac-card:focus-within .ac-hover { opacity: 1; }
 .ac-card:focus-within :is(.ac-src, .ac-st, .ac-dur) { opacity: 0; }

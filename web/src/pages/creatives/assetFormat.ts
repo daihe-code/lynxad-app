@@ -1,5 +1,5 @@
 import type { LibraryItemVo } from "@/features/creative/creativeApi";
-import { reviewLabel } from '@/features/creative/assetUploads';
+import { reviewLabel, syncLabel } from '@/features/creative/assetUploads';
 import { assetGeometry } from '@/features/creative/assetGeometry';
 export { assetDay, assetDateTime } from '@/features/creative/assetDates';
 
@@ -40,9 +40,18 @@ export function assetStatus(item: LibraryItemVo) {
     if (syncs.some(s => s.status === 'FAILED')) return { cls: 'ac-use--bad', label: '已入库 · 千川同步失败' };
     if (syncs.some(s => s.status === 'PAUSED')) return { cls: 'ac-use--wait', label: '已入库 · 千川同步暂停' };
     if (!syncs.length) return { cls: 'ac-use--off', label: '已入库' };
-    if (!item.used) return { cls: 'ac-use--off', label: '千川已接收' };
+    if (!item.used) return { cls: 'ac-use--off', label: '' };
   }
   return item.used ? { cls: "ac-use--on", label: "已使用" } : { cls: "ac-use--off", label: "未使用" };
+}
+
+export function assetIdentifier(item: LibraryItemVo) {
+  return item.materialId || item.objectId || item.id;
+}
+
+export function assetSyncLabel(status: string, reviewStatus = 'UNKNOWN') {
+  if (status === 'UPLOADED') return ({ REVIEWING: '审核中', REJECTED: '审核未通过', PASS: '审核已通过' } as Record<string, string>)[reviewStatus] || '审核状态待查询';
+  return syncLabel(status, reviewStatus);
 }
 export function assetRatio(item: LibraryItemVo) {
   return assetGeometry(item).ratioLabel || '—';
