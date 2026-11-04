@@ -40,7 +40,9 @@ public class LibraryDeletionService {
             return keys;
         }
     }
-    private record Target(String id, List<Remote> remotes) {}
+    private record Target(String id, List<Remote> remotes, List<String> aliases) {
+        Target(String id,List<Remote> remotes) { this(id,remotes,List.of()); }
+    }
     private record Group(String account, String advertiser, MaterialType type) {}
 
     public Result delete(TenantId tenant, List<String> ids, String account) {
@@ -85,7 +87,8 @@ public class LibraryDeletionService {
             if (target.remotes().stream().anyMatch(failed::contains)) {
                 failures.add(new Failure(target.id(),"暂时无法删除，请重试"));
             } else {
-                deletions.hide(tenant.value(),List.of(target.id())); deleted.add(target.id());
+                var aliases=new ArrayList<>(target.aliases()); aliases.add(target.id());
+                deletions.hide(tenant.value(),aliases); deleted.add(target.id());
             }
         }
         return new Result(List.copyOf(deleted),List.copyOf(failures));
@@ -109,17 +112,38 @@ public class LibraryDeletionService {
             return new Target(id,remotes);
         }
         if (parts.length==2 && "CAROUSEL".equals(parts[0])) {
-            carousels.require(tenant.value(),parts[1]);
-            // There is no file-library carousel deletion API. Keep shared image/audio components intact.
-            return new Target(id,List.of());
+            var bundle=carousels.require(tenant.value(),parts[1]);
+            var remotes=new ArrayList<Remote>();
+            var images=carousels.parts(bundle).stream().filter(part->"IMAGE".equals(part.role())).toList();
+            if(images.isEmpty())throw new BizException(1523,"图文图片信息暂未确认，请刷新后重试");
+            for(var part:images) {
+                var image=canonical(tenant,part.assetId());
+                if(!"IMAGE".equals(image.kind())) throw invalid();
+                remotes.addAll(imageRemotes(tenant,image,account));
+            }
+            var aliases=new ArrayList<String>();
+            for(var receipt:carousels.platformReceipts(bundle)) {
+                if((present(account) && !account.equals(receipt.accountId())) || !present(receipt.objectId()))continue;
+                aliases.add(LibraryDeletionRepository.remote(receipt.accountId(),"CAROUSEL","o:"+receipt.objectId()));
+                aliases.add(LibraryDeletionRepository.remote(receipt.accountId(),"CAROUSEL",receipt.objectId()));
+                catalog.findObject(tenant.value(),receipt.accountId(),MaterialType.CAROUSEL,receipt.objectId())
+                        .ifPresent(entry -> aliases.add(LibraryDeletionRepository.remote(receipt.accountId(),"CAROUSEL",entry.entryKey())));
+            }
+            return new Target(id,remotes,aliases);
         }
         if (parts.length==4 && "EXT".equals(parts[0])) {
             if (present(account) && !account.equals(parts[1])) throw invalid();
             MaterialType type;
             try { type=MaterialType.valueOf(parts[2]); } catch (IllegalArgumentException ex) { throw invalid(); }
             var entry=catalog.find(tenant.value(),parts[1],type,parts[3]).orElseThrow(LibraryDeletionService::invalid);
-            return new Target(id,type==MaterialType.CAROUSEL ? List.of()
-                    : List.of(new Remote(entry.accountId(),entry.advertiserId(),type,entry.objectId(),entry.materialId())));
+            if(type==MaterialType.CAROUSEL) {
+                var c=credentials.getUsableCredential(tenant,new AccountId(entry.accountId()));
+                if(!c.advertiserId().value().equals(entry.advertiserId()))throw invalid();
+                var images=library.carouselImages(new MaterialLibraryPort.MaterialLibraryQuery(entry.advertiserId(),type,null,null,1,100,c.accessToken(),null,entry.materialId()));
+                if(images.isEmpty())throw new BizException(1523,"图文图片信息暂未确认，请刷新后重试");
+                return new Target(id,images.stream().map(image->new Remote(entry.accountId(),entry.advertiserId(),MaterialType.IMAGE,image.objectId(),image.materialId())).toList());
+            }
+            return new Target(id,List.of(new Remote(entry.accountId(),entry.advertiserId(),type,entry.objectId(),entry.materialId())));
         }
         if (parts.length==3 && "LYNX".equals(parts[0])) {
             var pkg=packages.findPackage(tenant,new PackageId(parts[1])).orElseThrow(LibraryDeletionService::invalid);
@@ -130,6 +154,28 @@ public class LibraryDeletionService {
             return new Target(id,List.of(new Remote(account,c.advertiserId().value(),MaterialType.VIDEO,art.videoId().orElseThrow().value(),null)));
         }
         throw invalid();
+    }
+
+    private AssetUploadRepository.Asset canonical(TenantId tenant,String id) {
+        var seen=new HashSet<String>();
+        var image=assets.require(tenant.value(),id);
+        while(present(image.canonicalId())) {
+            if(!seen.add(image.id()) || seen.size()>20)throw invalid();
+            image=assets.require(tenant.value(),image.canonicalId());
+        }
+        return image;
+    }
+    private List<Remote> imageRemotes(TenantId tenant,AssetUploadRepository.Asset image,String account) {
+        var remotes=new ArrayList<Remote>();
+        for(var sync:assets.syncs(tenant.value(),image.id())) {
+            if(present(account) && !account.equals(sync.accountId()))continue;
+            if(Set.of("RUNNING","QUEUED","UNCERTAIN").contains(sync.status()))throw new BizException(1523,"素材正在处理中，请稍后删除");
+            if("UPLOADED".equals(sync.status())) {
+                if(!present(sync.objectId()) || !present(sync.advertiserId()))throw invalid();
+                remotes.add(new Remote(sync.accountId(),sync.advertiserId(),MaterialType.IMAGE,sync.objectId(),sync.materialId()));
+            }
+        }
+        return remotes;
     }
 
     private static boolean present(String value) { return value!=null && !value.isBlank(); }

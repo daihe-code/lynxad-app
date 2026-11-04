@@ -34,6 +34,12 @@ public interface MaterialLibraryPort {
 
     MaterialPage list(MaterialLibraryQuery query);
 
+    record CarouselImage(String objectId, String materialId) {}
+    /** Resolve constituent image file IDs from an exact, account-scoped carousel material ID. */
+    default List<CarouselImage> carouselImages(MaterialLibraryQuery query) {
+        throw new UnsupportedOperationException("Carousel image lookup requires the live library adapter");
+    }
+
     /** File-library deletion only; this must never remove a material from a published plan. */
     record DeleteQuery(String advertiserId, MaterialType type, List<String> objectIds, String accessToken, String accountId) {
         @Override public String toString() { return "DeleteQuery(type=" + type + ",count=" + objectIds.size() + ")"; }

@@ -98,10 +98,115 @@ class LibraryDeletionTest {
     }
     @Test void localOnlyAssetsAndCarouselsKeepTheirFilesAndComponents() {
         var original=asset("local","IMAGE");when(assets.syncs(tenant.value(),"local")).thenReturn(List.of());
+        var bundle=bundle("bundle","local");
         var result=service.delete(tenant,List.of("ENGINE:local","CAROUSEL:bundle"),"account");
         assertEquals(2,result.deletedIds().size());verifyNoInteractions(library);verify(carousels).require(tenant.value(),"bundle");
-        verify(assets).require(tenant.value(),"local");verify(assets).syncs(tenant.value(),"local");verifyNoMoreInteractions(assets,carousels);
+        verify(carousels).parts(bundle);verify(carousels).platformReceipts(bundle);
+        verify(assets,times(2)).require(tenant.value(),"local");verify(assets,times(2)).syncs(tenant.value(),"local");verifyNoMoreInteractions(assets,carousels);
         assertEquals("original-file",original.objectKey());
+    }
+    CarouselRepository.Bundle bundle(String id,String... images) {
+        var bundle=new CarouselRepository.Bundle(id,tenant.value(),"user","request","图文",List.of("account"),"NOT_REQUIRED",Instant.now());
+        when(carousels.require(tenant.value(),id)).thenReturn(bundle);
+        var parts=new ArrayList<CarouselRepository.Part>();
+        for(int n=0;n<images.length;n++)parts.add(new CarouselRepository.Part("IMAGE",n,images[n]));
+        parts.add(new CarouselRepository.Part("AUDIO",0,"audio"));parts.add(new CarouselRepository.Part("TEXT",0,"text"));
+        when(carousels.parts(bundle)).thenReturn(parts);return bundle;
+    }
+    @Test void carouselDeletesOnlyItsImageFileIdsAndRetainsSourcesAudioTextAndPlanBindings() {
+        var original=asset("image-a","IMAGE");asset("image-b","IMAGE");var group=bundle("bundle","image-a","image-b");
+        when(assets.syncs(tenant.value(),"image-a")).thenReturn(List.of(receipt("image-a","native-a","101","UPLOADED")));
+        when(assets.syncs(tenant.value(),"image-b")).thenReturn(List.of(receipt("image-b","native-b","102","UPLOADED")));
+        when(carousels.platformReceipts(group)).thenReturn(List.of(new CarouselRepository.PlatformReceipt("account","native-carousel")));
+        when(catalog.findObject(tenant.value(),"account",MaterialType.CAROUSEL,"native-carousel")).thenReturn(Optional.of(
+                new PlatformMaterialCatalog.Material(tenant.value(),"account","1869861871552519",MaterialType.CAROUSEL,"m:501","native-carousel","501","图文",100,720,1280,null,"CAROUSEL","NONE",Instant.now())));
+        assertEquals(List.of("CAROUSEL:bundle"),service.delete(tenant,List.of("CAROUSEL:bundle"),"account").deletedIds());
+        verify(library).delete(argThat(q->q.type()==MaterialType.IMAGE && q.objectIds().equals(List.of("native-a","native-b"))));
+        verify(assets,never()).require(anyString(),eq("audio"));verify(assets,never()).require(anyString(),eq("text"));
+        assertEquals("original-file",original.objectKey());assertTrue(hidden.contains("EXT:account:CAROUSEL:m:501"));
+        assertTrue(hidden.contains("EXT:account:IMAGE:o:native-a"));
+    }
+    @Test void carouselPartialFailureRetainsCardAndRetryOnlyDeletesTheRemainingImage() {
+        asset("a","IMAGE");asset("b","IMAGE");bundle("bundle","a","b");
+        when(assets.syncs(tenant.value(),"a")).thenReturn(List.of(receipt("a","native-a","101","UPLOADED")));
+        when(assets.syncs(tenant.value(),"b")).thenReturn(List.of(receipt("b","native-b","102","UPLOADED")));
+        when(library.delete(any())).thenReturn(Set.of("native-b"),Set.of());
+        var first=service.delete(tenant,List.of("CAROUSEL:bundle"),"account");
+        assertTrue(first.deletedIds().isEmpty());assertEquals("CAROUSEL:bundle",first.failures().getFirst().id());assertFalse(hidden.contains("CAROUSEL:bundle"));
+        assertEquals(List.of("CAROUSEL:bundle"),service.delete(tenant,List.of("CAROUSEL:bundle"),"account").deletedIds());
+        var queries=ArgumentCaptor.forClass(MaterialLibraryPort.DeleteQuery.class);verify(library,times(2)).delete(queries.capture());
+        assertEquals(List.of("native-b"),queries.getAllValues().getLast().objectIds());
+    }
+    @Test void sharedCarouselImagesAreDeduplicatedAndFailuresAffectAllReferencingSelections() {
+        asset("shared","IMAGE");bundle("one","shared");bundle("two","shared");
+        when(assets.syncs(tenant.value(),"shared")).thenReturn(List.of(receipt("shared","native-shared","100","UPLOADED")));
+        when(library.delete(any())).thenReturn(Set.of("native-shared"));
+        var result=service.delete(tenant,List.of("CAROUSEL:one","CAROUSEL:two"),"account");
+        assertTrue(result.deletedIds().isEmpty());assertEquals(2,result.failures().size());
+        verify(library).delete(argThat(q->q.objectIds().equals(List.of("native-shared"))));
+    }
+    @Test void carouselUsesCanonicalImageAndOnlyTheSelectedAccount() {
+        var image=asset("original","IMAGE");
+        var alias=new AssetUploadRepository.Asset("alias",tenant.value(),"user","alias","IMAGE","file","image/jpeg",100,"alias-file","STORED","oss",null,null,"md5",false,720,1280,null,image.id(),null,Instant.now(),Instant.now());
+        when(assets.require(tenant.value(),"alias")).thenReturn(alias);bundle("bundle","alias");
+        var other=new AssetUploadRepository.Sync("other",tenant.value(),image.id(),"other-account","123","RUNNING","other-native","100","request","PASS",1,null,null,null);
+        when(assets.syncs(tenant.value(),image.id())).thenReturn(List.of(other,receipt(image.id(),"native-image","101","UPLOADED")));
+        assertEquals(1,service.delete(tenant,List.of("CAROUSEL:bundle"),"account").deletedIds().size());
+        verify(library).delete(argThat(q->q.accountId().equals("account") && q.objectIds().equals(List.of("native-image"))));
+    }
+    @Test void missingOrUnconfirmedCarouselImagesCannotBeReportedAsDeleted() {
+        bundle("empty");assertThrows(BizException.class,()->service.delete(tenant,List.of("CAROUSEL:empty"),"account"));
+        asset("image","IMAGE");bundle("pending","image");when(assets.syncs(tenant.value(),"image")).thenReturn(List.of(receipt("image","native","100","UNCERTAIN")));
+        assertThrows(BizException.class,()->service.delete(tenant,List.of("CAROUSEL:pending"),"account"));verifyNoInteractions(library);assertTrue(hidden.isEmpty());
+    }
+    @Test void externalCarouselIsResolvedThroughItsOwnAccountBeforeDeletingImages() {
+        String id=remote(MaterialType.CAROUSEL,"native-carousel","1881234567890123456");
+        when(library.carouselImages(any())).thenReturn(List.of(new MaterialLibraryPort.CarouselImage("native-image","201")));
+        assertEquals(List.of(id),service.delete(tenant,List.of(id),"account").deletedIds());
+        verify(library).carouselImages(argThat(q->q.type()==MaterialType.CAROUSEL && q.advertiserId().equals("1869861871552519") && q.materialId().equals("1881234567890123456")));
+        verify(library).delete(argThat(q->q.type()==MaterialType.IMAGE && q.objectIds().equals(List.of("native-image"))));
+    }
+    @Test void externalCarouselWithNoImagesNeverHidesTheCard() {
+        String id=remote(MaterialType.CAROUSEL,"native-carousel","501");
+        when(library.carouselImages(any())).thenReturn(List.of());
+        assertThrows(BizException.class,()->service.delete(tenant,List.of(id),"account"));verify(library,never()).delete(any());assertTrue(hidden.isEmpty());
+    }
+    @Test void externalCarouselCrossTenantOrChangedAdvertiserCannotResolveOrDeleteImages() {
+        String id=remote(MaterialType.CAROUSEL,"native-carousel","501");
+        assertThrows(BizException.class,()->service.delete(new TenantId("other-tenant"),List.of(id),"account"));
+        when(credentials.getUsableCredential(tenant,new AccountId("account"))).thenReturn(new Credential("token",new AdvertiserId("123")));
+        assertThrows(BizException.class,()->service.delete(tenant,List.of(id),"account"));
+        verifyNoInteractions(library);assertTrue(hidden.isEmpty());
+    }
+    @Test void imageComponentDeletesAreBatchedToOfficialHundredItemLimit() {
+        var imageIds=new ArrayList<String>();var ids=new ArrayList<String>();
+        for(int i=0;i<4;i++) {
+            imageIds.clear();for(int n=0;n<35;n++){var id="image-"+i+"-"+n;imageIds.add(id);asset(id,"IMAGE");when(assets.syncs(tenant.value(),id)).thenReturn(List.of(receipt(id,"native-"+id,"100","UPLOADED")));}
+            bundle("bundle-"+i,imageIds.toArray(String[]::new));ids.add("CAROUSEL:bundle-"+i);
+        }
+        assertEquals(4,service.delete(tenant,ids,"account").deletedIds().size());
+        var queries=ArgumentCaptor.forClass(MaterialLibraryPort.DeleteQuery.class);verify(library,times(2)).delete(queries.capture());
+        assertEquals(List.of(100,40),queries.getAllValues().stream().map(q->q.objectIds().size()).toList());
+    }
+
+    @Test void carouselLookupUsesOfficialMaterialFilterAndStringImageIds()throws Exception {
+        var rest=mock(QianchuanRestClient.class);var json=new ObjectMapper();var adapter=new LiveMaterialLibraryPort(rest,new LynxAdProperties(),new OceanJson(json));
+        var query=new MaterialLibraryPort.MaterialLibraryQuery("1869861871552519",MaterialType.CAROUSEL,null,null,1,100,"token",null,"1881234567890123456");
+        when(rest.exchange(any(),eq(String.class))).thenReturn("{\"code\":0,\"data\":{\"carousels\":[{\"material_id\":1881234567890123456,\"images\":[{\"image_id\":\"image-a\",\"image_material_id\":201},{\"image_id\":\"image-b\"}]}]}}");
+        assertEquals(List.of(new MaterialLibraryPort.CarouselImage("image-a","201"),new MaterialLibraryPort.CarouselImage("image-b",null)),adapter.carouselImages(query));
+        var spec=ArgumentCaptor.forClass(RequestSpec.class);verify(rest).exchange(spec.capture(),eq(String.class));
+        assertTrue(spec.getValue().url().startsWith("https://api.oceanengine.com/open_api/v1.0/qianchuan/carousel/get/?advertiser_id=1869861871552519"));
+        String raw=spec.getValue().url().split("filtering=")[1];var filter=json.readTree(java.net.URLDecoder.decode(raw,java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals("1881234567890123456",filter.path("material_ids").get(0).asText());assertTrue(filter.path("material_ids").get(0).isIntegralNumber());
+        for(String reply:List.of("{\"code\":0,\"data\":{\"carousels\":[]}}","{\"code\":0,\"data\":{\"carousels\":[{\"material_id\":1,\"images\":[{\"image_id\":\"other\"}]}]}}","{\"code\":0,\"data\":{\"carousels\":[{\"material_id\":1881234567890123456,\"images\":[{\"image_id\":201}]}]}}")) {
+            when(rest.exchange(any(),eq(String.class))).thenReturn(reply);assertThrows(BizException.class,()->adapter.carouselImages(query));
+        }
+    }
+    @Test void carouselCatalogReadsOfficialCarouselsArrayAndTotalCount() {
+        var rest=mock(QianchuanRestClient.class);var adapter=new LiveMaterialLibraryPort(rest,new LynxAdProperties(),new OceanJson(new ObjectMapper()));
+        when(rest.exchange(any(),eq(String.class))).thenReturn("{\"code\":0,\"data\":{\"carousels\":[{\"material_id\":1881234567890123456,\"filename\":\"图文\",\"images\":[{\"image_id\":\"image\"}]}],\"page_info\":{\"total_count\":1}}}");
+        var page=adapter.list(new MaterialLibraryPort.MaterialLibraryQuery("123",MaterialType.CAROUSEL,null,null,1,20,"token"));
+        assertEquals("1881234567890123456",page.items().getFirst().materialId());assertEquals(false,page.hasMore());
     }
     @Test void uploadedAssetsUseReceiptFileIdAndActiveUploadsCannotBeDeleted() {
         asset("local","VIDEO");when(assets.syncs(tenant.value(),"local")).thenReturn(List.of(receipt("local","provider-video","123","RUNNING")));
@@ -138,6 +243,13 @@ class LibraryDeletionTest {
         var jdbc=new JdbcTemplate(ds);
         try(var c=ds.getConnection()) { ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration"+(mode.equals("MySQL")?"-mysql":"")+"/V49__material_library_deletion.sql")); }
         var repo=new LibraryDeletionRepository(jdbc,mode.equals("MySQL")?"mysql":"postgresql");
+        jdbc.execute("CREATE TABLE creative_carousel_platform(tenant_id VARCHAR(40),carousel_id VARCHAR(40),account_id VARCHAR(40),qc_carousel_id VARCHAR(40),status VARCHAR(20))");
+        jdbc.update("INSERT INTO creative_carousel_platform VALUES(?,?,?,?,?)",tenant.value(),"group","account","native-carousel","SUCCEEDED");
+        jdbc.update("INSERT INTO creative_carousel_platform VALUES(?,?,?,?,?)","other-tenant","group","other-account","private-carousel","SUCCEEDED");
+        jdbc.update("INSERT INTO creative_carousel_platform VALUES(?,?,?,?,?)",tenant.value(),"group","pending-account","unconfirmed-carousel","SENDING");
+        var groups=new CarouselRepository(jdbc);
+        var group=new CarouselRepository.Bundle("group",tenant.value(),"user","request","图文",List.of("account"),"APPROVED",Instant.now());
+        assertEquals(List.of(new CarouselRepository.PlatformReceipt("account","native-carousel")),groups.platformReceipts(group));
         repo.hide(tenant.value(),List.of("ENGINE:local","EXT:account:VIDEO:o:video-a"));repo.hide(tenant.value(),List.of("ENGINE:local"));
         assertEquals(2,repo.hidden(tenant.value()).size());assertTrue(repo.hidden("other-tenant").isEmpty());
         var local=asset("local","VIDEO");

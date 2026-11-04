@@ -46,6 +46,11 @@ public class CarouselRepository {
                 (r,n) -> new Part(r.getString("role"),r.getInt("position"),r.getString("asset_id")), bundle.tenant(),bundle.id());
     }
     public List<Bundle> list(String tenant) { return jdbc.query("SELECT * FROM creative_carousel WHERE tenant_id=? ORDER BY created_at DESC", BUNDLE, tenant); }
+    public record PlatformReceipt(String accountId, String objectId) {}
+    public List<PlatformReceipt> platformReceipts(Bundle bundle) {
+        return jdbc.query("SELECT account_id,qc_carousel_id FROM creative_carousel_platform WHERE tenant_id=? AND carousel_id=? AND status='SUCCEEDED'",
+                (r,n) -> new PlatformReceipt(r.getString(1),r.getString(2)), bundle.tenant(),bundle.id());
+    }
     public Map<String,List<Part>> libraryParts(String tenant) {
         Map<String,List<Part>> result=new HashMap<>();
         jdbc.query("SELECT carousel_id,role,position,asset_id FROM creative_carousel_part WHERE tenant_id=? "
