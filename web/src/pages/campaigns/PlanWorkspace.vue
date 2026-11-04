@@ -47,10 +47,10 @@
         <CreationFooter v-if="!(!editing && (auditResult || deliveryResult || pausedResult || terminatedResult || completedResult) && step === 4) && (step !== 4 || !submissionPhase || editing)" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="navigate(step - 1)">上一步</button>
-            <button v-if="editing" class="btn-prev" type="button" :disabled="saving || materialBusy" @click="cancelEdit">取消修改</button>
           </template>
           <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
           <button v-if="editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || (!transferPending && (settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError || changedMode && !transferAllowed))" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
+          <button v-if="editing" class="btn-cancel-edit" type="button" :disabled="saving || materialBusy" @click="backToPlans">取消修改</button>
         </CreationFooter>
       </template>
       <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :error="mediaFailure?.message" :material="creation?.materials.find(m => m.id === materialAction?.id)" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
@@ -321,7 +321,6 @@ async function reloadMedia() {
 }
 function navigate(value: number) { if (!saving.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
 function backToPlans() { if (!saving.value && !materialBusy.value) void router.push('/campaigns'); }
-function cancelEdit() { if (!saving.value && plan.value) { resetForm(); void router.replace({ path: `/campaigns/${plan.value.planId}`, query: { step: String(step.value) } }); } }
 function changeTransferMode(value: string) {
   if (!transferring.value || !transferAllowed.value || saving.value || value === plan.value?.smartBidType || value === transferMode.value) return;
   transferMode.value = value;

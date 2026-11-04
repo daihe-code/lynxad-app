@@ -44,6 +44,8 @@ const emit = defineEmits<{ back: []; save: [] }>();
 @media(min-width:768px) and (max-width:1023px){.creation-footer__actions{flex-shrink:1;max-width:55%}}
 .creation-footer__save,.creation-footer__buttons :deep(.btn-prev),.creation-footer__buttons :deep(.btn-next),.creation-footer__buttons :deep(.btn-next-primary){box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;min-width:96px;height:44px;padding:0 18px;border:1px solid #e2e3f1;border-radius:10px;background:#fff;color:#25263c;font:inherit;font-size:14px;font-weight:500;line-height:1;white-space:nowrap;cursor:pointer}
 .creation-footer__buttons :deep(.btn-next),.creation-footer__buttons :deep(.btn-next-primary){min-width:112px;border-color:#575cf6;background:#575cf6;color:#fff;font-weight:600;box-shadow:0 4px 12px #575cf61f}
+.creation-footer__buttons :deep(.btn-cancel-edit){display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 4px;border:0;background:transparent;color:#555875;font:inherit;font-size:14px;white-space:nowrap;cursor:pointer}
+.creation-footer__buttons :deep(.btn-cancel-edit:hover:not(:disabled)){color:#575cf6}
 .creation-footer__buttons :deep(svg){width:15px;height:15px}
 .creation-footer__back:hover:not(:disabled){color:#343be0}
 .creation-footer__save:hover:not(:disabled),.creation-footer__buttons :deep(.btn-prev:hover:not(:disabled)){border-color:#575cf6;color:#575cf6}
