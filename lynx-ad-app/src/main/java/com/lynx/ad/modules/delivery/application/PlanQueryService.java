@@ -237,6 +237,9 @@ public class PlanQueryService {
             var creationSummary=creationSummaries.get(logicalId);
             if(live && r==null) snap=null;
             JsonNode setting=r==null?null:QianchuanPlanMapping.setting(r.detail()!=null?r.detail():r.payload());
+            var schedule=plan.setting().schedule();
+            if(r!=null)schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(QianchuanPlanMapping.setting(r.payload()),schedule);
+            if(r!=null && r.detail()!=null)schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,schedule);
             List<PlanListVo.ProductSummary> goods=new ArrayList<>();
             if(group!=null && creationSummary!=null)for(var product:creationSummary.products())
                 goods.add(new PlanListVo.ProductSummary(product.qcProductId(),product.name(),product.imageUrl()));
@@ -274,7 +277,7 @@ public class PlanQueryService {
                     plan.source()==PlanSource.LINGTOU,goods.isEmpty()?null:goods.getFirst().imageUrl(),r==null?null:r.guarantee(),cost,gmv,roi,
                     plan.setting().bidType().oceanValue(),budget,
                     setting==null?plan.setting().roi2Goal().map(RoiGoal::value).orElse(null):QianchuanPlanMapping.number(setting,"roi2_goal"),
-                    plan.setting().schedule().startDate(),plan.setting().schedule().endDate(),convert,
+                    schedule.startDate(),schedule.type()==ScheduleType.FROM_NOW?null:schedule.endDate(),convert,
                     r==null?(snap==null?null:snap.ts()):statistics==null?null:statistics.ts(),List.copyOf(goods),comparison,
                     info==null?(metadata==null?null:metadata.createdAt()):QianchuanPlanMapping.instant(QianchuanPlanMapping.text(info,"create_time")),
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,

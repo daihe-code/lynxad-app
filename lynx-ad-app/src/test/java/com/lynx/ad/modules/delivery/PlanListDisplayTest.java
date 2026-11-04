@@ -327,6 +327,26 @@ class PlanListDisplayTest {
     @Test void crossYearScheduleRetainsBothFullDates() {
         var row=row();assertEquals("2026-10-10",row.startDate().toString());assertEquals("2036-10-10",row.endDate().toString());
     }
+    @Test void longRunningPlatformScheduleHidesItsTenYearPlaceholderWithoutChangingTheStoredPlan() throws Exception {
+        var payload=json.readTree("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_FROM_NOW\",\"start_time\":\"2026-10-22 00:00:00\",\"end_time\":\"2036-10-22 23:59:59\"}}");
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),new PlanRemoteStore.Remote(id.value(),payload,null,null,Instant.now(),null,null,null,null)));
+        var row=row();assertEquals(LocalDate.of(2026,10,22),row.startDate());assertNull(row.endDate());
+        assertEquals(ScheduleType.DATE_RANGE,plan.setting().schedule().type());
+        assertEquals(LocalDate.of(2036,10,10),plan.setting().schedule().endDate());
+        verify(plans,never()).save(any());
+    }
+    @Test void longRunningLocalScheduleDoesNotExposeALegacyEndDate() {
+        var setting=plan.setting();
+        plan.updateSetting(new DeliverySetting(setting.bidType(),setting.dailyBudget(),setting.roi2Goal(),
+                new Schedule(ScheduleType.FROM_NOW,LocalDate.of(2026,10,10),LocalDate.of(2036,10,10)),setting.audience()));
+        assertNull(row().endDate());
+    }
+    @Test void explicitCustomDatesInDetailOverrideAnOlderLongRunningListResponse() throws Exception {
+        var payload=json.readTree("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_FROM_NOW\",\"end_time\":\"2036-10-10 23:59:59\"}}");
+        var detail=json.readTree("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_START_END\",\"start_time\":\"2026-10-23 00:00:00\",\"end_time\":\"2036-10-23 23:59:59\"}}");
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),new PlanRemoteStore.Remote(id.value(),payload,detail,null,Instant.now(),null,null,null,null)));
+        var row=row();assertEquals(LocalDate.of(2026,10,23),row.startDate());assertEquals(LocalDate.of(2036,10,23),row.endDate());
+    }
     private AdPlan transferred(PlanStatus status) {
         plan.apply(PlanStatus.PAUSED);
         var current=new AdPlan(new PlanId("transferred"),tenant,plan.accountId(),plan.awemeId(),new PlanName("真实放量计划_转投"),status,PlanSource.EXTERNAL,
