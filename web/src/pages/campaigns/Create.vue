@@ -26,7 +26,7 @@
       </div></main>
     </div>
     <RequestFailureNotice :failure="initialFailure" :busy="initializing" @retry="initialize" />
-    <CreationActionDialog v-if="action" :action="action.kind" :error="operationFailure?.message" :material="state?.materials.find(m => m.id === action?.id)" :retry-at="state?.regenerationRetryAt" :busy="busy || contentLocked || draftRestoring || draftUnresolved" @close="action = null" @save="saveAndLeave" @discard="discardAndLeave" @confirm="feedback" />
+    <CreationActionDialog v-if="action" :action="action.kind" :plan-name="name || state?.name" :error="operationFailure?.message" :material="state?.materials.find(m => m.id === action?.id)" :retry-at="state?.regenerationRetryAt" :busy="busy || contentLocked || draftRestoring || draftUnresolved" @close="action = null" @save="saveAndLeave" @discard="discardAndLeave" @confirm="feedback" />
   </div>
 </template>
 <script setup lang="ts">
