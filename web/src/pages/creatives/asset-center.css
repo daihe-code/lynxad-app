@@ -574,6 +574,11 @@
   line-height: 1;
   --tw-text-opacity: 1
 }
+.asset-center .pager__num--on {
+  border-color: rgb(var(--c-primary));
+  background-color: rgb(var(--c-primary));
+  color: #fff
+}
 .asset-center .pager__jump {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
