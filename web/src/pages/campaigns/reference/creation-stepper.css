@@ -4,12 +4,12 @@
   font: inherit;
 }
 
-.ad-stepper .step--done,
-.ad-stepper .step[aria-current="step"] {
+.ad-stepper .step--done {
   background-color: rgb(var(--c-primary-soft));
 }
 
 .ad-stepper .step[aria-current="step"] {
+  background-color: transparent;
   border-color: #6256ff;
 }
 

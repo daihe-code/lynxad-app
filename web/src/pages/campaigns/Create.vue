@@ -205,10 +205,9 @@ const estimate = computed(() => recommendations.budgetEstimateHints(state.value?
 const estimateRoiHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.roi);
 const estimateOrdersHint = computed(() => busy.value ? '正在获取平台预估…' : estimate.value.orders);
 const estimateHint = computed(() => busy.value ? undefined : estimate.value.message);
-const budgetHint = computed(() => busy.value ? '正在获取千川推荐预算…'
-  : state.value?.recommendations?.budgetFromCache ? (state.value.recommendations.budgetStatus==='RATE_LIMITED' ? '千川请求频率受限，已保留上次推荐预算，可手动调整' : '千川本次推荐获取失败，已保留上次推荐预算，可手动调整')
-  : state.value?.recommendations?.budgetError || (recommendedBudget() ? '自动获取巨量千川推荐预算，可调整' : '平台未返回推荐预算，可手动填写'));
-const roiHint = computed(() => busy.value ? '正在获取千川推荐ROI…' : state.value?.recommendations?.roiError || (recommendedRoi() ? `千川推荐净成交ROI ${recommendedRoi()}，可参考实际经营目标调整` : '平台未返回推荐ROI，可根据经营目标填写'));
+const recommendationHints = computed(() => recommendations.recommendationHints(state.value?.recommendations, busy.value));
+const budgetHint = computed(() => recommendationHints.value.budget);
+const roiHint = computed(() => recommendationHints.value.roi);
 function recommendedBudget() { return recommendations.recommendedBudget(state.value?.recommendations); }
 function recommendedRoi() { return recommendations.recommendedRoi(state.value?.recommendations); }
 const action = ref<{ kind: 'cancel'|'regenerate'|'delete'; id?: string } | null>(null);

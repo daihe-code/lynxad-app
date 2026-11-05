@@ -13,6 +13,16 @@ const rows = (data: Recommendations): Record<string, unknown>[] => {
 };
 export const recommendedBudget = (data: Recommendations) => positive(data?.budget?.budget) || positive(data?.budget?.suggested_budget);
 export const recommendedRoi = (data: Recommendations) => positive(data?.roi?.ecp_roi2_goal);
+export function recommendationHints(data: Recommendations, loading = false): { budget: string; roi: string } {
+  const roi = recommendedRoi(data);
+  return {
+    budget: loading ? '正在获取千川推荐预算…'
+      : data?.budgetFromCache ? (data.budgetStatus === 'RATE_LIMITED' ? '千川请求频率受限，已保留上次推荐预算，可手动调整' : '千川本次推荐获取失败，已保留上次推荐预算，可手动调整')
+      : !data?.budgetError && recommendedBudget(data) ? '自动获取巨量千川推荐预算，可调整' : '平台未返回推荐预算，可手动填写',
+    roi: loading ? '正在获取千川推荐ROI…'
+      : !data?.roiError && roi ? `千川推荐净成交ROI ${roi}，可参考实际经营目标调整` : '平台未返回推荐ROI，可根据经营目标填写',
+  };
+}
 /** Application refresh policy: completed results for five minutes, errors/empty estimates for thirty seconds. */
 export function recommendationsNeedRefresh(state: CreationState, now = Date.now()): boolean {
   const data=state.recommendations, ids=new Set(data?.productIds || []);

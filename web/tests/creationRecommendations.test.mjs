@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetChoices, budgetEstimateHints, budgetOptions, recommendedBudget, recommendationsNeedRefresh } from '../src/features/delivery/creationRecommendations.ts';
+import { budgetChoices, budgetEstimateHints, budgetOptions, recommendedBudget, recommendationHints, recommendationsNeedRefresh } from '../src/features/delivery/creationRecommendations.ts';
 
 test('千川仅返回推荐预算时保留该档位，并明确预估缺失，不能借用控成本ROI', () => {
   const data = { budget: { budget: 50, is_update: false, estimate_trans_cost_list: [] }, roi: { ecp_roi2_goal: 4.82 } };
@@ -51,4 +51,20 @@ test('失败时保留的预算标注为上次推荐，不能当作本次平台�
   const data={budget:{budget:50},budgetFromCache:true,budgetError:'请求频率受限'};
   assert.deepEqual(budgetOptions(data),[{budget:50,roi:'--',orders:'--',badge:'上次推荐'}]);
   assert.equal(budgetEstimateHints(data,'50').message,'千川本次预算推荐获取失败，已保留上次推荐金额；ROI 和订单预估暂不可用。');
+});
+
+test('预算和ROI推荐失败不向用户透传英文异常或接口地址', () => {
+  const error = 'java.net.SocketTimeoutException: request failed https://example.invalid/internal?token=private';
+  const hints = recommendationHints({budget:{budget:50},roi:{ecp_roi2_goal:4.82},budgetError:error,roiError:error});
+  assert.deepEqual(hints, {budget:'平台未返回推荐预算，可手动填写',roi:'平台未返回推荐ROI，可根据经营目标填写'});
+  assert.deepEqual(recommendationHints(undefined),hints);
+  assert.equal(recommendationHints({budget:{budget:50}}).budget,'自动获取巨量千川推荐预算，可调整');
+  assert.equal(recommendationHints({roi:{ecp_roi2_goal:4.82}}).roi,'千川推荐净成交ROI 4.82，可参考实际经营目标调整');
+  assert.deepEqual(recommendationHints({budgetError:error,roiError:error},true),{budget:'正在获取千川推荐预算…',roi:'正在获取千川推荐ROI…'});
+});
+
+test('推荐预算读取失败时，已保留的有效预算仍使用缓存提示', () => {
+  const data={budget:{budget:50},budgetFromCache:true,budgetError:'upstream error'};
+  assert.equal(recommendationHints(data).budget,'千川本次推荐获取失败，已保留上次推荐预算，可手动调整');
+  assert.equal(recommendationHints({...data,budgetStatus:'RATE_LIMITED'}).budget,'千川请求频率受限，已保留上次推荐预算，可手动调整');
 });
