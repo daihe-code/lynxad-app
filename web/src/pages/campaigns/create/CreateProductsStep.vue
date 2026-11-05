@@ -114,6 +114,9 @@ import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 import CreationFooter from './CreationFooter.vue';
 import PreparationIcon from '@/components/PreparationIcon.vue';
 import { computed, h, nextTick, onUnmounted, ref, watch } from 'vue';
+import { useUserStore } from '@/stores/user';
+import { readProductStepView, rememberProductStepView, type ProductStepView } from '@/features/delivery/productStepView';
+import type { DraftScope } from '@/features/delivery/creationDraftCache';
 import type { CreationProduct as ProductVo, ProductQuery, ProductAnalysis, ProductBasicAnalysis } from '@/features/delivery/creationApi';
 import { canContinueProductAnalysis, productAnalysisPresentation } from '@/features/delivery/productAnalysisReadiness';
 import catalogPolicy from '../../../../../lynx-ad-app/src/main/resources/product-catalog-policy.json' with { type: 'json' };
@@ -146,7 +149,22 @@ watch(() => [props.account?.key, props.draftId], closeRecommendations);
 watch(() => props.selected.map(p => p.qcProductId), ids => {
   if (recommendationSource.value && !ids.includes(recommendationSource.value)) closeRecommendations();
 });
-const analysisOpen = ref(false), adjusting = ref(false);
+const user = useUserStore();
+const viewScope = computed<DraftScope | undefined>(() => {
+  if (props.readOnly || !props.draftId || !props.account || !user.me?.tenantId || !user.me.userId) return;
+  const [accountId, awemeId] = props.account.key.split(':');
+  return { tenantId: user.me.tenantId, userId: user.me.userId, accountId, awemeId, planId: props.draftId };
+});
+const viewStorage = { getItem: (key: string) => localStorage.getItem(key), setItem: (key: string, value: string) => localStorage.setItem(key, value) };
+const productView = ref<ProductStepView>();
+watch(viewScope, scope => { productView.value = scope ? readProductStepView(viewStorage, scope) : undefined; }, { immediate: true });
+const analysisOpen = computed({
+  get: () => productView.value === 'ANALYSIS' || productView.value === undefined && (props.analysisStatus !== 'NONE' || !!props.analysis),
+  set: (open: boolean) => {
+    productView.value = open ? 'ANALYSIS' : 'SELECTION';
+    if (viewScope.value) rememberProductStepView(viewStorage, viewScope.value, productView.value);
+  },
+});
 const adjustmentConfirming = ref(false);
 const analysisPanel = ref<HTMLElement>();
 const { sourceProduct: suggestionSource, products: suggestedProducts, result: suggestionResult, failure: suggestionsFailure, loading: suggestionsLoading, load: loadSuggestions } = useProductSuggestions({
@@ -174,9 +192,6 @@ const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品�
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus, props.analysis, props.selected));
-watch([() => props.analysisStatus, () => props.analysis], ([status, analysis]) => {
-  if (!adjusting.value && (status !== 'NONE' || analysis)) analysisOpen.value = true;
-}, { immediate: true });
 watch([analysisOpen, recommendationsOpen, () => props.account?.key], ([analysis, recommendations, key]) => {
   if (!props.readOnly && key && !analysis && !recommendations) emit('catalog');
 }, { immediate: true });
@@ -203,7 +218,7 @@ function choose(p: ProductVo) {
 }
 async function showRecommendations(p: ProductVo) {
   if (props.readOnly || props.saving || !props.selected.some(selected=>selected.qcProductId===p.qcProductId)) return;
-  if (analysisOpen.value) { adjusting.value = true; analysisOpen.value = false; }
+  if (analysisOpen.value) analysisOpen.value = false;
   recommendationSource.value = p.qcProductId; recommendationsOpen.value = true;
   await nextTick();
   if (!recommendationsOpen.value || recommendationSource.value !== p.qcProductId) return;
@@ -238,12 +253,12 @@ async function adjustProducts() {
 async function openProductAdjustment() {
   if (props.saving || props.selectionLocked || props.adjustmentBlockedReason) return;
   if (props.readOnly) { if (props.allowAdjustment) emit('adjust'); return; }
-  adjusting.value = true; analysisOpen.value = false; emit('retry');
+  analysisOpen.value = false; emit('retry');
   await nextTick(); filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
 async function confirm() {
   if (props.readOnly || props.saving || !props.selected.length) return;
-  adjusting.value = false; closeRecommendations(); emit('analyze');
+  analysisOpen.value = true; closeRecommendations(); emit('analyze');
   await nextTick(); analysisPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 defineExpose({ openProductAdjustment, confirmProductAdjustment: adjustProducts });
