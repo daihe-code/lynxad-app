@@ -1,20 +1,16 @@
 <template>
   <div class="local-material-upload">
-    <p v-if="type === 'VIDEO' && !rows.length" class="account-note">素材将同步到当前计划的投放账户。</p>
     <template v-if="type !== 'CAROUSEL'">
       <label v-if="!rows.length" class="aigc upload-aigc"><input v-model="aigc" type="checkbox" :disabled="blocked || busy" />包含 AI 生成内容</label>
       <input ref="input" class="sr-only" type="file" multiple :accept="policy.extensions.map(e => `.${e}`).join(',')" aria-label="选择本地素材文件" :disabled="blocked || busy" @change="changed" />
-      <div v-if="!rows.length" class="drop-zone" :class="{ 'drop-zone--image': type === 'IMAGE' }" role="button" tabindex="0" :aria-label="type === 'IMAGE' ? '选择图片' : undefined" :aria-disabled="blocked || busy" @click="chooseFiles" @keydown.enter="chooseFiles" @keydown.space.prevent="chooseFiles" @dragover.prevent @drop.prevent="add($event.dataTransfer?.files)">
-        <ReferenceIcon :name="type === 'IMAGE' ? 'cloud-upload' : 'upload'" />
-        <template v-if="type === 'IMAGE'">
-          <strong>点击选择图片，或将文件拖到此处</strong>
-          <small class="image-formats">支持 JPG / JPEG / PNG，单张不超过 10M</small>
-          <span class="image-select-button" aria-hidden="true">选择图片</span>
-        </template>
-        <template v-else><strong>点击选择文件，或拖拽至此处</strong><small v-if="policy.requirements.length" class="upload-requirements"><span v-for="requirement in policy.requirements" :key="requirement">{{ requirement }}</span></small><small v-else>{{ policy.label }}：{{ policy.hint }}</small></template>
+      <div v-if="!rows.length" class="drop-zone drop-zone--file" :class="{ 'drop-zone--video': type === 'VIDEO' }" role="button" tabindex="0" :aria-label="type === 'IMAGE' ? '选择图片' : '选择视频'" :aria-disabled="blocked || busy" @click="chooseFiles" @keydown.enter="chooseFiles" @keydown.space.prevent="chooseFiles" @dragover.prevent @drop.prevent="add($event.dataTransfer?.files)">
+        <ReferenceIcon name="cloud-upload" />
+        <strong>点击选择{{ type === 'IMAGE' ? '图片' : '视频' }}，或将文件拖到此处</strong>
+        <small v-if="type === 'IMAGE'" class="image-formats">支持 JPG / JPEG / PNG，单张不超过 10M</small>
+        <span class="file-select-button" aria-hidden="true">选择{{ type === 'IMAGE' ? '图片' : '视频' }}</span>
       </div>
-      <template v-if="type === 'IMAGE' && !rows.length">
-        <details class="image-requirements"><summary>查看图片要求</summary><p v-for="requirement in policy.requirements" :key="requirement">{{ requirement }}</p></details>
+      <template v-if="!rows.length">
+        <details class="file-requirements"><summary>查看{{ type === 'IMAGE' ? '图片' : '视频' }}要求<ReferenceIcon name="caret" /></summary><p v-for="requirement in policy.requirements" :key="requirement">{{ requirement }}</p></details>
         <p class="account-note">上传后将进行检查和同步，完成后可添加至当前商品。</p>
       </template>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -135,17 +131,19 @@ defineExpose({ stopUploads, continueUploads, createLocalCarousel, resetLocalCaro
 <style scoped>
 .account-note{color:#7c7f99;font-size:12px;margin:12px 0}.drop-zone{border:1px dashed #bbb9ef;border-radius:12px;background:#fafaff;display:grid;justify-items:center;gap:10px;padding:22px;cursor:pointer}.drop-zone>svg{width:26px;height:26px;color:#5b55ff}.drop-zone small{color:#7c7f99;text-align:center;line-height:1.6}.drop-zone[aria-disabled=true]{opacity:.5;cursor:not-allowed}.aigc{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px}.aigc input{accent-color:#5b55ff}.carousel-ready{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:15px;color:#0cab76}.carousel-ready button{padding:9px 16px;background:#5b55ff;color:white;border-radius:8px;margin-left:auto}.error{color:#e5484d;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}button:disabled{opacity:.45;cursor:not-allowed}
 .upload-aigc{margin:0 0 12px;color:#555978}
-.drop-zone .upload-requirements{display:grid;gap:5px;max-width:100%;text-align:left;overflow-wrap:anywhere}
-.drop-zone--image{min-height:360px;padding:40px 24px;align-content:center;gap:18px;border-color:#c3b7ff;background:linear-gradient(135deg,#faf9ff,#f4f2ff)}
-.drop-zone--image>svg{width:72px;height:72px;color:#5b48ff}
-.drop-zone--image strong{font-size:20px;font-weight:600;line-height:1.5;text-align:center;color:#171830}
-.drop-zone--image .image-formats{font-size:14px;color:#8b83aa;overflow-wrap:anywhere}
-.image-select-button{display:grid;place-items:center;min-width:180px;min-height:52px;padding:12px 24px;border-radius:9px;background:#5342ff;color:white;font-size:18px;line-height:1.4}
-.drop-zone--image:hover{border-color:#6857ff}
-.drop-zone--image:focus-visible{outline:2px solid #8584ff;outline-offset:3px}
-.image-requirements{margin:12px 0;font-size:12px;line-height:1.7;color:#7c7f99}
-.image-requirements summary{color:#5b48ff;font-weight:600;cursor:pointer;list-style:none}
-.image-requirements summary::-webkit-details-marker{display:none}
-.image-requirements p{padding:10px 12px;margin-top:8px;background:#f7f5ff;border:1px solid #e5e0ff;border-radius:8px;overflow-wrap:anywhere}
-@media(max-width:639px){.drop-zone--image{min-height:280px;padding:28px 16px;gap:14px}.drop-zone--image>svg{width:58px;height:58px}.drop-zone--image strong{font-size:17px}.image-select-button{min-width:150px;min-height:44px;font-size:16px}.drop-zone--image .image-formats{font-size:12px}}
+.drop-zone--file{min-height:360px;padding:40px 24px;align-content:center;gap:18px;border-color:#c3b7ff;background:linear-gradient(135deg,#faf9ff,#f4f2ff)}
+.drop-zone--file>svg{width:72px;height:72px;color:#5b48ff}
+.drop-zone--file strong{font-size:20px;font-weight:600;line-height:1.5;text-align:center;color:#171830}
+.drop-zone--file .image-formats{font-size:14px;color:#8b83aa;overflow-wrap:anywhere}
+.file-select-button{display:grid;place-items:center;min-width:180px;min-height:52px;padding:12px 24px;border-radius:9px;background:#5342ff;color:white;font-size:18px;line-height:1.4}
+.drop-zone--file:hover{border-color:#6857ff}
+.drop-zone--file:focus-visible{outline:2px solid #8584ff;outline-offset:3px}
+.file-requirements{margin:12px 0;font-size:12px;line-height:1.7;color:#7c7f99}
+.file-requirements summary{display:inline-flex;align-items:center;gap:5px;color:#5b48ff;font-weight:600;cursor:pointer;list-style:none}
+.file-requirements summary::-webkit-details-marker{display:none}
+.file-requirements summary svg{width:14px;height:14px}
+.file-requirements[open] summary svg{transform:rotate(180deg)}
+.file-requirements p{padding:10px 12px;margin-top:8px;background:#f7f5ff;border:1px solid #e5e0ff;border-radius:8px;overflow-wrap:anywhere}
+@media(max-height:800px){.drop-zone--video{min-height:220px;padding:24px;gap:14px}.drop-zone--video>svg{width:56px;height:56px}}
+@media(max-width:639px){.drop-zone--file{min-height:280px;padding:28px 16px;gap:14px}.drop-zone--file>svg{width:58px;height:58px}.drop-zone--file strong{font-size:17px}.file-select-button{min-width:150px;min-height:44px;font-size:16px}.drop-zone--file .image-formats{font-size:12px}}
 </style>

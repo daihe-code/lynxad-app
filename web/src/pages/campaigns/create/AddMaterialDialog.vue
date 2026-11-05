@@ -1,5 +1,5 @@
 <template>
-  <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': uploadBatchMode && type === 'VIDEO', 'carousel-upload-dialog': localCarousel }" title="新增素材" :width="1020" :busy="locked" @close="close">
+  <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': source === 'UPLOAD' && type === 'VIDEO', 'carousel-upload-dialog': localCarousel }" title="新增素材" :width="1020" :busy="locked" @close="close">
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
     <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
@@ -186,6 +186,7 @@ onUnmounted(() => { alive = false; ++loadNumber; });
 .carousel-upload-dialog .carousel-more{border-color:transparent;color:#5342ff;min-width:0}
 .video-upload-dialog .upload-more-link{border-color:transparent;color:#5342ff;min-width:0}
 .add-material-dialog :deep(.reference-modal__box){zoom:var(--add-material-scale);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
+.video-upload-dialog :deep(.reference-modal__box){max-height:calc((100dvh - 48px) / var(--add-material-scale))}
 .add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:34px 0 32px}
 .add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}
 .add-material-dialog :deep(header){gap:34px;align-items:center}
