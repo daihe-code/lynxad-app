@@ -22,7 +22,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { Bell } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { listInbox, readAllInbox, readInbox, type InboxMessage } from '@/features/tenant/inboxApi';
-import { filterInbox, inboxBody, inboxPresentation, inboxTime, type InboxFilterCategory } from '@/features/tenant/inboxPresentation';
+import { filterInbox, inboxBody, inboxPresentation, inboxTime, optimizationInboxRoute, type InboxFilterCategory } from '@/features/tenant/inboxPresentation';
+import { INBOX_CHANGED } from '@/features/tenant/inboxRefresh';
 import { getPlan, listPlans } from '@/features/delivery/deliveryApi';
 import { generationNotice, generationNoticeRoute } from '@/features/tenant/inboxGeneration';
 const route = useRoute(), router = useRouter();
@@ -34,7 +35,13 @@ const unread = computed(() => inbox.value.filter(item => item.unread).length);
 const visible = computed(() => filterInbox(inbox.value, tab.value, category.value).map(item => ({ item,
   view: { title: item.title || '系统消息', body: item.body || '', planName: '', outcome: '', ...inboxPresentation(item), ...generationNotice(item) },
 })));
-let disposed = false, epoch = 0, pollTimer: number | undefined;
+let disposed = false, epoch = 0, pollTimer: number | undefined, refreshQueued = false;
+function flushRefresh() {
+  if (!refreshQueued || loading.value || readingAll.value || pending.value.size || disposed) return;
+  refreshQueued = false;
+  void refresh(false);
+}
+function onInboxChanged() { refreshQueued = true; flushRefresh(); }
 async function refresh(background = true) {
   if (loading.value || disposed || readingAll.value || pending.value.size) return;
   loading.value = true;
@@ -45,7 +52,7 @@ async function refresh(background = true) {
     inbox.value = next.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
     failed.value = false;
   } catch { if (!disposed && epoch === version) failed.value = true; }
-  finally { loading.value = false; }
+  finally { loading.value = false; flushRefresh(); }
 }
 async function refreshPlans() {
   try { const result = await listPlans(1, 1, { status: 'DELIVERING' }); if (!disposed) watchedPlans.value = result.total; }
@@ -61,7 +68,7 @@ async function mark(item: InboxMessage) {
     if (!disposed) { item.unread = false; const current = inbox.value.find(message => message.id === item.id); if (current) current.unread = false; }
     return true;
   } catch { return false; }
-  finally { pending.value.delete(item.id); }
+  finally { pending.value.delete(item.id); flushRefresh(); }
 }
 async function markAll() {
   if (!unread.value || readingAll.value || pending.value.size || !inbox.value[0]) return;
@@ -82,7 +89,7 @@ async function visit(item: InboxMessage) {
   const target = inboxPresentation(item).destination;
   if(target === 'contentEdit' && item.bizId){open.value=false;await router.push({path:`/campaigns/${encodeURIComponent(item.bizId)}/edit`});return;}
   if(target === 'draft' && item.bizId){open.value=false;await router.push({path:'/campaigns/create',query:{draftId:item.bizId}});return;}
-  if (target === 'optimization') { open.value = false; await router.push({ path: '/monitoring', query: { tab: 'history', ...(item.bizId ? { planId: item.bizId } : {}) } }); return; }
+  if (target === 'optimization') { open.value = false; await router.push(optimizationInboxRoute(item)!); return; }
   if (target === 'plan' && item.bizId) {
     try { await getPlan(item.bizId); if (!disposed) { open.value = false; await router.push(`/campaigns/${encodeURIComponent(item.bizId)}`); } }
     catch { if (!disposed) { ElMessage.warning('关联计划已不存在或无权查看'); open.value = false; await router.push('/campaigns'); } }
@@ -100,8 +107,8 @@ async function tabKey(event: KeyboardEvent) {
 function onVisibility() { if (!document.hidden) { void refresh(); if (open.value) void refreshPlans(); } }
 watch(open, async value => { if (value) { void refresh(); void refreshPlans(); await nextTick(); panel.value?.focus(); } });
 watch(() => route.fullPath, () => { open.value = false; void refresh(); });
-onMounted(() => { void refresh(); pollTimer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30000); document.addEventListener('visibilitychange', onVisibility); });
-onUnmounted(() => { disposed = true; window.clearInterval(pollTimer); document.removeEventListener('visibilitychange', onVisibility); });
+onMounted(() => { window.addEventListener(INBOX_CHANGED, onInboxChanged); void refresh(); pollTimer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30000); document.addEventListener('visibilitychange', onVisibility); });
+onUnmounted(() => { disposed = true; window.clearInterval(pollTimer); window.removeEventListener(INBOX_CHANGED, onInboxChanged); document.removeEventListener('visibilitychange', onVisibility); });
 </script>
 <style>
 .el-popover.el-popper.lynx-notification-popover { box-sizing: border-box; width: min(400px, calc(100vw - 32px)) !important; padding: 0; border: 1px solid #e6e8f2; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 48px -14px #1a1b2e3d, 0 3px 10px #1a1b2e0f; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; }

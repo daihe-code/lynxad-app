@@ -20,9 +20,17 @@ test('PRD four categories classify watcher, approval, optimization and system ev
     ['TOKEN_EXPIRED', 'system'], ['DAILY_REPORT', 'system'], ['INSIGHT_REPORT', 'system'], ['PLAN_DAILY_REPORT', 'system'], ['PLAN_PUBLISHED', 'system'], ['SYSTEM', 'system'], [undefined, 'system'], ['FUTURE_EVENT', 'system'],
     ['ROI_DROP', 'warning'], ['BUDGET_EXHAUST', 'warning'], ['QC_ABNORMAL_PAUSE', 'warning'], ['OPTIMIZATION_ERROR', 'warning'],
     ['AUDIT_PASS', 'approval'], ['AUDIT_REJECT', 'approval'],
-    ['OPTIMIZATION_ADVICE', 'optimization'], ['OPTIMIZATION_EXECUTION', 'optimization'], ['OPTIMIZATION_TAKEOVER', 'optimization'], ['OPTIMIZATION_RECOVERED', 'optimization'], ['CREATIVE_DONE', 'optimization'], ['CREATIVE_READY', 'optimization'], ['CREATIVE_FAIL', 'optimization'],
+    ['OPTIMIZATION_RULES', 'optimization'], ['OPTIMIZATION_ADVICE', 'optimization'], ['OPTIMIZATION_EXECUTION', 'optimization'], ['OPTIMIZATION_TAKEOVER', 'optimization'], ['OPTIMIZATION_RECOVERED', 'optimization'], ['CREATIVE_DONE', 'optimization'], ['CREATIVE_READY', 'optimization'], ['CREATIVE_FAIL', 'optimization'],
   ];
   for (const [type, expected] of cases) assert.equal(presentation.filterCategory(message('id', type)), expected, String(type));
+});
+
+test('monitoring lifecycle messages open the matching plan detail instead of the old monitoring page', () => {
+  const item = { ...message('rules', 'OPTIMIZATION_RULES'), bizId: 'plan-1' };
+  assert.equal(presentation.inboxPresentation(item).category, '盯盘优化');
+  assert.deepEqual(presentation.optimizationInboxRoute(item), { path: '/campaigns', query: { plan: 'plan-1', tab: 'optimization' } });
+  assert.deepEqual(presentation.optimizationInboxRoute(message('rules', 'OPTIMIZATION_RULES')), { path: '/monitoring', query: { tab: 'history' } });
+  assert.equal(presentation.optimizationInboxRoute(message('other', 'AUDIT_PASS')), null);
 });
 
 test('category and unread filters compose without mutating inbox or unread total', () => {

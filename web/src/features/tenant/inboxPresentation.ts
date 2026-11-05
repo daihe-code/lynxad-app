@@ -20,13 +20,19 @@ export function inboxPresentation(item: InboxMessage) {
   const type = item.bizType || '';
   const generation = generationNotice(item);
   if(generation)return {category:'素材',tone:'material',action:generation.action,destination:type === 'CREATION_EDIT_GENERATED' ? 'contentEdit' as const : 'draft' as const};
-  if (type.startsWith('OPTIMIZATION_')) return { category: '自动盯盘', tone: 'warning', action: '查看盯盘', destination: 'optimization' as const };
+  if (type.startsWith('OPTIMIZATION_')) return { category: '盯盘优化', tone: 'warning', action: '查看盯盘', destination: 'optimization' as const };
   if (type.startsWith('CREATIVE_')) return { category: '素材', tone: 'material', action: '查看素材', destination: 'creative' as const };
   if (type === 'TOKEN_EXPIRED') return { category: '授权', tone: 'authorization', action: '重新授权', destination: 'authorization' as const };
   if (type === 'DAILY_REPORT' || type === 'INSIGHT_REPORT' || type === 'PLAN_DAILY_REPORT') return { category: '日报', tone: '', action: '查看日报', destination: 'report' as const };
   if (WATCHER_TYPES.includes(type as (typeof WATCHER_TYPES)[number])) return { category: '盯盘提醒', tone: 'warning', action: '查看计划', destination: 'plan' as const };
   if (['AUDIT_PASS', 'AUDIT_REJECT', 'PLAN_PUBLISHED'].includes(type)) return { category: '投放计划', tone: '', action: '查看计划', destination: 'plan' as const };
   return { category: '系统消息', tone: '', action: '', destination: null };
+}
+
+export function optimizationInboxRoute(item: InboxMessage) {
+  if (!item.bizType?.startsWith('OPTIMIZATION_')) return null;
+  return item.bizId ? { path: '/campaigns', query: { plan: item.bizId, tab: 'optimization' } }
+    : { path: '/monitoring', query: { tab: 'history' } };
 }
 
 export function inboxTime(value: string) {

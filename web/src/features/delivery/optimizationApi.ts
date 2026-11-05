@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut } from '@/api/http';
+import { requestInboxRefresh } from '@/features/tenant/inboxRefresh';
 
 export interface ProductEconomics {
   productId: string;
@@ -82,7 +83,11 @@ export interface OptimizationView {
 const path = (id: string) => `/api/v1/delivery/plans/${encodeURIComponent(id)}/optimization`;
 export const getOptimization = (id: string) => apiGet<OptimizationView>(path(id), { headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationRules = (id: string) => apiGet<OptimizationView>(`${path(id)}/rules`, { headers: { 'X-Quiet-Request': 'true' } });
-export const saveOptimizationRules = (id: string, rules: OptimizationRules, enabled: boolean, expectedVersion: number) => apiPut<OptimizationView>(`${path(id)}/rules`, { rules, enabled, expectedVersion }, { headers: { 'X-Quiet-Request': 'true' } });
+export async function saveOptimizationRules(id: string, rules: OptimizationRules, enabled: boolean, expectedVersion: number) {
+  const view = await apiPut<OptimizationView>(`${path(id)}/rules`, { rules, enabled, expectedVersion }, { headers: { 'X-Quiet-Request': 'true' } });
+  requestInboxRefresh();
+  return view;
+}
 export interface CandidatePlan { id: string; name: string; qcId: string }
 export const getOptimizationCandidates = (id: string) => apiGet<CandidatePlan[]>(`${path(id)}/candidates`, { headers: { 'X-Quiet-Request': 'true' } });
 export const saveOptimization = (id: string, policy: OptimizationPolicy, expectedVersion: number) => apiPut<OptimizationView>(path(id), { policy, expectedVersion });

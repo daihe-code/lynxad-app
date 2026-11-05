@@ -72,9 +72,13 @@ public class OptimizationAutomationStore {
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
     }
-    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version){
+    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version,boolean previouslyEnabled){
         String id=UUID.randomUUID().toString();var report=json.createObjectNode().put("rule_version","merchant-rules-v1");report.set("rules",json.valueToTree(policy.rules()));report.put("enabled",policy.enabled());
-        jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",policy.enabled()?"盯盘规则已更新":"盯盘优化已关闭",policy.enabled()?"当前规则已保存并开启":"停止新的经营判断与自动执行；已提交操作继续只读核查",encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
+        String title=policy.enabled()?(previouslyEnabled?"盯盘规则已更新":"盯盘优化已开启"):(previouslyEnabled?"盯盘优化已关闭":"盯盘规则已保存");
+        String body=policy.enabled()?"净成交ROI要求不低于 "+policy.rules().roiFloor().stripTrailingZeros().toPlainString()+"；当天消耗 ¥"+policy.rules().spendReminder().stripTrailingZeros().toPlainString()+" 时提醒，达到 ¥"+policy.rules().spendProtection().stripTrailingZeros().toPlainString()+" 时"+(policy.rules().protectionAction().equals("AUTO_PAUSE")?"按授权自动暂停本计划。":"提醒你确认暂停。")
+                :"已关闭经营优化，已提交操作继续核对。计划投放状态保持不变。";
+        jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",title,body,encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
+        if(policy.enabled()||previouslyEnabled)notice(p.tenantId().value(),p.id().value(),"OPTIMIZATION_RULES",title,p.name().text()+"："+body);
     }
     public record RuleSummary(long found,long completed,long protectedCount){}
     public RuleSummary ruleSummary(String tenant,String plan,boolean today){

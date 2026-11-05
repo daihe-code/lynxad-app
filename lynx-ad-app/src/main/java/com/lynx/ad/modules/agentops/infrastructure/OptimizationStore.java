@@ -64,7 +64,8 @@ public class OptimizationStore {
         tx.executeWithoutResult(s->{
             // A tenant row serializes first inserts and cross-plan shared economics changes.
             if(jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",plan.tenantId().value()).isEmpty())throw new BizException(1802,"租户不存在");
-            long version=get(plan.tenantId(),plan.id()).map(State::version).orElse(0L);
+            var previous=get(plan.tenantId(),plan.id());
+            long version=previous.map(State::version).orElse(0L);
             if(version!=expectedVersion)throw new BizException(1804,"盯盘设置已被更新，请重新加载设置后保存");
             var now=Timestamp.from(Instant.now());
             for(var e:policy.economics()) {
@@ -87,7 +88,7 @@ public class OptimizationStore {
             int changed=jdbc.update("UPDATE optimization_policy SET enabled=?,config_json=?,next_check_at=? WHERE tenant_id=? AND plan_id=?",policy.enabled(),encode(policy.withEconomics(List.of())),now,plan.tenantId().value(),plan.id().value());
             if(changed==0)jdbc.update("INSERT INTO optimization_policy(tenant_id,plan_id,policy_version,enabled,config_json,next_check_at) VALUES(?,?,1,?,?,?)",plan.tenantId().value(),plan.id().value(),policy.enabled(),encode(policy.withEconomics(List.of())),now);
             if(ruleMetrics!=null)ruleMetrics.reset(plan.tenantId().value(),plan.id().value());
-            if(policy.rules()!=null && automationStore!=null)automationStore.ruleChanged(plan,policy,version+1);
+            if(policy.rules()!=null && automationStore!=null)automationStore.ruleChanged(plan,policy,version+1,previous.map(State::enabled).orElse(false));
         });
     }
     public boolean claim(State state,String owner,Instant now) {
