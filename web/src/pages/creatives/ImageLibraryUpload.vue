@@ -63,7 +63,7 @@ const props = defineProps<{ accountId?: string }>();
 const emit = defineEmits<{ close: []; changed: []; closeBlocked: [value: boolean] }>();
 beginUploadDialog();
 const scope = crypto.randomUUID(), targetAccounts = props.accountId ? [props.accountId] : [];
-const input = ref<HTMLInputElement>(), adding = ref(false), aigc = ref(false), error = ref(''), requirementsOpen = ref(true);
+const input = ref<HTMLInputElement>(), adding = ref(false), aigc = ref(false), error = ref(''), requirementsOpen = ref(false);
 const rows = computed(() => uploadRows.filter(row => row.scope === scope));
 const busy = computed(() => adding.value || rows.value.some(row => row.busy));
 const storedCount = computed(() => rows.value.filter(row => phase(row) === '已入库').length);
@@ -117,7 +117,7 @@ onUnmounted(() => { for (const url of Object.values(previews.value)) URL.revokeO
 .image-select-button{display:inline-flex;align-items:center;gap:8px;background:#5945ff;color:white;border-radius:8px;padding:9px 20px;font-size:14px;line-height:1.3}
 .image-upload-options{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;flex-wrap:wrap}
 .image-requirements-toggle{display:inline-flex;gap:8px;align-items:center;width:100%;padding:9px 12px;color:#35304e;background:#f3f1fb;border:0;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;text-align:left}
-.image-requirements-toggle span{margin-left:auto;color:#5b46ff;font-size:12px}
+.image-requirements-toggle span{color:#5b46ff;font-size:12px}
 .image-requirements-toggle svg{width:14px;height:14px;color:#5b46ff}
 .reversed{transform:rotate(180deg)}
 .image-ai{display:flex;align-items:center;gap:5px;color:#858096;font-size:12px;margin-top:12px}
