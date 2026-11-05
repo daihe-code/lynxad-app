@@ -7,6 +7,17 @@ import com.lynx.ad.modules.delivery.domain.model.CreationState;
 import org.junit.jupiter.api.Test;
 
 class CreationViewTest {
+    @Test void malformedModelOutputIsDistinguishedFromInvalidAnalysisAndDoesNotEraseBasicChecks() throws Exception {
+        var json=new ObjectMapper();var state=new CreationState();state.analysisStatus="SUCCEEDED";
+        state.products.add(ProductBasicAnalysisTest.valid("123"));
+        state.analysis=json.readTree("{\"processing\":{\"inference_error\":\"JSONDecodeError\"}}");
+        var view=CreationView.of(state);
+        assertEquals("FAILED",view.analysisStatus());
+        assertTrue(view.analysisError().contains("返回格式异常"));
+        assertFalse(view.analysisError().contains("校验未通过"));
+        assertTrue(view.basicAnalysis().canContinue());assertEquals("123",view.products().getFirst().qcProductId());
+        assertEquals("SUCCEEDED",state.analysisStatus);assertNull(state.analysisError);
+    }
     @Test void previouslySavedModelFallbackIsShownAsFailureWithoutRewritingTheStoredDraft() throws Exception {
         var json=new ObjectMapper();var state=new CreationState();state.analysisStatus="SUCCEEDED";
         state.analysis=json.readTree("{\"processing\":{\"inference_error\":\"ValueError\"},\"selection_analysis\":{}}");

@@ -16,7 +16,9 @@ public final class ProductAnalysisOutcome {
     public static String failureMessage(JsonNode analysis) {
         String error=analysis.path("processing").path("inference_error").asText("");
         if (error.contains("Timeout")) return "商品智能分析超时，尚未生成有效结果，请重新分析。";
-        if (java.util.Set.of("ValueError","ValidationError","JSONDecodeError").contains(error))
+        if ("JSONDecodeError".equals(error))
+            return "商品智能分析返回格式异常，尚未生成有效结果，请重新分析。";
+        if (java.util.Set.of("ValueError","ValidationError").contains(error))
             return "商品智能分析结果校验未通过，尚未生成有效结果，请重新分析。";
         return "商品智能分析暂不可用，尚未生成有效结果，请重新分析。";
     }

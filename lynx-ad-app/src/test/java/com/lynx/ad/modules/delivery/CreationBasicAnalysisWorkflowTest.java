@@ -165,7 +165,7 @@ class CreationBasicAnalysisWorkflowTest {
         var updated=service.select(tenant,new CreationWorkflowService.Selection(id,1,"account","aweme",List.of(selected.qcProductId())));
         assertEquals(changed?1:3,updated.reachedStep());
     }
-    @ParameterizedTest @ValueSource(strings={"ValueError","TimeoutError","ModelRequestError"})
+    @ParameterizedTest @ValueSource(strings={"ValueError","ValidationError","JSONDecodeError","TimeoutError","ModelRequestError"})
     void modelFallbackIsFailedEvenWhenTheEngineRequestReturnedSuccessfully(String error) {
         queueAnalysis();
         when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"),any())).thenAnswer(call->{
