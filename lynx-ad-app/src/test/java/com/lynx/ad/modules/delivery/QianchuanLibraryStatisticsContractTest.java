@@ -26,6 +26,7 @@ class QianchuanLibraryStatisticsContractTest {
     final String mid="7694974220593954879";
     final List<Map<String,String>> queries=new ArrayList<>();
     final List<String> paths=new ArrayList<>();
+    String dateFormat="provider";
     HttpServer server;boolean filterable=true,time=true,foreign=false,duplicate=false,outside=false,noRows=false,exclude=false;
     @BeforeEach void start() throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -51,7 +52,19 @@ class QianchuanLibraryStatisticsContractTest {
                 var rows=data.putArray("rows");
                 if(!noRows) {
                     var row=rows.addObject();var dimensions=row.putObject("dimensions");dimensions.putObject("material_id").put("Value",foreign?"999":mid);
-                    if(daily)dimensions.putObject("stat_time_day").put("Value",(outside?today.plusDays(1):today.minusDays(2-page)).toString());
+                    if(daily) {
+                        var day=outside?today.plusDays(1):today.minusDays(2-page);
+                        var date=dimensions.putObject("stat_time_day");
+                        long millis=day.atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+                        switch(dateFormat) {
+                            case "iso" -> date.put("Value",day+" 00:00:00");
+                            case "millis" -> date.put("Value",millis);
+                            case "seconds" -> date.put("Value",Long.toString(millis/1000));
+                            case "lowercase" -> date.put("value",Long.toString(millis)).put("value_str",day.toString());
+                            case "invalid" -> date.put("Value","--").put("ValueStr","--");
+                            default -> date.put("Value",Long.toString(millis)).put("ValueStr",day.toString());
+                        }
+                    }
                     var metrics=row.putObject("metrics");metrics.putObject("stat_cost_for_roi2").put("Value",daily?page*10:100);
                     metrics.putObject("product_cvr_rate_for_roi2").put("Value",daily?page*8:8.11);
                     metrics.putObject("total_pay_order_gmv_for_roi2").put("Value",0);metrics.putObject("total_prepay_and_pay_order_roi2").put("Value","--");
@@ -81,7 +94,16 @@ class QianchuanLibraryStatisticsContractTest {
         assertTrue(result.hasData());assertTrue(result.trendAvailable());assertEquals(100,result.summary().get("cost").intValueExact());
         assertEquals(8.11,result.summary().get("ctr").doubleValue()); // Not an average/sum of daily percentages.
         assertEquals(0,result.summary().get("payment").intValueExact());assertNull(result.summary().get("roi"));assertNull(result.summary().get("cpm"));
-        assertEquals(2,result.trend().size());assertEquals(today.minusDays(1),result.trend().getFirst().date());assertEquals("2",queries.getLast().get("page"));
+        assertEquals(2,result.trend().size());assertEquals(today.minusDays(1),result.trend().getFirst().date());assertEquals(today,result.trend().getLast().date());assertEquals("2",queries.getLast().get("page"));
+    }
+    @ParameterizedTest @ValueSource(strings={"iso","millis","seconds","lowercase"})
+    void dailyDatesSupportIsoAndEpochValuesInBeijingTime(String format) {
+        dateFormat=format;
+        var result=adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today);
+        assertEquals(100,result.summary().get("cost").intValueExact());
+        assertTrue(result.trendAvailable());assertEquals(2,result.trend().size());
+        assertEquals(today.minusDays(1),result.trend().getFirst().date());assertEquals(today,result.trend().getLast().date());
+        assertEquals(10,result.trend().getFirst().metrics().get("cost").intValueExact());
     }
     @Test void unavailableDailyDimensionPreservesSummary(){time=false;var result=adapter().libraryMaterialReport(credential,"VIDEO",mid,today,today);assertEquals(2,queries.size());assertFalse(result.trendAvailable());assertTrue(result.trend().isEmpty());assertEquals(100,result.summary().get("cost").intValueExact());}
     @Test void excludedDailyMetricIsNotRequestedOrInvented(){exclude=true;var result=adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today);assertTrue(queries.get(1).get("metrics").contains("product_cvr_rate_for_roi2"));assertFalse(queries.get(2).get("metrics").contains("product_cvr_rate_for_roi2"));assertNull(result.trend().getFirst().metrics().get("ctr"));}
@@ -90,4 +112,5 @@ class QianchuanLibraryStatisticsContractTest {
     @Test void rejectsForeignMaterialReturnedByProvider(){foreign=true;assertThrows(BizException.class,()->adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today));}
     @Test void rejectsDuplicateGroupsInsteadOfDoubleCounting(){duplicate=true;assertThrows(BizException.class,()->adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today));}
     @Test void rejectsOutOfRangeTrendDates(){outside=true;assertThrows(BizException.class,()->adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today));}
+    @Test void rejectsUnreadableTrendDates(){dateFormat="invalid";assertThrows(BizException.class,()->adapter().libraryMaterialReport(credential,"VIDEO",mid,today.minusDays(6),today));}
 }

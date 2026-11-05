@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.delivery.domain.port.AdManagementPort.*;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.*;
 import java.util.*;
 
 /** Select only configured metrics and required dimensions; never average daily rates into totals. */
@@ -59,9 +59,8 @@ final class LibraryMaterialReportReader {
         if(!summary.isEmpty()){verify(summary.getFirst(),material);totals.putAll(metrics(summary.getFirst(),total.fields()));}
         var points=new TreeMap<LocalDate,MaterialDay>();
         for(var row:rows) {
-            verify(row,material);LocalDate day;
-            try { day=LocalDate.parse(value(row.path("dimensions").path("stat_time_day")).substring(0,10)); }
-            catch(RuntimeException badDate){throw unavailable();}
+            verify(row,material);
+            LocalDate day=reportDay(row.path("dimensions").path("stat_time_day"));
             if(day.isBefore(start) || day.isAfter(end) || points.containsKey(day))throw unavailable();
             points.put(day,new MaterialDay(day,metrics(row,daily.fields())));
         }
@@ -73,6 +72,20 @@ final class LibraryMaterialReportReader {
     private static String value(JsonNode node) {
         if(node.isObject())node=node.has("Value")?node.path("Value"):node.path("value");
         return node.asText("");
+    }
+    private static LocalDate reportDay(JsonNode node) {
+        // Daily reports return epoch milliseconds in Value and an ISO date in ValueStr.
+        for(String candidate:List.of(node.path("ValueStr").asText(""),node.path("value_str").asText(""),value(node))) {
+            String text=candidate.strip();
+            try {
+                if(text.matches("\\d{13}"))return Instant.ofEpochMilli(Long.parseLong(text)).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate();
+                if(text.matches("\\d{10}"))return Instant.ofEpochSecond(Long.parseLong(text)).atZone(ZoneId.of("Asia/Shanghai")).toLocalDate();
+                if(text.length()>=10)return LocalDate.parse(text.substring(0,10));
+            } catch(DateTimeException | NumberFormatException invalidDate) {
+                // A missing display value can still have a valid raw timestamp.
+            }
+        }
+        throw unavailable();
     }
     private static Map<String,BigDecimal> metrics(JsonNode row,Map<String,String> fields) {
         var result=new LinkedHashMap<String,BigDecimal>();FIELDS.keySet().forEach(k->result.put(k,null));
