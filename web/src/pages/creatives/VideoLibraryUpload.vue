@@ -48,7 +48,7 @@ const props = defineProps<{ accountId?: string }>();
 const emit = defineEmits<{ close: []; changed: []; closeBlocked: [value: boolean] }>();
 beginUploadDialog();
 const scope = crypto.randomUUID(), targetAccounts = props.accountId ? [props.accountId] : [];
-const input = ref<HTMLInputElement>(), adding = ref(false), aigc = ref(false), error = ref(''), requirementsOpen = ref(true);
+const input = ref<HTMLInputElement>(), adding = ref(false), aigc = ref(false), error = ref(''), requirementsOpen = ref(false);
 const rows = computed(() => uploadRows.filter(row => row.scope === scope));
 const busy = computed(() => adding.value || rows.value.some(row => row.busy));
 const phase = videoLibraryUploadState;
