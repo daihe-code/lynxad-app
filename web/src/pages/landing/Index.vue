@@ -635,7 +635,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import UserMenu from "@/layouts/UserMenu.vue";
-import { fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
+import { CONTACT_EMAIL, fetchContactInfo, submitContact } from "@/features/notify/notifyApi";
 import { isCnMobile } from "@/utils/phone";
 import hero1 from "@/assets/landing/hero-1.jpg";
 import hero2 from "@/assets/landing/hero-2.jpg";
@@ -651,7 +651,7 @@ const menuOpen = ref(false);
 const checkingTrial = ref(false);
 const contactOpen = ref(false), submitting = ref(false), submitted = ref(false);
 const phone = ref(""), phoneError = ref("");
-const contactInfo = reactive({ phone: "18801061264", email: "lynxAd@163.com" });
+const contactInfo = reactive({ phone: "18801061264", email: CONTACT_EMAIL });
 const contactModal = ref<HTMLElement | null>(null);
 const contactPhone = ref<HTMLInputElement | null>(null);
 let lastFocus: HTMLElement | null = null;
@@ -697,7 +697,7 @@ async function openContact() {
     const info = await fetchContactInfo();
     if (disposed || session !== contactSession) return;
     contactInfo.phone = info.phone || "18801061264";
-    contactInfo.email = info.email || "lynxAd@163.com";
+    contactInfo.email = info.email || CONTACT_EMAIL;
   } catch { /* Keep the contact details from the supplied home page. */ }
 }
 

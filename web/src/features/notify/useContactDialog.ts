@@ -1,12 +1,12 @@
 import { reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { fetchContactInfo, submitContact, type ContactInfo } from "@/features/notify/notifyApi";
+import { CONTACT_EMAIL, fetchContactInfo, submitContact, type ContactInfo } from "@/features/notify/notifyApi";
 import { isCnMobile, PHONE_ERROR } from "@/utils/phone";
 
 const visible = ref(false);
 const submitting = ref(false);
 const phoneError = ref("");
-const info = reactive<ContactInfo>({ phone: "", email: "" });
+const info = reactive<ContactInfo>({ phone: "", email: CONTACT_EMAIL });
 const form = reactive({ phone: "" });
 
 export function useContactDialog() {
@@ -17,10 +17,10 @@ export function useContactDialog() {
     try {
       const data = await fetchContactInfo();
       info.phone = data.phone || "";
-      info.email = data.email || "";
+      info.email = data.email || CONTACT_EMAIL;
     } catch {
       info.phone = "";
-      info.email = "";
+      info.email = CONTACT_EMAIL;
     }
   }
 
