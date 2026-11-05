@@ -62,6 +62,8 @@ public class CreationWorkflowService {
     private PublishedCompositionService compositions;
     @org.springframework.beans.factory.annotation.Autowired public void compositions(PublishedCompositionService value){compositions=value;}
     private PublishedMaterialService publishedMaterials;
+    private PublishedMaterialPreview publishedPreview;
+    @org.springframework.beans.factory.annotation.Autowired public void publishedPreview(PublishedMaterialPreview value){publishedPreview=value;}
     private CreationTitleRegeneration titleRegeneration;
     @org.springframework.beans.factory.annotation.Autowired public void titleRegeneration(CreationTitleRegeneration value){titleRegeneration=value;}
     @org.springframework.beans.factory.annotation.Autowired public void publishedMaterials(PublishedMaterialService value){publishedMaterials=value;}
@@ -145,6 +147,7 @@ public class CreationWorkflowService {
             m.sourceUrls.clear();m.importedAssets.clear();
         }
         if(creativeContexts!=null)creativeContexts.hydrate(s);
+        if(publishedPreview!=null)publishedPreview.project(tenant,requestedId,s,assetDetails);
         return s;
     }
     private CreationState reconcileDraftSchedule(TenantId tenant,CreationState snapshot) {

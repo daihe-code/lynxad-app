@@ -5,7 +5,7 @@
     <template v-else-if="plan">
       <div v-if="!draftEditor" class="workspace-feedback container-page">
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
-        <section v-if="editing && plan.qcPlanId && (settingsFailure || settingsMessage || settingsPending || settingsConflict || !plan.settingsEdit?.version || latestSettings)" class="settings-recovery" aria-label="计划修改核对" aria-live="polite">
+        <section v-if="!transferring && editing && plan.qcPlanId && (settingsFailure || settingsMessage || settingsPending || settingsConflict || !plan.settingsEdit?.version || latestSettings)" class="settings-recovery" aria-label="计划修改核对" aria-live="polite">
           <p v-if="settingsMessage">{{ settingsMessage }}</p>
           <RequestFailureNotice :failure="settingsFailure" :busy="saving || settingsChecking" @retry="settingsFailure?.action === 'VERIFY' ? verifySettingsResult() : readLatestSettings()" />
           <p v-if="!plan.settingsEdit?.version">当前页面缺少计划版本，请读取最新设置后核对。</p>
@@ -20,7 +20,6 @@
         </section>
         <PlanReviewNotice v-if="!(step === 4 && auditResult)" :plan="plan" auto-read @updated="plan = $event" />
         <RequestFailureNotice :failure="contextFailure" context="历史计划的抖音号与商品信息暂未补全。" :busy="loading" @retry="load" />
-        <RequestFailureNotice :failure="mediaFailure" context="素材预览未刷新，计划信息仍可查看。" :busy="mediaLoading" @retry="reloadMedia" />
       </div>
 
       <KeepAlive v-if="contentDraftId" :max="1">
@@ -206,7 +205,7 @@ function scheduleMaterialPoll() {
   const version=loadNumber,id=plan.value?.planId;if(!id)return;
   materialTimer=setTimeout(async()=>{try{const current=await creationGet(id);if(version===loadNumber){creation.value=current;mediaFailure.value=undefined;}}catch(error){if(version===loadNumber)mediaFailure.value=requestFailure(error,{method:'GET'});}finally{if(version===loadNumber)scheduleMaterialPoll();}},3000);
 }
-const loadFailure = ref<ApiRequestError>(), mediaFailure = ref<ApiRequestError>(), mediaLoading = ref(false);
+const loadFailure = ref<ApiRequestError>(), mediaFailure = ref<ApiRequestError>();
 const contextFailure = ref<ApiRequestError>();
 const settingsFailure = ref<ApiRequestError>(), latestSettings = ref<PlanVo>();
 const settingsChecking = ref(false), settingsConflict = ref(false), settingsUnknown = ref(false), canAcceptCurrent = ref(false), settingsMessage = ref('');
@@ -251,7 +250,7 @@ const products = computed<CreationProduct[]>(() => (plan.value?.products || []).
   const original = creation.value?.products.find(x => x.qcProductId === p.id);
   return { ...original, productId: p.id, qcProductId: p.id, name: p.name, imageUrl: p.imageUrl || original?.imageUrl, price: p.priceInfo?.minPrice ?? original?.price ?? null, priceInfo: p.priceInfo || original?.priceInfo, stock: p.stock ?? original?.stock, sales: p.sales ?? original?.sales, userPrice: original?.userPrice ?? null, tags: original?.tags || [], unavailableReasons: original?.unavailableReasons || [] };
 }));
-const materialState = computed<CreationState | undefined>(() => creation.value && plan.value ? { ...creation.value, name: name.value, products: products.value, budget: plan.value.budget, roi2Goal: plan.value.roi2Goal ?? undefined } : undefined);
+const materialState = computed<CreationState | undefined>(() => creation.value && creation.value.publishedMaterialsCurrent !== false && plan.value ? { ...creation.value, name: name.value, products: products.value, budget: plan.value.budget, roi2Goal: plan.value.roi2Goal ?? undefined } : undefined);
 const estimates = computed(() => budgetEstimateHints(creation.value?.recommendations, budget.value));
 const changedMode = computed(() => transferring.value && !!plan.value && bidType.value !== plan.value.smartBidType);
 const changedBudget = computed(() => plan.value != null && Number(budget.value) !== plan.value.budget);
@@ -306,15 +305,6 @@ async function load() {
   }
   loading.value = false;
   scheduleMaterialPoll();
-}
-async function reloadMedia() {
-  if (!plan.value || mediaLoading.value) return;
-  const id=plan.value.planId, version=loadNumber; mediaLoading.value = true;
-  try {
-    const result=await creationGet(id);
-    if (version === loadNumber && plan.value?.planId === id) { creation.value=result; mediaFailure.value=undefined; }
-  } catch(error) { if (version === loadNumber && plan.value?.planId === id) mediaFailure.value=requestFailure(error,{method:'GET'}); }
-  finally { mediaLoading.value=false; }
 }
 function navigate(value: number) { if (!saving.value && !resultActionBusy.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
 function backToPlans() { if (!saving.value && !materialBusy.value && !resultActionBusy.value) void router.push('/campaigns'); }
@@ -468,6 +458,9 @@ async function acceptCurrentSettings() {
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
 watch(materialPending, scheduleMaterialPoll);
+// Keep actionable transfer errors transient; do not stack snapshot/reload banners above the wizard.
+watch(settingsFailure, failure => { if(transferring.value && failure && failure.method !== 'GET')ElMessage.error({message:failure.message,duration:3000}); });
+watch(mediaFailure, failure => { if(failure && failure.method !== 'GET' && !materialAction.value)ElMessage.error({message:failure.message,duration:3000}); });
 watch(() => !editing.value && step.value === 4 && (submissionPhase.value === 'SUBMITTING' || deliveryResult.value || pausedResult.value) ? plan.value?.planId : undefined, (id, _previous, onCleanup) => {
   if (!id) return;
   let stopped = false;

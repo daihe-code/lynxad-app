@@ -125,6 +125,18 @@ class PublishedCompositionServiceTest {
     @Test void discardDropsOnlyWorkingPreviewAndRetainsPublishedAssets(){var w=adjust(service.begin(tenant,"plan"),"456");service.discard(tenant,w.planId);assertThrows(BizException.class,()->read(w.planId));assertEquals("123",read("plan").materials.getFirst().productId);assertNull(read("plan").publishedEditDraftId);verify(ads,never()).deleteProduct(any(),any(),any());}
     @Test void replacingTenProductsNeverExceedsPlatformLimitOrDeletesLastProduct(){var source=store.mutate("tenant","plan",null,s->{s.products.clear();s.materials.clear();for(int i=1;i<=10;i++){s.products.add(product(""+i));s.materials.add(material(""+i));}});remote.put("1001",wrap("1001",creatives(source)));var w=adjust(service.begin(tenant,"plan"),"21","22","23","24","25","26","27","28","29","30");assertEquals("SUCCEEDED",service.save(tenant,w.planId,w.revision).publishedEdit.status);assertEquals(10,read("plan").products.size());}
     @Test void unknownPlatformVisualsArePreservedByDelta(){var source=read("plan");var before=creatives(source);((ObjectNode)before.get(0)).withArray("video_material").addObject().put("video_id","external");var changed=json.convertValue(source,CreationState.class);changed.products.add(product("456"));changed.materials.add(material("456"));var delta=PublishedCompositionService.merge(before,creatives(source),creatives(changed));assertTrue(PublishedMaterialService.objects(delta.finalGroups().get(0)).contains("VIDEO:external"));assertEquals(before,delta.additions());assertEquals(1,source.products.size());}
+    @Test void editingTitlesDoesNotRestoreMediaRemovedBeforeThisEditOrOverwriteNewPlatformCover() {
+        var old=creatives(read("plan"));var live=old.deepCopy();
+        var liveProduct=(ObjectNode)live.get(0);liveProduct.withArray("video_material").removeAll();
+        liveProduct.withArray("video_material").addObject().put("video_id","external").put("video_cover_id","cover-new");
+        var wanted=old.deepCopy();((ObjectNode)wanted.get(0)).putArray("title_material").addObject().put("title","修改后的标题").put("title_type","CUSTOM");
+        var delta=PublishedCompositionService.merge(live,old,wanted);
+        assertEquals(Set.of("VIDEO:external"),PublishedMaterialService.objects(delta.finalGroups().get(0)));
+        assertTrue(delta.removals().isEmpty());assertEquals("cover-new",delta.finalGroups().get(0).path("video_material").get(0).path("video_cover_id").asText());
+        liveProduct.putArray("video_material").addObject().put("video_id","video-123").put("video_cover_id","new-cover");
+        var retained=PublishedCompositionService.merge(live,old,wanted);
+        assertEquals("new-cover",retained.finalGroups().get(0).path("video_material").get(0).path("video_cover_id").asText());
+    }
     @Test void activeTasksPreventDiscardAndSelectionSideEffects(){var w=service.begin(tenant,"plan");store.mutate("tenant",w.planId,null,s->s.generationStatus="RUNNING");assertThrows(BizException.class,()->service.discard(tenant,w.planId));verify(ads,never()).deleteProduct(any(),any(),any());}
     @Test void anIndividualPendingGenerationLocksEntryAfterTheBatchHasEnded(){
         store.mutate("tenant","plan",null,s->{s.generationStatus="FAILED";var addition=new CreationState.GenerationAddition();addition.status="RUNNING";s.generationAdditions.add(addition);});

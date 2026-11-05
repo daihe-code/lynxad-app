@@ -114,7 +114,7 @@ public class PlanTransferService {
                 if(mode==SmartBidType.CUSTOM && !equal(QianchuanPlanMapping.number(QianchuanPlanMapping.setting(d),"roi2_goal"),request.roi2Goal()))updateRoi=request.roi2Goal();
             }
         }
-        var payload=target==null?payload(tenant,root,source,request):json.createObjectNode();
+        var payload=target==null?payload(tenant,root,source,request,sourceDetail):json.createObjectNode();
         if(targetId==null)targetId=UUID.randomUUID().toString();
         var g=store.ensure(source);
         Attempt a=new Attempt(tenant.value(),request.requestKey(),g.root(),source.id().value(),targetId,encode(request),payload.toString(),enabled(sourceStatus),
@@ -233,7 +233,9 @@ public class PlanTransferService {
             restoreCreatedOrigin(adopted,a);store.adoptTarget(t,a.key(),targetId);store.member(t,a.root(),adopted.setting().bidType(),targetId);return adopted;
         }
         var target=new AdPlan(new PlanId(a.target()),t,source.accountId(),source.awemeId(),PlanName.fromPlatform(payload.path("name").asText(source.name().text())),
-                PlanStatus.PENDING_AUDIT,PlanSource.LINGTOU,setting(source,req),source.productIds(),new QcPlanId(a.qcId()),"PENDING_AUDIT",null,1,null,source.bindings());
+                PlanStatus.PENDING_AUDIT,PlanSource.LINGTOU,setting(source,req),
+                java.util.stream.StreamSupport.stream(payload.path("product_ids").spliterator(),false).map(v->new QcProductId(v.asText())).toList(),
+                new QcPlanId(a.qcId()),"PENDING_AUDIT",null,1,null,source.bindings());
         tx.executeWithoutResult(s->{plans.save(target);remote.save(t,target.accountId(),a.qcId(),target.id().value(),payload);store.member(t,a.root(),target.setting().bidType(),target.id().value());});
         return target;
     }
@@ -242,29 +244,27 @@ public class PlanTransferService {
         if(plan.source()==PlanSource.EXTERNAL && plan.qcPlanId().map(q->q.value().equals(attempt.qcId())).orElse(false)
                 && groups.isArray() && !groups.isEmpty()) {plan.restoreLingtouSource();plans.save(plan);}
     }
-    private ObjectNode payload(TenantId tenant,String root,AdPlan source,PlanTransferRequest request) {
+    private ObjectNode payload(TenantId tenant,String root,AdPlan source,PlanTransferRequest request,JsonNode sourceDetail) {
         var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，请在千川后台转投"));
         if(!p.isObject() || !p.path("multi_product_creative_list").isArray() || p.path("multi_product_creative_list").isEmpty() || !p.path("aweme_id").asText().equals(source.awemeId().value()))
             throw new BizException(1403,"已发布素材配置不完整，无法转投");
         var result=(ObjectNode)p.deepCopy();result.remove("ad_id");
-        com.lynx.ad.modules.delivery.domain.model.CreationState sharedState=null;
-        try{sharedState=creations.get(tenant.value(),root);}catch(BizException ex){if(ex.code()!=1403)throw ex;}
-        if(sharedState!=null&&sharedState.verifiedPlatformCreatives!=null){
-            var live=gateway.detail(source);if(!live.path("multi_product_creative_list").isArray()||live.path("multi_product_creative_list").isEmpty())throw new BizException(1403,"自动内容变更后的绑定尚未完整，暂不重新创建转投计划");
-            var liveBindings=com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanCreativeBindings.groups(live);
-            if(!liveBindings.equals(sharedState.verifiedPlatformCreatives))throw new BizException(1403,"平台商品素材已有其他变化，请先同步核查，再重新转投");
-            result.set("multi_product_creative_list",liveBindings);
-            if(sharedState.verifiedPlatformChannels!=null)result.set("product_channel_info",sharedState.verifiedPlatformChannels.deepCopy());
-            var productIds=result.putArray("product_ids");for(var item:sharedState.verifiedPlatformCreatives)productIds.add(new java.math.BigInteger(item.path("product_id").asText()));
-        }
-        // Published payloads are audit snapshots. Recreated mode members must respect later shared product removals.
-        var snapshots=creations.productsByPlan(tenant.value(),List.of(root)).get(root);
-        if(snapshots!=null) {
-            var allowed=snapshots.stream().map(com.lynx.ad.modules.delivery.domain.model.CreationState.Product::qcProductId).collect(java.util.stream.Collectors.toSet());
-            var latest=result.deepCopy();var creative=result.putArray("multi_product_creative_list");for(var item:latest.path("multi_product_creative_list"))if(allowed.contains(item.path("product_id").asText()))creative.add(item);
-            var ids=result.putArray("product_ids");for(var item:latest.path("product_ids"))if(allowed.contains(item.asText()))ids.add(item);
-            if(creative.isEmpty())throw new BizException(1403,"当前计划没有可复用的商品创意，请先核查素材");
-        }
+        // Publish attempts and shared creation state are historical records. Reuse
+        // the current physical source's complete bindings, read before any write.
+        // This includes later additions/removals, covers, titles and visibility.
+        if(!source.qcPlanId().orElseThrow().value().equals(QianchuanPlanMapping.id(sourceDetail)))
+            throw new BizException(1404,"平台返回的计划不匹配");
+        var liveBindings=QianchuanCreativeBindings.groups(sourceDetail);
+        String aweme=QianchuanPlanMapping.text(sourceDetail,"aweme_id");
+        if(aweme!=null&&!source.awemeId().value().equals(aweme))throw new BizException(1404,"计划的抖音号绑定已变化");
+        result.set("multi_product_creative_list",liveBindings);
+        var productIds=result.putArray("product_ids");
+        var allowed=new HashSet<String>();
+        for(var item:liveBindings){String product=item.path("product_id").asText();allowed.add(product);productIds.add(new java.math.BigInteger(product));}
+        // Never carry channels for products removed from the source plan.
+        var channels=sourceDetail.has("product_channel_info")?sourceDetail.path("product_channel_info"):p.path("product_channel_info");
+        result.remove("product_channel_info");
+        if(channels.isArray()) {var current=result.putArray("product_channel_info");for(var channel:channels)if(allowed.contains(channel.path("product_id").asText()))current.add(channel.deepCopy());}
         if(request.name()!=null)result.put("name",new PlanName(request.name()).text());
         else {
             String suffix="_转投_"+(request.smartBidType().endsWith("CUSTOM")?"控成本":"放量")+"_"+UUID.randomUUID().toString().replace("-","").substring(0,12);

@@ -63,6 +63,7 @@ class PlanTransferTest {
            "multi_product_creative_list":[{"product_id":101,"hide_in_aweme":true,"video_material":[{"video_id":"v123","video_cover_id":"i123"}],"title_material":[{"title":"测试真实素材标题"}]}]}
           """);
         when(creations.publishedPayload(tenant.value(),root.value())).thenReturn(Optional.of(payload));
+        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("111")).set("multi_product_creative_list",payload.path("multi_product_creative_list").deepCopy());
         service=new PlanTransferService(plans,store,creations,remote,gateway,billing,json,manager);
     }
     AdPlan plan(String id,String qc,SmartBidType mode,PlanStatus status,String budget,String roi) {
@@ -157,6 +158,38 @@ class PlanTransferTest {
         var payload=json.readTree(attempts.get("first-key").payload());assertEquals("v123",payload.path("multi_product_creative_list").get(0).path("video_material").get(0).path("video_id").asText());
         assertFalse(payload.path("delivery_setting").has("estimate_roi_goal"));assertFalse(payload.path("delivery_setting").has("estimate_convert"));assertEquals(new BigDecimal("4.18"),payload.path("delivery_setting").path("roi2_goal").decimalValue());
         assertTrue(payload.path("name").asText().getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=100);
+    }
+    @Test void firstTransferUsesCurrentSourceBindingsInsteadOfEitherHistoricalSnapshot() throws Exception {
+        var audit=creations.publishedPayload(tenant.value(),root.value()).orElseThrow().deepCopy();
+        var shared=new CreationState();shared.verifiedPlatformCreatives=audit.path("multi_product_creative_list").deepCopy();
+        when(creations.get(tenant.value(),root.value())).thenReturn(shared);
+        var live=(com.fasterxml.jackson.databind.node.ObjectNode)platform.get("111");
+        var group=(com.fasterxml.jackson.databind.node.ObjectNode)live.path("multi_product_creative_list").get(0);
+        group.put("hide_in_aweme",false);group.putArray("video_material").addObject().put("video_id","latest-video").put("video_cover_id","latest-cover");
+        group.putArray("title_material").addObject().put("title","最新投放标题").put("title_type","CUSTOM");
+        group.putArray("carousel_material").addObject().put("carousel_id",987);
+        live.putArray("product_channel_info").addObject().put("product_id",101).put("product_channel","LATEST");
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("latest-bindings")).status());
+        var sent=json.readTree(attempts.get("latest-bindings").payload());
+        assertTrue(PublishedMaterialService.same(com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanCreativeBindings.groups(live),sent.path("multi_product_creative_list")));
+        assertEquals(live.path("product_channel_info"),sent.path("product_channel_info"));
+        assertEquals(audit,creations.publishedPayload(tenant.value(),root.value()).orElseThrow());
+        assertFalse(sent.toString().contains("v123"));
+    }
+    @Test void incompleteLiveBindingsNeverFallBackToThePublishSnapshotOrPauseSource() {
+        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("111")).remove("multi_product_creative_list");
+        assertThrows(BizException.class,()->service.transfer(tenant,root,cost("missing-live")));
+        assertTrue(calls.isEmpty());assertEquals(0,creates);
+    }
+    @Test void transferUsesLiveProductMembershipRatherThanRestoringOrDroppingCachedProducts() throws Exception {
+        var live=(com.fasterxml.jackson.databind.node.ObjectNode)platform.get("111");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)live.path("multi_product_creative_list").get(0)).put("product_id",202);
+        live.putArray("product_channel_info").addObject().put("product_id",202);
+        when(creations.productsByPlan(tenant.value(),List.of(root.value()))).thenReturn(Map.of(root.value(),List.of(new CreationState.Product("local","101","旧商品",null,null,null,null,null,List.of(),List.of()))));
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("live-products")).status());
+        var sent=json.readTree(attempts.get("live-products").payload());
+        assertEquals("202",sent.path("product_ids").get(0).asText());assertEquals(1,sent.path("multi_product_creative_list").size());
+        assertEquals(List.of(new QcProductId("202")),physical.get(group.custom()).productIds());
     }
     @Test void planCreatedByLingtouTransferHasPlatformOriginEvenWhenTheSourceWasExternal() {
         var p=physical.get(root.value());physical.put(root.value(),new AdPlan(p.id(),p.tenantId(),p.accountId(),p.awemeId(),p.name(),p.status(),PlanSource.EXTERNAL,

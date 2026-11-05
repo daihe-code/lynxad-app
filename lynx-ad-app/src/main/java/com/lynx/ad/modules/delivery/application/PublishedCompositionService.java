@@ -188,10 +188,17 @@ public class PublishedCompositionService {
         if(!productIds(before).equals(oldIds))throw new BizException(1404,"原计划商品绑定已变化");
         for(var next:wanted){String id=next.path("product_id").asText();if(!oldIds.contains(id))continue;
             var saved=find(original,id);var live=find(added,id);var oldKeys=PublishedMaterialService.objects(saved);var newKeys=PublishedMaterialService.objects(next);
-            if(!PublishedMaterialService.objects(live).containsAll(oldKeys))throw new BizException(1404,"原素材的平台绑定已变化");
-            var gone=new HashSet<>(oldKeys);gone.removeAll(newKeys);if(!gone.isEmpty())removed.put(id,gone);
+            var liveKeys=PublishedMaterialService.objects(live);
+            var gone=new HashSet<>(oldKeys);gone.retainAll(liveKeys);gone.removeAll(newKeys);if(!gone.isEmpty())removed.put(id,gone);
             for(String field:List.of("video_material","image_material","carousel_material"))for(var visual:next.path(field)){
                 var wrapper=new ObjectMapper().createObjectNode();wrapper.putArray(field).add(visual);var keys=PublishedMaterialService.objects(wrapper);
+                // A legacy local snapshot can retain media removed before this edit
+                // began. An untouched entry is not an instruction to restore it or
+                // overwrite a platform cover. Later concurrent changes still fail
+                // the complete member-baseline check before dispatch.
+                boolean unchanged=false;
+                for(var old:saved.path(field))if(PublishedMaterialService.same(old,visual)){unchanged=true;break;}
+                if(unchanged)continue;
                 if(Collections.disjoint(PublishedMaterialService.objects(live),keys))live.withArray(field).add(visual.deepCopy());
                 else if(oldKeys.containsAll(keys)){
                     var list=(ArrayNode)live.withArray(field);for(int i=0;i<list.size();i++){var wrapped=new ObjectMapper().createObjectNode();wrapped.putArray(field).add(list.get(i));if(PublishedMaterialService.objects(wrapped).equals(keys)){list.set(i,visual.deepCopy());break;}}
@@ -206,7 +213,7 @@ public class PublishedCompositionService {
                 if(titles.size()>30)throw new BizException(1503,"保留千川已有标题后超过30条，请先核对原计划标题");live.set("title_material",titles);
             }
             if(!gone.isEmpty())live.set("creative_card",next.path("creative_card").deepCopy());
-            live.set("hide_in_aweme",next.path("hide_in_aweme").deepCopy());
+            if(!PublishedMaterialService.same(saved.path("hide_in_aweme"),next.path("hide_in_aweme")))live.set("hide_in_aweme",next.path("hide_in_aweme").deepCopy());
         }
         var finalGroups=(JsonNode)added.deepCopy();for(var removal:removed.entrySet())finalGroups=PublishedMaterialService.without(finalGroups,removal.getKey(),removal.getValue());
         var removedProducts=new ArrayList<String>();for(String id:oldIds)if(!desiredIds.contains(id)){removedProducts.add(id);finalGroups=withoutProduct(finalGroups,id);}

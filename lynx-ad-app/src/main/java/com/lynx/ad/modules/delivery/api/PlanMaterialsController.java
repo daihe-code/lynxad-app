@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.*;
 public class PlanMaterialsController {
     private final PlanMaterialsService service;
     public PlanMaterialsController(PlanMaterialsService service) {this.service=service;}
-    @GetMapping public ApiResponse<PlanMaterialsService.Result> materials(@PathVariable String id,@RequestParam String startDate,@RequestParam String endDate,@RequestParam(defaultValue="VIDEO") String type) {
+    @GetMapping public ApiResponse<PlanMaterialsService.Result> materials(@PathVariable String id,@RequestParam String startDate,@RequestParam String endDate,@RequestParam(defaultValue="VIDEO") String type,@RequestParam(defaultValue="false") boolean currentOnly) {
         var range=PlanStatisticsRange.optional(startDate,endDate);if(range==null)throw new BizException(1402,"请选择统计时间区间");
-        return ApiResponse.ok(service.materials(TenantContext.requireTenantId(),new PlanId(id),range,type));
+        return ApiResponse.ok(service.materials(TenantContext.requireTenantId(),new PlanId(id),range,type,currentOnly));
     }
 }

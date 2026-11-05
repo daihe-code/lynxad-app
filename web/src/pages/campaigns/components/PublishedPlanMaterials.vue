@@ -48,7 +48,7 @@ async function load() {
   controller?.abort();controller = new AbortController();const signal=controller.signal,turn=++request,category=type.value;
   loading.value=true;error.value='';selectedId.value='';
   try {
-    const result=await insightMaterials(props.plan.planId,range.value,category,signal);
+    const result=await insightMaterials(props.plan.planId,range.value,category,signal,true);
     if (turn!==request || signal.aborted) return;
     if (!Array.isArray(result.records)) throw new Error('素材响应不完整，请重新读取。');
     snapshots.value={...snapshots.value,[category]:result};

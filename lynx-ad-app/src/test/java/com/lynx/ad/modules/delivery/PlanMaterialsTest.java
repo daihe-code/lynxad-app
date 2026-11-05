@@ -39,6 +39,25 @@ class PlanMaterialsTest {
         row.putObject("stats_info").put("product_show_count_for_roi2",12).put("product_click_count_for_roi2",0).put("stat_cost_for_roi2",0);return row;
     }
     void report(String type,JsonNode... rows) {when(port.materialReport(credential,qc,range.startDate(),range.endDate(),type)).thenReturn(List.of(rows));}
+    @Test void editingPreviewFiltersHistoricalRowsAgainstCurrentPhysicalPlanBindings() {
+        var old=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)old.path("material_info").path("video_material")).put("video_id","old-video");
+        var keep=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)keep.path("material_info").path("video_material")).put("material_id",Long.parseLong(material)+1).put("video_id","current-video");
+        report("VIDEO",old,keep);
+        var live=json.createObjectNode().put("ad_id",qc);var group=live.putArray("multi_product_creative_list").addObject().put("product_id",product);
+        group.putArray("video_material").addObject().put("video_id","current-video").put("video_cover_id","current-cover");
+        group.putArray("title_material").addObject().put("title","当前标题").put("title_type","CUSTOM");
+        when(port.detail(credential,qc)).thenReturn(live);
+        assertEquals(1,service.materials(tenant,id,range,"VIDEO",true).records().size());
+        assertEquals(2,service.materials(tenant,id,range,"VIDEO").records().size());
+        var titles=service.materials(tenant,id,range,"TITLE",true);
+        assertEquals(List.of("当前标题"),titles.records().stream().map(PlanMaterialsService.Material::text).toList());
+        verify(port,never()).materialReport(eq(credential),eq(qc),any(),any(),eq("TITLE"));
+    }
+    @Test void currentPreviewRequiresCompleteLiveBindingsRatherThanFallingBackToHistoricalStatistics() {
+        report("VIDEO",row("VIDEO"));when(port.detail(credential,qc)).thenReturn(json.createObjectNode().put("ad_id",qc));
+        assertThrows(BizException.class,()->service.materials(tenant,id,range,"VIDEO",true));
+        verify(port,never()).materialReport(any(),any(),any(),any(),any());
+    }
     @Test void nativeStatsKeepExactIdsAndActualZeroWhileUnknownMetricsStayNull() {report("VIDEO",row("VIDEO"));var result=service.materials(tenant,id,range,"VIDEO");var r=result.records().getFirst();assertEquals(material,r.id());assertEquals(product,r.products().getFirst().id());assertEquals(new BigDecimal("12"),r.metrics().get("shows"));assertEquals(BigDecimal.ZERO,r.metrics().get("cost"));assertNull(r.metrics().get("orders"));verify(port).materialReport(credential,qc,range.startDate(),range.endDate(),"VIDEO");}
     @Test void nativeMetadataIsMatchedByIdAndNeverByFilenameOrLatestLocalMaterial() {report("VIDEO",row("VIDEO"));var right=json.createObjectNode().put("material_id",material).put("filename","native.mp4").put("create_time","2026-10-10 17:30:00").put("url","https://example.test/video.mp4").put("poster_url","https://example.test/cover.jpg").put("is_ai_create",true);var wrong=right.deepCopy().put("material_id","1234").put("url","https://example.test/wrong.mp4");when(port.materialMetadata(credential,"VIDEO",List.of(material))).thenReturn(List.of(wrong,right));var r=service.materials(tenant,id,range,"VIDEO").records().getFirst();assertEquals("https://example.test/video.mp4",r.previewUrl());assertEquals("2026-10-10 17:30:00",r.createTime());assertTrue(r.aigc());}
     @Test void attributesProvideRealFirstPublishTag() {report("VIDEO",row("VIDEO"));when(port.materialAttributes(credential,List.of(material))).thenReturn(List.of(json.createObjectNode().put("material_id",material).put("is_first_publish_material",true)));assertEquals(List.of("FIRST_PUBLISH_MATERIAL"),service.materials(tenant,id,range,"VIDEO").records().getFirst().tags());}

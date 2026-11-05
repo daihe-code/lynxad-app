@@ -26,7 +26,7 @@ public record CreationView(
         java.util.Map<String,TitlePoolView> titlePools,String publishRecovery,String groupingDecision,MaterialEditView materialEdit,
         List<String> generationSelection,int reachedStep,List<String> generationPendingProductIds,CreationState.SelectionChange selectionChange,
         ContentEditView contentEdit,String contentEditDraftId,boolean productSelectionLocked,
-        List<MaterialVersionView> materialVersions,RevisionView materialRevision,TitleGenerationView titleGeneration,MaterialOutcome materialOutcome) {
+        List<MaterialVersionView> materialVersions,RevisionView materialRevision,TitleGenerationView titleGeneration,MaterialOutcome materialOutcome,Boolean publishedMaterialsCurrent) {
 
     public static CreationView of(CreationState s) {
         var names=com.lynx.ad.modules.delivery.domain.service.MaterialDisplayNames.of(s);
@@ -46,7 +46,7 @@ public record CreationView(
                 com.lynx.ad.modules.delivery.domain.service.CreationProductSelection.locked(s),
                 s.materials.stream().filter(CreationState.Material::pendingVersion).map(m->new MaterialVersionView(m.reviewSourceId,MaterialView.of(m,names.get(m.id)),m.versionDecision)).toList(),
                 s.regeneration==null?null:new RevisionView(s.regeneration.requestId,s.regeneration.sourceId,s.regeneration.resultMaterialId,s.regeneration.status),
-                s.titleGeneration==null?null:new TitleGenerationView(s.titleGeneration.status,s.titleGeneration.message,s.titleGeneration.requestId,s.titleGeneration.productId,s.titleGeneration.kind,s.titleGeneration.addition),outcome(s));
+                s.titleGeneration==null?null:new TitleGenerationView(s.titleGeneration.status,s.titleGeneration.message,s.titleGeneration.requestId,s.titleGeneration.productId,s.titleGeneration.kind,s.titleGeneration.addition),outcome(s),s.publishedMaterialsCurrent);
     }
     private static boolean systemIssue(CreationState s,String id){return id!=null&&s.materials.stream().anyMatch(m->id.equals(m.id)&&CreationSyncRecovery.systemIssue(m));}
     private static String customerMessage(CreationState s){return s.materials.stream().anyMatch(CreationSyncRecovery::systemIssue)?s.needsMaterialRecovery()?"素材处理中":"部分素材暂未完成":s.generationMessage;}

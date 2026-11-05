@@ -192,6 +192,11 @@ public class PublishedMaterialService {
             if(success){
                 if(!"keep".equals(current.materialEdit.action)){current.materials.removeIf(m->current.materialEdit.sourceId.equals(m.id));current.removedMaterialIds.add(current.materialEdit.sourceId);}
                 if(current.materialEdit.versionId!=null)current.materials.stream().filter(m->current.materialEdit.versionId.equals(m.id)).forEach(m->m.versionDecision="keep".equals(current.materialEdit.action)?"KEEP_BOTH":"REPLACE");
+                if(!confirmed.isEmpty()) {
+                    var latest=confirmed.values().iterator().next();
+                    current.verifiedPlatformCreatives=QianchuanCreativeBindings.groups(latest);
+                    current.verifiedPlatformChannels=latest.path("product_channel_info").isArray()?latest.path("product_channel_info").deepCopy():null;
+                }
                 current.mediaChanged();
             } else {
                 current.materials.stream().filter(m->Objects.equals(current.materialEdit.versionId,m.id)).forEach(m->m.versionDecision="PENDING");

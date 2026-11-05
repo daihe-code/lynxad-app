@@ -45,13 +45,29 @@ public class PlanMaterialsService {
         this.plans=plans;this.accounts=accounts;this.credentials=credentials;this.port=port;this.assets=assets;
     }
     public Result materials(TenantId tenant,PlanId id,PlanStatisticsRange range,String type) {
+        return materials(tenant,id,range,type,false);
+    }
+    public Result materials(TenantId tenant,PlanId id,PlanStatisticsRange range,String type,boolean currentOnly) {
         if(!TYPES.contains(type))throw new BizException(1402,"素材分类不正确");
         var plan=plans.findById(tenant,id).filter(p->p.status()!=PlanStatus.DELETED).orElseThrow(()->new BizException(1405,"计划不存在"));
         if(plan.qcPlanId().isEmpty())throw new BizException(1403,"草稿尚未发布，暂无千川素材统计");
         var account=accounts.findById(tenant,plan.accountId()).orElseThrow(()->new BizException(1201,"授权账户不存在"));
         if(account.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(account.status()))throw new BizException(1201,"广告账户授权已失效，请重新授权");
         var credential=credentials.getUsableCredential(tenant,plan.accountId());String qcId=plan.qcPlanId().orElseThrow().value();
+        JsonNode current=MissingNode.getInstance();
+        if(currentOnly) {
+            current=port.detail(credential,qcId);
+            if(current==null||!qcId.equals(QianchuanPlanMapping.id(current)))throw new BizException(1406,"素材配置的计划ID不匹配");
+            com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanCreativeBindings.groups(current);
+        }
         List<Material> result=new ArrayList<>();List<String> warnings=new ArrayList<>();
+        if(currentOnly&&"TITLE".equals(type)) {
+            for(var group:current.path("multi_product_creative_list"))for(var title:group.path("title_material")) {
+                String product=group.path("product_id").asText(),text=title.path("title").asText();
+                result.add(new Material(product+":"+result.size(),"TITLE",text,text,null,null,List.of(),null,List.of(new Product(product,"商品 "+product,null)),null,null,false,null,List.of(),null,List.of(),Map.of(),List.of(text)));
+            }
+            return new Result(List.copyOf(result),Instant.now(),null);
+        }
         var nativeTypes="AIGC".equals(type)?List.of("VIDEO","IMAGE","CAROUSEL"):List.of("OTHER".equals(type)?"LIVE_ROOM":type);
         for(String nativeType:nativeTypes) {
             List<JsonNode> rows;
@@ -65,10 +81,10 @@ public class PlanMaterialsService {
             Map<String,JsonNode> metadata=new HashMap<>(),attributes=new HashMap<>();
             try {for(var row:port.materialMetadata(credential,nativeType,ids))metadata.put(row.path("material_id").asText(),row);}
             catch(BizException ex){warnings.add("素材库信息暂不可用："+ex.getMessage());}
-            if("VIDEO".equals(nativeType))try {for(var row:port.materialAttributes(credential,ids))attributes.put(row.path("material_id").asText(),row);}
+            if(!currentOnly&&"VIDEO".equals(nativeType))try {for(var row:port.materialAttributes(credential,ids))attributes.put(row.path("material_id").asText(),row);}
             catch(BizException ex){warnings.add("素材标签暂不可用："+ex.getMessage());}
-            JsonNode detail=MissingNode.getInstance();
-            if(!rows.isEmpty() && !"TITLE".equals(nativeType) && !"LIVE_ROOM".equals(nativeType))try {
+            JsonNode detail=current;
+            if(!currentOnly && !rows.isEmpty() && !"TITLE".equals(nativeType) && !"LIVE_ROOM".equals(nativeType))try {
                 var response=port.detail(credential,qcId);
                 if(response!=null && qcId.equals(QianchuanPlanMapping.id(response)))detail=response;
                 else if(response!=null)warnings.add("素材投放配置的计划ID不匹配，已保留素材库预览信息");
@@ -94,6 +110,7 @@ public class PlanMaterialsService {
                 var sub=subtype(row,nativeType);String materialId=sub.path("material_id").asText();
                 if(!seen.add(materialId))throw new BizException(1406,"素材报表含重复素材，请重新查询");
                 JsonNode meta=metadata.getOrDefault(materialId,MissingNode.getInstance()),attr=attributes.getOrDefault(materialId,MissingNode.getInstance());
+                if(currentOnly&&!currentlyBound(detail,row,sub,meta,nativeType))continue;
                 var presentation=presentations.get(materialId);
                 Boolean aigc=flag(row,info,sub,meta);
                 if("AIGC".equals(type) && !Boolean.TRUE.equals(aigc))continue;
@@ -133,6 +150,23 @@ public class PlanMaterialsService {
         }
         if("AIGC".equals(type))warnings.add("AIGC 分类依据千川素材库的 AI 标识；未返回标识的素材仍在视频、图片或图文分类中展示。");
         return new Result(List.copyOf(result),Instant.now(),warnings.isEmpty()?null:String.join("；",new LinkedHashSet<>(warnings)));
+    }
+    /** Reports can retain removed historical media; the editing preview shows current bindings only. */
+    private static boolean currentlyBound(JsonNode detail,JsonNode row,JsonNode sub,JsonNode meta,String type) {
+        if(row.path("is_delete").asBoolean())return false;
+        var products=new HashSet<String>();for(var product:row.path("product_id_list"))products.add(product.asText());
+        for(var product:row.path("product_info"))if(product.hasNonNull("product_id"))products.add(product.path("product_id").asText());
+        String id=first(text(sub,"video_id"),text(sub,"image_id"),text(sub,"carousel_id"),text(meta,"id"));
+        String nativeId=first(text(sub,"aweme_item_id"),text(sub,"aweme_carousel_id"));
+        for(var group:detail.path("multi_product_creative_list")) {
+            if(!products.isEmpty()&&!products.contains(group.path("product_id").asText()))continue;
+            if("VIDEO".equals(type))for(String field:List.of("video_material","block_video_material"))for(var visual:group.path(field))
+                if(id!=null&&id.equals(text(visual,"video_id"))||nativeId!=null&&!"0".equals(nativeId)&&nativeId.equals(text(visual,"aweme_item_id")))return true;
+            if("IMAGE".equals(type))for(var visual:group.path("image_material"))for(var image:visual.path("image_ids"))if(id!=null&&id.equals(image.asText()))return true;
+            if("CAROUSEL".equals(type))for(var visual:group.path("carousel_material"))
+                if(id!=null&&id.equals(text(visual,"carousel_id"))||nativeId!=null&&!"0".equals(nativeId)&&nativeId.equals(text(visual,"aweme_carousel_id")))return true;
+        }
+        return false;
     }
     private static JsonNode subtype(JsonNode row,String type) {
         return row.path("material_info").path(switch(type){case "CAROUSEL"->"carousel_material";case "TITLE"->"title_material";case "IMAGE"->"image_material";case "LIVE_ROOM"->"room_material";default->"video_material";});
