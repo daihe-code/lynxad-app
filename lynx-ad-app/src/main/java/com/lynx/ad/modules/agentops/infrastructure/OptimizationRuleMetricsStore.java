@@ -15,7 +15,7 @@ public class OptimizationRuleMetricsStore {
         if(state.policy().rules()==null)return;
         var at=OffsetDateTime.parse(report.path("observed_at").asText()).toInstant();
         var day=at.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().toString();
-        boolean eligible="READY".equals(report.path("state").asText()) && report.hasNonNull("actual_net_roi") && !report.path("execution_pending").asBoolean() && state.holdReason()==null;
+        boolean eligible=(!report.path("rule_version").asText().equals("merchant-rules-v2") || report.path("business_ready").asBoolean()) && "READY".equals(report.path("state").asText()) && report.hasNonNull("actual_net_roi") && !report.path("execution_pending").asBoolean() && state.holdReason()==null;
         var rows=jdbc.queryForList("SELECT last_observed_at,last_eligible FROM optimization_rule_day WHERE tenant_id=? AND plan_id=? AND day_key=? FOR UPDATE",state.tenant(),state.plan(),day);
         if(rows.isEmpty()){jdbc.update("INSERT INTO optimization_rule_day(tenant_id,plan_id,day_key,effective_seconds,last_observed_at,last_eligible) VALUES(?,?,?,0,?,?)",state.tenant(),state.plan(),day,Timestamp.from(at),eligible);return;}
         var row=rows.getFirst();var old=row.get("last_observed_at");var last=old instanceof Timestamp t?t.toInstant():null;

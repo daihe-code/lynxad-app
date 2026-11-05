@@ -30,7 +30,11 @@ export interface CreativeGeneration { enabled: boolean; autoPublish: boolean; fo
 export const defaultCreativeGeneration = (): CreativeGeneration => ({ enabled: false, autoPublish: false, formats: ['video', 'image_text', 'product_card'], minMaterials: 2, maxPending: 2, dailyCostLimit: 100, perAssetCostLimit: 50, trialLossLimit: 50, minImpressions: 1000, minClicks: 50, brandStyle: '', forbiddenClaims: '' });
 export interface CreativeStrategy { scene_strategy?: { mode: string; avoid_scenes: string[]; avoid_styles: string[]; avoid_angles: string[] }; product_id: string; target: string; trigger: string; hypothesis: string; visual_style?: string; evidence_summary: string; reserved_cost: string; cost_note: string; experiment_mode: string; test_dimension?: string; baseline_material_id?: string; warnings: string[] }
 export interface ProposedAction { kind: 'BUDGET' | 'ROI' | 'PAUSE' | 'ENABLE' | 'BOOST' | 'MATERIAL_FOLLOW' | 'MATERIAL_GENERATE' | 'MATERIAL_ADD' | 'MATERIAL_REMOVE' | 'PRODUCT_ADD' | 'PRODUCT_REMOVE'; expected?: string; target?: string; cause: string; budget?: string; duration?: string; entity_id?: string; product_id?: string; material_type?: string; source_plan_id?: string; generation_id?: string; strategy?: CreativeStrategy }
+export interface MonitoringRecommendation { type: string; title: string; evidence: string; requires_confirmation: boolean; execution_allowed?: boolean; action?: ProposedAction; workflow?: string; object_id?: string; object_type?: string }
+export interface OptimizationReview { id: string; eventId: string; workflow: string; status: string; createdAt: string; actionAt?: string; result?: { reason?: string; before_roi?: string; after_roi?: string; roi_change?: string; before_spend?: string; after_spend?: string; before_window?: { window_start: string; window_end: string }; after_window?: { window_start: string; window_end: string } } }
+export interface DecisionPreview { eventId: string; version: number; hash: string; facts: Record<string, unknown>; action: ProposedAction; addition: number; committed: number; expiresAt: string }
 export interface MonitoringReport {
+  strategy_approved?: boolean; diagnostics_ready?: boolean; business_ready?: boolean; coverage_gaps?: string[];
   rules?: OptimizationRules;
   actual_net_roi?: string | null;
   mature_spend?: string | null;
@@ -57,7 +61,7 @@ export interface MonitoringReport {
   tactics_issues?: string[];
   creative_strategies?: CreativeStrategy[];
   creative_direction_assessments?: { context_id?: string; entity_id: string; product_id: string; format: string; status: string; estimated_contribution_profit: string | null; spend: string | null; mature_days: number; creative_profile: { source?: string; confidence?: number; scenes?: string[]; visual_style?: string; creative_angle?: string } }[];
-  recommendations: { type: string; title: string; evidence: string; requires_confirmation: boolean; execution_allowed?: boolean; action?: ProposedAction }[];
+  recommendations: MonitoringRecommendation[];
 }
 export interface OptimizationView {
   planName?: string; accountId?: string; planStatus?: string; qcStatus?: string;
@@ -94,7 +98,7 @@ export interface CenterAccount { accountId: string; name: string; budgetLimit?: 
 export interface CenterView { records: CenterRow[]; total: number; watched: number; automatic: number; held: number; accounts: CenterAccount[]; pageNum: number; pageSize: number }
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
-export interface OptimizationDetails { view: OptimizationView; effectiveSeconds: number; summary: { found: number; completed: number; protectedCount: number }; pending: OptimizationEvent[]; history: HistoryPage; accountStatus?: string; accountName?: string }
+export interface OptimizationDetails { actions?: OptimizationEvent[]; reviews?: OptimizationReview[]; view: OptimizationView; effectiveSeconds: number; summary: { found: number; completed: number; protectedCount: number }; pending: OptimizationEvent[]; history: HistoryPage; accountStatus?: string; accountName?: string }
 export const getOptimizationDetails = (id: string, params: Record<string, unknown>) => apiGet<OptimizationDetails>(`${path(id)}/details`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getMonitoringCenter = (params: Record<string, unknown>) => apiGet<CenterView>(`${centerPath}/center`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationHistory = (params: Record<string, unknown>, signal?: AbortSignal) => apiGet<HistoryPage>(`${centerPath}/history`, { params, signal, headers: { 'X-Quiet-Request': 'true' } });
@@ -103,3 +107,7 @@ export const holdAllOptimization = () => apiPost(`${centerPath}/hold-all`);
 export const resumeOptimization = (id: string, expectedVersion: number) => apiPost(`${centerPath}/plans/${encodeURIComponent(id)}/resume`, { expectedVersion });
 export const recheckOptimization = (id: string) => apiPost(`${centerPath}/history/${encodeURIComponent(id)}/recheck`);
 export const acknowledgeOptimization = (id: string) => apiPost(`${centerPath}/history/${encodeURIComponent(id)}/acknowledge`);
+
+export const previewOptimizationDecision = (id: string, event: string) => apiGet<DecisionPreview>(`${path(id)}/decisions/${encodeURIComponent(event)}/preview`, { headers: { 'X-Quiet-Request': 'true' } });
+export const confirmOptimizationDecision = (id: string, event: string, expectedVersion: number, previewHash: string) => apiPost<OptimizationEvent>(`${path(id)}/decisions/${encodeURIComponent(event)}/confirm`, { expectedVersion, previewHash }, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } });
+export const startOptimizationReview = (id: string, event: string, workflow: string) => apiPost<OptimizationReview>(`${path(id)}/decisions/${encodeURIComponent(event)}/track`, { workflow }, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } });

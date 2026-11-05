@@ -10,6 +10,8 @@ export function optimizationDetailState(data: OptimizationDetails, planStatus?: 
   if (!data.view.result && !data.view.lastSuccess) return { label: '等待数据', tone: 'muted', reason: '规则已开启，正在积累可用于判断的数据。' };
   if (data.view.stale) return { label: '检查受限', tone: 'warning', reason: '等待最新投放数据，历史结果不作为实时判断。' };
   if (data.view.result?.daily_spend != null && data.view.result.daily_net_revenue == null) return { label: '部分受限', tone: 'warning', reason: '净成交数据未齐，基于可用的消耗数据继续检查。' };
+  if (data.view.result?.strategy_approved === false) return { label: '部分受限', tone: 'warning', reason: '消耗保护继续运行，经营判断策略仍在校准。' };
+  if (data.view.result?.state === 'READY' && data.view.result?.business_ready === false) return { label: '部分受限', tone: 'warning', reason: '消耗检查继续运行，部分经营判断的数据仍待核实。' };
   if (data.view.result?.state !== 'READY') return { label: '等待数据', tone: 'muted', reason: '正在积累完整小时和成交回补数据，暂不贸然调整。' };
   return { label: '盯盘中', tone: 'success', reason: '' };
 }

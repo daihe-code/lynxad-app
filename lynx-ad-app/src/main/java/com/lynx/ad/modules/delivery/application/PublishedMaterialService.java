@@ -113,7 +113,7 @@ public class PublishedMaterialService {
         var claimed=new java.util.concurrent.atomic.AtomicBoolean();
         update(s,current->{var m=current.materialEdit.members.get(member);if(expected.equals(m.phase)){m.phase=next;claimed.set(true);}});return claimed.get();
     }
-    static boolean same(JsonNode a,JsonNode b){return normalized(a).equals(normalized(b));}
+    public static boolean same(JsonNode a,JsonNode b){return normalized(a).equals(normalized(b));}
     private static JsonNode normalized(JsonNode n) {
         if(n.isIntegralNumber())return com.fasterxml.jackson.databind.node.BigIntegerNode.valueOf(n.bigIntegerValue());
         if(n.isNumber())return com.fasterxml.jackson.databind.node.DecimalNode.valueOf(n.decimalValue().stripTrailingZeros());

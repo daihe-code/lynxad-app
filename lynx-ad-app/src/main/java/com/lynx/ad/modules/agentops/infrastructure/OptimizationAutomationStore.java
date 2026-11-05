@@ -33,6 +33,7 @@ public class OptimizationAutomationStore {
     public boolean unresolved(String tenant,String account){return jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE tenant_id=? AND account_id=? AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN') AND (kind IS NULL OR kind<>'MATERIAL_GENERATE')",Integer.class,tenant,account)>0;}
     public void recordAdvice(OptimizationStore.State state,JsonNode report){
         var plan=plans.findById(new TenantId(state.tenant()),new PlanId(state.plan())).orElseThrow(()->new BizException(1405,"计划不存在"));
+        if(state.policy().rules()!=null && report.path("rule_version").asText().equals("merchant-rules-v2")){recordMerchantAdvice(state,report,plan);return;}
         for(var item:report.path("recommendations")){
             var proposal=item.path("action");if(proposal.isMissingNode() || proposal.isNull())proposal=null;
             String window="DAILY_LIMIT".equals(proposal==null?null:proposal.path("cause").asText()) || "NEXT_DAY".equals(proposal==null?null:proposal.path("cause").asText())?report.path("observed_at").asText().substring(0,10):report.path("window_end").asText();
@@ -46,21 +47,47 @@ public class OptimizationAutomationStore {
             notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE",automatic?"自动调控建议已进入执行检查":"新的盯盘建议",plan.name().text()+"："+title+"。"+evidence);
         }
     }
+    private void recordMerchantAdvice(OptimizationStore.State state,JsonNode report,com.lynx.ad.modules.delivery.domain.model.AdPlan plan){
+        var active=new HashSet<String>();var now=Timestamp.from(Instant.now());
+        for(var item:report.path("recommendations")){
+            String type=item.path("type").asText(),object=item.path("object_id").asText(plan.qcPlanId().map(v->v.value()).orElse(state.plan()));
+            String family=type.startsWith("E4-")||type.equals("ROI_PROTECTION")?"EFFECT":type.startsWith("GROWTH")?"GROWTH":type;
+            String scope=state.version()+":"+family+":"+item.path("object_type").asText("PLAN")+":"+object;active.add(scope);
+            var open=jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND scope_key=? AND (status IN ('RECOMMENDED','READY','EXECUTING','VERIFY_PENDING','UNKNOWN') OR (status='SUCCEEDED' AND EXISTS (SELECT 1 FROM optimization_review r WHERE r.tenant_id=optimization_event.tenant_id AND r.event_id=optimization_event.id AND r.status IN ('TRACKING','OBSERVING','WAITING_DATA')))) ORDER BY created_at DESC LIMIT 1",this::row,state.tenant(),state.plan(),scope);
+            if(!open.isEmpty()){
+                var existing=open.getFirst();if(existing.status().equals("RECOMMENDED"))jdbc.update("UPDATE optimization_event SET title=?,evidence=?,report_json=?,proposal_json=?,updated_at=? WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",item.path("title").asText(),item.path("evidence").asText(),encode(report),item.hasNonNull("action")?encode(item.path("action")):null,now,state.tenant(),existing.id());
+                continue;
+            }
+            String id=UUID.randomUUID().toString(),kind=item.hasNonNull("action")?item.path("action").path("kind").asText():"RULE_"+(family.equals("EFFECT")?"EFFECT":family);
+            boolean auto=item.path("execution_allowed").asBoolean()&&state.enabled()&&state.holdReason()==null&&state.policy().mode().equals("AUTO_LIMITED");
+            jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,proposal_json,report_json,status,created_at,scope_key,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,state.tenant(),state.plan(),plan.accountId().value(),plan.name().text(),id,state.version(),kind,item.path("title").asText(),item.path("evidence").asText(),item.hasNonNull("action")?encode(item.path("action")):null,encode(report),auto?"READY":"RECOMMENDED",now,scope,now);
+            notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE","新的盯盘建议",plan.name().text()+"："+item.path("title").asText());
+        }
+        // Missing/stale business evidence cannot close a previously observed business issue.
+        if(report.path("complete").asBoolean())for(var existing:jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status='RECOMMENDED' AND scope_key IS NOT NULL",this::row,state.tenant(),state.plan(),state.version())){
+            var keys=jdbc.queryForList("SELECT scope_key FROM optimization_event WHERE tenant_id=? AND id=?",String.class,state.tenant(),existing.id());
+            if(keys.isEmpty()||active.contains(keys.getFirst()))continue;
+            boolean business=keys.getFirst().contains(":EFFECT:")||keys.getFirst().contains(":GROWTH:");
+            if(business&&!report.path("diagnostics_ready").asBoolean())continue;
+            jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
+        }
+    }
     public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version){
         String id=UUID.randomUUID().toString();var report=json.createObjectNode().put("rule_version","merchant-rules-v1");report.set("rules",json.valueToTree(policy.rules()));report.put("enabled",policy.enabled());
         jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",policy.enabled()?"盯盘规则已更新":"盯盘优化已关闭",policy.enabled()?"当前规则已保存并开启":"停止新的经营判断与自动执行；已提交操作继续只读核查",encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
     }
     public record RuleSummary(long found,long completed,long protectedCount){}
     public RuleSummary ruleSummary(String tenant,String plan,boolean today){
-        String sql="SELECT COUNT(*) AS found, COALESCE(SUM(CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status='SUCCEEDED' AND kind='PAUSE' THEN 1 ELSE 0 END),0) AS protected_count FROM optimization_event WHERE tenant_id=? AND plan_id=? AND (kind IS NULL OR kind<>'RULES_CHANGE')";
+        String sql="SELECT COUNT(*) AS found, COALESCE(SUM(CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status='SUCCEEDED' AND kind='PAUSE' THEN 1 ELSE 0 END),0) AS protected_count FROM optimization_event WHERE tenant_id=? AND plan_id=? AND (kind IS NULL OR kind NOT IN ('RULES_CHANGE','RULE_SPEND_REMINDER','RULE_GROWTH_REVIEW'))";
         var args=new ArrayList<Object>(List.of(tenant,plan));if(today){sql+=" AND created_at>=?";args.add(Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant()));}
         return jdbc.queryForObject(sql,(r,n)->new RuleSummary(r.getLong("found"),r.getLong("completed"),r.getLong("protected_count")),args.toArray());
     }
     public List<Event> rulePending(String tenant,String plan){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN') ORDER BY created_at DESC LIMIT 20",this::row,tenant,plan);}
+    public List<Event> ruleActions(String tenant,String plan,long version){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY') ORDER BY created_at DESC LIMIT 30",this::row,tenant,plan,version);}
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
         String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));
-        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK'))";default->"";};
+        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW','RULE_GROWTH')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK','RULE_RUNAWAY_CHECK','RULE_EFFECT'))";default->"";};
         long count=jdbc.queryForObject("SELECT COUNT(*)"+sql,Long.class,args.toArray());args.add(size);args.add((long)(page-1)*size);
         return new Page(jdbc.query("SELECT *"+sql+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",this::row,args.toArray()),count,page,size);
     }
@@ -74,6 +101,7 @@ public class OptimizationAutomationStore {
     public void releaseAccount(String tenant,String account,String owner){jdbc.update("UPDATE optimization_account_guard SET lease_owner=NULL,lease_until=NULL WHERE tenant_id=? AND account_id=? AND lease_owner=?",tenant,account,owner);}
     public BigDecimal limit(String tenant,String account){var rows=jdbc.query("SELECT budget_limit FROM optimization_account_guard WHERE tenant_id=? AND account_id=?",(r,n)->r.getBigDecimal(1),tenant,account);return rows.isEmpty()?null:rows.getFirst();}
     public List<AccountLimit> limits(String tenant){return jdbc.query("SELECT account_id,budget_limit FROM optimization_account_guard WHERE tenant_id=?",(r,n)->new AccountLimit(r.getString(1),r.getBigDecimal(2)),tenant);}
+    public List<Event> unreviewed(){return jdbc.query("SELECT e.* FROM optimization_event e LEFT JOIN optimization_review r ON r.tenant_id=e.tenant_id AND r.event_id=e.id WHERE r.id IS NULL AND e.status='SUCCEEDED' AND e.kind IN ('BUDGET','ROI','PAUSE','ENABLE','BOOST','MATERIAL_FOLLOW','MATERIAL_ADD','MATERIAL_REMOVE','PRODUCT_REMOVE') AND e.report_json LIKE '%merchant-rules-v2%' ORDER BY e.created_at LIMIT 20",this::row);}
     public void setLimit(String tenant,String account,BigDecimal limit){
         if(limit==null || limit.compareTo(new BigDecimal("50"))<0 || limit.compareTo(new BigDecimal("999999999"))>0 || limit.stripTrailingZeros().scale()>2)throw new BizException(1802,"账户总日预算上限须为50–999999999元，最多两位小数");
         tx.executeWithoutResult(s->{ensureAccount(tenant,account);if(jdbc.update("UPDATE optimization_account_guard SET budget_limit=? WHERE tenant_id=? AND account_id=? AND (lease_until IS NULL OR lease_until<?)",limit,tenant,account,Timestamp.from(Instant.now()))!=1)throw new BizException(1803,"账户操作处理中，请稍后调整上限");});
@@ -89,6 +117,11 @@ public class OptimizationAutomationStore {
     public int actionsToday(String tenant,String plan){var start=LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();return jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE tenant_id=? AND plan_id=? AND dispatched_at>=? AND kind<>'PAUSE'",Integer.class,tenant,plan,Timestamp.from(start));}
     /** Reserve the full budget even for unknown/ended tasks; do not spend the same allowance twice. */
     public BigDecimal extraBudgetToday(String tenant,String plan){var start=LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();return jdbc.query("SELECT proposal_json FROM optimization_event WHERE tenant_id=? AND plan_id=? AND dispatched_at>=? AND kind IN ('BOOST','MATERIAL_FOLLOW')",(r,n)->new BigDecimal(node(r.getString(1)).path("budget").asText()),tenant,plan,Timestamp.from(start)).stream().reduce(BigDecimal.ZERO,BigDecimal::add);}
+    public void rememberBefore(Event event,JsonNode facts){
+        if(!event.report().path("rule_version").asText().equals("merchant-rules-v2"))return;
+        var report=event.report().deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)report).set("pre_action_facts",facts);
+        if(jdbc.update("UPDATE optimization_event SET report_json=? WHERE tenant_id=? AND id=? AND status='READY'",encode(report),event.tenant(),event.id())!=1)throw new BizException(1803,"修改前事实无法保存，暂不提交平台");
+    }
     public void intent(Event event,JsonNode intent){var actual=json.createObjectNode();actual.set("operation",intent);if(jdbc.update("UPDATE optimization_event SET actual_json=? WHERE tenant_id=? AND id=? AND status='EXECUTING' AND actual_json IS NULL",encode(actual),event.tenant(),event.id())!=1)throw new BizException(1803,"执行意图无法持久化，不提交平台");}
     public boolean dispatch(Event event,String owner){return Boolean.TRUE.equals(tx.execute(s->{
         var guarded=jdbc.queryForList("SELECT account_id FROM optimization_account_guard WHERE tenant_id=? AND account_id=? AND lease_owner=? AND lease_until>? FOR UPDATE",event.tenant(),event.accountId(),owner,Timestamp.from(Instant.now()));

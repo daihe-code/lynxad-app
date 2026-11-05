@@ -19,7 +19,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class PlanInsightsService {
     public record Point(String time,Map<String,BigDecimal> metrics) {}
-    public record Statistics(Map<String,BigDecimal> summary,List<Point> trend,String timeDimension,Instant fetchedAt,String warning) {}
+    public record Statistics(Map<String,BigDecimal> summary,List<Point> trend,String timeDimension,Instant fetchedAt,String warning,Map<String,String> metricFields) {
+        public Statistics(Map<String,BigDecimal> summary,List<Point> trend,String timeDimension,Instant fetchedAt,String warning){this(summary,trend,timeDimension,fetchedAt,warning,Map.of());}
+    }
     public record PlatformLog(String id,String time,String actor,String operation,List<String> details) {}
     public record GuaranteeView(String status,String reason,String url,Instant fetchedAt,String warning,PlanInsightsStore.Page<PlanInsightsStore.Guarantee> history) {}
     public record SpendingDay(LocalDate date,BigDecimal cost) {}
@@ -101,7 +103,7 @@ public class PlanInsightsService {
             points.add(new Point(time,metrics(row,report.metricFields())));
         }
         points.sort(Comparator.comparing(Point::time));
-        Statistics result=new Statistics(metrics(report.summary(),report.metricFields()),List.copyOf(points),report.timeDimension(),Instant.now(),report.warning());
+        Statistics result=new Statistics(metrics(report.summary(),report.metricFields()),List.copyOf(points),report.timeDimension(),Instant.now(),report.warning(),report.metricFields());
         if(cache.size()>=256)cache.clear();cache.put(key,result);return result;
     }
     public PlanInsightsStore.Page<PlatformLog> platformLogs(TenantId tenant,PlanId id,PlanStatisticsRange range,int page) {

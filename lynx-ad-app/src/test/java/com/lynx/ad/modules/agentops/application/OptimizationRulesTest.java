@@ -35,8 +35,8 @@ class OptimizationRulesTest {
     }
     @Test void runawayNeedsActualContinuousMinuteSamplesNotRepeatedReadsOrHourlyInterpolation(){
         var p=policy("CONFIRM");JsonNode previous=null;for(int minute=0;minute<=5;minute++){var d=data(String.valueOf(minute*22),"0").put("observed_at",now.minusMinutes(5-minute).toString());previous=OptimizationRulesEvaluator.evaluate(d,previous,p);}
-        assertTrue(previous.path("recommendations").toString().contains("RUNAWAY_RISK"));assertFalse(previous.path("recommendations").get(0).path("execution_allowed").asBoolean());
-        var gap=json.createObjectNode();gap.putArray("rule_samples").addObject().put("at",now.minusMinutes(5).toString()).put("spend","0").put("revenue","0");assertFalse(OptimizationRulesEvaluator.evaluate(data("110","0"),gap,p).path("recommendations").toString().contains("RUNAWAY_RISK"));
+        assertTrue(previous.path("recommendations").toString().contains("RUNAWAY_CHECK"));assertFalse(previous.path("recommendations").get(0).path("execution_allowed").asBoolean());
+        var gap=json.createObjectNode();gap.putArray("rule_samples").addObject().put("at",now.minusMinutes(5).toString()).put("spend","0").put("revenue","0");assertFalse(OptimizationRulesEvaluator.evaluate(data("110","0"),gap,p).path("recommendations").toString().contains("RUNAWAY_CHECK"));
         var repeated=OptimizationRulesEvaluator.evaluate(data("110","0"),null,p);for(int i=0;i<10;i++)repeated=OptimizationRulesEvaluator.evaluate(data("110","0"),repeated,p);assertEquals(1,repeated.path("rule_samples").size());
     }
     @Test void growthAdviceIsBoundedAndAlwaysRequiresConfirmation(){var d=data("150","900");mature(d,"200");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("AUTO_PAUSE"));var recommendation=r.path("recommendations").get(0);assertEquals("GROWTH_REVIEW",recommendation.path("type").asText());assertTrue(recommendation.path("requires_confirmation").asBoolean());assertFalse(recommendation.path("execution_allowed").asBoolean());assertEquals("100",recommendation.path("max_addition").asText());}

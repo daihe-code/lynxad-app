@@ -2,6 +2,7 @@ import axios, { AxiosHeaders, type AxiosRequestConfig } from 'axios';
 import { ElMessage } from 'element-plus';
 import { ApiRequestError, requestFailure } from './apiErrors';
 import { withReadRetry } from './readRetry';
+import { monitoringReviewHeader } from '@/features/delivery/optimizationDecisions';
 
 export interface ApiEnvelope<T> { code: number; message: string; data: T }
 export interface ApiRequestConfig extends AxiosRequestConfig { readRetry?: boolean }
@@ -12,6 +13,8 @@ function sessionIdentity(): string { try { return localStorage.getItem('lynx.tok
 http.interceptors.request.use(config => {
   const token = sessionIdentity();
   if (token && !publicAuth(config.url || '')) config.headers.Authorization = `Bearer ${token}`;
+  const review = monitoringReviewHeader(location.pathname, location.search, config.method || 'GET', config.url || '');
+  if (review) config.headers['X-Monitoring-Review'] = review;
   const idem = config.headers['Idempotency-Key'] || config.headers.idempotencyKey;
   if (idem) config.headers.idempotencyKey = idem;
   return config;

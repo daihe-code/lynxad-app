@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 public class OptimizationExecutionService {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     private final OptimizationStore policies;private final OptimizationAutomationStore journal;private final OptimizationExecutionGateway gateway;private final PlanInsightsService insights;
+    private OptimizationConfirmationStore confirmations;private OptimizationReviewService reviews;
+    @org.springframework.beans.factory.annotation.Autowired public void merchantActions(OptimizationConfirmationStore value,OptimizationReviewService review){confirmations=value;reviews=review;}
     public OptimizationExecutionService(OptimizationStore policies,OptimizationAutomationStore journal,OptimizationExecutionGateway gateway,PlanInsightsService insights){this.policies=policies;this.journal=journal;this.gateway=gateway;this.insights=insights;}
     @Scheduled(fixedDelayString="${lynx.ad.monitoring.execution-scan-ms:10000}")
     public void scan(){for(var event:journal.pending())if(!"MATERIAL_GENERATE".equals(event.kind()))try{process(event);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("execution check unavailable event={} type={}",event.id(),ex.getClass().getSimpleName());}}
@@ -32,6 +34,9 @@ public class OptimizationExecutionService {
     public void release(AdPlan p,String owner){journal.releaseAccount(p.tenantId().value(),p.accountId().value(),owner);}
     public void process(Event event){
         String owner="execution:"+UUID.randomUUID();if(!journal.claimAccount(event.tenant(),event.accountId(),owner))return;
+        if(confirmations!=null&&confirmations.find(event.tenant(),event.id()).isPresent()){
+            try{processConfirmed(event,owner);}finally{journal.releaseAccount(event.tenant(),event.accountId(),owner);}return;
+        }
         boolean dispatched=false;AdPlan p=null;JsonNode intent=null;
         try{
             var current=journal.event(event.tenant(),event.id()).orElseThrow();
@@ -70,18 +75,47 @@ public class OptimizationExecutionService {
             boolean increase="ENABLE".equals(kind) || "BUDGET".equals(kind) && decimal(event.proposal(),"target").compareTo(decimal(facts,"budget"))>0 || "ROI".equals(kind) && decimal(event.proposal(),"target").compareTo(decimal(facts,"roi"))<0;
             if(increase){var limit=journal.limit(event.tenant(),event.accountId());if(limit==null)throw new BizException(1803,"请先设置广告账户总日预算上限");var sum=gateway.accountBudget(p);var addition="ENABLE".equals(kind)?decimal(facts,"budget"):"BUDGET".equals(kind)?decimal(event.proposal(),"target").subtract(decimal(facts,"budget")):BigDecimal.ZERO;if(sum.add(addition).compareTo(limit)>0)throw new BizException(1803,"账户总日预算会超过授权上限");}
             // The durable journal is committed before any platform mutation. A restart only reads back.
+            journal.rememberBefore(event,facts);
             if(!journal.dispatch(event,owner))throw new BizException(1803,"授权或执行租约已变化");
             dispatched=true;
             if(prepared!=null){journal.intent(event,intent);gateway.tactics().write(p,event.proposal(),prepared);}else gateway.write(p,event.proposal());var actual=gateway.facts(p);
             if(intent!=null){((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}
-            if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);gateway.unlock(p,event.id());}
+            if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());}
             else journal.finish(event,"VERIFY_PENDING","平台暂未返回目标值，继续只读核查",actual);
         }catch(RuntimeException ex){String reason=ex instanceof BizException?ex.getMessage():"平台通信或本地保存失败";
             if(dispatched)journal.finish(event,"VERIFY_PENDING",reason+"；不会重复提交",journal.event(event.tenant(),event.id()).map(Event::actual).orElse(null));
             else {journal.finish(event,"SKIPPED",reason,null);if(p!=null)gateway.unlock(p,event.id());}
         }finally{journal.releaseAccount(event.tenant(),event.accountId(),owner);}
     }
-    private BigDecimal currentSpend(AdPlan p,boolean rules){var today=LocalDate.now(ZONE);var data=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);if(data.fetchedAt()==null || data.fetchedAt().plusSeconds(rules?120:600).isBefore(Instant.now()) || data.fetchedAt().isAfter(Instant.now().plusSeconds(30)) || rules && data.warning()!=null && !data.warning().isBlank() || !today.equals(LocalDate.now(ZONE)) || data.summary().get("cost")==null)throw new BizException(1803,"当日风险报表不完整或已过期");return data.summary().get("cost");}
+    private BigDecimal currentSpend(AdPlan p,boolean rules){var today=LocalDate.now(ZONE);var data=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);if(data.fetchedAt()==null || data.fetchedAt().plusSeconds(rules?120:600).isBefore(Instant.now()) || data.fetchedAt().isAfter(Instant.now().plusSeconds(30)) || !today.equals(LocalDate.now(ZONE)) || data.summary().get("cost")==null || data.summary().get("cost").signum()<0)throw new BizException(1803,"当日风险报表不完整或已过期");return data.summary().get("cost");}
+    private void processConfirmed(Event original,String owner){
+        var approval=confirmations.find(original.tenant(),original.id()).orElseThrow();boolean dispatched=false;AdPlan p=null;
+        try{
+            var event=journal.event(original.tenant(),original.id()).orElseThrow();
+            if(!event.status().equals("READY")){if(Set.of("EXECUTING","VERIFY_PENDING").contains(event.status()))verify(event,false);return;}
+            p=gateway.plan(event.tenant(),event.planId());gateway.writable(p);
+            var state=policies.get(p.tenantId(),p.id()).orElseThrow();var facts=gateway.facts(p);var now=Instant.now();
+            if(approval.expiresAt().isBefore(now)||!approval.day().equals(now.atZone(ZONE).toLocalDate().toString())||!approval.facts().equals(facts)||!approval.action().equals(event.proposal()))throw new BizException(1804,"本次确认已过期或平台事实已变化");
+            if(journal.unresolved(event.tenant(),event.accountId()))throw new BizException(1803,"账户已有操作待核实");
+            OptimizationDecisionService.validate(state,event,facts,now);var spend=currentSpend(p,true);
+            if(event.kind().equals("PAUSE")&&event.proposal().path("cause").asText().equals("DAILY_LIMIT")&&spend.compareTo(state.policy().rules().spendProtection())<0)throw new BizException(1803,"最新消耗未达到保护金额");
+            if(event.kind().equals("BUDGET")){
+                if(spend.compareTo(state.policy().rules().spendReminder())>=0||confirmations.committed(event.tenant(),event.planId(),approval.day()).compareTo(state.policy().rules().dailyAddition())>0)throw new BizException(1803,"消耗风险或新增承诺超限");
+                var limit=journal.limit(event.tenant(),event.accountId());if(limit==null||gateway.accountBudget(p).add(gateway.activeTaskBudget(p)).add(approval.addition()).compareTo(limit)>0)throw new BizException(1803,"账户预算及独立任务风险空间不足");
+            }
+            gateway.lock(p,event.id());
+            journal.rememberBefore(event,facts);
+            if(!facts.equals(gateway.facts(p))||!journal.dispatch(event,owner))throw new BizException(1803,"发出前平台事实或规则已变化");
+            dispatched=true;confirmations.dispatched(approval);gateway.write(p,event.proposal());var actual=gateway.facts(p);
+            if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());}
+            else journal.finish(event,"VERIFY_PENDING","操作已提交，继续核实平台结果",actual);
+        }catch(RuntimeException e){
+            String reason=e instanceof BizException?e.getMessage():"平台结果暂无法核实";
+            if(dispatched)journal.finish(original,"VERIFY_PENDING",reason+"；不重复提交",journal.event(original.tenant(),original.id()).map(Event::actual).orElse(null));
+            else{confirmations.notSent(approval);journal.finish(original,"SKIPPED",reason,null);if(p!=null)gateway.unlock(p,original.id());}
+        }
+    }
+    private void reviewApplied(Event event,JsonNode facts){if(reviews!=null)try{reviews.actionApplied(journal.event(event.tenant(),event.id()).orElse(event),facts);}catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(getClass()).warn("review initialization pending event={}",event.id());}}
     public static BigDecimal decimal(JsonNode node,String key){try{var field=node.get(key);if(field==null || !field.isTextual())throw new IllegalArgumentException();return new BigDecimal(field.asText());}catch(RuntimeException ex){throw new BizException(1802,"自动调控数值格式不正确");}}
     public static void validate(OptimizationStore.State s,Event e,JsonNode facts,Instant now,int count){
         var policy=s.policy();var a=policy.automation();
@@ -122,7 +156,7 @@ public class OptimizationExecutionService {
     }
     public void verify(Event event,boolean requested){
         var p=gateway.plan(event.tenant(),event.planId());JsonNode actual=null;
-        try{actual=gateway.facts(p);if(OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&event.actual()!=null){var intent=event.actual().path("operation");((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);gateway.unlock(p,event.id());return;}}catch(RuntimeException ex){if(requested)throw ex;}
+        try{actual=gateway.facts(p);if(OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&event.actual()!=null){var intent=event.actual().path("operation");((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());return;}}catch(RuntimeException ex){if(requested)throw ex;}
         if(event.dispatchedAt()!=null && event.dispatchedAt().plusSeconds(180).isBefore(Instant.now())){journal.finish(event,"UNKNOWN","提交结果无法确认，已停止账户后续自动执行，请人工核查",actual==null?event.actual():actual);hold(p,"自动操作结果不明确，请到盯盘中心核查后重新授权");}
     }
     public static boolean matches(Event event,JsonNode actual){if(!event.report().path("plan_id").asText().equals(actual.path("qcId").asText()))return false;return switch(event.kind()){

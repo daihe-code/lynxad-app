@@ -28,6 +28,8 @@ public class OptimizationMonitoringService {
     private OptimizationExecutionService execution;
     private OptimizationExecutionGateway gateway;
     private OptimizationAutomationStore journal;
+    private MonitoringStrategy strategy;
+    @org.springframework.beans.factory.annotation.Autowired public void strategy(MonitoringStrategy value){strategy=value;}
     private com.lynx.ad.modules.creative.application.MaterialCreativeContextService creativeContexts;
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(com.lynx.ad.modules.creative.application.MaterialCreativeContextService value){creativeContexts=value;}
     @org.springframework.beans.factory.annotation.Autowired public void execution(OptimizationExecutionService execution,OptimizationExecutionGateway gateway,OptimizationAutomationStore journal){this.execution=execution;this.gateway=gateway;this.journal=journal;}
@@ -110,7 +112,7 @@ public class OptimizationMonitoringService {
             long observationTtl=state.policy().rules()==null?600:120;
             if(pending!=null && (pending.version()!=state.version() || pending.created().plusSeconds(observationTtl).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
             if(pending==null)pending=store.enqueue(state,owner,state.policy().rules()==null?collect(p,state):collectRules(p,state));
-            var result=state.policy().rules()==null?engine.submit(state.tenant(),pending.payload()):OptimizationRulesEvaluator.evaluate(pending.payload(),state.result(),state.policy());
+            var result=state.policy().rules()==null?engine.submit(state.tenant(),pending.payload()):OptimizationRulesEvaluator.evaluate(pending.payload(),state.result(),state.policy(),strategy==null?MonitoringStrategy.Parameters.shadow():strategy.parameters());
             if(creativeContexts!=null)creativeContexts.saveAssessments(state.tenant(),p.accountId().value(),result);
             store.complete(state,owner,pending,result);
         }catch(RuntimeException ex) {
@@ -128,8 +130,16 @@ public class OptimizationMonitoringService {
         if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()))throw new BizException(1803,"等待当天最新报表");
         var data=new LinkedHashMap<String,Object>();data.put("request_id",UUID.randomUUID().toString());data.put("store_id",p.tenantId().value());data.put("account_id",p.accountId().value());data.put("plan_id",facts.qcId());data.put("product_ids",facts.productIds());
         data.put("observed_at",observed.toOffsetDateTime().toString());data.put("plan_status",facts.status());data.put("daily_spend_date",today.toString());
-        data.put("daily_spend",decimal(current.summary().get("cost")));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));data.put("complete",current.warning()==null || current.warning().isBlank());
-        data.put("observations",hourly(current,observed));
+        data.put("daily_spend",decimal(current.summary().get("cost")));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));data.put("complete",current.summary().get("cost")!=null && current.summary().get("cost").signum()>=0);
+        data.put("daily_budget",decimal(facts.budget()));data.put("bid_type",facts.bidType());data.put("metric_fields",current.metricFields());data.put("fetched_at",current.fetchedAt().toString());
+        data.put("source_as_of",null); // A successful fetch is not the platform's conversion update time.
+        var rows=new ArrayList<Map<String,Object>>(hourly(current,observed));
+        try {
+            var previous=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today.minusDays(1),today.minusDays(1)),false);
+            if(current.metricFields().equals(previous.metricFields()) && previous.fetchedAt()!=null && previous.fetchedAt().plusSeconds(600).isAfter(observed.toInstant()))rows.addAll(hourly(previous,observed));
+        }catch(RuntimeException ignored){/* History loss cannot stop independent reliable spend protection. */}
+        data.put("observations",rows);
+        if(gateway!=null && gateway.tactics()!=null) data.put("diagnostic_context",gateway.tactics().merchantContext(p,observed));
         data.put("execution_pending",journal!=null && !journal.rulePending(p.tenantId().value(),p.id().value()).isEmpty());
         return data;
     }
@@ -171,6 +181,7 @@ public class OptimizationMonitoringService {
             if(start.getMinute()!=0 || start.getSecond()!=0)throw new BizException(1802,"平台未返回对齐的小时窗口");
             var end=start.plusHours(1);if(end.isAfter(observed))continue;
             var metrics=new LinkedHashMap<String,Object>();metrics.put("spend",decimal(point.metrics().get("cost")));metrics.put("orders",decimal(point.metrics().get("orders")));metrics.put("net_revenue",decimal(point.metrics().get("netGmv")));
+            metrics.put("impressions",decimal(point.metrics().get("shows")));metrics.put("clicks",decimal(point.metrics().get("clicks")));metrics.put("refund_rate",decimal(point.metrics().get("refundRate")));
             var row=new LinkedHashMap<String,Object>();row.put("window_start",start.toOffsetDateTime().toString());row.put("window_end",end.toOffsetDateTime().toString());row.put("metric_mode","window");row.put("granularity","plan");row.put("complete",report.warning()==null || report.warning().isBlank());row.put("metrics",metrics);result.add(row);
         }
         return result;

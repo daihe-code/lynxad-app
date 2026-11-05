@@ -29,6 +29,31 @@ public class OptimizationTacticsGateway {
     private final OptimizationStore policies;private final OptimizationAutomationStore journal;private final PlanTransferStore transfers;
     private final CreationQianchuanGateway catalog;private final PlanManagementService management;private final PlanRemoteStore remote;
     private final ObjectMapper json;
+    private record MerchantCache(Instant fetched,ObjectNode body){}
+    private final Map<String,MerchantCache> merchantCache=new java.util.concurrent.ConcurrentHashMap<>();
+    /** Slow object reports are independently cached; no write permission or generation is enabled by this read. */
+    public ObjectNode merchantContext(AdPlan p,ZonedDateTime now){
+        String key=p.tenantId().value()+":"+p.accountId().value()+":"+p.qcPlanId().orElseThrow().value()+":"+now.toLocalDate();
+        var cached=merchantCache.get(key);if(cached!=null&&cached.fetched().plusSeconds(600).isAfter(now.toInstant()))return cached.body().deepCopy();
+        var n=json.createObjectNode().put("complete",false).put("fetched_at",now.toOffsetDateTime().toString()).put("ledger_verified",false).put("budget_constrained",false);
+        var issues=n.putArray("issues");
+        try{
+            var current=groups(detail(p));var products=n.putArray("products");var ids=new ArrayList<String>();current.forEach(g->ids.add(g.path("product_id").asText()));
+            var selected=catalog.restorable(p.tenantId(),p.accountId().value(),p.awemeId().value(),ids);
+            boolean supply=selected.size()==ids.size();for(var product:selected){boolean eligible=product.unavailableReasons().isEmpty()&&product.stock()!=null&&product.stock()>0;supply&=eligible;var v=products.addObject().put("id",product.qcProductId()).put("name",product.name()).put("eligible",eligible);if(product.stock()!=null)v.put("stock",product.stock());v.set("reasons",json.valueToTree(product.unavailableReasons()));}
+            var defaults=OptimizationPolicy.defaults();var old=defaults.tactics();var readPolicy=new OptimizationPolicy(false,"OBSERVE",defaults.dailySpendLimit(),defaults.maxLoss(),defaults.minSpend(),defaults.minOrders(),3,60,List.of(),defaults.automation(),new OptimizationPolicy.Tactics(false,false,false,false,false,false,old.taskBudget(),old.taskHours(),old.extraBudgetPerDay(),4,1,1,List.of()));
+            n.set("entities",entityRows(p,null,readPolicy,now,current));
+            var tasks=n.putArray("tasks");boolean known=true;for(var task:ads.controls(credential(p),p.qcPlanId().orElseThrow().value())){
+                tasks.add(task.deepCopy());String status=task.path("task_status").asText();
+                if(!Set.of("FROZEN","OFFLINE_TIME","OFFLINE_BUDGET","DELETED").contains(status))known=false;
+            }
+            n.put("task_risk_known",known).put("supply_ready",supply).put("complete",supply&&known);
+            if(!known)issues.add("独立任务尚有未花承诺风险，暂缓新增投入");if(!supply)issues.add("部分商品的库存或可投性未确认");
+            // Existing platform data does not certify external daily budget additions or a budget bottleneck.
+            issues.add("当日外部新增投入与预算瓶颈仍待核实");
+        }catch(RuntimeException e){issues.add("商品、计划内素材或独立任务数据暂不可用");}
+        if(merchantCache.size()>256)merchantCache.clear();merchantCache.put(key,new MerchantCache(now.toInstant(),n));return n.deepCopy();
+    }
     private CreationStore creations;
     private OptimizationCreativeStore creativeStore;
     private CreationPayloadBuilder payloads;
@@ -47,6 +72,7 @@ public class OptimizationTacticsGateway {
     public void validateCandidates(AdPlan p,OptimizationPolicy policy){if(policy.tactics().materialAdd())for(String id:policy.tactics().candidatePlanIds())candidate(p,id);if((policy.tactics().boost()||policy.tactics().materialFollow()) && p.setting().bidType()!=SmartBidType.CUSTOM)throw new BizException(1802,"一键起量和素材追投仅授权控成本计划");}
     private List<AdPlan> members(AdPlan p){var g=transfers.group(p.tenantId(),p.id());if(g==null)return List.of(p);var ids=java.util.stream.Stream.of(g.root(),g.conservative(),g.custom()).filter(Objects::nonNull).distinct().toList();return ids.stream().map(id->plans.findById(p.tenantId(),new PlanId(id)).orElseThrow(()->new BizException(1803,"转投关联计划缺失"))).filter(v->v.qcPlanId().isPresent()&&v.status()!=PlanStatus.DELETED).sorted(Comparator.comparing(v->v.id().value())).toList();}
     public JsonNode bindingFacts(AdPlan p){var policy=policies.get(p.tenantId(),p.id()).map(OptimizationStore.State::policy).orElse(OptimizationPolicy.defaults());if(!policy.tactics().active())return null;var result=json.createObjectNode();for(var member:members(p))result.set(member.id().value(),groups(detail(member)));return result;}
+    public JsonNode merchantBindings(AdPlan p){return groups(detail(p));}
     static ArrayNode groups(JsonNode detail){return QianchuanCreativeBindings.groups(detail);}
     private static ObjectNode select(JsonNode n,String... keys){var result=new ObjectMapper().createObjectNode();for(String key:keys)if(n.hasNonNull(key))result.set(key,n.get(key).deepCopy());return result;}
     private static JsonNode group(JsonNode groups,String product){for(var g:groups)if(product.equals(g.path("product_id").asText()))return g;throw new BizException(1803,"商品不在平台当前绑定中");}

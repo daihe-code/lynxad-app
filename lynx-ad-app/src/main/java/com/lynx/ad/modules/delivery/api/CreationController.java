@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/delivery/creation")
 public class CreationController {
+    private com.lynx.ad.modules.agentops.application.OptimizationReviewService monitoringReviews;
+    @org.springframework.beans.factory.annotation.Autowired public void monitoringReviews(com.lynx.ad.modules.agentops.application.OptimizationReviewService value){monitoringReviews=value;}
     private final CreationWorkflowService service;
     private final CreationQianchuanGateway qc;
     private com.lynx.ad.modules.delivery.application.PublishedCompositionService compositions;
@@ -41,7 +43,11 @@ public class CreationController {
     @RequiresActiveTrial @PostMapping public ApiResponse<CreationView> select(@RequestBody CreationWorkflowService.Selection req){return view(service.select(TenantContext.requireTenantId(),req));}
     @GetMapping("/{id}") public ApiResponse<CreationView> get(@PathVariable String id){return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(),id)));}
     @RequiresActiveTrial @PostMapping("/{id}/content-edit") public ApiResponse<CreationView> beginContentEdit(@PathVariable String id){return view(compositions.begin(TenantContext.requireTenantId(),id));}
-    @RequiresActiveTrial @PostMapping("/{id}/content-edit/save") public ApiResponse<CreationView> saveContentEdit(@PathVariable String id,@RequestBody CreationWorkflowService.Version req){return view(compositions.save(TenantContext.requireTenantId(),id,req.revision()));}
+    @RequiresActiveTrial @PostMapping("/{id}/content-edit/save") public ApiResponse<CreationView> saveContentEdit(@PathVariable String id,@RequestBody CreationWorkflowService.Version req,@RequestHeader(value="X-Monitoring-Review",required=false) String review){
+        var tenant=TenantContext.requireTenantId();
+        if(monitoringReviews!=null&&review!=null)try{monitoringReviews.linkContent(tenant.value(),id,review);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("content review correlation unavailable");}
+        return view(compositions.save(tenant,id,req.revision()));
+    }
     @PostMapping("/{id}/content-edit/verify") public ApiResponse<CreationView> verifyContentEdit(@PathVariable String id){return view(compositions.verify(TenantContext.requireTenantId(),id));}
     @RequiresActiveTrial @PostMapping("/{id}/analysis") public ApiResponse<CreationView> analysis(@PathVariable String id,@RequestBody CreationWorkflowService.Analysis req){return view(service.analyze(TenantContext.requireTenantId(),id,req));}
     @GetMapping("/{id}/recommendations") public ApiResponse<CreationView> recommendations(@PathVariable String id,@RequestParam(defaultValue="false") boolean refresh){return view(service.recommendations(TenantContext.requireTenantId(),id,refresh));}
