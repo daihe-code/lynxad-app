@@ -38,7 +38,7 @@ const emit = defineEmits<{ pick: []; preview: []; detail: [] }>();
 <style scoped>
 .asset-preview-target { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; }
 .ac-box { flex-shrink: 0; aspect-ratio: 16 / 9; }
-.ac-card__id { margin-top:6px; color:rgb(var(--c-text-3)); font-size:12px; line-height:16px; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.ac-card__id { margin-top:6px; color:rgb(var(--c-text-3)); font-size:10px; line-height:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
 .ac-format { position:absolute; left:9px; bottom:9px; z-index:2; padding:4px 7px; border-radius:5px; background:rgba(26,27,46,.72); color:#fff; font-size:11px; line-height:1.2; pointer-events:none; }
 .ac-card:focus-within .ac-hover { opacity: 1; }
 .ac-card:focus-within :is(.ac-src, .ac-st, .ac-dur) { opacity: 0; }
