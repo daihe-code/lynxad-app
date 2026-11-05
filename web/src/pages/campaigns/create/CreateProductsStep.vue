@@ -198,13 +198,17 @@ function productDisabled(p: ProductVo) {
 }
 function choose(p: ProductVo) {
   if (analysisOpen.value || productDisabled(p)) return;
+  if (recommendationsOpen.value) void showAllProducts();
   emit('select', p);
 }
 async function showRecommendations(p: ProductVo) {
   if (props.readOnly || props.saving || !props.selected.some(selected=>selected.qcProductId===p.qcProductId)) return;
   if (analysisOpen.value) { adjusting.value = true; analysisOpen.value = false; }
   recommendationSource.value = p.qcProductId; recommendationsOpen.value = true;
-  await nextTick(); revealCatalog();
+  await nextTick();
+  if (!recommendationsOpen.value || recommendationSource.value !== p.qcProductId) return;
+  revealCatalog();
+  await loadSuggestions();
 }
 function revealCatalog() {
   const heading = document.getElementById('panel-goods');
@@ -213,8 +217,8 @@ function revealCatalog() {
 }
 async function showAllProducts() {
   closeRecommendations();
-  const changed = tab.value !== 'ALL' || query.value !== '' || page.value !== 1 || unpromoted.value;
-  tab.value = 'ALL'; query.value = ''; page.value = 1; unpromoted.value = false;
+  const changed = tab.value !== 'ALL' || query.value !== '' || page.value !== 1 || !unpromoted.value;
+  tab.value = 'ALL'; query.value = ''; page.value = 1; unpromoted.value = true;
   if (!changed) emit('retry');
   await nextTick(); revealCatalog();
 }

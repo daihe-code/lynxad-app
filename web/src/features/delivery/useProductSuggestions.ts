@@ -47,10 +47,10 @@ export function useProductSuggestions(input: {
       if (!disposed && current === sequence) loading.value = false;
     }
   }
+  // Context changes invalidate requests; only an explicit user action starts a new recommendation.
   watch(scope, () => {
     request?.abort(); sequence++; result.value = undefined; failure.value = undefined; loading.value = false;
-    if (scope.value) void load();
-  }, { immediate: true });
+  });
   onUnmounted(() => { disposed = true; sequence++; request?.abort(); });
   return { sourceProduct, products, result, failure, loading, load };
 }
