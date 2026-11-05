@@ -1,5 +1,5 @@
 <template>
-  <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': source === 'UPLOAD' && type === 'VIDEO', 'carousel-upload-dialog': localCarousel }" title="新增素材" :width="1020" :busy="locked" @close="close">
+  <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': source === 'UPLOAD' && type === 'VIDEO', 'carousel-upload-dialog': localCarousel, 'compact-upload-dialog': type === 'IMAGE' && needsUploadFile || localCarousel && !carouselForm.started }" title="新增素材" :width="1020" :busy="locked" @close="close">
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
     <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
@@ -186,7 +186,7 @@ onUnmounted(() => { alive = false; ++loadNumber; });
 .carousel-upload-dialog .carousel-more{border-color:transparent;color:#5342ff;min-width:0}
 .video-upload-dialog .upload-more-link{border-color:transparent;color:#5342ff;min-width:0}
 .add-material-dialog :deep(.reference-modal__box){zoom:var(--add-material-scale);display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;padding:38px 46px 32px;border-radius:24px}
-.video-upload-dialog :deep(.reference-modal__box){max-height:calc((100dvh - 48px) / var(--add-material-scale))}
+.video-upload-dialog :deep(.reference-modal__box),.compact-upload-dialog :deep(.reference-modal__box){max-height:calc((100dvh - 48px) / var(--add-material-scale))}
 .add-material-dialog :deep(.reference-modal__body){overflow-y:auto;min-height:0;overscroll-behavior:contain;margin:34px 0 32px}
 .add-material-dialog :deep(header),.add-material-dialog :deep(footer){flex-shrink:0}
 .add-material-dialog :deep(header){gap:34px;align-items:center}
@@ -211,5 +211,28 @@ onUnmounted(() => { alive = false; ++loadNumber; });
 .preview-panel video{zoom:calc(1 / var(--add-material-scale));max-height:calc(280px * var(--add-material-scale));margin-top:calc(10px * var(--add-material-scale))}
 .preview-panel video:fullscreen{zoom:1;width:100%;height:100%;max-height:none;margin:0}
 @media(max-width:980px){.source-options{gap:24px}.add-material-dialog :deep(header){gap:16px}.add-material-dialog :deep(header h2){font-size:20px;padding:15px 16px 15px 0}.current-product{gap:12px}.current-product img{width:64px;height:64px}.current-product strong{font-size:14px}.source-row{gap:18px;font-size:16px}.source-row>span{width:auto}.source-options button{font-size:15px;gap:8px}.radio-dot{width:22px;height:22px}.source-options button[aria-pressed=true] .radio-dot{border-width:7px}.ai-source{padding:20px;gap:14px}.ai-source strong{font-size:15px}.ai-source p{font-size:14px}.primary,.secondary{min-height:48px;min-width:0;font-size:15px}.format-tabs button{font-size:16px;min-height:48px}}
+@media(min-width:640px){
+  .compact-upload-dialog{--add-material-scale:clamp(.6,calc((100dvh - 48px) / 840px),.8)}
+  .compact-upload-dialog :deep(.reference-modal__box){padding:26px 32px 22px}
+  .compact-upload-dialog :deep(.reference-modal__body){margin:16px 0}
+  .compact-upload-dialog :deep(header){gap:24px}
+  .compact-upload-dialog :deep(header h2){padding:16px 26px 16px 0}
+  .compact-upload-dialog .current-product img{width:72px;height:66px}
+  .compact-upload-dialog .format-tabs button{min-height:50px}
+  .compact-upload-dialog .source-row{margin:16px 0}
+  .compact-upload-dialog .primary,.compact-upload-dialog .secondary{min-height:48px;padding:10px 24px}
+  .compact-upload-dialog :deep(.drop-zone--file){min-height:260px;padding:20px;gap:12px}
+  .compact-upload-dialog :deep(.drop-zone--file>svg){width:52px;height:52px}
+  .compact-upload-dialog :deep(.drop-zone--file strong){font-size:18px}
+  .compact-upload-dialog :deep(.file-select-button){min-height:44px;font-size:16px;padding:10px 22px}
+  .compact-upload-dialog :deep(.carousel-local-upload .form-field){margin-bottom:16px}
+  .compact-upload-dialog :deep(.carousel-local-upload .audio-field){margin-bottom:0}
+  .compact-upload-dialog :deep(.carousel-local-upload .field-heading){margin-bottom:8px}
+  .compact-upload-dialog :deep(.carousel-local-upload .counted-field){margin-top:8px}
+  .compact-upload-dialog :deep(.carousel-local-upload .counted-field input){height:40px}
+  .compact-upload-dialog :deep(.carousel-local-upload .counted-field textarea){height:76px;min-height:64px}
+  .compact-upload-dialog :deep(.carousel-local-upload .empty-images){height:72px}
+  .compact-upload-dialog :deep(.carousel-local-upload .requirements){margin-top:8px}
+}
 @media(max-width:639px){.carousel-upload-dialog :deep(footer){flex-wrap:wrap}.carousel-summary{flex-basis:100%;font-size:11px}.carousel-upload-dialog .primary{min-width:0}.current-product img{width:48px;height:48px}.add-material-dialog :deep(header){gap:12px;flex-wrap:wrap}.add-material-dialog :deep(header h2){border:0;padding:0}.current-product{order:3;flex-basis:100%}.add-material-dialog :deep(header button){margin:0 0 0 auto}.add-material-dialog :deep(.reference-modal__body){margin:24px 0}.source-options{justify-content:flex-start;flex-wrap:wrap}.ai-source>svg{width:28px;height:28px}.add-material-dialog :deep(.reference-modal__box){padding:20px 16px}.source-row{gap:12px;flex-wrap:wrap}.source-options{gap:15px}.library-search{flex-wrap:wrap;gap:8px}.library-search input{min-width:140px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.library-pager{justify-content:center}.selection-count{font-size:11px}.primary,.secondary{padding:10px 12px}}
 </style>
