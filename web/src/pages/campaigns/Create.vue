@@ -10,7 +10,7 @@
     <aside v-if="contentEditing && contentLocked" class="draft-save-note"><button type="button" :disabled="busy" @click="verifyContent">核查保存结果</button></aside>
     <CreateProductsStep ref="productStep" @adjust-confirmed="adjustmentAcknowledged = true" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-status="estimateStatus" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
-    <LiveMaterialsStep :initial-product-id="initialMaterialProduct" :initial-tab="initialMaterialTab" @regenerate-title="regenerateTitle" :resuming-materials="resumingMaterials" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @add-uploads="addUploadBatch" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" :visibility-value="visibilityValue" :visibility-error="visibilityError" :visibility-disabled="requestBusy || contentLocked || draftRestoring || draftUnresolved || recovering" @visibility="setVisibility" @retry-visibility="visibility.retry" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @add-title="addTitle" @retry-generation="retryGeneration" @retry-failure="retryFailure" @delete-failure="deleteFailure" @publish="publish" @cancel="cancel" />
+    <LiveMaterialsStep :initial-product-id="initialMaterialProduct" :initial-tab="initialMaterialTab" @regenerate-title="regenerateTitle" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @add-uploads="addUploadBatch" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" :visibility-value="visibilityValue" :visibility-error="visibilityError" :visibility-disabled="requestBusy || contentLocked || draftRestoring || draftUnresolved || recovering" @visibility="setVisibility" @retry-visibility="visibility.retry" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @add-title="addTitle" @retry-generation="retryGeneration" @retry-failure="retryFailure" @delete-failure="deleteFailure" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
     <div v-else-if="step === 4 && state" class="submit-result campaign-result ad-step3 ad-step4">
       <CreationFrame :step="4" :account="account" :account-chips="accountChips" :result-state="state.publishStatus === 'FAILED' ? 'warning' : undefined" />
@@ -78,7 +78,6 @@ const requestBusy = ref(false), visibilitySaving = ref(false);
 const busy = computed(() => requestBusy.value || visibilitySaving.value);
 const state = ref<api.CreationState>(), step = ref(1), loaded = ref(false), loadError = ref(false);
 const notices=useCreationActionNotices(state);
-const resumingMaterials = ref(false);
 const productStep = ref<InstanceType<typeof CreateProductsStep>>();
 const adjustmentAcknowledged = ref(!!props.adjustProductsOnOpen);
 const contentEditing=computed(()=>!!props.publishedEditTarget || !!state.value?.contentEdit);
@@ -277,7 +276,7 @@ async function chooseAccount(key: string) {
   autosave.suspend(); clearTimeout(pollTimer); productRequest?.abort(); pollRequest?.abort(); requestNo++;
   operationFailure.value = undefined; pollFailure.value = undefined; pollFailures = 0;
   if (state.value) ElMessage.info('原账户草稿已保留，切换账户将新建草稿');
-  resumingMaterials.value = false; state.value = undefined; selected.value = []; fillDraft(serverDraftInputs(undefined,today())); accountKey.value = key;
+  state.value = undefined; selected.value = []; fillDraft(serverDraftInputs(undefined,today())); accountKey.value = key;
   await router.replace({ path: '/campaigns/create', query: { account: key } }); if (disposed) return; await loadProducts(); await autosave.activate();
 }
 async function ensureSelection() {
@@ -293,7 +292,6 @@ async function ensureSelection() {
   const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
   if (fresh) autosave.suspend();
   state.value = saved;
-  if (fresh || selectionChanged) resumingMaterials.value = false;
   if(selectionChanged && !contentEditing.value){resetBudgets();restoreRoi('');reviewedQuote.value='';}
   name.value ||= state.value.name; selected.value = state.value.products;
   if (fresh) { await autosave.activate(true); }
@@ -538,7 +536,6 @@ async function initialize() {
       state.value = await api.creationGet(id); if (disposed) return;
       const s = state.value;
       materialEntryProducts.value = JSON.stringify(s.products.map(p => p.qcProductId));
-      resumingMaterials.value = creationReachedStep(s) >= 3;
       accountKey.value = `${s.accountId}:${s.awemeId}`; selected.value = s.products;
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3' && creationReachedStep(s) >= 3;
       const restoredStep = ['QUEUED', 'SENDING', 'UNCERTAIN', 'CREATED'].includes(s.publishStatus) || showPublishFailureResult(s.publishStatus, props.initialStep, noticeMaterials) ? 4
@@ -604,7 +601,7 @@ async function savePublished() {
 }
 defineExpose({savePublished});
 watch(() => route.query.notice, () => {
-  if (route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3) { step.value = 3; resumingMaterials.value = true; }
+  if (route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3) step.value = 3;
 });
 </script>
 <style scoped>

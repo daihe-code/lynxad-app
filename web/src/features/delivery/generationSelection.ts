@@ -4,7 +4,8 @@ interface GenerationDraft {
   generationPendingProductIds?: string[];
   generationStatus: string;
   generationProductIds: string[];
-  materials: unknown[];
+  materials: { productId?: string; status?: string }[];
+  generationAdditions?: { productId: string; status: string }[];
 }
 
 interface SelectionState {
@@ -36,12 +37,22 @@ export function hasGenerationDecision(state: GenerationDraft): boolean {
     || state.generationProductIds.length > 0 || state.materials.length > 0;
 }
 
-export function shouldPromptGeneration(state: GenerationDraft, resumingMaterials = false): boolean {
-  if(['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(state.generationStatus))return false;
-  return !!state.generationPendingProductIds?.length || !resumingMaterials && !hasGenerationDecision(state);
+/** A previous visit or an empty generation choice is not evidence of material preparation. */
+export function generationPromptProductIds(state: GenerationDraft): string[] {
+  const prepared = new Set([
+    ...state.materials.flatMap(m => m.productId ? [m.productId] : []),
+    ...(state.generationSelection || []), ...state.generationProductIds,
+    ...(state.generationAdditions || []).map(a => a.productId),
+  ]);
+  return state.products.filter(p => !prepared.has(p.qcProductId)).map(p => p.qcProductId);
+}
+
+export function shouldPromptGeneration(state: GenerationDraft): boolean {
+  if(activeGeneration.has(state.generationStatus) || activeGenerationAddition(state)
+    || state.materials.some(m => m.status === 'PROCESSING'))return false;
+  return generationPromptProductIds(state).length > 0;
 }
 
 export function selectedGenerationProducts(state: GenerationDraft): string[] {
-  const selected = state.generationPendingProductIds?.length ? state.generationPendingProductIds : state.generationSelection ?? (state.generationProductIds.length ? state.generationProductIds : state.products.map(p => p.qcProductId));
-  return state.products.filter(p => selected.includes(p.qcProductId)).map(p => p.qcProductId);
+  return generationPromptProductIds(state);
 }

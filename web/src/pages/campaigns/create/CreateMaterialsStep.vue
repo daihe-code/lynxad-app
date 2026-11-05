@@ -67,7 +67,7 @@
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || contentEditing || busy || running" /><p class="plan__hint">{{ contentEditing ? '本次调整商品与素材，沿用原计划名称和投放目标；保存修改后更新原计划。' : '自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。' }}</p></div></div></div></section></div></main>
     <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">{{ contentEditing ? '保存修改' : '发布投放' }}</button></CreationFooter>
     <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="deferGeneration">
-      <p class="generation-intro">{{ state.generationPendingProductIds?.length ? '仅列出新增商品。原商品及已生成素材继续保留，无需再次生成；新增商品可取消勾选，改用素材库或本地上传。' : '我会为勾选的商品生成投放素材。已有素材、无需生成的商品，可取消勾选。' }}</p>
+      <p class="generation-intro">我会为勾选的商品生成投放素材。不需智能生成的商品，可取消勾选后从素材库选择或本地上传。</p>
       <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
         <button v-for="p in generationProducts" :key="p.qcProductId" class="generation-product" type="button" role="checkbox" :aria-checked="generationIds.includes(p.qcProductId)" :disabled="busy || generationSubmitting" @click="toggleGeneration(p.qcProductId)">
           <span class="generation-product__thumb"><img v-if="p.imageUrl && !brokenGenerationImages[p.qcProductId]" :src="p.imageUrl" alt="" @error="brokenGenerationImages[p.qcProductId] = true" /><span v-else aria-hidden="true">▧</span></span>
@@ -104,8 +104,8 @@ import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel } from '@/features/delivery/materialProcessing';
 import { activeGenerationIssues, generationFailureRows, materialFailed, materialFailureReason, productHasFailure, systemSyncIssue } from '@/features/delivery/materialFailures';
 import { hasVideoMetadata, videoMetadataLabel, readVideoMetadata } from '@/features/delivery/videoMetadata';
-import { batchGenerationRunning, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
-const props = withDefaults(defineProps<{ state: CreationState; busy: boolean; visibilityValue?:boolean; visibilityError?:string; visibilityDisabled?:boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; resumingMaterials?: boolean; materialActions?: boolean; additionActions?:boolean; titleActions?:boolean; initialProductId?:string; initialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>(), { visibilityValue: undefined, visibilityDisabled: undefined });
+import { batchGenerationRunning, generationPromptProductIds, hasGenerationDecision, shouldPromptGeneration, selectedGenerationProducts } from '@/features/delivery/generationSelection';
+const props = withDefaults(defineProps<{ state: CreationState; busy: boolean; visibilityValue?:boolean; visibilityError?:string; visibilityDisabled?:boolean; versionError?: string; account?: { key?: string; awemeName: string; awemeId: string; avatar?: string }; accounts?: { key: string; awemeName: string; awemeId: string }[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; materialActions?: boolean; additionActions?:boolean; titleActions?:boolean; initialProductId?:string; initialTab?:'VIDEO'|'IMAGE'|'CAROUSEL'|'TITLE'; embedded?: boolean; reconnecting?: boolean; maxStep?: number; reachedStep?: number; draftSaveDisabled?: boolean }>(), { visibilityValue: undefined, visibilityDisabled: undefined });
 const titlePending=computed(()=>!!props.state.titleGeneration && ['SENDING','PROCESSING'].includes(props.state.titleGeneration.status));
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
@@ -185,31 +185,39 @@ const visibilityLocked = computed(() => props.readOnly || (props.visibilityDisab
 function selectVisibility(hideInAweme: boolean) {
   if (!visibilityLocked.value && visibilityValue.value !== hideInAweme) emit('visibility', hideInAweme);
 }
-const generationProducts = computed(() => props.state.generationPendingProductIds?.length ? props.state.products.filter(p=>props.state.generationPendingProductIds!.includes(p.qcProductId)) : props.state.products);
-const generationOpen = ref(!props.readOnly && shouldPromptGeneration(props.state, props.resumingMaterials)), generationIds = ref(selectedGenerationProducts(props.state));
+const generationCandidates = computed(() => generationPromptProductIds(props.state));
+const generationProducts = computed(() => props.state.products.filter(p => generationCandidates.value.includes(p.qcProductId)));
+const generationOpen = ref(!props.readOnly && shouldPromptGeneration(props.state)), generationIds = ref(selectedGenerationProducts(props.state));
+const generationPromptHandled = ref(false);
 const generationSubmitting = ref(false), brokenGenerationImages = ref<Record<string, boolean>>({});
+watch(() => JSON.stringify([props.state.planId,props.state.products.map(p => p.qcProductId)]), () => {
+  generationPromptHandled.value = false;
+  generationIds.value = selectedGenerationProducts(props.state);
+  generationOpen.value = !props.readOnly && shouldPromptGeneration(props.state);
+});
+watch(generationCandidates, ids => {
+  generationIds.value = generationIds.value.filter(id => ids.includes(id));
+  if (!ids.length) generationOpen.value = false;
+});
 const generationProgress = ref<InstanceType<typeof MaterialGenerationProgress>>();
 watch(batchRunning, async generating => {
   if (!generating) return;
   await nextTick();
   if (batchRunning.value) generationProgress.value?.$el.scrollIntoView({ block: 'start', behavior: 'smooth' });
 });
-function openGeneration() {
-  if (props.readOnly || props.busy || running.value) return;
-  generationIds.value = selectedGenerationProducts(props.state);
-  generationOpen.value = true;
-}
 function toggleGeneration(id: string) {
   if (props.readOnly || props.busy || generationSubmitting.value) return;
   generationIds.value = generationIds.value.includes(id) ? generationIds.value.filter(value => value !== id) : [...generationIds.value, id];
 }
 function submitGeneration() {
   if (props.readOnly || props.busy || generationSubmitting.value || running.value) return;
+  generationPromptHandled.value = true;
   generationOpen.value = false;
   generationSubmitting.value = true;
   emit('generate', [...generationIds.value]);
 }
 function deferGeneration() {
+  generationPromptHandled.value = true;
   if (hasGenerationDecision(props.state)) { generationOpen.value = false; return; }
   generationIds.value = [];
   submitGeneration();
@@ -224,7 +232,7 @@ watch(() => props.state.generationStatus, status => {
   if (['QUEUED','SUBMITTING','RUNNING','IMPORTING','REVISING','UNCERTAIN'].includes(status)) {
     generationOpen.value = false;
     generationSubmitting.value = false;
-  } else if (!props.readOnly && props.state.generationPendingProductIds?.length) {
+  } else if (!props.readOnly && !generationPromptHandled.value && props.state.generationPendingProductIds?.length && shouldPromptGeneration(props.state)) {
     generationIds.value=selectedGenerationProducts(props.state);generationOpen.value=true;
   }
 });

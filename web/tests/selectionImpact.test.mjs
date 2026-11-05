@@ -21,7 +21,7 @@ test('新增商品提示保留原素材，只默认选中新商品生成',()=>{
   const impact=selectionImpact([a,b],[a,b,c],[{productId:'123'},{productId:'456'}]);
   assert.equal(impact.retainedMaterials,2);assert.equal(impact.removedMaterials,0);assert.match(selectionImpactText(impact),/无需重复生成/);
   const state={products:[a,b,c],generationSelection:['123','456'],generationPendingProductIds:['789'],generationStatus:'NONE',generationProductIds:[],materials:[{}]};
-  assert.equal(shouldPromptGeneration(state,true),true);assert.equal(hasGenerationDecision(state),false);assert.deepEqual(selectedGenerationProducts(state),['789']);
+  assert.equal(shouldPromptGeneration(state),true);assert.equal(hasGenerationDecision(state),false);assert.deepEqual(selectedGenerationProducts(state),['789']);
 });
 test('删除和替换明确提示移出预览数量与生成用量，取消不会触及原数组',()=>{
   const materials=[{productId:'123'},{productId:'123'},{productId:'456'}];
