@@ -351,6 +351,7 @@ function nextStep() {
 }
 </script>
 <style scoped src="./create-goal.css"></style>
+<style scoped src="../reference/creation-stepper.css"></style>
 
 <style scoped>
 </style>

@@ -1,0 +1,24 @@
+.ad-stepper .step {
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+}
+
+.ad-stepper .step--done,
+.ad-stepper .step[aria-current="step"] {
+  background-color: rgb(var(--c-primary-soft));
+}
+
+.ad-stepper .step[aria-current="step"] {
+  border-color: #6256ff;
+}
+
+.ad-stepper button.step:not(:disabled) {
+  cursor: pointer;
+}
+
+.ad-stepper button.step:focus-visible {
+  outline: 2px solid #575cf6;
+  outline-offset: 4px;
+  border-radius: 9999px;
+}

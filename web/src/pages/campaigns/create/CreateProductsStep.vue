@@ -246,3 +246,4 @@ defineExpose({ openProductAdjustment, confirmProductAdjustment: adjustProducts }
 </script>
 
 <style scoped src="./create-products.css"></style>
+<style scoped src="../reference/creation-stepper.css"></style>

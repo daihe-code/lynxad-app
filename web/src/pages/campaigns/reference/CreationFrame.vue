@@ -60,11 +60,8 @@ const emit = defineEmits<{ navigate: [step: number]; account: [key: string] }>()
 const steps = ["选择商品", "设置投放目标", "定素材并投放", "查看投放结果"],
   chips = ["商城+搜索等全域投放", "智能生成素材", "智能出价", "实时监控+优化"];
 </script>
+<style scoped src="./creation-stepper.css"></style>
 <style scoped>
-.step--nav { border: 0; background: transparent; font: inherit; cursor: pointer; }
-.ad-stepper .step.step--nav { border: 1px solid transparent; }
-.ad-stepper .step.step--nav[aria-current="step"] { border-color: #6256ff; }
-.step--nav:focus-visible { outline: 2px solid #575cf6; outline-offset: 4px; border-radius: 12px; }
 .ad-banner__tag svg {
   width: 13px;
   height: 13px;
