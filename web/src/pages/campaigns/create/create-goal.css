@@ -913,12 +913,27 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 1.5;
   color: #12a66a;
-  flex-shrink: 0;
+  min-width: 0;
+}
+.guar__copy {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.guar__label,.guar__note {
   white-space: nowrap;
+}
+.guar__note {
+  color: rgb(var(--c-text-3));
+  font-size: 12px;
+  font-weight: 400;
+}
+[data-field="roi"] .field-input__box {
+  flex-shrink: 0;
 }
 .guar__icon {
   height: 1rem;
@@ -993,6 +1008,22 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   color: rgb(var(--c-text-3));
   font-size: 12px;
   line-height: 1.7;
+}
+.est__warning,.est__placeholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  color: rgb(var(--c-text-3));
+  font-size: 13px;
+  line-height: 1.8;
+}
+.est__warning svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  color: #faad14;
 }
 .dur {
   display: flex;
@@ -1843,9 +1874,6 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
   }
   .est__header {
     column-gap: 8px;
-  }
-  .est__header .guar {
-    font-size: 12px;
   }
   .est__row {
     flex-wrap: wrap;

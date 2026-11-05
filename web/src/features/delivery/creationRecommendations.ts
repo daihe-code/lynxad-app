@@ -37,6 +37,19 @@ export function budgetChoices(data: Recommendations): number[] {
   return [...new Set([...(Array.isArray(suggested) ? suggested : []), ...rows(data).map(r => r.budget), recommendedBudget(data)].map(positive).filter((v): v is number => v !== undefined))];
 }
 export interface BudgetOption { budget: number; roi: string; orders: string; badge?: string }
+export type BudgetEstimateState = 'loading' | 'available' | 'empty' | 'unavailable' | 'unmatched';
+const hasRoiEstimate = (row: Record<string, unknown>) => number(row.min_estimate_roi) !== undefined || number(row.estimate_roi) !== undefined;
+/** Budget estimates belong to the volume endpoint; the cost-mode ROI recommendation is independent. */
+export function budgetEstimateState(data: Recommendations, budget: string, loading = false): BudgetEstimateState {
+  if (loading) return 'loading';
+  if (!data || data.budgetFromCache || data.budgetError || data.budgetCode != null && data.budgetCode !== 0
+    || ['RATE_LIMITED', 'AUTH_REQUIRED', 'UNAVAILABLE'].includes(data.budgetStatus || '')) return 'unavailable';
+  const selected = positive(budget), estimates = rows(data);
+  if (selected === undefined) return 'unmatched';
+  if (estimates.some(row => positive(row.budget) === selected && hasRoiEstimate(row))) return 'available';
+  if (estimates.some(row => positive(row.budget) !== undefined && hasRoiEstimate(row))) return 'unmatched';
+  return data.budget || ['EMPTY', 'NO_ESTIMATE'].includes(data.budgetStatus || '') ? 'empty' : 'unavailable';
+}
 export function budgetOptions(data: Recommendations): BudgetOption[] {
   const choices = budgetChoices(data), recommended = recommendedBudget(data);
   return choices.map(value => {

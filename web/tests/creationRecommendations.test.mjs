@@ -1,6 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetChoices, budgetEstimateHints, budgetOptions, recommendedBudget, recommendationHints, recommendationsNeedRefresh } from '../src/features/delivery/creationRecommendations.ts';
+import { budgetChoices, budgetEstimateHints, budgetEstimateState, budgetOptions, recommendedBudget, recommendationHints, recommendationsNeedRefresh } from '../src/features/delivery/creationRecommendations.ts';
+
+test('放量保障要求当前日预算有真实ROI预估，不能借用控成本推荐或其他档位', () => {
+  const empty = {budget:{budget:50,estimate_trans_cost_list:[]},budgetStatus:'NO_ESTIMATE',roi:{ecp_roi2_goal:4.91}};
+  assert.equal(budgetEstimateState(empty,'50'),'empty');
+  assert.equal(budgetEstimateState({budgetStatus:'EMPTY',budget:{}},'50'),'empty');
+  const available = {budget:{budget:50,estimate_trans_cost_list:[{budget:50,min_estimate_roi:0,max_estimate_roi:1,min_estimate_convert:0,max_estimate_convert:2}]}};
+  assert.equal(budgetEstimateState(available,'50.00'),'available');
+  assert.equal(budgetEstimateState(available,'80'),'unmatched');
+  assert.equal(budgetEstimateState(available,''),'unmatched');
+  assert.equal(budgetEstimateState({budget:{budget:50,estimate_trans_cost_list:[{budget:50,estimate_convert:8}]}},'50'),'empty');
+  assert.equal(budgetEstimateState({budget:{budget:50,estimate_trans_cost_list:[{budget:50,estimate_roi:'0.72'}]}},'50'),'available');
+});
+
+test('请求失败、加载中和旧预算缓存不误判为竞争力弱，也不展示保障', () => {
+  const available = {budget:{budget:50,estimate_trans_cost_list:[{budget:50,estimate_roi:1}]}};
+  assert.equal(budgetEstimateState(available,'50',true),'loading');
+  assert.equal(budgetEstimateState(undefined,'50'),'unavailable');
+  for (const failure of [{budgetError:'SocketTimeoutException'}, {budgetStatus:'AUTH_REQUIRED'}, {budgetStatus:'RATE_LIMITED'}, {budgetCode:500}, {budgetFromCache:true}]) {
+    assert.equal(budgetEstimateState({...available,...failure},'50'),'unavailable');
+  }
+  assert.equal(budgetEstimateState({...available,roiError:'cost mode ROI unavailable'},'50'),'available');
+});
 
 test('千川仅返回推荐预算时保留该档位，并明确预估缺失，不能借用控成本ROI', () => {
   const data = { budget: { budget: 50, is_update: false, estimate_trans_cost_list: [] }, roi: { ecp_roi2_goal: 4.82 } };

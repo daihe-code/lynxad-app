@@ -185,7 +185,7 @@
                          aria-describedby="msg-roi" :aria-invalid="roiTouched && !!roiError">
                   <span class="guar ml-2">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
-                    平台保障以规则为准
+                    <span class="guar__copy"><span class="guar__label">可享千川平台保障</span><span class="guar__note">(详情以千川平台为准)</span></span>
                   </span>
                 </div>
 
@@ -206,11 +206,17 @@
 
 
               <div class="field est" data-field="estimate" v-else>
+                <p v-if="estimateStatus === 'empty'" class="est__warning">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
+                  <span>系统预估当前商品的竞争力较弱，ROI达成可能较低，且无法享受成本保障，建议优化商品。</span>
+                </p>
+                <p v-else-if="estimateStatus !== 'available'" class="est__placeholder" role="status">{{ estimateStatus === 'loading' ? '正在获取平台预估…' : estimateStatus === 'unmatched' ? '当前日预算暂无对应预估。' : '暂时无法获取平台预估。' }}</p>
+                <template v-else>
                 <div class="est__header">
                   <p class="est__title">所选日预算的平台预估：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
-                  <span v-if="!estimateHint" class="guar">
+                  <span class="guar">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
-                    以平台结果为准
+                    <span class="guar__copy"><span class="guar__label">可享千川平台保障</span><span class="guar__note">(详情以千川平台为准)</span></span>
                   </span>
                 </div>
                 <div class="est__rows">
@@ -225,6 +231,7 @@
                     <span class="est__vwrap"><b class="est__v" data-role="est-orders">{{ estimateOrdersHint || '--' }}</b></span>
                   </div>
                 </div>
+                </template>
               </div>
             </div>
           </div>
@@ -303,11 +310,11 @@ import CreationFooter from './CreationFooter.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 
 import { PUBLISHED_BID_MODE_HINT } from '@/utils/labels';
-import type { BudgetOption } from '@/features/delivery/creationRecommendations';
+import type { BudgetEstimateState, BudgetOption } from '@/features/delivery/creationRecommendations';
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 import { creationScheduleRecovery } from '@/features/delivery/creationSchedule';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateHint?: string; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; disabledMode?: string; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateStatus: BudgetEstimateState; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; disabledMode?: string; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
