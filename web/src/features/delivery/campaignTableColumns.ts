@@ -17,12 +17,12 @@ export function campaignTableColumns(template: PlanMetricTemplate, showTools: bo
     { key: 'status', label: '计划状态', width: 160, minWidth: 96 },
     { key: 'settings', label: '投放设置', width: 192, minWidth: 156 },
     { key: 'schedule', label: '投放时间', width: 192, minWidth: 168 },
-    ...metricTemplates[template].columns.map((metric, index) => ({
-      key: metric.field, label: metric.label, width: [108, 92, 122, 106][index]!, minWidth: 72, metric,
-    })),
     { key: 'optimization', label: '盯盘优化', width: 148, minWidth: 128 },
     ...(showTools ? [{ key: 'tools', label: '调控工具', width: 136, minWidth: 116 }] : []),
     { key: 'actions', label: '操作', width: 80, minWidth: 80 },
+    ...metricTemplates[template].columns.map((metric, index) => ({
+      key: metric.field, label: metric.label, width: [108, 92, 122, 106][index]!, minWidth: 72, metric,
+    })),
   ];
 }
 export function boundedColumnWidth(column: CampaignTableColumn, value: number) {

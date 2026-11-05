@@ -83,7 +83,6 @@
                 </div>
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
               <td class="optimization-cell">
                 <span class="optimization-status" :class="optimizationPresentation(row).tone">{{ optimizationPresentation(row).label }}</span>
                 <button v-if="optimizationPresentation(row).action" type="button" class="optimization-link" @click="openOptimization(row)">{{ optimizationPresentation(row).action }}</button>
@@ -107,6 +106,7 @@
                 </template>
                 <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
+              <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
             </tr>
             <tr v-if="!pagedRows.length && !loading"><td :colspan="tableColumns.length" class="empty-state"><el-icon><Search /></el-icon><p>{{ loadFailed ? '计划加载失败，请刷新重试' : keyword || status || deliveryPlatform || bidType || createdWithin ? '没有符合条件的投放计划' : '暂无投放计划' }}</p></td></tr>
           </tbody>
