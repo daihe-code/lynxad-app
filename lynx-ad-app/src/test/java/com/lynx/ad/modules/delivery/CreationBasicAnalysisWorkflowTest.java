@@ -97,13 +97,36 @@ class CreationBasicAnalysisWorkflowTest {
         assertThrows(BizException.class,()->service.generate(tenant,id,new CreationWorkflowService.Generate(1,null)));
     }
 
-    @Test void changedGoalInvalidatesLaterProgressUntilMaterialsAreRevisited() {
+    @Test void changedGoalRetainsVisitedMaterialsProgressAcrossReloadAndNavigation() throws Exception {
         saved.get().step=2;saved.get().reachedStep=3;
         var updated=service.goal(tenant,id,goal());
-        assertEquals(2,CreationView.of(updated).reachedStep());
+        assertEquals(3,CreationView.of(updated).reachedStep());
+        saved.set(json.readValue(json.writeValueAsString(updated),CreationState.class));
         service.step(tenant,id,new CreationWorkflowService.Step(updated.revision,2));
-        assertEquals(2,CreationView.of(saved.get()).reachedStep());
+        assertEquals(3,CreationView.of(saved.get()).reachedStep());
         service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,3));
+        assertEquals(3,CreationView.of(saved.get()).reachedStep());
+    }
+
+    @Test void switchingBidModesAndBackDoesNotResetProgressOrRegenerateMaterials() {
+        saved.get().step=2;saved.get().reachedStep=3;
+        for(int i=0;i<2;i++) {
+            var volume=service.goal(tenant,id,new CreationWorkflowService.Goal(saved.get().revision,"商品投放","CONSERVATIVE",new BigDecimal("50"),null,"FROM_NOW",null,null));
+            assertEquals(3,CreationView.of(volume).reachedStep());
+            service.step(tenant,id,new CreationWorkflowService.Step(volume.revision,2));
+            var cost=service.goal(tenant,id,new CreationWorkflowService.Goal(saved.get().revision,"商品投放","CUSTOM",new BigDecimal("5000"),new BigDecimal("4.91"),"FROM_NOW",null,null));
+            assertEquals(3,CreationView.of(cost).reachedStep());
+            assertEquals(new BigDecimal("5000"),cost.budget);assertEquals(new BigDecimal("4.91"),cost.roi2Goal);
+            assertEquals(1,cost.packageVersion);
+        }
+        verifyNoInteractions(engine);
+    }
+
+    @Test void savingFirstGoalDoesNotPreMarkAnUnvisitedMaterialsStep() {
+        saved.get().step=2;saved.get().reachedStep=2;
+        var updated=service.goal(tenant,id,goal());
+        assertEquals(2,CreationView.of(updated).reachedStep());
+        service.step(tenant,id,new CreationWorkflowService.Step(updated.revision,3));
         assertEquals(3,CreationView.of(saved.get()).reachedStep());
     }
 

@@ -76,7 +76,7 @@ import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreationActionDialog from './create/CreationActionDialog.vue';
 import { budgetEstimateHints, budgetEstimateState, budgetOptions } from '@/features/delivery/creationRecommendations';
 import { awemeLabels } from '@/features/identity/awemeLabels';
-import { creationReachedStep, validReachedStep } from '@/features/delivery/creationProgress';
+import { creationReachedStep } from '@/features/delivery/creationProgress';
 import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { publishedSchedule, publishedScheduleError } from '@/features/delivery/publishedSchedule';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
@@ -261,8 +261,7 @@ const dateError = computed(() => editing.value && changedSchedule.value ? publis
 const reachedStep = computed(() => {
   const reached = plan.value?.qcPlanId || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value);
   if (!editing.value || plan.value?.qcPlanId) return reached;
-  const valid = validReachedStep(reached,false,changedBudget.value || changedRoi.value || changedSchedule.value);
-  return materialBusy.value || materialPending.value || name.value.trim() !== plan.value?.name ? Math.min(valid,3) : valid;
+  return materialBusy.value || materialPending.value || name.value.trim() !== plan.value?.name ? Math.min(reached,3) : reached;
 });
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value || changedSchedule.value || changedMode.value));
 const nameError = computed(() => editing.value && name.value.trim() !== plan.value?.name ? planNameError(name.value) : '');
