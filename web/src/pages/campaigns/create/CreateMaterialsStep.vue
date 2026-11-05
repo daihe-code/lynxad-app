@@ -40,7 +40,6 @@
                 <span v-if="!readOnly || materialActions" class="matrow__ops">
                   <template v-if="!readOnly">
                   <button v-if="materialIsReady(m) && !materialHasPreview(m)" class="sync-retry" type="button" :disabled="busy" @click="emit('refreshStatus')">刷新预览</button>
-                  <router-link v-if="['REJECTED','FAILED'].includes(m.processing?.reviewStatus || '')" class="sync-retry" to="/creatives">查看质检结果</router-link>
                   <button v-if="!systemSyncIssue(m) && m.status === 'FAILED' && !m.processing?.canRetrySync && !['UNCERTAIN','WAITING_AUTH'].includes(m.processing?.syncStatus || '')" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
                   </template>
                   <el-tooltip content="重新生成" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending || !m.engineMaterialId || regenerationWaitSeconds > 0" aria-label="重新生成素材" @click="pendingVersion(m.id) ? reviewSourceId = m.id : emit('action', 'regenerate', m.id)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
