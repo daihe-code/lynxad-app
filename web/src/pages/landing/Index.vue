@@ -583,11 +583,11 @@
 
         <hr class="mt-10 border-white/25">
 
-        <div class="footer-records mt-7 text-[13px] leading-6 text-white/70">
-          <span>© 2026 灵投智营·智能广告投放专家</span>
-          <span>坤顷科技</span>
-          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">京ICP备2026062306号-2</a>
+        <div class="footer-records mt-7 text-[14px] leading-6 text-white/70">
+          <span class="footer-company">北京坤境科技有限公司 <span aria-hidden="true">｜</span> 营业执照</span>
           <a href="https://beian.mps.gov.cn/#/query/webSearch?code=11010802050988" target="_blank" rel="noopener noreferrer"><img src="/images/police-beian.png" alt="" width="18" height="20" />京公网安备11010802050988号</a>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">京ICP备2026062306号-2</a>
+          <span>© 2026 灵投智营（lynxad.cn）版权所有</span>
         </div>
       </div>
     </footer>

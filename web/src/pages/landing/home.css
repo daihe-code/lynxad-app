@@ -563,6 +563,10 @@ img,video {
 }
 
 .footer-records{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;column-gap:16px;row-gap:6px;text-align:center}
+.footer-records>span,.footer-records>a{white-space:nowrap}
+.footer-records>:not(:first-child)::before{content:'·';color:rgb(255 255 255 / .4);margin-right:10px}
+.footer-company{display:inline-flex;align-items:center;gap:8px}
+@media(max-width:640px){.footer-records{flex-direction:column}.footer-records>:not(:first-child)::before{content:none}}
 .footer-records a{display:inline-flex;align-items:center;justify-content:center;gap:6px;color:inherit;text-decoration:none}
 .footer-records a:hover{color:white;text-decoration:underline;text-underline-offset:3px}
 .footer-records a:focus-visible{outline:2px solid white;outline-offset:4px;border-radius:2px}
