@@ -15,7 +15,7 @@ export function useProductSuggestions(input: {
   const scope = computed(() => {
     const account = input.account();
     return account?.accountId && account.awemeId && sourceProduct.value
-      ? JSON.stringify([account.accountId, account.awemeId, input.draftId() || '', sourceProduct.value.qcProductId, input.selected().map(p => p.qcProductId).sort()]) : '';
+      ? JSON.stringify([account.accountId, account.awemeId, input.draftId() || '', sourceProduct.value.qcProductId]) : '';
   });
   const products = computed(() => result.value?.items.map(item => item.product) || []);
   let request: AbortController | undefined, sequence = 0, disposed = false, requestScope = '';
@@ -27,15 +27,16 @@ export function useProductSuggestions(input: {
     request?.abort();
     request = new AbortController();
     const current = ++sequence, key = scope.value, account = input.account()!, ids = [sourceProduct.value!.qcProductId];
+    const excludedProductIds = input.selected().map(p => p.qcProductId);
     requestScope = key;
     loading.value = true; failure.value = undefined; result.value = undefined;
     try {
-      const next = await creationProductSuggestions(account.accountId!, account.awemeId, ids, input.draftId(), refresh, request.signal, input.selected().map(p => p.qcProductId));
+      const next = await creationProductSuggestions(account.accountId!, account.awemeId, ids, input.draftId(), refresh, request.signal, excludedProductIds);
       if (disposed || current !== sequence || key !== scope.value) return;
       if (next.accountId !== account.accountId || next.awemeId !== account.awemeId || JSON.stringify([...next.sourceProductIds].sort()) !== JSON.stringify(ids)) {
         throw new Error('推荐结果与当前选品不一致，请重试');
       }
-      const seen = new Set(input.selected().map(p => p.qcProductId));
+      const seen = new Set(excludedProductIds);
       result.value = { ...next, items: next.items.filter(({ product }) => {
         if (seen.has(product.qcProductId) || product.draft || product.unavailableReasons?.length || product.stock != null && product.stock <= 0) return false;
         seen.add(product.qcProductId);
@@ -50,7 +51,7 @@ export function useProductSuggestions(input: {
       if (!disposed && current === sequence) loading.value = false;
     }
   }
-  // Context changes invalidate requests; only an explicit user action starts a new recommendation.
+  // Keep this list while selecting recommendations; only an account, draft or anchor change invalidates it.
   watch(scope, () => {
     request?.abort(); sequence++; result.value = undefined; failure.value = undefined; loading.value = false;
   });

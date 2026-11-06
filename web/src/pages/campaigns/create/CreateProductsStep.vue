@@ -217,7 +217,6 @@ function productDisabled(p: ProductVo) {
 }
 function choose(p: ProductVo) {
   if (analysisOpen.value || productDisabled(p)) return;
-  if (recommendationsOpen.value) void showAllProducts();
   emit('select', p);
 }
 async function showRecommendations(p: ProductVo) {
