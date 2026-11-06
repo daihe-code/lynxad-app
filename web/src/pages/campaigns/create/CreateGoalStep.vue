@@ -324,6 +324,9 @@ const emit = defineEmits<{ navigate: [step:number]; mode: [mode: 'SMART_BID_CUST
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const budgetTouched = ref(false), roiTouched = ref(false);
+// Saving from another wizard step can return a field conflict before this form is mounted.
+watch(() => props.budgetError, error => { if (props.settingsOnly && error) budgetTouched.value = true; }, {immediate:true});
+watch(() => props.roiError, error => { if (props.settingsOnly && error) roiTouched.value = true; }, {immediate:true});
 const budgetOpen = ref(false), budgetList = ref<HTMLElement>();
 const nextButton = ref<HTMLButtonElement>();
 const currentDay = computed(() => new Date(Date.now() + 8 * 3600000).toISOString().slice(0,10));
