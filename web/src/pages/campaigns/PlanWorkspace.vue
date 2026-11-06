@@ -248,11 +248,7 @@ const changedBudget = computed(() => plan.value != null && Number(budget.value) 
 const changedRoi = computed(() => isCost.value && plan.value != null && Number(roi.value) !== plan.value.roi2Goal);
 const changedSchedule = computed(() => !!plan.value && (duration.value !== publishedSchedule(plan.value).duration || duration.value === 'custom' && end.value !== (plan.value.endDate || '')));
 const dateError = computed(() => editing.value && changedSchedule.value ? publishedScheduleError(duration.value,start.value,end.value) : '');
-const reachedStep = computed(() => {
-  const reached = plan.value?.qcPlanId || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value);
-  if (!editing.value || plan.value?.qcPlanId) return reached;
-  return materialBusy.value || materialPending.value || name.value.trim() !== plan.value?.name ? Math.min(reached,3) : reached;
-});
+const reachedStep = computed(() => plan.value?.qcPlanId || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value));
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value || changedSchedule.value || changedMode.value));
 const nameError = computed(() => editing.value && name.value.trim() !== plan.value?.name ? planNameError(name.value) : '');
 const inputProfile = computed(() => changedMode.value || draftEditor.value ? 'creation' : 'update');

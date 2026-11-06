@@ -38,6 +38,13 @@ class CreationProductSelectionTest {
         var s=state();CreationProductSelection.apply(s,List.of(s.products.get(1),s.products.getFirst()));
         assertEquals("SUCCEEDED",s.generationStatus);assertEquals("original-job",s.engineJobId);assertNull(s.selectionChange);assertTrue(s.generationPendingProductIds.isEmpty());
     }
+    @Test void replacingAllProductsKeepsLegacyVisitedStepsAfterReload() throws Exception {
+        var s=state();s.step=1;s.reachedStep=null;
+        CreationProductSelection.apply(s,List.of(ProductBasicAnalysisTest.valid("789")));
+        var json=new ObjectMapper();s=json.readValue(json.writeValueAsString(s),CreationState.class);
+        assertTrue(s.materials.isEmpty());assertNull(s.budget);assertEquals("NONE",s.analysisStatus);
+        assertEquals(1,s.step);assertEquals(3,s.reachedStep());
+    }
     @Test void runningGenerationRejectsProductChangesWithoutTouchingPurchasedWork() throws Exception {
         var s=state();s.generationStatus="RUNNING";s.generationProductIds=new ArrayList<>(List.of("123","456"));
         var json=new ObjectMapper();String before=json.writeValueAsString(s);

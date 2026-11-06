@@ -75,7 +75,6 @@ const steps = ["选择商品", "设置投放目标", "定素材并投放", "查�
   width: 16px;
   height: 16px;
 }
-.ad-stepper .step.step--warning .step__dot { background: #ffab00; color: white; box-shadow: 0 0 0 5px #ffab001a; font-weight: 700; }
 .ad-banner .ad-account__card { padding: 16px; }
 @media (max-width: 639px) {
   .ad-banner__inner {

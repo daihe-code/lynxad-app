@@ -15,7 +15,7 @@
         <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly" @change="emit('account', $event)" />
       </div>
     </section>
-    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i > 0 && i + 1 <= (reachedStep ?? 1) }" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
+    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i+1 > (maxStep ?? 1)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i > 0 && i + 1 <= (reachedStep ?? 1) }" :aria-current="i === 0 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#create-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
     </template><main class="ad-main"><div class="container-page">
       <p v-if="selectionLocked" class="analysis-stale" role="status">素材正在生成或处理中，暂不能新增、删除或替换商品，请完成后再调整。</p>
       <section v-if="!analysisOpen" class="panel" aria-labelledby="panel-goods">

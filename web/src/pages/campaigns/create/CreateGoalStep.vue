@@ -77,7 +77,7 @@
         <AwemeAccountPicker v-if="account" :account="account" :accounts="accounts" :chips="accountChips" :disabled="saving || readOnly || settingsOnly" @change="emit('account', $event)" />
       </div>
     </section>
-    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i === 3 || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i !== 1 && i + 1 <= (reachedStep ?? 2) }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
+    <nav class="ad-stepper" aria-label="投放计划进度"><template v-for="(label, i) in steps" :key="label"><button type="button" :disabled="saving || i+1 > (maxStep ?? 2)" @click="emit('navigate', i+1)" :aria-label="label" class="step" :class="{ 'step--done': i !== 1 && i + 1 <= (reachedStep ?? 2) }" :aria-current="i === 1 ? 'step' : undefined"><span class="step__dot"><svg v-if="i === 3" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-check" /></svg><template v-else>{{ i + 1 }}</template></span><span class="step__label">{{ label }}</span></button><span v-if="i < 3" class="step__line" aria-hidden="true" /></template></nav>
 </template><main class="ad-main">
   <div class="container-page">
 

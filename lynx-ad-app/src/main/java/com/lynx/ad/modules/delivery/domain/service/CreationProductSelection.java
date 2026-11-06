@@ -22,6 +22,8 @@ public final class CreationProductSelection {
         var previous=new LinkedHashSet<>(s.products.stream().map(CreationState.Product::qcProductId).toList());
         var selected=new LinkedHashSet<>(next.stream().map(CreationState.Product::qcProductId).toList());
         if(previous.equals(selected))return;
+        // Preserve visited pages before clearing the saved goals/materials used by legacy drafts.
+        int reached=s.reachedStep();
         var added=next.stream().filter(p->!previous.contains(p.qcProductId())).toList();
         var removed=s.products.stream().filter(p->!selected.contains(p.qcProductId())).toList();
         int before=s.materials.size();
@@ -37,7 +39,7 @@ public final class CreationProductSelection {
         s.selectionChange=new CreationState.SelectionChange(added.stream().map(CreationState.Product::name).toList(),
                 removed.stream().map(CreationState.Product::name).toList(),s.materials.size(),before-s.materials.size());
         s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;
-        s.analysisError=null;s.analysisStartedAt=0;s.reachedStep=1;
+        s.analysisError=null;s.analysisStartedAt=0;s.reachedStep=reached;
         s.recommendations=null;
         s.enginePlanId=null;s.engineJobId=null;s.groups=null;
         s.generationStatus="NONE";s.generationMessage=null;s.generationProductIds.clear();s.generationGroupProducts.clear();

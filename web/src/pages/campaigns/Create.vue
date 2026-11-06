@@ -45,7 +45,7 @@ import * as api from '@/features/delivery/creationApi';
 import { persistUploadBatch, localUploadSelection, type LocalUploadBatch, type UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import * as recommendations from '@/features/delivery/creationRecommendations';
 import { recommendedRoiDefault } from '@/features/delivery/creationRoiDefault';
-import { creationReachedStep, validReachedStep } from '@/features/delivery/creationProgress';
+import { creationReachedStep } from '@/features/delivery/creationProgress';
 import { selectionImpact, selectionImpactText } from '@/features/delivery/selectionImpact';
 import { productSelectionLocked } from '@/features/delivery/generationSelection';
 import { quoteNeedsReview, quoteReviewKey } from '@/features/delivery/creationQuoteReview';
@@ -194,7 +194,7 @@ function acceptRead(updated: api.CreationState) {
 const budgetError = computed(() => contentEditing.value ? '' : creationBudgetError(budget.value, mode.value));
 const roiError = computed(() => contentEditing.value ? '' : roiInputError(roi.value, mode.value));
 const dateError = computed(() => contentEditing.value ? '' : scheduleInputError(duration.value,start.value,end.value,today()));
-const reachedStep = computed(() => contentEditing.value ? 4 : validReachedStep(creationReachedStep(state.value,step.value),!sameAnalysisInput.value));
+const reachedStep = computed(() => contentEditing.value ? 4 : creationReachedStep(state.value,step.value));
 const draftHasGoal = computed(() => step.value >= 2 || sameSelection.value && state.value?.budget != null);
 const canSaveDraft = computed(() => !!account.value && !!selected.value.length && !selectionLocked.value
   && (!draftHasGoal.value || !!name.value.trim() && !budgetError.value && !roiError.value && !dateError.value));

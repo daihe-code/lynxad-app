@@ -276,7 +276,7 @@ public class CreationWorkflowService {
                 selectionEditable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
                 var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
                 if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
-                    s.reachedStep=1;
+                    s.reachedStep=s.reachedStep();
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
                 }
                 if(!new HashSet<>(previous).equals(new HashSet<>(next)))
@@ -300,7 +300,7 @@ public class CreationWorkflowService {
             selectionEditable(s);
             boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
             s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
-            if(changed){s.reachedStep=1;s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(changed){s.reachedStep=s.reachedStep();s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
             if(!s.basicAnalysis.canContinue())return;
             if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
             s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;

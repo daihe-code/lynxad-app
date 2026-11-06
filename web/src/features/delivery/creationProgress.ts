@@ -7,8 +7,3 @@ export function creationReachedStep(state?: ProgressState, currentStep = 1): num
   if (state.reachedStep != null) return Math.max(1, Math.min(4, state.reachedStep));
   return Math.max(state.step, state.budget != null || state.generationSelection != null || state.generationStatus !== 'NONE' || state.materials.length ? 3 : 1);
 }
-
-/** Reached steps describe navigation history; goal inputs are validated separately. */
-export function validReachedStep(reached: number, productsChanged = false): number {
-  return productsChanged ? 1 : reached;
-}

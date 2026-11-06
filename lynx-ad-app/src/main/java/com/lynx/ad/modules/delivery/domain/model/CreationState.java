@@ -29,7 +29,7 @@ public class CreationState {
     }
     public boolean publishedEditPending(){return publishedEdit!=null&&Set.of("SAVING","UNCERTAIN").contains(publishedEdit.status);}
     public int revision = 1, step = 1, packageVersion = 1;
-    /** Furthest valid visited page, independent of the page currently being viewed. */
+    /** Furthest visited page; input validity and navigation permissions are checked separately. */
     public Integer reachedStep;
     public int reachedStep() {
         if(qcPlanId!=null||"CREATED".equals(publishStatus))return 4;

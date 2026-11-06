@@ -177,16 +177,20 @@ class CreationBasicAnalysisWorkflowTest {
         when(qc.refreshPrices(eq(tenant),eq("account"),eq("aweme"),anyList())).thenReturn(List.of(changed));
         queueAnalysis();
         assertNull(saved.get().groupingDecision);assertEquals("QUEUED",saved.get().analysisStatus);
-        assertEquals(1,saved.get().reachedStep());
+        assertEquals(3,saved.get().reachedStep());
         verifyNoInteractions(engine);
     }
     @ParameterizedTest @ValueSource(booleans={false,true})
-    void selectionProgressIsResetOnlyWhenProductsReallyChange(boolean changed) {
+    void selectionChangesKeepVisitedStepsButInvalidateGoalsAndAnalysis(boolean changed) {
         saved.get().reachedStep=3;
         var selected=changed?ProductBasicAnalysisTest.valid("456"):saved.get().products.getFirst();
         when(qc.selected(eq(tenant),eq("account"),eq("aweme"),anyList())).thenReturn(List.of(selected));
         var updated=service.select(tenant,new CreationWorkflowService.Selection(id,1,"account","aweme",List.of(selected.qcProductId())));
-        assertEquals(changed?1:3,updated.reachedStep());
+        assertEquals(3,updated.reachedStep());
+        if(changed){
+            assertNull(updated.budget);assertTrue(updated.analysisConfirmation==null||updated.analysisConfirmation.isNull());
+            assertThrows(BizException.class,()->service.step(tenant,id,new CreationWorkflowService.Step(updated.revision,3)));
+        }
     }
     @ParameterizedTest @ValueSource(strings={"ValueError","ValidationError","JSONDecodeError","TimeoutError","ModelRequestError"})
     void modelFallbackIsFailedEvenWhenTheEngineRequestReturnedSuccessfully(String error) {
