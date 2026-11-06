@@ -46,7 +46,7 @@
       <template v-if="decision"><p>{{ decision.title }}</p><div class="summary">{{ decision.preview.action.kind === 'PAUSE' ? '暂停当前主计划' : `日预算：${money(decision.preview.action.expected)} → ${money(decision.preview.action.target)}` }}</div><p v-if="decision.preview.action.kind === 'BUDGET'">本次新增 {{ money(decision.preview.addition) }} · 今日已承诺 {{ money(decision.preview.committed) }}</p><p v-else>独立调控任务需单独确认处理。</p><el-alert v-if="decisionError" type="error" :title="decisionError" :closable="false" /></template>
       <template #footer><el-button :disabled="confirming" @click="decision = undefined">取消</el-button><el-button type="primary" :loading="confirming" :disabled="!!decisionError" @click="confirmDecision">确认执行</el-button></template>
     </el-dialog>
-    <footer><el-button v-if="data?.view.policy.enabled" :loading="closing" @click="closeOptimization">关闭盯盘优化</el-button><small v-if="data?.pending.length">关闭后，已提交操作仍会继续核实。</small><div class="footer-actions"><el-button v-if="data?.pending.length" :loading="refreshing" @click="load">查看最新状态</el-button><el-button type="primary" @click="emit('edit')">{{ data?.view.policy.enabled ? '修改规则' : '设置并开启' }}</el-button></div></footer>
+    <footer><el-button v-if="data?.view.policy.enabled" :loading="closing" @click="closeOptimization">暂停盯盘优化</el-button><small v-if="data?.pending.length">暂停后，已提交操作仍会继续核实。</small><div class="footer-actions"><el-button v-if="data?.pending.length" :loading="refreshing" @click="load">查看最新状态</el-button><el-button type="primary" @click="emit('edit')">{{ data?.view.policy.enabled ? '修改规则' : '设置并开启' }}</el-button></div></footer>
   </div>
 </template>
 <script setup lang="ts">
@@ -123,9 +123,9 @@ async function loadTasks() {
 }
 async function closeOptimization() {
   if (!data.value || closing.value) return;
-  try { await ElMessageBox.confirm('关闭后停止新的经营判断与自动执行，历史记录保留。已提交的操作继续核实；不会因此暂停或恢复广告。', '关闭盯盘优化', { confirmButtonText: '确认关闭', cancelButtonText: '取消' }); } catch { return; }
+  try { await ElMessageBox.confirm('暂停后停止新的经营判断与自动执行，历史记录保留。已提交的操作继续核实；不会因此暂停或恢复广告。', '暂停盯盘优化', { confirmButtonText: '确认暂停', cancelButtonText: '取消' }); } catch { return; }
   closing.value = true;
-  try { const view = data.value.view; await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version); emit('saved'); await load(); ElMessage.success({ message: '盯盘优化已关闭', duration: 3000 }); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '关闭失败，请重试'; } finally { closing.value = false; }
+  try { const view = data.value.view; await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version); emit('saved'); await load(); ElMessage.success({ message: '盯盘优化已暂停', duration: 3000 }); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂停失败，请重试'; } finally { closing.value = false; }
 }
 async function recheck(event: OptimizationEvent) { if (checking.value) return; checking.value = event.id; try { await recheckOptimization(event.id); await load(); emit('saved'); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂时无法核实，请稍后重试'; } finally { checking.value = ''; } }
 watch([today, category, days], () => { page.value = 1; void load(); }); watch(page, () => void load()); watch(tab, () => scrollArea.value?.scrollTo({ top: 0 }));
