@@ -471,7 +471,7 @@ async function reviewPublishEstimate() {
 }
 async function verifyContent(){await run(async()=>{if(!state.value)return;acceptRead(await api.verifyContentEdit(state.value));await contentSaved();});}
 let contentSaveHandled=false;
-async function contentSaved(){const s=state.value;if(s?.contentEdit?.status==='SUCCEEDED' && !contentSaveHandled){contentSaveHandled=true;autosave.discard();if(props.publishedWorkspace){await props.onPublishedSaved?.();return;}ElMessage.success('修改已保存到原投放计划');await router.replace({path:`/campaigns/${s.contentEdit.targetPlanId}`,query:{step:'3'}});}}
+async function contentSaved(){const s=state.value;if(s?.contentEdit?.status==='SUCCEEDED' && !contentSaveHandled){contentSaveHandled=true;autosave.discard();if(props.publishedWorkspace){await props.onPublishedSaved?.();return;}ElMessage.success('修改已保存到原投放计划');await router.replace({path:`/campaigns/${s.contentEdit.targetPlanId}/edit`,query:{step:'3'}});}}
 async function publish() {
   if(contentEditing.value){
     try{await ElMessageBox.confirm('将当前商品、标题与素材保存到原投放计划。保留商品的现有素材继续使用，移出的商品及其素材将停止在本计划中展示和投放；素材中心文件保留。已发生的生成用量不会撤销。','保存商品与素材修改',{confirmButtonText:'保存修改',cancelButtonText:'返回核对',type:'warning'});}catch{return;}

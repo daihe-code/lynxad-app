@@ -38,6 +38,30 @@ test('同一目标值已被保存：只读确认即可，不重复调用更新�
   });
   assert.equal(result.status,'SAVED');assert.equal(writes,1);
 });
+
+test('同一编辑会话连续保存预算、ROI、名称，沿用每次返回的最新版本和已保存值', async () => {
+  let current=structuredClone(base);const writes=[];
+  const actions={
+    read:async()=>assert.fail('保存成功后无需重新加载编辑会话'),
+    write:async patch=>{
+      assert.equal(patch.expectedVersion,current.settingsEdit.version);
+      writes.push(patch);
+      current={...current,...patch,settingsEdit:{version:`${writes.length + 1}.saved`,status:'IDLE'}};
+      return current;
+    },
+    rebased:()=>assert.fail('正常连续保存不应触发冲突恢复'),
+  };
+  let result=await savePlanSettingsWithRecovery(current,inputs,actions);
+  result=await savePlanSettingsWithRecovery(result.plan,{...inputs,roi:'4.9'},actions);
+  result=await savePlanSettingsWithRecovery(result.plan,{...inputs,roi:'4.9',name:'继续编辑的计划'},actions);
+  assert.deepEqual(writes,[
+    {expectedVersion:'1.before',budget:400},
+    {expectedVersion:'2.saved',roi2Goal:4.9},
+    {expectedVersion:'3.saved',name:'继续编辑的计划'},
+  ]);
+  assert.equal(result.plan.budget,400);assert.equal(result.plan.roi2Goal,4.9);
+  assert.equal(result.plan.name,'继续编辑的计划');assert.equal(result.status,'SAVED');
+});
 test('保存结果不确定、超时或业务校验错误，不自动重发写请求', async () => {
   for (const error of [{code:1406},{code:1523},{code:'ERR_NETWORK'},{code:1402},{status:409}]) {
     let reads=0,writes=0;

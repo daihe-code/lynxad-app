@@ -311,7 +311,7 @@ function changeTransferMode(value: string) {
 async function finishTransfer(result: PlanTransferResult) {
   if (result.status === 'SUCCEEDED') {
     submission = undefined; pendingSubmission.value = false; ElMessage.success('计划修改已保存');
-    await router.replace({ path: `/campaigns/${result.planId}`, query: { step: String(step.value) } }); await load();
+    await router.replace({ path: `/campaigns/${result.planId}/edit`, query: { step: String(step.value) } });
   } else {
     pendingSubmission.value = ['RUNNING', 'UNCERTAIN'].includes(result.status);
     if (result.status === 'FAILED') submission = undefined;
@@ -373,7 +373,7 @@ async function saveSettings() {
     } else plan.value=await updateDraft(p.planId, { accountId: p.accountId!, awemeId: p.awemeId!, name: name.value.trim(), smartBidType: bidType.value, dailyBudget: Number(budget.value), ...(isCost.value ? { roi2Goal: Number(roi.value) } : {}), productIds: products.value.map(x => x.qcProductId) });
     clearSettingsRecovery();
     resetForm(); ElMessage.success('计划修改已保存');
-    await router.replace({ path: `/campaigns/${p.planId}`, query: { step: String(step.value) } });
+    await router.replace({ path: `/campaigns/${p.planId}/edit`, query: { step: String(step.value) } });
   } catch(error) {
     settingsFailure.value=requestFailure(error,{method:'PUT'});
     if(p.qcPlanId) {
@@ -411,7 +411,7 @@ async function finishContentSave() {
     }
     plan.value=latest;
     if(hadSettings)await saveSettings();
-    else {resetForm();ElMessage.success('计划修改已保存');await router.replace({path:`/campaigns/${before.planId}`,query:{step:'3'}});}
+    else {resetForm();ElMessage.success('计划修改已保存');await router.replace({path:`/campaigns/${before.planId}/edit`,query:{step:String(step.value)}});}
   } catch(error) {
     settingsFailure.value=requestFailure(error,{method:'GET'});
     contentDraftId.value='';contentEditor=undefined;
@@ -436,7 +436,7 @@ async function verifySettingsResult(acceptCurrent=false) {
       clearSettingsRecovery();if(values)adoptSettings(result.plan,values);else{plan.value=result.plan;resetForm();}
       if(result.status==='CONFIRMED') {
         ElMessage.success('计划修改已保存');
-        if(!dirty.value && !contentDraftId.value)await router.replace({path:`/campaigns/${p.planId}`,query:{step:String(step.value)}});
+        if(!dirty.value && !contentDraftId.value)await router.replace({path:`/campaigns/${p.planId}/edit`,query:{step:String(step.value)}});
       }
       return;
     }
