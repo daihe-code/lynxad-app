@@ -46,15 +46,17 @@
       <template v-if="decision"><p>{{ decision.title }}</p><div class="summary">{{ decision.preview.action.kind === 'PAUSE' ? '暂停当前主计划' : `日预算：${money(decision.preview.action.expected)} → ${money(decision.preview.action.target)}` }}</div><p v-if="decision.preview.action.kind === 'BUDGET'">本次新增 {{ money(decision.preview.addition) }} · 今日已承诺 {{ money(decision.preview.committed) }}</p><p v-else>独立调控任务需单独确认处理。</p><el-alert v-if="decisionError" type="error" :title="decisionError" :closable="false" /></template>
       <template #footer><el-button :disabled="confirming" @click="decision = undefined">取消</el-button><el-button type="primary" :loading="confirming" :disabled="!!decisionError" @click="confirmDecision">确认执行</el-button></template>
     </el-dialog>
-    <footer><el-button v-if="data?.view.policy.enabled" :loading="closing" @click="closeOptimization">暂停盯盘优化</el-button><small v-if="data?.pending.length">暂停后，已提交操作仍会继续核实。</small><div class="footer-actions"><el-button v-if="data?.pending.length" :loading="refreshing" @click="load">查看最新状态</el-button><el-button type="primary" @click="emit('edit')">{{ data?.view.policy.enabled ? '修改规则' : '设置并开启' }}</el-button></div></footer>
+    <PlanOptimizationPauseDialog v-model="pauseConfirmOpen" :busy="closing" :error="pauseError" :tasks="tasks" :tasks-loading="tasksLoading" :tasks-unavailable="!!taskError" @confirm="pauseOptimization" @tasks="showControlTasks" />
+    <footer><el-button v-if="data?.view.policy.enabled" :loading="closing" @click="openPauseConfirmation">暂停盯盘优化</el-button><small v-if="data?.pending.length">暂停后，已提交操作仍会继续核实。</small><div class="footer-actions"><el-button v-if="data?.pending.length" :loading="refreshing" @click="load">查看最新状态</el-button><el-button type="primary" @click="emit('edit')">{{ data?.view.policy.enabled ? '修改规则' : '设置并开启' }}</el-button></div></footer>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { Clock, CircleCheck, Document } from '@element-plus/icons-vue';
 import PlanOptimizationReviews from './PlanOptimizationReviews.vue';
+import PlanOptimizationPauseDialog from './PlanOptimizationPauseDialog.vue';
 import { previewOptimizationDecision, confirmOptimizationDecision, startOptimizationReview, type DecisionPreview, type MonitoringRecommendation, getOptimizationDetails, recheckOptimization, saveOptimizationRules, type OptimizationDetails, type OptimizationEvent } from '@/features/delivery/optimizationApi';
 import { monitoringDuration, optimizationDetailState } from '@/features/delivery/optimizationDetails';
 import { defaultOptimizationRules } from '@/features/delivery/optimizationRules';
@@ -67,6 +69,7 @@ const router = useRouter(), tab = ref('overview'), today = ref(false), category 
 const categories = [{ value: 'ALL', label: '全部' }, { value: 'RISK', label: '风险处理' }, { value: 'GROWTH', label: '增长优化' }, { value: 'RULES', label: '规则变更' }];
 const data = ref<OptimizationDetails>(), loading = ref(true), refreshing = ref(false), closing = ref(false), checking = ref(''), error = ref(''), taskError = ref('');
 const tasks = ref<(ControlTask & { kind: string })[]>([]), scrollArea = ref<HTMLElement>();
+const tasksLoading = ref(false), pauseConfirmOpen = ref(false), pauseError = ref('');
 const deciding = ref(''), confirming = ref(false), decisionError = ref('');
 const decision = ref<{ title: string; preview: DecisionPreview }>();
 const latestEffect = computed(() => data.value?.reviews?.find(r => r.status === 'COMPARED')?.result);
@@ -115,17 +118,25 @@ async function load() {
   finally { if (!disposed && current === revision) { loading.value = false; refreshing.value = false; } }
 }
 async function loadTasks() {
-  if (props.plan?.smartBidType !== 'SMART_BID_CUSTOM' && data.value?.view.bidType !== 'CUSTOM') return;
+  if (tasksLoading.value || props.plan?.smartBidType !== 'SMART_BID_CUSTOM' && data.value?.view.bidType !== 'CUSTOM') return;
+  tasksLoading.value = true;
   const values = await Promise.allSettled(['一键起量', '素材追投'].map(async kind => (await listControlTasks(props.planId, kind)).map(task => ({ ...task, kind }))));
+  tasksLoading.value = false;
   if (disposed) return;
   tasks.value = values.flatMap(value => value.status === 'fulfilled' ? value.value : []).filter(task => !['FROZEN', 'OFFLINE_TIME', 'OFFLINE_BUDGET', 'DELETED'].includes(task.task_status || ''));
   taskError.value = values.some(value => value.status === 'rejected') ? '独立任务状态暂未核实，请到调控中查看。' : '';
 }
-async function closeOptimization() {
-  if (!data.value || closing.value) return;
-  try { await ElMessageBox.confirm('暂停后停止新的经营判断与自动执行，历史记录保留。已提交的操作继续核实；不会因此暂停或恢复广告。', '暂停盯盘优化', { confirmButtonText: '确认暂停', cancelButtonText: '取消' }); } catch { return; }
+function openPauseConfirmation() {
+  if (!data.value?.view.policy.enabled || closing.value) return;
+  pauseError.value = ''; pauseConfirmOpen.value = true;
+  void loadTasks();
+}
+function showControlTasks() { if (closing.value) return; pauseConfirmOpen.value = false; emit('data', 'controls'); }
+async function pauseOptimization() {
+  if (!data.value?.view.policy.enabled || closing.value) return;
   closing.value = true;
-  try { const view = data.value.view; await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version); emit('saved'); await load(); ElMessage.success({ message: '盯盘优化已暂停', duration: 3000 }); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂停失败，请重试'; } finally { closing.value = false; }
+  pauseError.value = '';
+  try { const view = data.value.view; await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version); pauseConfirmOpen.value = false; emit('saved'); await load(); ElMessage.success({ message: '盯盘优化已暂停', duration: 3000 }); } catch (err: any) { pauseError.value = err?.response?.data?.message || err?.message || '暂停失败，请重试'; } finally { closing.value = false; }
 }
 async function recheck(event: OptimizationEvent) { if (checking.value) return; checking.value = event.id; try { await recheckOptimization(event.id); await load(); emit('saved'); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂时无法核实，请稍后重试'; } finally { checking.value = ''; } }
 watch([today, category, days], () => { page.value = 1; void load(); }); watch(page, () => void load()); watch(tab, () => scrollArea.value?.scrollTo({ top: 0 }));
