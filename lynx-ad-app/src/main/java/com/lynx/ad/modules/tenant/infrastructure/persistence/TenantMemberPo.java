@@ -9,6 +9,15 @@ public class TenantMemberPo {
     private String userId;
     private String memberRole;
     private Instant createdAt;
+    private String membershipId;
+    private String status;
+    private Long permissionVersion;
+    public String getMembershipId() { return membershipId; }
+    public void setMembershipId(String value) { membershipId=value; }
+    public String getStatus() { return status; }
+    public void setStatus(String value) { status=value; }
+    public Long getPermissionVersion() { return permissionVersion; }
+    public void setPermissionVersion(Long value) { permissionVersion=value; }
 
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }

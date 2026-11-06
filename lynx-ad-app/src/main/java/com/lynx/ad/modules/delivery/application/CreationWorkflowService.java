@@ -1126,6 +1126,7 @@ public class CreationWorkflowService {
         store.mutate(a.tenant(),a.planId(),null,state->state.publishStatus="SENDING");
         String qcId;
         try {
+            store.validatePublishScope(a);
             var body=json.readTree(a.payload());qcId=qc.create(new TenantId(a.tenant()),s.accountId,s.awemeId,body);
         }catch(BizException e){
             failed(a,e.code()==1523?"UNCERTAIN":"FAILED",e.getMessage(),e.code());

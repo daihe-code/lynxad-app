@@ -50,6 +50,8 @@ public class AuthCommandService {
     private final PasswordLoginGuard passwordGuard;
     private final AccountInitializationService initialization;
     private final SingleTenantMembershipPolicy membershipPolicy = new SingleTenantMembershipPolicy();
+    private org.springframework.jdbc.core.JdbcTemplate sessionJdbc;
+    @org.springframework.beans.factory.annotation.Autowired public void sessionJdbc(org.springframework.jdbc.core.JdbcTemplate value) { sessionJdbc=value; }
 
     public AuthCommandService(
             OtpStore otpStore,
@@ -139,7 +141,16 @@ public class AuthCommandService {
     }
 
     public void logout(com.lynx.ad.common.domain.Ids.UserId userId) {
-        // short-lived JWT; optional blacklist omitted in this round
+        if(sessionJdbc==null)return;
+        var principal=com.lynx.ad.common.security.TenantContext.require();
+        principal.sessionId().ifPresent(id->{
+            // Same session can be logged out repeatedly; its JWT lifetime bounds retention.
+            try {
+                sessionJdbc.update("INSERT INTO workspace_session_revocation(session_id,expires_at) SELECT ?,? WHERE NOT EXISTS (SELECT 1 FROM workspace_session_revocation WHERE session_id=?)",id,java.sql.Timestamp.from(Instant.now().plusSeconds(properties.getJwt().getTtlSec())),id);
+            } catch (org.springframework.dao.DuplicateKeyException alreadyRevoked) {
+                // Another replica already invalidated the same session.
+            }
+        });
     }
 
     /** Resume sessions issued before workspace creation moved into successful login. */
@@ -150,6 +161,8 @@ public class AuthCommandService {
     }
 
     private void claimInviteIfPresent(User user, PhoneNumber phone) {
+        // Login must not implicitly join another workspace. Existing invitations are accepted explicitly in the team phase.
+        if(tenantRepository.findByUserId(user.id()).isPresent())return;
         Optional<MemberInvitation> inv = invitationStore.findByPhone(phone);
         if (inv.isEmpty() || inv.get().isExpired(Instant.now())) {
             return;

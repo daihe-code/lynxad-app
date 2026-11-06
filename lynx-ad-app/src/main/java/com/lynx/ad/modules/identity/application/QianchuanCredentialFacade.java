@@ -18,6 +18,10 @@ public class QianchuanCredentialFacade {
     private final Encryptor encryptor;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private LiveQianchuanAuthorizationService liveAuthorization;
+    private AccountBindingRegistry bindings;
+    private AccountGrantSelector grantSelector;
+    @org.springframework.beans.factory.annotation.Autowired public void bindings(AccountBindingRegistry value) { bindings=value; }
+    @org.springframework.beans.factory.annotation.Autowired public void grantSelector(AccountGrantSelector value) { grantSelector=value; }
 
     public QianchuanCredentialFacade(OauthAccountRepository repository, Encryptor encryptor) {
         this.repository = repository;
@@ -32,12 +36,19 @@ public class QianchuanCredentialFacade {
 
     /** Tenant-scoped credentials; refresh remains inside the authorization module. */
     public Credential getUsableCredential(TenantId tenantId, AccountId accountId) {
+        if(bindings!=null)bindings.executionScope(tenantId.value(),accountId.value(),TenantContext.tenantId().isPresent()?TenantContext.userId().value():null);
         OauthAccount account = repository.findById(tenantId, accountId)
                 .orElseThrow(() -> new BizException(1201, "授权账户不存在或不属于当前灵投账户"));
         if (liveAuthorization != null && liveAuthorization.enabled()) {
+            if(!"ACTIVE".equals(account.status())&&grantSelector!=null&&grantSelector.activateAlternative(tenantId.value(),accountId.value(),account.grantId()))
+                account=repository.findById(tenantId,accountId).orElseThrow();
             if (account.grantId() == null) throw new BizException(1211, "请先完成真实千川授权，演示账户不能用于真实接口");
             if ("ACTIVE".equals(account.status()) && account.needsRefresh(Instant.now())) {
-                liveAuthorization.refresh(tenantId, accountId, false, false);
+                try {liveAuthorization.refresh(tenantId, accountId, false, false);}
+                catch(BizException ex) {
+                    boolean invalid=ex.code()==1211||ex instanceof com.lynx.ad.modules.identity.infrastructure.adapter.LiveOauthTokenAdapter.RemoteFailure failure&&failure.permanent();
+                    if(!invalid||grantSelector==null||!grantSelector.activateAlternative(tenantId.value(),accountId.value(),account.grantId()))throw ex;
+                }
                 account = repository.findById(tenantId, accountId).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
             }
         }

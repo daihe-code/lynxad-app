@@ -115,7 +115,7 @@ router.beforeEach(async (to) => {
       try {
         await user.loadMe();
       } catch {
-        user.logout();
+        await user.logout();
         return "/login";
       }
     }

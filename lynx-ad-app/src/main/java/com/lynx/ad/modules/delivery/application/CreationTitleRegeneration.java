@@ -42,7 +42,7 @@ public class CreationTitleRegeneration {
             current.titleGeneration=r;current.changed();
         });
         JsonNode result;
-        try {result=engine.post("/api/v1/capabilities/generation/titles",Map.of("store_id",s.tenantId,"request_id",request,"product_id",product,"kind",kind,
+        try {result=engine.post("/api/v1/capabilities/generation/titles",Map.of("store_id",s.tenantId,"account_id",Objects.toString(s.accountId,""),"request_id",request,"product_id",product,"kind",kind,
                 "original",reference,"existing_titles",existing,"product_name",p.name(),"category",Objects.toString(p.category(),"")));}
         catch(BizException error) {
             if(error.code()!=8003)return finish(reserved,request,"FAILED","标题生成未完成，原标题已保留，请重试。");

@@ -29,7 +29,7 @@ public class MemberCommandService {
     }
 
     public void invite(UserId actor, PhoneNumber phone) {
-        Tenant tenant = tenantRepository.findByUserId(actor).orElseThrow(() -> new BizException(401, "未开通公司"));
+        Tenant tenant = tenantRepository.findById(com.lynx.ad.common.security.TenantContext.requireTenantId()).orElseThrow(() -> new BizException(401, "未开通工作空间"));
         MemberInvitation invitation = tenant.invite(actor, phone);
         invitationStore.save(invitation, Duration.ofDays(7));
     }

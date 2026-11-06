@@ -14,6 +14,7 @@ public final class TenantContext {
     public static void set(TenantPrincipal principal) {
         HOLDER.set(principal);
     }
+    public static Optional<TenantPrincipal> current() { return Optional.ofNullable(HOLDER.get()); }
 
     public static TenantPrincipal require() {
         TenantPrincipal principal = HOLDER.get();

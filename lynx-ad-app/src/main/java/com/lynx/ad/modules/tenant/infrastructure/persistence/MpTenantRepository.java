@@ -49,6 +49,9 @@ public class MpTenantRepository implements TenantRepository {
                 mp.setTenantId(tenant.id().value());
                 mp.setUserId(m.userId().value());
                 mp.setMemberRole(m.role().name());
+                mp.setMembershipId(java.util.UUID.randomUUID().toString());
+                mp.setStatus("ACTIVE");
+                mp.setPermissionVersion(1L);
                 mp.setCreatedAt(m.joinedAt());
                 memberMapper.insert(mp);
             }
@@ -63,7 +66,8 @@ public class MpTenantRepository implements TenantRepository {
     @Override
     public Optional<Tenant> findByUserId(UserId userId) {
         TenantMemberPo mp = memberMapper.selectOne(
-                new LambdaQueryWrapper<TenantMemberPo>().eq(TenantMemberPo::getUserId, userId.value()).last("limit 1"));
+                new LambdaQueryWrapper<TenantMemberPo>().eq(TenantMemberPo::getUserId, userId.value())
+                        .eq(TenantMemberPo::getStatus,"ACTIVE").orderByAsc(TenantMemberPo::getCreatedAt,TenantMemberPo::getTenantId).last("limit 1"));
         if (mp == null) {
             return Optional.empty();
         }
@@ -77,7 +81,7 @@ public class MpTenantRepository implements TenantRepository {
 
     private Tenant toDomain(TenantPo po) {
         List<TenantMemberPo> members = memberMapper.selectList(
-                new LambdaQueryWrapper<TenantMemberPo>().eq(TenantMemberPo::getTenantId, po.getId()));
+                new LambdaQueryWrapper<TenantMemberPo>().eq(TenantMemberPo::getTenantId, po.getId()).eq(TenantMemberPo::getStatus,"ACTIVE"));
         List<TenantMember> domainMembers = members.stream()
                 .map(m -> new TenantMember(
                         new UserId(m.getUserId()), MemberRole.valueOf(m.getMemberRole()), m.getCreatedAt()))
