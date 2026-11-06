@@ -18,13 +18,16 @@ export function useProductSuggestions(input: {
       ? JSON.stringify([account.accountId, account.awemeId, input.draftId() || '', sourceProduct.value.qcProductId, input.selected().map(p => p.qcProductId).sort()]) : '';
   });
   const products = computed(() => result.value?.items.map(item => item.product) || []);
-  let request: AbortController | undefined, sequence = 0, disposed = false;
+  let request: AbortController | undefined, sequence = 0, disposed = false, requestScope = '';
 
   async function load(refresh = false) {
     if (!scope.value || disposed) return;
+    // Repeated clicks on the same anchor share the running request instead of cancelling it.
+    if (loading.value && requestScope === scope.value) return;
     request?.abort();
     request = new AbortController();
     const current = ++sequence, key = scope.value, account = input.account()!, ids = [sourceProduct.value!.qcProductId];
+    requestScope = key;
     loading.value = true; failure.value = undefined; result.value = undefined;
     try {
       const next = await creationProductSuggestions(account.accountId!, account.awemeId, ids, input.draftId(), refresh, request.signal, input.selected().map(p => p.qcProductId));
