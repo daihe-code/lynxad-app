@@ -52,7 +52,8 @@ public class TenantQuerySupport {
 
     public CurrentUserResponse current(UserId userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
-        Tenant tenant = tenantRepository.findByUserId(userId).orElse(null);
+        Tenant tenant = TenantContext.tenantId().flatMap(tenantRepository::findById)
+                .filter(t->t.memberOf(userId).isPresent()).orElse(null);
         TrialVo trial = tenant == null ? null : billingTrialService.current(tenant.id(), Instant.now());
         // Profile fields are optional; older sessions may still need tenant-scoped claims refreshed.
         boolean needOnboarding = tenant == null || TenantContext.tenantId().filter(tenant.id()::equals).isEmpty();

@@ -25,6 +25,11 @@ public class TenantMembershipFacade {
     }
 
     public Optional<TenantId> currentTenantOf(UserId userId) {
-        return tenantRepository.findByUserId(userId).map(t -> t.id());
+        return currentWorkspace(tenantRepository,userId).map(t->t.id());
+    }
+    static Optional<com.lynx.ad.modules.tenant.domain.model.Tenant> currentWorkspace(TenantRepository repository,UserId userId) {
+        var selected=com.lynx.ad.common.security.TenantContext.tenantId();
+        if(selected.isPresent())return repository.findById(selected.get()).filter(t->t.memberOf(userId).isPresent());
+        return repository.findByUserId(userId);
     }
 }

@@ -16,6 +16,8 @@ public class CreationEngineClient {
     private final LynxAdProperties properties;
     private final ObjectMapper json;
     private final String apiKey;
+    private com.lynx.ad.modules.identity.application.EngineExecutionTickets executionTickets;
+    @org.springframework.beans.factory.annotation.Autowired public void executionTickets(com.lynx.ad.modules.identity.application.EngineExecutionTickets value) { executionTickets=value; }
     private final HttpClient http=HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build();
     public CreationEngineClient(LynxAdProperties properties,ObjectMapper json,
             @Value("${lynx.ad.monitoring.engine-api-key:}") String apiKey){this.properties=properties;this.json=json;this.apiKey=apiKey;}
@@ -33,12 +35,19 @@ public class CreationEngineClient {
         try {
             var req=HttpRequest.newBuilder(URI.create(base()+path)).timeout(Duration.ofSeconds(240)).header("Accept","application/json").header("X-LynxAd-Caller","lynxad-app");
             if(apiKey!=null&&!apiKey.isBlank())req.header("X-API-Key",apiKey);
+            String ticket=null;
+            if(payload!=null&&executionTickets!=null) {
+                ticket=executionTickets.header(json.valueToTree(payload));
+                if(ticket!=null)req.header("X-Workspace-Execution",ticket);
+            }
             if(payload==null)req.GET();else req.header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload),StandardCharsets.UTF_8));
             var response=http.send(req.build(),HttpResponse.BodyHandlers.ofByteArray());
             if(missingAllowed&&response.statusCode()==404)return null;
             if(response.statusCode()<200||response.statusCode()>=300) throw new BizException(payload!=null&&(response.statusCode()>=500||response.statusCode()<400||response.statusCode()==408)?8003:8002,"AI 引擎请求异常（HTTP "+response.statusCode()+"），请检查任务状态与引擎配置");
             if(response.body().length>8*1024*1024)throw new BizException(payload==null?8002:8003,"AI 引擎响应超出限制，已提交请求时请核查结果");
-            return json.readTree(response.body());
+            var parsed=json.readTree(response.body());
+            if(executionTickets!=null&&"/api/v1/plan-tasks".equals(path))executionTickets.remember(ticket,parsed);
+            return parsed;
         }catch(BizException e){throw e;}catch(InterruptedException e){Thread.currentThread().interrupt();throw new BizException(payload==null?8002:8003,"AI 引擎请求中断，提交结果待确认");}
         catch(Exception e){throw new BizException(payload==null?8002:8003,"AI 引擎连接失败或响应超时；已提交任务时请先查询状态");}
     }

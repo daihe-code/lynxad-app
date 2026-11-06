@@ -766,7 +766,7 @@ onMounted(async () => {
     } catch (error) {
       const authError = error as { code?: number; response?: { status?: number } } | null;
       // A temporary service error must not discard a saved login session.
-      if (!localStorage.getItem("lynx.token") || authError?.code === 401 || authError?.response?.status === 401) user.logout();
+      if (!localStorage.getItem("lynx.token") || authError?.code === 401 || authError?.response?.status === 401) await user.logout();
     }
   }
   if (!disposed && route.query.modal === "contact") await openContact();

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, onScopeDispose, ref } from "vue";
-import { initializeAccount, fetchMe, passwordLogin, smsLogin, welcomeStatus, acknowledgeWelcome, type CurrentUser } from "@/features/tenant/authApi";
+import { initializeAccount, fetchMe, logoutApi, passwordLogin, smsLogin, welcomeStatus, acknowledgeWelcome, type CurrentUser } from "@/features/tenant/authApi";
 import { loginLandingPath } from "@/features/identity/oauthApi";
 
 export const useUserStore = defineStore("user", () => {
@@ -8,6 +8,11 @@ export const useUserStore = defineStore("user", () => {
   const syncSession = () => { token.value = localStorage.getItem("lynx.token") || ""; };
   window.addEventListener("lynx:session-replaced", syncSession);
   onScopeDispose(() => window.removeEventListener("lynx:session-replaced", syncSession));
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === 'lynx.token' && event.newValue !== token.value) window.location.reload();
+  };
+  window.addEventListener('storage', onStorage);
+  onScopeDispose(() => window.removeEventListener('storage', onStorage));
   const me = ref<CurrentUser | null>(null);
   const welcomeAcknowledged = ref<boolean | null>(null);
 
@@ -66,7 +71,8 @@ export const useUserStore = defineStore("user", () => {
     welcomeAcknowledged.value = (await welcomeStatus()).acknowledged;
   }
 
-  function logout() {
+  async function logout() {
+    try { if (token.value) await logoutApi(); } catch { /* Local sign-out still completes when the service is unavailable. */ }
     welcomeAcknowledged.value = null;
     token.value = "";
     me.value = null;

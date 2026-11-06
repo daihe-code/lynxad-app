@@ -18,6 +18,9 @@ public class AccountInitializationService {
     private final UserRepository users;
     private final TenantRepository tenants;
     private final BillingTrialService trials;
+    private WorkspaceFoundation foundation;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void foundation(WorkspaceFoundation value) { foundation=value; }
 
     public AccountInitializationService(UserRepository users, TenantRepository tenants, BillingTrialService trials) {
         this.users = users;
@@ -29,12 +32,14 @@ public class AccountInitializationService {
     public Tenant initialize(UserId userId) {
         // Serialize first use across sessions, then read the latest membership after acquiring the lock.
         User user = users.findByIdForUpdate(userId).orElseThrow(() -> new BizException(401, "未登录"));
-        return tenants.findByUserId(userId).orElseGet(() -> {
+        Tenant result=tenants.findByUserId(userId).orElseGet(() -> {
             String name = user.profile().map(UserProfile::companyName).filter(value -> !value.isBlank()).orElse("我的工作空间");
             Tenant tenant = Tenant.createForFirstOnboarding(userId, name);
             tenants.save(tenant);
             trials.start(tenant.id(), Instant.now());
             return tenant;
         });
+        if(foundation!=null)foundation.ensure(result.id().value());
+        return result;
     }
 }

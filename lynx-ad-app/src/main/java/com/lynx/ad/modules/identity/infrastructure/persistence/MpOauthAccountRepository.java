@@ -120,6 +120,9 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
     private final OauthAccountMapper accountMapper;
     private final OauthAwemeMapper awemeMapper;
     private final AwemeCatalog catalog = new AwemeCatalog();
+    private com.lynx.ad.modules.identity.application.AccountBindingRegistry bindings;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void bindings(com.lynx.ad.modules.identity.application.AccountBindingRegistry value) { bindings=value; }
 
     public MpOauthAccountRepository(OauthAccountMapper accountMapper, OauthAwemeMapper awemeMapper) {
         this.accountMapper = accountMapper;
@@ -129,6 +132,7 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
     @Override
     @Transactional
     public void save(OauthAccount account) {
+        String responsible=bindings==null?account.authorizedByUserId().orElse(null):bindings.synchronize(account);
         OauthAccountPo po = accountMapper.selectById(account.id().value());
         boolean insert = po == null;
         if (insert) {
@@ -145,7 +149,7 @@ public class MpOauthAccountRepository implements OauthAccountRepository {
         po.setTokenExpiresAt(account.tokenExpiresAt());
         po.setRefreshExpiresAt(account.refreshExpiresAt());
         po.setStatus(account.status());
-        po.setAuthorizedByUserId(account.authorizedByUserId().orElse(null));
+        po.setAuthorizedByUserId(responsible);
         po.setGrantId(account.grantId());
         po.setApplicationId(account.applicationId());
         po.setCatalogError(account.catalogError());

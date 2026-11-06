@@ -25,6 +25,7 @@
       </div>
       <div class="right">
         <button v-if="usesReferenceHeader" class="nav-toggle" type="button" :aria-label="navOpen ? '收起导航' : '展开导航'" aria-controls="app-navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></button>
+        <WorkspacePicker />
         <AdvertisingAccountPicker v-if="showAdvertisingAccount" />
         <NotificationCenter />
         <UserMenu v-if="usesReferenceHeader" />
@@ -60,6 +61,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import UserMenu from "./UserMenu.vue";
 import NotificationCenter from "./NotificationCenter.vue";
+import WorkspacePicker from '@/components/WorkspacePicker.vue';
 import AdvertisingAccountPicker from '@/components/AdvertisingAccountPicker.vue';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { useUserStore } from "@/stores/user";
@@ -93,8 +95,8 @@ function onHelp() {
   ElMessage.info("帮助中心即将上线");
 }
 
-function onLogout() {
-  user.logout();
+async function onLogout() {
+  await user.logout();
   router.push("/login");
 }
 

@@ -236,7 +236,7 @@ public class OauthCommandService {
     private void assertAccountLimit(TenantId tenantId) {
         int limit = entitlementQueryService.adAccountLimit(tenantId);
         long active = repository.findByTenant(tenantId).stream()
-                .filter(a -> "ACTIVE".equals(a.status()))
+                .filter(a -> !java.util.List.of("UNBOUND","DELETED").contains(a.status()))
                 .count();
         if (active >= limit) {
             throw new BizException(1206, "当前套餐最多绑定 " + limit + " 个广告账户");

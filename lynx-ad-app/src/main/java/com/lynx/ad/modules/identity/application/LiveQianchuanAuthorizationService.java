@@ -43,6 +43,8 @@ public class LiveQianchuanAuthorizationService {
     private final ObjectMapper json;
     private final TransactionTemplate transaction;
     private final OauthStateSigner signer;
+    private AccountBindingRegistry bindings;
+    @org.springframework.beans.factory.annotation.Autowired public void bindings(AccountBindingRegistry value) { bindings=value; }
     public record CallbackOutcome(boolean ok,String sessionId,String error) {}
     public record SessionView(String sessionId,String platform,String status,List<AuthorizedAdvertiser> accounts,
             List<String> boundAccountIds,int accountLimit,String returnPath,String message) {}
@@ -158,8 +160,8 @@ public class LiveQianchuanAuthorizationService {
             Grant latestGrant=store.grant(grant.id(),tenant.value());
             if(!"ACTIVE".equals(latestGrant.status())) throw new BizException(1211,"授权已失效，请重新授权");
             List<OauthAccount> existing=accounts.findByTenant(tenant);
-            long active=existing.stream().filter(this::active).count();
-            long additional=ids.stream().filter(adv->existing.stream().noneMatch(a->a.platform()==Platform.QIANCHUAN && a.advertiserId().value().equals(adv) && active(a))).count();
+            long active=existing.stream().filter(a->!List.of("UNBOUND","DELETED").contains(a.status())).count();
+            long additional=ids.stream().filter(adv->existing.stream().noneMatch(a->a.platform()==Platform.QIANCHUAN && a.advertiserId().value().equals(adv) && !List.of("UNBOUND","DELETED").contains(a.status()))).count();
             int limit=entitlements.adAccountLimit(tenant);
             if(active+additional>limit) throw new BizException(1206,"当前套餐最多绑定 "+limit+" 个广告账户，请减少选择或取消其他绑定");
             List<String> bound=new ArrayList<>();
@@ -224,6 +226,12 @@ public class LiveQianchuanAuthorizationService {
         transaction.executeWithoutResult(tx->{
             store.lockTenant(tenant.value());
             OauthAccount account=accounts.findById(tenant,id).orElseThrow(()->new BizException(1201,"授权账户不存在"));
+            if(bindings!=null) {
+                String actor=TenantContext.tenantId().isPresent()?TenantContext.userId().value():account.authorizedByUserId().orElse(null);
+                var binding=bindings.find(tenant.value(),id.value()).orElseThrow(()->new BizException(1201,"账户绑定不存在"));
+                if(actor==null||!actor.equals(binding.boundUserId()))throw new BizException(403,"仅账户绑定责任人可操作");
+                bindings.release(tenant.value(),id.value());
+            }
             if(remove) {
                 if(!account.canRemove(Instant.now())) throw new BizException(1211,"请先取消有效授权再删除记录");
                 store.accountStatus(tenant.value(),id.value(),"DELETED");

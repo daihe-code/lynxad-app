@@ -71,6 +71,12 @@ class AccountInitializationTest {
         jdbc.execute("CREATE TABLE billing_trial(tenant_id VARCHAR(36) PRIMARY KEY,started_at TIMESTAMP NOT NULL,expires_at TIMESTAMP NOT NULL)");
         jdbc.execute("CREATE TABLE user_welcome_ack(user_id VARCHAR(36) PRIMARY KEY REFERENCES sys_user(id),acknowledged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)");
         jdbc.execute("CREATE TABLE tenant_legal_profile(tenant_id VARCHAR(36) PRIMARY KEY,company_name VARCHAR(128),credit_code VARCHAR(18),verification_status VARCHAR(16),review_reason VARCHAR(512),revision INT,submitted_at TIMESTAMP,reviewed_at TIMESTAMP,contact_name VARCHAR(64),industry VARCHAR(64),email VARCHAR(128),company_scale VARCHAR(64),contact_user_id VARCHAR(36))");
+        jdbc.execute("ALTER TABLE tenant_member ADD membership_id VARCHAR(64)");
+        jdbc.execute("ALTER TABLE tenant_member ADD status VARCHAR(16) DEFAULT 'ACTIVE' NOT NULL");
+        jdbc.execute("ALTER TABLE tenant_member ADD permission_version BIGINT DEFAULT 1 NOT NULL");
+        jdbc.execute("CREATE TABLE client_space(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36),name VARCHAR(128),is_default BOOLEAN)");
+        jdbc.execute("CREATE TABLE point_wallet(tenant_id VARCHAR(36) PRIMARY KEY,available NUMERIC(20,4) DEFAULT 0,frozen NUMERIC(20,4) DEFAULT 0,consumed NUMERIC(20,4) DEFAULT 0,version BIGINT DEFAULT 1)");
+        jdbc.execute("CREATE TABLE workspace_session_revocation(session_id VARCHAR(64) PRIMARY KEY,expires_at TIMESTAMP)");
         var config = new MybatisConfiguration();
         config.setMapUnderscoreToCamelCase(true);
         for (Class<?> mapper : List.of(UserMapper.class, UserProfileMapper.class, TenantMapper.class, TenantMemberMapper.class)) config.addMapper(mapper);
@@ -92,6 +98,8 @@ class AccountInitializationTest {
         context = new AnnotationConfigApplicationContext();
         context.register(Transactions.class);
         context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(ds));
+        context.registerBean(JdbcTemplate.class, () -> jdbc);
+        context.registerBean(WorkspaceFoundation.class, () -> new WorkspaceFoundation(jdbc));
         context.registerBean(UserRepository.class, () -> users);
         context.registerBean(TenantRepository.class, () -> new MpTenantRepository(session.getMapper(TenantMapper.class), session.getMapper(TenantMemberMapper.class)));
         context.registerBean(BillingTrialService.class, () -> trials);

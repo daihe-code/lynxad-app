@@ -73,7 +73,7 @@ public class AccountCommandService {
         user.changePassword(req.oldPassword(), req.newPassword(), passwordHasher);
         userRepository.save(user);
         record(user, "登录密码");
-        Tenant tenant = tenantRepository.findByUserId(userId).orElse(null);
+        Tenant tenant = TenantMembershipFacade.currentWorkspace(tenantRepository,userId).orElse(null);
         MemberRole role = tenant == null ? null : tenant.memberOf(userId).map(m -> m.role()).orElse(null);
         String token = jwtService.issueForUser(user, java.util.Optional.ofNullable(tenant).map(Tenant::id), role);
         return new AuthenticatedUserUpdate(querySupport.current(userId), token);
@@ -102,7 +102,7 @@ public class AccountCommandService {
     }
 
     private void record(User user, String label) {
-        Tenant tenant = tenantRepository.findByUserId(user.id()).orElse(null);
+        Tenant tenant = TenantMembershipFacade.currentWorkspace(tenantRepository,user.id()).orElse(null);
         String jti = TenantContext.require().sessionId().orElse(null);
         auditRecorder.record(new SuccessAuditCommand(
                 tenant == null ? null : tenant.id(),

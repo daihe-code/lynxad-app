@@ -19,10 +19,13 @@ public class CreationStore {
     private final TransactionTemplate tx;
     private DraftExpiryStore expiry;
     @org.springframework.beans.factory.annotation.Autowired public void draftExpiry(DraftExpiryStore value) { expiry=value; }
+    private com.lynx.ad.modules.identity.application.AccountBindingRegistry executionBindings;
+    @org.springframework.beans.factory.annotation.Autowired public void executionBindings(com.lynx.ad.modules.identity.application.AccountBindingRegistry value) { executionBindings=value; }
     public CreationStore(JdbcTemplate jdbc,ObjectMapper json,PlatformTransactionManager manager) {
         this.jdbc=jdbc; this.json=json; tx=new TransactionTemplate(manager);
     }
     public void insert(CreationState state) {
+        requireUserExecution(state);
         jdbc.update("INSERT INTO delivery_creation(plan_id,tenant_id,revision,state_json,work_pending,updated_at) VALUES(?,?,?,?,?,?)",
                 state.planId,state.tenantId,state.revision,encode(state),work(state),now());
     }
@@ -41,14 +44,27 @@ public class CreationStore {
     public CreationState mutate(String tenant,String id,Integer expected,Consumer<CreationState> change) {
         return tx.execute(status->{
             var state=read(tenant,id,true);
+            requireUserExecution(state);
             if(expected!=null && state.revision!=expected) throw new BizException(1404,"草稿已更新，请刷新后重试");
             change.accept(state);
+            requireUserExecution(state);
             jdbc.update("UPDATE delivery_creation SET revision=?,state_json=?,work_pending=?,updated_at=? WHERE tenant_id=? AND plan_id=?",
                     state.revision,encode(state),work(state),now(),tenant,id);
             return state;
         });
     }
-    public void delete(String tenant,String id) { jdbc.update("DELETE FROM delivery_creation WHERE tenant_id=? AND plan_id=?",tenant,id); }
+    public void delete(String tenant,String id) {
+        tx.executeWithoutResult(status->{
+            for(var state:jdbc.query("SELECT state_json FROM delivery_creation WHERE tenant_id=? AND plan_id=? FOR UPDATE",(r,n)->decode(r.getString(1)),tenant,id))requireUserExecution(state);
+            jdbc.update("DELETE FROM delivery_creation WHERE tenant_id=? AND plan_id=?",tenant,id);
+        });
+    }
+    private void requireUserExecution(CreationState state) {
+        if(executionBindings==null||com.lynx.ad.common.security.TenantContext.current().isEmpty())return;
+        var principal=com.lynx.ad.common.security.TenantContext.require();
+        if(principal.tenantId().isEmpty()||!state.tenantId.equals(principal.tenantId().get().value()))throw new BizException(403,"计划工作空间不匹配");
+        if(state.accountId!=null&&!state.accountId.isBlank())executionBindings.executionScope(state.tenantId,state.accountId,principal.userId().value());
+    }
     public List<CreationState> due() {
         return jdbc.query("SELECT state_json FROM delivery_creation c WHERE work_pending=1 AND (lease_until IS NULL OR lease_until<?)"
                         +(expiry==null?"":" AND NOT EXISTS (SELECT 1 FROM ad_plan p WHERE p.tenant_id=c.tenant_id AND p.id=c.plan_id AND p.status='DELETED')")+" ORDER BY updated_at LIMIT 100",
@@ -66,8 +82,22 @@ public class CreationStore {
         return jdbc.query("SELECT * FROM delivery_publish_attempt WHERE tenant_id=? AND request_key=?",(r,n)->new Attempt(r.getString("id"),tenant,r.getString("plan_id"),r.getInt("revision"),key,r.getString("payload_hash"),r.getString("payload_json"),r.getString("status"),r.getString("qc_plan_id"),r.getString("error_message")),tenant,key).stream().findFirst();
     }
     public void attempt(Attempt a) {
+        if(executionBindings!=null) {
+            var state=read(a.tenant,a.planId,false);
+            var scope=executionBindings.executionScope(a.tenant,state.accountId,
+                com.lynx.ad.common.security.TenantContext.current().map(p->p.userId().value()).orElse(state.userId));
+            try {jdbc.update("INSERT INTO workspace_publish_scope(tenant_id,request_key,scope_json) VALUES(?,?,?)",a.tenant,a.key,json.writeValueAsString(scope));}
+            catch(com.fasterxml.jackson.core.JsonProcessingException ex){throw new IllegalStateException(ex);}
+        }
         jdbc.update("INSERT INTO delivery_publish_attempt(id,tenant_id,plan_id,revision,request_key,payload_hash,payload_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 a.id,a.tenant,a.planId,a.revision,a.key,a.hash,a.payload,a.status,now(),now());
+    }
+    public void validatePublishScope(Attempt attempt) {
+        if(executionBindings==null)return;
+        var scopes=jdbc.queryForList("SELECT scope_json FROM workspace_publish_scope WHERE tenant_id=? AND request_key=?",String.class,attempt.tenant,attempt.key);
+        if(scopes.isEmpty())throw new BizException(403,"发布授权需要重新确认");
+        try {executionBindings.validatePaid(json.readValue(scopes.getFirst(),com.lynx.ad.modules.identity.application.AccountBindingRegistry.ExecutionScope.class));}
+        catch(com.fasterxml.jackson.core.JsonProcessingException ex){throw new IllegalStateException(ex);}
     }
     public boolean claimPublish(String tenant,String key) { return jdbc.update("UPDATE delivery_publish_attempt SET status='SENDING',updated_at=? WHERE tenant_id=? AND request_key=? AND status='QUEUED'",now(),tenant,key)==1; }
     public void finishPublish(String tenant,String key,String state,String qcId,String error) { jdbc.update("UPDATE delivery_publish_attempt SET status=?,qc_plan_id=?,error_message=?,updated_at=? WHERE tenant_id=? AND request_key=? AND status<>'CREATED'",state,qcId,error,now(),tenant,key); }

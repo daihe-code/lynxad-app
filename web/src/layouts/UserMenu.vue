@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import { workspaceRoles } from '@/features/tenant/workspaceApi';
 import { accountNavigation } from '@/features/tenant/accountNavigation';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -31,7 +32,7 @@ const user = useUserStore(), route = useRoute(), router = useRouter();
 const open = ref(false), trigger = ref<HTMLButtonElement>(), panel = ref<HTMLElement>();
 const name = computed(() => user.me?.nickname || props.fallbackName || user.me?.phone || '用户');
 const subtitle = computed(() => {
-  const role = user.me?.memberRole === 'OWNER' ? '主账号' : user.me?.memberRole === 'MEMBER' ? '子账号' : '';
+  const role = workspaceRoles[user.me?.memberRole || ''] || '';
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';
 });
 const entries = accountNavigation;
@@ -55,7 +56,7 @@ function menuKey(event: KeyboardEvent) {
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
   items[next]?.focus();
 }
-function logout() { open.value = false; user.logout(); void router.push('/login'); }
+async function logout() { open.value = false; await user.logout(); void router.push('/login'); }
 </script>
 
 <style scoped>

@@ -80,7 +80,7 @@ public class OnboardingCommandService {
     }
 
     private String reissueToken(User user) {
-        Tenant tenant = tenantRepository.findByUserId(user.id()).orElse(null);
+        Tenant tenant = TenantMembershipFacade.currentWorkspace(tenantRepository,user.id()).orElse(null);
         MemberRole role = tenant == null ? null : tenant.memberOf(user.id()).map(m -> m.role()).orElse(null);
         // Keep this operation's credential snapshot if another reset commits before the response is sent.
         return jwtService.issueForUser(user, java.util.Optional.ofNullable(tenant).map(Tenant::id), role);
