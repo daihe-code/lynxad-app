@@ -43,7 +43,7 @@ class OptimizationDecisionPersistenceTest {
         assertThrows(BizException.class,()->store.save(plan,policy(true),1));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification",Integer.class));
         assertThrows(BizException.class,()->store.save(plan,policy(true),2));
-        store.resumeRules(plan,store.get(plan.tenantId(),plan.id()).orElseThrow(),json.createObjectNode(),json.createObjectNode());
+        store.resumeRules(plan,store.get(plan.tenantId(),plan.id()).orElseThrow(),json.createObjectNode(),json.createObjectNode(),"测试操作人");
         store.save(plan,policy(true),3);
         assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE tenant_id='tenant' AND biz_id='plan' AND biz_type='OPTIMIZATION_RULES' AND channel='INBOX'",Integer.class));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE title='盯盘优化已恢复' AND body LIKE '%ROI%400%480%确认暂停%'",Integer.class));
@@ -58,9 +58,11 @@ class OptimizationDecisionPersistenceTest {
         jdbc.update("UPDATE optimization_policy SET result_json=?",
             json.createObjectNode().put("daily_spend","320.00").put("observed_at",observed.toString()).toString());
         var event=create("one");
+        jdbc.update("UPDATE optimization_event SET status='VERIFY_PENDING' WHERE id=?",event.id());
         var advice=create("two");
-        store.save(plan,policy(false),1);
+        store.save(plan,policy(false),1,"测试操作人");
         assertEquals("RESOLVED",journal.event("tenant",advice.id()).orElseThrow().status());
+        assertEquals("VERIFY_PENDING",journal.event("tenant",event.id()).orElseThrow().status());
         jdbc.update("UPDATE optimization_event SET status='SUCCEEDED' WHERE id=?",event.id());
         store.save(plan,policy(false),2);
         var pause=journal.lastRulePause("tenant","plan",3).orElseThrow();
@@ -69,6 +71,14 @@ class OptimizationDecisionPersistenceTest {
         assertEquals(observed.toString(),pause.snapshot().dataAt());
         assertEquals(0,pause.snapshot().summary().completed());
         assertEquals(1,journal.ruleSummary("tenant","plan",false).completed());
+        var history=journal.ruleHistory("tenant","plan","RULES",1,1,20);
+        assertEquals(List.of("EDIT","ADVICE_EXPIRED","PAUSE"),history.records().stream()
+            .map(e->e.report().path("activity").asText()).toList());
+        assertEquals(5,history.records().getFirst().report().path("previous_rules").path("runawayMinutes").asInt());
+        assertEquals(1,history.records().get(1).report().path("expired_count").asInt());
+        assertEquals(1,history.records().get(2).report().path("pending_count").asInt());
+        assertEquals("测试操作人",history.records().get(2).report().path("operator").asText());
+        assertEquals(0,journal.ruleHistory("other","plan","RULES",1,1,20).total());
         assertTrue(journal.lastRulePause("other","plan",3).isEmpty());
         assertFalse(store.get(plan.tenantId(),plan.id()).orElseThrow().enabled());
     }
@@ -96,12 +106,13 @@ class OptimizationDecisionPersistenceTest {
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
         var below=service.preview(plan.tenantId(),plan.id());
         assertEquals(OptimizationRuleResumeService.Outcome.BELOW_LIMIT,below.outcome());
-        assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(below)));
+        assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(below),"测试操作人"));
         assertFalse(store.get(plan.tenantId(),plan.id()).orElseThrow().enabled());
+        assertEquals(1,journal.ruleHistory("tenant","plan","RULES",1,1,20).total());
         verify(gateway,never()).write(any(),any());
         var over=service.preview(plan.tenantId(),plan.id());
         assertEquals(OptimizationRuleResumeService.Outcome.LIMIT_PAUSE,over.outcome());
-        assertEquals("SUCCEEDED",service.resume(plan.tenantId(),plan.id(),confirm(over)).pauseStatus());
+        assertEquals("SUCCEEDED",service.resume(plan.tenantId(),plan.id(),confirm(over),"测试操作人").pauseStatus());
         var saved=store.get(plan.tenantId(),plan.id()).orElseThrow();
         assertTrue(saved.enabled());
         assertEquals(automatic,saved.policy().rules());
@@ -109,7 +120,18 @@ class OptimizationDecisionPersistenceTest {
         assertEquals("PAUSE",pause.kind());
         assertEquals("520",pause.report().path("daily_spend").asText());
         assertEquals("PAUSED",pause.actual().path("status").asText());
-        assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(over)));
+        assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(over),"测试操作人"));
+        var records=journal.ruleHistory("tenant","plan","RULES",1,1,20).records();
+        assertEquals(List.of("RESUME","RESUME_CHECK","PAUSE"),records.stream().map(e->e.report().path("activity").asText()).toList());
+        assertEquals("测试操作人",records.getFirst().report().path("operator").asText());
+        assertEquals("LIMIT_PAUSE",records.getFirst().report().path("resume_outcome").asText());
+        assertTrue(records.getFirst().report().hasNonNull("paused_at"));
+        var checked=records.get(1).report();
+        assertEquals("小灵",checked.path("operator").asText());
+        assertEquals("520",checked.path("daily_spend").asText());
+        assertEquals("DELIVERING",checked.path("plan_status").asText());
+        assertTrue(checked.hasNonNull("daily_committed_addition"));
+        assertEquals(1,journal.ruleSummary("tenant","plan",false).completed());
         verify(gateway,times(1)).write(eq(plan),eq(pause.proposal()));
     }
     @Test void resumingReminderRulesRecordsAdviceWithoutSubmittingAPause(){
@@ -126,7 +148,7 @@ class OptimizationDecisionPersistenceTest {
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
         var preview=service.preview(plan.tenantId(),plan.id());
         assertEquals(OptimizationRuleResumeService.Outcome.LIMIT_REMINDER,preview.outcome());
-        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(preview)).pauseStatus());
+        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(preview),"测试操作人").pauseStatus());
         assertEquals("RECOMMENDED",journal.ruleActions("tenant","plan",3).getFirst().status());
         verifyNoInteractions(execution);
         verify(gateway,never()).writable(any());
@@ -147,7 +169,7 @@ class OptimizationDecisionPersistenceTest {
             .thenThrow(new BizException(1211,"授权已失效"));
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
         var preview=service.preview(plan.tenantId(),plan.id());
-        var error=assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview)));
+        var error=assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview),"测试操作人"));
         assertEquals(1211,error.code());
         assertEquals(1211,assertThrows(BizException.class,()->service.preview(plan.tenantId(),plan.id())).code());
         var saved=store.get(plan.tenantId(),plan.id()).orElseThrow();
@@ -178,11 +200,11 @@ class OptimizationDecisionPersistenceTest {
         var preview=service.preview(plan.tenantId(),plan.id());
         assertEquals("DISABLE",preview.qcStatus());
         assertEquals(OptimizationRuleResumeService.Outcome.PLAN_NOT_DELIVERING,preview.outcome());
-        assertEquals(1804,assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview))).code());
+        assertEquals(1804,assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview),"测试操作人")).code());
         assertFalse(store.get(plan.tenantId(),plan.id()).orElseThrow().enabled());
 
         var checked=service.preview(plan.tenantId(),plan.id());
-        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(checked)).pauseStatus());
+        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(checked),"测试操作人").pauseStatus());
         var resumed=store.get(plan.tenantId(),plan.id()).orElseThrow();
         assertTrue(resumed.enabled());
         assertEquals(automatic,resumed.policy().rules());

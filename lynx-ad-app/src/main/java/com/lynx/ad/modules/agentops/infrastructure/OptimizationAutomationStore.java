@@ -3,6 +3,8 @@ package com.lynx.ad.modules.agentops.infrastructure;
 import com.fasterxml.jackson.databind.*;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.modules.agentops.application.OptimizationPolicy;
+import com.lynx.ad.modules.delivery.domain.model.AdPlan;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -72,14 +74,51 @@ public class OptimizationAutomationStore {
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
     }
-    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version,boolean previouslyEnabled,PauseSnapshot snapshot,boolean resumed){
-        String id=UUID.randomUUID().toString();var report=json.createObjectNode().put("rule_version","merchant-rules-v1");report.set("rules",json.valueToTree(policy.rules()));report.put("enabled",policy.enabled());
-        if(snapshot!=null)report.set("pause_snapshot",json.valueToTree(snapshot));
+    void ruleChanged(AdPlan p,OptimizationPolicy policy,OptimizationStore.State previous,PauseSnapshot snapshot,
+                     int expired,JsonNode resumeReport,String operator,Instant at){
+        long version=previous==null?1:previous.version()+1;
+        boolean previouslyEnabled=previous!=null && previous.enabled(), resumed=resumeReport!=null;
+        String activity=resumed?"RESUME":snapshot!=null?"PAUSE":previous==null || previous.policy().rules()==null?"ENABLE":"EDIT";
+        var report=json.createObjectNode().put("rule_version","merchant-rules-v1").put("activity",activity)
+            .put("operator",operator).put("enabled",policy.enabled());
+        report.set("rules",json.valueToTree(policy.rules()));
+        if("EDIT".equals(activity))report.set("previous_rules",json.valueToTree(previous.policy().rules()));
+        if(snapshot!=null){
+            report.set("pause_snapshot",json.valueToTree(snapshot));
+            int pending=jdbc.queryForObject("""
+                SELECT COUNT(*) FROM optimization_event WHERE tenant_id=? AND plan_id=?
+                  AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN')
+                """,Integer.class,p.tenantId().value(),p.id().value());
+            report.put("pending_count",pending);
+        }
+        if(resumed){
+            String checkedAt=resumeReport.path("plan_checked_at").asText();
+            if(!checkedAt.isBlank()){
+                var check=json.createObjectNode().put("activity","RESUME_CHECK").put("operator","小灵");
+                check.set("rules",report.get("rules"));
+                for(String key:List.of("daily_spend","daily_committed_addition","fetched_at","plan_status","resume_outcome"))
+                    check.set(key,resumeReport.get(key));
+                ruleEntry(p,version,"恢复前核对","已核对当日消耗和广告投放状态。",check,Instant.parse(checkedAt));
+            }
+            report.set("resume_outcome",resumeReport.get("resume_outcome"));
+            lastRulePause(p.tenantId().value(),p.id().value(),previous.version())
+                .ifPresent(pause->report.put("paused_at",pause.pausedAt().toString()));
+        }
         String title=resumed?"盯盘优化已恢复":policy.enabled()?(previouslyEnabled?"盯盘规则已更新":"盯盘优化已开启"):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
         String body=policy.enabled()?"净成交ROI要求不低于 "+policy.rules().roiFloor().stripTrailingZeros().toPlainString()+"；当天消耗 ¥"+policy.rules().spendReminder().stripTrailingZeros().toPlainString()+" 时提醒，达到 ¥"+policy.rules().spendProtection().stripTrailingZeros().toPlainString()+" 时"+(policy.rules().protectionAction().equals("AUTO_PAUSE")?"按授权自动暂停本计划。":"提醒你确认暂停。")
                 :previouslyEnabled?"盯盘优化已暂停，已提交操作继续核对。":"规则已保存，盯盘优化仍为暂停状态。";
-        jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",title,body,encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
+        ruleEntry(p,version,title,body,report,at);
+        if(expired>0){
+            var invalidated=json.createObjectNode().put("activity","ADVICE_EXPIRED").put("operator","系统").put("expired_count",expired);
+            ruleEntry(p,version,"旧建议失效",expired+" 项未执行建议因暂停盯盘优化而失效。",invalidated,at.plus(1,java.time.temporal.ChronoUnit.MICROS));
+        }
         if(policy.enabled()||previouslyEnabled)notice(p.tenantId().value(),p.id().value(),"OPTIMIZATION_RULES",title,p.name().text()+"："+body);
+    }
+    private void ruleEntry(AdPlan p,long version,String title,String evidence,JsonNode report,Instant at){
+        String id=UUID.randomUUID().toString();
+        var timestamp=Timestamp.from(at);
+        jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",
+            id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",title,evidence,encode(report),timestamp,timestamp);
     }
     public record RuleSummary(long found,long completed,long protectedCount){}
     public record PauseSnapshot(long effectiveSeconds,RuleSummary summary,JsonNode dailySpend,String dataAt){}
@@ -104,21 +143,23 @@ public class OptimizationAutomationStore {
     public List<Event> rulePending(String tenant,String plan){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN') ORDER BY created_at DESC LIMIT 20",this::row,tenant,plan);}
     public List<Event> ruleActions(String tenant,String plan,long version){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY') ORDER BY created_at DESC LIMIT 30",this::row,tenant,plan,version);}
     public void expireDeliveryAdvice(OptimizationStore.State state) {
-        var now=Timestamp.from(Instant.now());
+        expireAdvice(state,"广告投放状态已变化，原建议已失效",Timestamp.from(Instant.now()));
+    }
+    int expireAdvice(OptimizationStore.State state,String reason,Timestamp now) {
         jdbc.update("""
             UPDATE optimization_confirmation SET status='NOT_SENT'
             WHERE tenant_id=? AND plan_id=? AND status='RESERVED' AND event_id IN (
                 SELECT id FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status='READY'
             )
             """,state.tenant(),state.plan(),state.tenant(),state.plan(),state.version());
-        jdbc.update("""
-            UPDATE optimization_event SET status='RESOLVED',error_message='广告投放状态已变化，原建议已失效',finished_at=?,updated_at=?
+        return jdbc.update("""
+            UPDATE optimization_event SET status='RESOLVED',error_message=?,finished_at=?,updated_at=?
             WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY')
               AND NOT EXISTS (
                 SELECT 1 FROM optimization_review r WHERE r.tenant_id=optimization_event.tenant_id AND r.event_id=optimization_event.id
                   AND (r.action_at IS NOT NULL OR r.content_work_id IS NOT NULL)
               )
-            """,now,now,state.tenant(),state.plan(),state.version());
+            """,reason,now,now,state.tenant(),state.plan(),state.version());
     }
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");

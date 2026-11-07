@@ -81,6 +81,9 @@ public class OptimizationMonitoringService {
             state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus());
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
+        return save(tenant,id,policy,expectedVersion,null);
+    }
+    private View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion,String operator) {
         var p=plan(tenant,id);if(policy==null)throw new BizException(1802,"请填写盯盘设置");
         String reason=unavailable(p,policy);
         if(reason!=null && (policy.enabled() || policy.rules()!=null && rulePlanEnded(p)))throw new BizException(1801,reason);
@@ -92,13 +95,13 @@ public class OptimizationMonitoringService {
         if("AUTO_LIMITED".equals(policy.mode()) && policy.automation().budget() && p.setting().bidType()==SmartBidType.CUSTOM && policy.automation().minBudget().compareTo(SmartBidType.CUSTOM.minimumDailyBudget())<0)throw new BizException(1802,"控成本自动预算下限不能低于 300 元");
         String owner="policy:"+UUID.randomUUID();
         if(journal!=null && !journal.claimAccount(tenant.value(),p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中，请稍后保存授权");
-        try{if(journal!=null && policy.enabled() && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return policy.rules()==null?view(tenant,id):rulesView(tenant,id);
+        try{if(journal!=null && policy.enabled() && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion,operator);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return policy.rules()==null?view(tenant,id):rulesView(tenant,id);
     }
-    public View saveRules(TenantId tenant,PlanId id,OptimizationRules rules,boolean enabled,long expectedVersion) {
+    public View saveRules(TenantId tenant,PlanId id,OptimizationRules rules,boolean enabled,long expectedVersion,String operator) {
         if(rules==null)throw new BizException(1802,"请填写盯盘规则");rules.validate();
         var defaults=OptimizationPolicy.defaults();
         var policy=new OptimizationPolicy(enabled,"OBSERVE",rules.spendProtection(),defaults.maxLoss(),defaults.minSpend(),defaults.minOrders(),defaults.persistenceWindows(),defaults.conversionDelayMinutes(),List.of(),null,null,null,rules);
-        return save(tenant,id,policy,expectedVersion);
+        return save(tenant,id,policy,expectedVersion,operator);
     }
     public View rulesView(TenantId tenant,PlanId id) {
         var value=view(tenant,id,false);var p=plan(tenant,id);

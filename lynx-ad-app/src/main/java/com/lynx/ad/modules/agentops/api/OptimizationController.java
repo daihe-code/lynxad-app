@@ -4,12 +4,14 @@ import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.domain.Ids.PlanId;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.agentops.application.*;
+import com.lynx.ad.modules.tenant.domain.port.UserRepository;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/delivery/plans/{id}/optimization")
 public class OptimizationController {
     private final OptimizationMonitoringService service;
+    private final UserRepository users;
     private OptimizationCreativeService creative;
     private OptimizationRuleDetailsService details;
     private OptimizationRuleResumeService resume;
@@ -19,17 +21,21 @@ public class OptimizationController {
     @org.springframework.beans.factory.annotation.Autowired public void details(OptimizationRuleDetailsService value){details=value;}
     @org.springframework.beans.factory.annotation.Autowired public void creative(OptimizationCreativeService value){creative=value;}
     public record Change(long expectedVersion,OptimizationPolicy policy) {}
-    public OptimizationController(OptimizationMonitoringService service) {this.service=service;}
+    public OptimizationController(OptimizationMonitoringService service,UserRepository users) {this.service=service;this.users=users;}
     @GetMapping public ApiResponse<OptimizationMonitoringService.View> view(@PathVariable String id) {return ApiResponse.ok(service.view(TenantContext.requireTenantId(),new PlanId(id)));}
     public record RulesChange(long expectedVersion,boolean enabled,OptimizationRules rules) {}
     @GetMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id) {return ApiResponse.ok(service.rulesView(TenantContext.requireTenantId(),new PlanId(id)));}
     @GetMapping("/details") public ApiResponse<OptimizationRuleDetailsService.Details> details(@PathVariable String id,@RequestParam(defaultValue="false") boolean today,@RequestParam(defaultValue="ALL") String category,@RequestParam(defaultValue="7") int days,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize){return ApiResponse.ok(details.details(TenantContext.requireTenantId(),new PlanId(id),today,category,days,pageNum,pageSize));}
-    @PutMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id,@RequestBody RulesChange body) {return ApiResponse.ok(service.saveRules(TenantContext.requireTenantId(),new PlanId(id),body.rules(),body.enabled(),body.expectedVersion()));}
+    @PutMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id,@RequestBody RulesChange body) {return ApiResponse.ok(service.saveRules(TenantContext.requireTenantId(),new PlanId(id),body.rules(),body.enabled(),body.expectedVersion(),operatorName()));}
     @GetMapping("/rules/resume-preview") public ApiResponse<OptimizationRuleResumeService.Preview> resumePreview(@PathVariable String id){
         return ApiResponse.ok(resume.preview(TenantContext.requireTenantId(),new PlanId(id)));
     }
     @PostMapping("/rules/resume") public ApiResponse<OptimizationRuleResumeService.Result> resume(@PathVariable String id,@RequestBody OptimizationRuleResumeService.Confirmation body){
-        return ApiResponse.ok(resume.resume(TenantContext.requireTenantId(),new PlanId(id),body));
+        return ApiResponse.ok(resume.resume(TenantContext.requireTenantId(),new PlanId(id),body,operatorName()));
+    }
+    private String operatorName(){
+        return users.findById(TenantContext.userId()).flatMap(user->user.profile())
+            .map(profile->profile.nickname()).filter(name->!name.isBlank()).orElse("操作人");
     }
     @GetMapping("/decisions/{event}/preview") public ApiResponse<?> preview(@PathVariable String id,@PathVariable String event){return ApiResponse.ok(decisions.preview(TenantContext.requireTenantId().value(),id,event));}
     public record Confirmation(long expectedVersion,String previewHash){}

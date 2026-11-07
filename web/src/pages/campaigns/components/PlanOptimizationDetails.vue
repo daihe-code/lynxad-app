@@ -99,10 +99,40 @@
           <PlanOptimizationReviews :reviews="data.reviews || []" />
         </template>
         <template v-else>
-          <h3>小灵的工作记录</h3><p>发现、处理和结果均有记录，同一事项持续更新。</p>
-          <div class="history-filters"><button v-for="item in categories" :key="item.value" :class="{ active: category === item.value }" @click="category = item.value">{{ item.label }}</button><el-select v-model="days" aria-label="工作记录时间范围"><el-option :value="7" label="最近7天" /><el-option :value="30" label="最近30天" /><el-option :value="180" label="最近180天" /></el-select></div>
-          <div class="timeline"><article v-for="event in data.history.records" :key="event.id"><small>{{ time(event.createdAt) }}</small><details><summary><strong>{{ event.title }}</strong><span class="badge" :class="event.status === 'SUCCEEDED' ? 'success' : 'muted'">{{ eventStatus(event.status) }}</span></summary><p>{{ event.evidence }}</p><p v-if="event.error">{{ event.error }}</p><div v-if="event.kind === 'RULES_CHANGE' && event.report.rules" class="summary">{{ ruleChangeText(event) }}</div><template v-if="event.kind !== 'RULES_CHANGE'"><p>当前结果：{{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? '已记录建议，尚无已执行结果' : eventStatus(event.status) }}</p><el-button v-if="['EXECUTING','VERIFY_PENDING','UNKNOWN'].includes(event.status)" link type="primary" @click="recheck(event)">只读回查结果</el-button></template></details></article></div>
+          <div class="stats-strip">有效盯盘 <strong>{{ monitoringDuration(data.effectiveSeconds) }}</strong> · 优化点 <strong>{{ data.summary.found }}项</strong> · 已完成 <strong>{{ data.summary.completed }}项</strong></div>
+          <div class="history-filters"><button v-for="item in categories" :key="item.value" :class="{ active: category === item.value }" :aria-pressed="category === item.value" @click="category = item.value">{{ item.label }}</button><el-select v-model="days" aria-label="工作记录时间范围"><el-option :value="7" label="最近7天" /><el-option :value="30" label="最近30天" /><el-option :value="180" label="最近180天" /></el-select></div>
+          <div class="work-timeline" :aria-busy="refreshing">
+            <div v-for="group in historyGroups" :key="group.day">
+              <h3>{{ group.label }}</h3>
+              <ol>
+                <li v-for="{ event, title, tag, description, subtitle } in group.records" :key="event.id">
+                  <div class="work-heading">
+                    <time :datetime="event.createdAt">{{ time(event.createdAt, true) }}</time>
+                    <strong>{{ title }}</strong>
+                    <span v-if="tag" class="badge muted">{{ tag }}</span>
+                  </div>
+                  <p v-if="description">{{ description }}</p>
+                  <details>
+                    <summary><span v-if="subtitle">{{ subtitle }}</span><span class="work-detail-link">查看详情</span></summary>
+                    <div class="work-detail">
+                      <p v-if="event.error && event.error !== description">{{ event.error }}</p>
+                      <p v-if="event.report?.rules">{{ ruleChangeText(event) }}</p>
+                      <p v-if="event.report?.pause_snapshot?.dailySpend != null">
+                        暂停时最近记录的消耗 {{ money(event.report.pause_snapshot.dailySpend) }}<template v-if="event.report.pause_snapshot.dataAt"> · 数据截至 {{ restartTime(event.report.pause_snapshot.dataAt) }}</template>
+                      </p>
+                      <p v-if="event.report?.activity === 'RESUME_CHECK' && event.report.plan_status">广告计划状态 {{ planStatusDisplay(event.report.plan_status).label }}</p>
+                      <p v-if="event.report?.activity === 'ADVICE_EXPIRED'">失效的建议不可继续执行。</p>
+                      <p v-if="event.report?.paused_at">暂停时段 {{ restartTime(event.report.paused_at) }} 至 {{ restartTime(event.createdAt) }}</p>
+                      <p v-if="event.kind !== 'RULES_CHANGE'">当前结果 {{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? '已记录建议，尚无已执行结果' : eventStatus(event.status) }}</p>
+                      <el-button v-if="['EXECUTING','VERIFY_PENDING','UNKNOWN'].includes(event.status)" link type="primary" :loading="checking === event.id" @click="recheck(event)">只读回查结果</el-button>
+                    </div>
+                  </details>
+                </li>
+              </ol>
+            </div>
+          </div>
           <el-empty v-if="!data.history.records.length" description="暂无工作记录" :image-size="50" /><el-pagination v-if="data.history.total > 20" small layout="prev, pager, next" :total="data.history.total" :page-size="20" v-model:current-page="page" />
+          <small v-if="data.history.records.length" class="work-footnote">暂停、恢复和修改规则不计入已完成任务。暂停时段不计入有效盯盘时长。</small>
         </template>
         <details v-if="tab !== 'history'" class="current-rules"><summary>{{ restartAt && tab === 'current' ? '已保存规则（3项）' : paused || planEnded ? '已保存规则' : '当前生效规则' }} <span>查看 ⌄</span></summary><div v-if="data.view.policy.rules" class="rule-grid"><div><small>净成交ROI不低于</small><strong>{{ number(data.view.policy.rules.roiFloor) }}</strong></div><div><small>提醒 / 保护金额</small><strong>{{ money(data.view.policy.rules.spendReminder) }} / {{ money(data.view.policy.rules.spendProtection) }}</strong></div><div><small>暂停方式</small><strong>{{ data.view.policy.rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认' }}</strong></div><div><small>跑飞提醒</small><strong>{{ data.view.policy.rules.runawayMinutes }}分钟 / {{ money(data.view.policy.rules.runawaySpend) }}</strong></div><div><small>单次 / 每日追加建议上限</small><strong>{{ money(data.view.policy.rules.maxAddition) }} / {{ money(data.view.policy.rules.dailyAddition) }}</strong></div></div><p v-else>当前为历史版本规则。</p></details>
       </template>
@@ -194,7 +224,65 @@ const restartTime = (value: string) => shanghaiDay(new Date(value)) === shanghai
   ? `今天 ${time(value, true)}` : time(value);
 const eventStatus = (status: string) => ({ SUCCEEDED: '已生效', RECOMMENDED: '待确认', READY: '待执行检查', EXECUTING: '已提交', VERIFY_PENDING: '核实中', UNKNOWN: '待人工核查', SKIPPED: '未执行', ACKNOWLEDGED: '已人工核查', RESOLVED: '建议已失效' }[status] || status);
 function windowRoi(window: { metrics: { spend: string | null; net_revenue: string | null } }) { return window.metrics.spend != null && window.metrics.net_revenue != null && Number(window.metrics.spend) > 0 ? number(Number(window.metrics.net_revenue) / Number(window.metrics.spend)) : '—'; }
-function ruleChangeText(event: OptimizationEvent) { const rules = (event.report as unknown as { rules: { roiFloor: number; spendReminder: number; spendProtection: number; protectionAction: string } }).rules; return `ROI不低于 ${number(rules.roiFloor)}；${money(rules.spendReminder)}提醒，${money(rules.spendProtection)}保护；${rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认暂停'}`; }
+function ruleChangeText(event: OptimizationEvent) {
+  const rules = event.report.rules;
+  if (!rules) return '';
+  return `ROI 不低于 ${number(rules.roiFloor)} · ${money(rules.spendReminder)}提醒 / ${money(rules.spendProtection)}保护 · ${rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认暂停'} · 跑飞窗口 ${rules.runawayMinutes}分钟 / ${money(rules.runawaySpend)} · 追加上限 ${money(rules.maxAddition)} / 日累计 ${money(rules.dailyAddition)}`;
+}
+function historyItem(event: OptimizationEvent) {
+  const report = event.report;
+  const rules = report?.rules;
+  const entry = { event, title: event.title, tag: eventStatus(event.status), description: event.evidence || '', subtitle: '' };
+  if (event.kind !== 'RULES_CHANGE') return entry;
+  entry.tag = report?.operator || '';
+  const config = `配置 v${event.version}`;
+  switch (report?.activity) {
+    case 'RESUME':
+      return { ...entry, title: '恢复盯盘优化', tag: entry.tag ? `${entry.tag}确认` : '',
+        description: report.resume_outcome === 'LIMIT_PAUSE' ? '规则已开启，已确认按消耗保护规则处理本计划。'
+          : '规则已开启，广告投放状态未改变。',
+        subtitle: rules?.protectionAction === 'AUTO_PAUSE' ? `${config} · 授权范围为本计划消耗保护` : config };
+    case 'RESUME_CHECK':
+      return { ...entry, description: `当日已消耗 ${money(report.daily_spend)}，保护金额 ${money(rules?.spendProtection)}，已用追加额度 ${money(report.daily_committed_addition)}。`,
+        subtitle: report.fetched_at ? `数据截至 ${restartTime(report.fetched_at)} · 核对通过` : '核对通过' };
+    case 'EDIT': {
+      const previous = report.previous_rules;
+      const labels = { roiFloor: '目标 ROI', spendReminder: '提醒金额', spendProtection: '保护金额', protectionAction: '暂停方式',
+        runawayMinutes: '跑飞窗口', runawaySpend: '跑飞提醒金额', maxAddition: '单次追加上限', dailyAddition: '每日追加上限' } as const;
+      const changes = rules && previous ? (Object.keys(labels) as (keyof typeof labels)[]).filter(key => rules[key] !== previous[key]).map(key => {
+        const format = (value: number | string) => key === 'protectionAction' ? (value === 'AUTO_PAUSE' ? '自动暂停' : '逐次确认')
+          : key === 'runawayMinutes' ? `${value}分钟` : key === 'roiFloor' ? number(value) : money(value);
+        return `${labels[key]} ${format(previous[key])} → ${format(rules[key])}`;
+      }) : [];
+      return { ...entry, title: '修改规则', description: `已保存${config}${report.enabled === false ? '，仍保持暂停' : ''}。`,
+        subtitle: changes.join(' · ') };
+    }
+    case 'PAUSE':
+      return { ...entry, title: '暂停盯盘优化', description: report.pending_count
+        ? `自动保护已暂停。${report.pending_count} 项已提交操作继续核实。` : '自动保护已暂停。',
+        subtitle: '规则与授权范围已保留' };
+    case 'ADVICE_EXPIRED':
+      return { ...entry, subtitle: '未执行，未计入已完成任务' };
+    default:
+      return { ...entry, subtitle: config };
+  }
+}
+const historyGroups = computed(() => {
+  const groups = new Map<string, { day: string; label: string; records: ReturnType<typeof historyItem>[] }>();
+  const todayInShanghai = shanghaiDay(new Date());
+  for (const event of data.value?.history.records || []) {
+    const date = new Date(event.createdAt);
+    const day = shanghaiDay(date);
+    let group = groups.get(day);
+    if (!group) {
+      const label = date.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' });
+      group = { day, label: day === todayInShanghai ? `今天 · ${label}` : label, records: [] };
+      groups.set(day, group);
+    }
+    group.records.push(historyItem(event));
+  }
+  return [...groups.values()];
+});
 function showHistory(value: string) { category.value = value; tab.value = 'history'; }
 function eventFor(item: MonitoringRecommendation) { return data.value?.actions?.find(e => e.title === item.title && (item.action ? JSON.stringify(e.proposal) === JSON.stringify(item.action) : !e.proposal)); }
 async function preview(item: MonitoringRecommendation) {
@@ -222,7 +310,8 @@ async function handoff(item: MonitoringRecommendation) {
 }
 async function load() {
   const current = ++revision; refreshing.value = true;
-  try { const value = await getOptimizationDetails(props.planId, { today: today.value, category: category.value, days: days.value, pageNum: page.value, pageSize: 20 }); if (!disposed && current === revision) { data.value = value; error.value = ''; } }
+  const history = tab.value === 'history';
+  try { const value = await getOptimizationDetails(props.planId, { today: !history && today.value, category: history ? category.value : 'ALL', days: history ? days.value : 7, pageNum: history ? page.value : 1, pageSize: 20 }); if (!disposed && current === revision) { data.value = value; error.value = ''; } }
   catch (err: any) { if (!disposed && current === revision) error.value = err?.response?.data?.message || err?.message || '暂时无法加载盯盘详情，请重试'; }
   finally { if (!disposed && current === revision) { loading.value = false; refreshing.value = false; } }
 }
@@ -358,7 +447,15 @@ async function resumeOptimization() {
   }
 }
 async function recheck(event: OptimizationEvent) { if (checking.value) return; checking.value = event.id; try { await recheckOptimization(event.id); await load(); emit('saved'); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂时无法核实，请稍后重试'; } finally { checking.value = ''; } }
-watch([today, category, days], () => { page.value = 1; void load(); }); watch(page, () => void load()); watch(tab, () => scrollArea.value?.scrollTo({ top: 0 }));
+watch([today, category, days], () => {
+  if (page.value === 1) void load();
+  else page.value = 1;
+});
+watch(page, () => { if (tab.value === 'history') void load(); });
+watch(tab, (value, previous) => {
+  scrollArea.value?.scrollTo({ top: 0 });
+  if (value === 'history' || previous === 'history') void load();
+});
 watch([paused, planEnded, accountStatus], ([isPaused, ended, status]) => {
   if (isPaused && !ended && status && status !== 'ACTIVE') requireAuthorizationRecovery();
 }, { flush: 'sync' });
@@ -388,6 +485,21 @@ onBeforeUnmount(() => {
 .status-notice.restart-notice { border: 1px solid #caeadb; background: #edf9f3; color: #087b56; }
 .restart-usage { border: 1px solid #e8e3fc; background: #f5f2ff; }
 .restart-notice small, .restart-usage small { margin-top: 4px; }
+.monitor-details .history-filters > button { border-color: #e1e4f1; border-radius: 7px; background: #fff; }
+.monitor-details .history-filters > button.active { border-color: #ddd5ff; background: #f2efff; }
+.work-timeline h3 { margin: 20px 0 14px; }
+.work-timeline ol { list-style: none; margin: 0 4px; padding: 0; border-left: 1px solid #e4e1fd; }
+.work-timeline li { position: relative; padding: 0 0 16px 19px; }
+.work-timeline li::before { content: ''; position: absolute; left: -4px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: #8a73ff; }
+.work-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.work-heading time { color: #687298; font-size: 12px; }
+.work-heading .badge { border-radius: 4px; }
+.work-timeline p { margin: 4px 0; }
+.work-timeline summary { display: flex; gap: 8px; flex-wrap: wrap; list-style: none; font-size: 12px; color: #7f86a9; cursor: pointer; }
+.work-timeline summary::-webkit-details-marker { display: none; }
+.work-detail-link { color: #5947ff; }
+.work-detail { padding: 4px 10px; margin-top: 6px; background: #f7f7fc; border-radius: 6px; }
+.work-footnote { border-top: 1px solid #e5e7f5; padding-top: 10px; margin-top: 4px; }
 .plan.plan-recovery { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; padding-right: 14px; }
-.monitor-details{height:100%;display:flex;flex-direction:column;color:#202444;background:#fff}header{flex:none;padding:18px 22px 0}.heading{display:flex;align-items:center;gap:12px}h2{font-size:18px;margin:0}.badge{border-radius:16px;padding:4px 10px;font-size:11px;white-space:nowrap;display:inline-block}.success{color:#15996a;background:#dff8eb}.warning{color:#d4801a;background:#fff0db}.muted{color:#8086aa;background:#eeeff8}.close{margin-left:auto;border:0;background:none;color:#71789c;font-size:27px;cursor:pointer}.plan{position:relative;background:linear-gradient(110deg,#f7f5ff,#f1f6ff);border:1px solid #e1e5f7;border-radius:6px;padding:12px 90px 12px 14px;margin:12px 0}.plan strong{font-size:14px;overflow-wrap:anywhere}.plan .el-tag{position:absolute;right:12px;top:18px}small{display:block;color:#7f86a9;font-size:12px;line-height:1.7}.plan small{margin-top:4px}.risk-banner{display:flex;justify-content:space-between;width:100%;padding:12px;border:1px solid #ffe0b6;background:#fff6eb;border-radius:6px;color:#ed8a1c;font-size:13px;font-weight:600;cursor:pointer}nav{display:flex;border-bottom:1px solid #dde2f6}nav button{flex:1;border:0;border-bottom:2px solid transparent;background:white;padding:15px 4px 12px;font-size:14px;color:#454e80;font-weight:600;cursor:pointer}nav button.active{border-bottom-color:#5947ff;color:#5947ff}main{flex:1;min-height:0;overflow:auto;padding:16px 22px 28px}h3{font-size:16px;margin:4px 0 14px}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.range{display:flex;background:#efefff;border-radius:6px;padding:3px}.range button{border:0;background:none;padding:7px 12px;color:#737da9;border-radius:5px;cursor:pointer}.range button.active{background:#5847ff;color:#fff}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}.metrics article{position:relative;border:1px solid #e3e7f8;border-radius:8px;padding:17px 12px;background:linear-gradient(120deg,#f5f4ff,#fff)}.metrics .el-icon{font-size:22px;background:#eeebff;color:#654eff;padding:7px;border-radius:8px;margin-bottom:8px}.metrics strong{display:block;font-size:22px;line-height:1.6}.metrics em,.large em{font-size:13px;font-style:normal;margin-left:4px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}section{border:1px solid #e1e5f5;border-radius:8px;padding:16px;margin:12px 0}.pair section{margin:0}.protection{background:linear-gradient(130deg,#fff8ed,#fff)}.improvement{background:linear-gradient(130deg,#ebfbf4,#fff);color:#125e4c}.large{font-size:23px}.panel-link{display:block;border:0;background:#f4f3ff;color:#5947ff;padding:10px;width:100%;border-radius:5px;margin-top:12px;cursor:pointer;font-size:12px}p{color:#7a83ab;font-size:12px;line-height:1.9;margin:8px 0}.completed-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:9px 0;border-bottom:1px solid #f0f1fa}.completed-row .el-icon{color:#17aa70}.completed-row small{margin-left:auto;font-size:11px}.issue-link{display:flex;justify-content:space-between;gap:12px;border:1px solid #e4e6f7;border-radius:6px;background:white;color:#4a4d78;padding:12px;width:100%;font-size:12px;cursor:pointer}.issue-link span:last-child{color:#5947ff}.stats-strip,.summary{padding:12px;background:linear-gradient(120deg,#f3f2ff,#f1f6ff);border-radius:6px;font-size:12px;line-height:1.8;margin:10px 0;color:#55618c}.stats-strip button{border:0;float:right;background:none;color:#5947ff;cursor:pointer}.status-notice{padding:13px;border-radius:6px;font-size:13px;margin:12px 0}.state-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #eef0fa;font-size:12px}.verification{margin-top:16px}.verification>.badge,.task>.badge{margin-left:10px}.steps{display:flex;gap:12px;padding:20px 0;font-size:12px;justify-content:space-between}.steps span{flex:1;border-top:2px solid #c7bfff;padding-top:12px}.steps span:last-child{border-top-style:dashed}.task{padding:14px;border:1px solid #e4e8f6;border-radius:6px;font-size:13px;margin:10px 0}.risk{background:#fffcf8}.actions{display:flex;gap:18px;align-items:center}.actions a{font-size:12px;color:#5947ff;text-decoration:none}.windows{display:flex;background:#f3f5ff;border-radius:6px;padding:12px;gap:14px}.windows>div{flex:1}.windows strong{display:block;margin-top:5px;font-size:14px}.history-filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.history-filters>button{border:1px solid transparent;background:#f1f3fc;border-radius:18px;padding:8px 14px;color:#66749a;cursor:pointer;font-size:12px}.history-filters>button.active{border-color:#8c7aff;color:#5847ff;background:#f4f0ff}.history-filters .el-select{width:110px;margin-left:auto}.timeline>article{border-left:2px solid #e3e5f8;padding:0 0 18px 16px;position:relative}.timeline>article:before{content:'';position:absolute;left:-6px;top:4px;width:10px;height:10px;background:#8d87d1;border-radius:50%}.timeline details{border:1px solid #e3e7f6;border-radius:8px;padding:14px;margin-top:8px}.timeline summary{display:flex;align-items:center;gap:12px;cursor:pointer;font-size:13px}.timeline summary .badge{margin-left:auto}.current-rules{border:1px solid #e3e7f6;border-radius:7px;padding:14px;margin-top:16px}.current-rules>summary{cursor:pointer;font-size:13px;font-weight:600;list-style:none}.current-rules>summary span{float:right;color:#9297b4;font-weight:400}.rule-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.rule-grid>div{padding:12px;border:1px solid #eef0fa;border-radius:6px}.rule-grid strong{font-size:13px;display:block;margin-top:6px}footer{flex:none;display:flex;align-items:center;gap:12px;border-top:1px solid #e5e7f5;padding:12px 22px}footer>.el-button{font-size:12px}footer small{font-size:11px;max-width:230px}.footer-actions{margin-left:auto;display:flex;gap:10px}.footer-actions :deep(.el-button+.el-button){margin-left:0}@media(max-width:600px){header{padding:14px 14px 0}main{padding:14px}nav button{font-size:12px}.heading{gap:8px}.heading h2{font-size:16px}.pair{grid-template-columns:1fr}.metrics strong{font-size:17px}.metrics article{padding:12px 8px}.metrics small{font-size:10px}.plan strong{font-size:12px}footer{padding:12px 14px;flex-wrap:wrap}footer small{display:none}.windows{flex-wrap:wrap}.actions{flex-wrap:wrap}.rule-grid{grid-template-columns:1fr}}
+.monitor-details{height:100%;display:flex;flex-direction:column;color:#202444;background:#fff}header{flex:none;padding:18px 22px 0}.heading{display:flex;align-items:center;gap:12px}h2{font-size:18px;margin:0}.badge{border-radius:16px;padding:4px 10px;font-size:11px;white-space:nowrap;display:inline-block}.success{color:#15996a;background:#dff8eb}.warning{color:#d4801a;background:#fff0db}.muted{color:#8086aa;background:#eeeff8}.close{margin-left:auto;border:0;background:none;color:#71789c;font-size:27px;cursor:pointer}.plan{position:relative;background:linear-gradient(110deg,#f7f5ff,#f1f6ff);border:1px solid #e1e5f7;border-radius:6px;padding:12px 90px 12px 14px;margin:12px 0}.plan strong{font-size:14px;overflow-wrap:anywhere}.plan .el-tag{position:absolute;right:12px;top:18px}small{display:block;color:#7f86a9;font-size:12px;line-height:1.7}.plan small{margin-top:4px}.risk-banner{display:flex;justify-content:space-between;width:100%;padding:12px;border:1px solid #ffe0b6;background:#fff6eb;border-radius:6px;color:#ed8a1c;font-size:13px;font-weight:600;cursor:pointer}nav{display:flex;border-bottom:1px solid #dde2f6}nav button{flex:1;border:0;border-bottom:2px solid transparent;background:white;padding:15px 4px 12px;font-size:14px;color:#454e80;font-weight:600;cursor:pointer}nav button.active{border-bottom-color:#5947ff;color:#5947ff}main{flex:1;min-height:0;overflow:auto;padding:16px 22px 28px}h3{font-size:16px;margin:4px 0 14px}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.range{display:flex;background:#efefff;border-radius:6px;padding:3px}.range button{border:0;background:none;padding:7px 12px;color:#737da9;border-radius:5px;cursor:pointer}.range button.active{background:#5847ff;color:#fff}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}.metrics article{position:relative;border:1px solid #e3e7f8;border-radius:8px;padding:17px 12px;background:linear-gradient(120deg,#f5f4ff,#fff)}.metrics .el-icon{font-size:22px;background:#eeebff;color:#654eff;padding:7px;border-radius:8px;margin-bottom:8px}.metrics strong{display:block;font-size:22px;line-height:1.6}.metrics em,.large em{font-size:13px;font-style:normal;margin-left:4px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}section{border:1px solid #e1e5f5;border-radius:8px;padding:16px;margin:12px 0}.pair section{margin:0}.protection{background:linear-gradient(130deg,#fff8ed,#fff)}.improvement{background:linear-gradient(130deg,#ebfbf4,#fff);color:#125e4c}.large{font-size:23px}.panel-link{display:block;border:0;background:#f4f3ff;color:#5947ff;padding:10px;width:100%;border-radius:5px;margin-top:12px;cursor:pointer;font-size:12px}p{color:#7a83ab;font-size:12px;line-height:1.9;margin:8px 0}.completed-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:9px 0;border-bottom:1px solid #f0f1fa}.completed-row .el-icon{color:#17aa70}.completed-row small{margin-left:auto;font-size:11px}.issue-link{display:flex;justify-content:space-between;gap:12px;border:1px solid #e4e6f7;border-radius:6px;background:white;color:#4a4d78;padding:12px;width:100%;font-size:12px;cursor:pointer}.issue-link span:last-child{color:#5947ff}.stats-strip,.summary{padding:12px;background:linear-gradient(120deg,#f3f2ff,#f1f6ff);border-radius:6px;font-size:12px;line-height:1.8;margin:10px 0;color:#55618c}.stats-strip button{border:0;float:right;background:none;color:#5947ff;cursor:pointer}.status-notice{padding:13px;border-radius:6px;font-size:13px;margin:12px 0}.state-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #eef0fa;font-size:12px}.verification{margin-top:16px}.verification>.badge,.task>.badge{margin-left:10px}.steps{display:flex;gap:12px;padding:20px 0;font-size:12px;justify-content:space-between}.steps span{flex:1;border-top:2px solid #c7bfff;padding-top:12px}.steps span:last-child{border-top-style:dashed}.task{padding:14px;border:1px solid #e4e8f6;border-radius:6px;font-size:13px;margin:10px 0}.risk{background:#fffcf8}.actions{display:flex;gap:18px;align-items:center}.actions a{font-size:12px;color:#5947ff;text-decoration:none}.windows{display:flex;background:#f3f5ff;border-radius:6px;padding:12px;gap:14px}.windows>div{flex:1}.windows strong{display:block;margin-top:5px;font-size:14px}.history-filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.history-filters>button{border:1px solid transparent;background:#f1f3fc;border-radius:18px;padding:8px 14px;color:#66749a;cursor:pointer;font-size:12px}.history-filters>button.active{border-color:#8c7aff;color:#5847ff;background:#f4f0ff}.history-filters .el-select{width:110px;margin-left:auto}.current-rules{border:1px solid #e3e7f6;border-radius:7px;padding:14px;margin-top:16px}.current-rules>summary{cursor:pointer;font-size:13px;font-weight:600;list-style:none}.current-rules>summary span{float:right;color:#9297b4;font-weight:400}.rule-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.rule-grid>div{padding:12px;border:1px solid #eef0fa;border-radius:6px}.rule-grid strong{font-size:13px;display:block;margin-top:6px}footer{flex:none;display:flex;align-items:center;gap:12px;border-top:1px solid #e5e7f5;padding:12px 22px}footer>.el-button{font-size:12px}footer small{font-size:11px;max-width:230px}.footer-actions{margin-left:auto;display:flex;gap:10px}.footer-actions :deep(.el-button+.el-button){margin-left:0}@media(max-width:600px){header{padding:14px 14px 0}main{padding:14px}nav button{font-size:12px}.heading{gap:8px}.heading h2{font-size:16px}.pair{grid-template-columns:1fr}.metrics strong{font-size:17px}.metrics article{padding:12px 8px}.metrics small{font-size:10px}.plan strong{font-size:12px}footer{padding:12px 14px;flex-wrap:wrap}footer small{display:none}.windows{flex-wrap:wrap}.actions{flex-wrap:wrap}.rule-grid{grid-template-columns:1fr}}
 </style>

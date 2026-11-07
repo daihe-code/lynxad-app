@@ -43,7 +43,7 @@ public class OptimizationRuleResumeService {
         return inspect(plan,pausedRules(tenant,id)).preview();
     }
 
-    public Result resume(TenantId tenant,PlanId id,Confirmation confirmation){
+    public Result resume(TenantId tenant,PlanId id,Confirmation confirmation,String operator){
         var plan=gateway.plan(tenant.value(),id.value());
         String owner="resume-rules:"+UUID.randomUUID();
         String account=plan.accountId().value();
@@ -61,7 +61,7 @@ public class OptimizationRuleResumeService {
                 || current.outcome()!=confirmation.outcome())throw changed();
             boolean autoPause=current.outcome()==Outcome.LIMIT_PAUSE;
             if(autoPause)gateway.writable(plan);
-            store.resumeRules(plan,state,report(plan,state,evidence),evidence.facts());
+            store.resumeRules(plan,state,report(plan,state,evidence),evidence.facts(),operator);
             if(autoPause)pause=journal.ruleActions(tenant.value(),id.value(),state.version()+1).stream()
                 .filter(event->"PAUSE".equals(event.kind()) && "READY".equals(event.status())).findFirst().orElse(null);
         }finally{journal.releaseAccount(tenant.value(),account,owner);}
@@ -113,7 +113,8 @@ public class OptimizationRuleResumeService {
             .put("plan_status",preview.planStatus()).put("observed_at",observed.toOffsetDateTime().toString())
             .put("plan_checked_at",evidence.checkedAt().toString())
             .put("daily_spend_date",preview.day().toString()).put("daily_spend",preview.spend().toPlainString())
-            .put("fetched_at",preview.fetchedAt().toString()).put("complete",true);
+            .put("fetched_at",preview.fetchedAt().toString()).put("complete",true)
+            .put("resume_outcome",preview.outcome().name()).put("daily_committed_addition",preview.committed());
         if(preview.outcome()==Outcome.BELOW_LIMIT || preview.outcome()==Outcome.LIMIT_REMINDER)
             data.put("optimization_restarted_at",evidence.checkedAt().toString());
         data.set("product_ids",evidence.facts().path("productIds"));

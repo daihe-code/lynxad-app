@@ -76,16 +76,19 @@ public class OptimizationStore {
         save(plan,policy,get(plan.tenantId(),plan.id()).map(State::version).orElse(0L));
     }
     public void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion) {
-        save(plan,policy,expectedVersion,null,null);
+        save(plan,policy,expectedVersion,null);
     }
-    public void resumeRules(AdPlan plan,State paused,JsonNode report,JsonNode facts) {
+    public void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion,String operator) {
+        save(plan,policy,expectedVersion,null,null,operator);
+    }
+    public void resumeRules(AdPlan plan,State paused,JsonNode report,JsonNode facts,String operator) {
         var policy=paused.policy();
         var resumed=new OptimizationPolicy(true,policy.mode(),policy.dailySpendLimit(),policy.maxLoss(),
             policy.minSpend(),policy.minOrders(),policy.persistenceWindows(),policy.conversionDelayMinutes(),
             policy.economics(),policy.automation(),policy.tactics(),policy.creativeGeneration(),policy.rules());
-        save(plan,resumed,paused.version(),report,facts);
+        save(plan,resumed,paused.version(),report,facts,operator);
     }
-    private void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion,JsonNode resumeReport,JsonNode resumeFacts) {
+    private void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion,JsonNode resumeReport,JsonNode resumeFacts,String operator) {
         tx.executeWithoutResult(s->{
             // A tenant row serializes first inserts and cross-plan shared economics changes.
             if(jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",plan.tenantId().value()).isEmpty())throw new BizException(1802,"租户不存在");
@@ -97,6 +100,9 @@ public class OptimizationStore {
                 && previous.filter(state->!state.enabled() && state.policy().rules()!=null).isPresent())
                 throw new BizException(1803,"请先核对当天消耗，再确认恢复盯盘优化");
             var now=Timestamp.from(Instant.now());
+            var prior=previous.orElse(null);
+            boolean pausing=policy.rules()!=null && prior!=null && prior.enabled() && !policy.enabled();
+            int expired=pausing && automationStore!=null?automationStore.expireAdvice(prior,"盯盘优化已暂停，原建议已失效",now):0;
             for(var e:policy.economics()) {
                 int changed=jdbc.update("UPDATE product_economics_profile SET contribution_margin_rate=?,refund_reserve_rate=?,verified=?,updated_at=? WHERE tenant_id=? AND account_id=? AND aweme_id=? AND product_id=?",
                     e.contributionMarginRate(),e.refundReserveRate(),e.verified(),now,plan.tenantId().value(),plan.accountId().value(),plan.awemeId().value(),e.productId());
@@ -118,10 +124,8 @@ public class OptimizationStore {
             if(changed==0)jdbc.update("INSERT INTO optimization_policy(tenant_id,plan_id,policy_version,enabled,config_json,next_check_at) VALUES(?,?,1,?,?,?)",plan.tenantId().value(),plan.id().value(),policy.enabled(),encode(policy.withEconomics(List.of())),now);
             if(ruleMetrics!=null)ruleMetrics.reset(plan.tenantId().value(),plan.id().value());
             if(policy.rules()!=null && automationStore!=null){
-                var prior=previous.orElse(null);
-                boolean wasEnabled=prior!=null && prior.enabled();
                 OptimizationAutomationStore.PauseSnapshot snapshot=null;
-                if(wasEnabled && !policy.enabled()){
+                if(pausing){
                     String tenant=plan.tenantId().value(), id=plan.id().value();
                     var report=prior.result();
                     snapshot=new OptimizationAutomationStore.PauseSnapshot(
@@ -129,12 +133,8 @@ public class OptimizationStore {
                         automationStore.ruleSummary(tenant,id,false),
                         report==null?null:report.get("daily_spend"),
                         report==null?null:report.path("fetched_at").asText(report.path("observed_at").asText(null)));
-                    jdbc.update("""
-                        UPDATE optimization_event SET status='RESOLVED',error_message='盯盘优化已暂停，原建议已失效',finished_at=?,updated_at=?
-                        WHERE tenant_id=? AND plan_id=? AND status='RECOMMENDED'
-                        """,now,now,tenant,id);
                 }
-                automationStore.ruleChanged(plan,policy,version+1,wasEnabled,snapshot,resumeReport!=null);
+                automationStore.ruleChanged(plan,policy,prior,snapshot,expired,resumeReport,operator,now.toInstant());
                 if(resumeReport!=null){
                     jdbc.update("""
                         UPDATE optimization_policy SET result_json=?,last_check_at=?,last_success_at=?,baseline_json=?

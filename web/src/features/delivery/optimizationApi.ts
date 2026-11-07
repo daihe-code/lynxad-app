@@ -37,6 +37,16 @@ export interface DecisionPreview { eventId: string; version: number; hash: strin
 export interface MonitoringReport {
   strategy_approved?: boolean; diagnostics_ready?: boolean; business_ready?: boolean; coverage_gaps?: string[];
   rules?: OptimizationRules;
+  activity?: 'ENABLE' | 'PAUSE' | 'EDIT' | 'RESUME_CHECK' | 'RESUME' | 'ADVICE_EXPIRED';
+  operator?: string;
+  previous_rules?: OptimizationRules;
+  enabled?: boolean;
+  pause_snapshot?: { dailySpend?: string | null; dataAt?: string };
+  paused_at?: string;
+  pending_count?: number;
+  daily_committed_addition?: number;
+  fetched_at?: string;
+  resume_outcome?: OptimizationResumePreview['outcome'];
   actual_net_roi?: string | null;
   mature_spend?: string | null;
   mature_net_revenue?: string | null;
