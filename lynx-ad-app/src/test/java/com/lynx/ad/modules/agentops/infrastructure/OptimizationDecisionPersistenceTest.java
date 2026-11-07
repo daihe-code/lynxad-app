@@ -129,6 +129,33 @@ class OptimizationDecisionPersistenceTest {
         verifyNoInteractions(execution);
         verify(gateway,never()).writable(any());
     }
+    @Test void expiredAuthorizationLeavesRulesPausedEvenAfterSuccessfulPreview(){
+        store.automationStore(journal);
+        var pausedPolicy=policy(false);
+        store.save(plan,pausedPolicy,1);
+        var gateway=mock(OptimizationExecutionGateway.class);
+        var insights=mock(PlanInsightsService.class);
+        var execution=mock(OptimizationExecutionService.class);
+        when(plan.status()).thenReturn(PlanStatus.DELIVERING);
+        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.ready()).thenReturn(true);
+        when(gateway.facts(plan)).thenReturn(json.createObjectNode().put("qcId","123").put("status","DELIVERING"));
+        when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true)))
+            .thenReturn(spend("520"))
+            .thenThrow(new BizException(1211,"授权已失效"));
+        var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
+        var preview=service.preview(plan.tenantId(),plan.id());
+        var error=assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview)));
+        assertEquals(1211,error.code());
+        assertEquals(1211,assertThrows(BizException.class,()->service.preview(plan.tenantId(),plan.id())).code());
+        var saved=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertFalse(saved.enabled());
+        assertEquals(preview.version(),saved.version());
+        assertEquals(pausedPolicy.rules(),saved.policy().rules());
+        assertTrue(journal.ruleActions("tenant","plan",preview.version()+1).isEmpty());
+        verifyNoInteractions(execution);
+        verify(gateway,never()).writable(any());
+    }
     private PlanInsightsService.Statistics spend(String amount){
         return new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal(amount)),List.of(),null,Instant.now(),null);
     }
