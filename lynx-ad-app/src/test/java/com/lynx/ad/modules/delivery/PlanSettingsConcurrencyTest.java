@@ -115,6 +115,22 @@ class PlanSettingsConcurrencyTest {
         assertDoesNotThrow(()->PlanEditVersion.platformUnchanged(p,optPaused));
     }
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void monitoringRecognizesAnExplicitPlatformPauseWithoutMaskingAnEndedPlan(String mode) throws Exception {
+        database(mode);
+        var port=mock(AdManagementPort.class);
+        var detail=facts(current()).put("status","DELIVERY_OK").put("opt_status","DISABLE");
+        detail.putArray("product_ids").add("123");
+        when(port.detail(any(),eq("456"))).thenReturn(detail);
+        var management=service(first,port);
+        var paused=management.monitoringFacts(tenant,id);
+        assertEquals("PAUSED",paused.status());
+        assertEquals("DISABLE",paused.qcStatus());
+        detail.put("status","TIME_DONE");
+        var finished=management.monitoringFacts(tenant,id);
+        assertEquals("FINISHED",finished.status());
+        assertEquals("TIME_DONE",finished.qcStatus());
+    }
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void staleClaimRollsBackGroupReservationAndUnchangedReadsDoNotInvalidateVersion(String mode) throws Exception {
         database(mode);var request=request("400");assertEquals(first.state(current()).version(),second.state(current()).version());
         var claimed=first.claim(tenant,id,request);first.dispatched(claimed.pending());first.complete(claimed.pending(),()->{});

@@ -6,7 +6,14 @@
     @update:model-value="!busy && emit('update:modelValue', $event)">
     <div v-if="loading" class="resume-loading" role="status">正在核对当天消耗和计划状态…</div>
     <template v-else-if="preview">
-      <div v-if="autoPause || remind" class="resume-warning">
+      <template v-if="pausedPlan">
+        <div class="resume-statuses">
+          <span>盯盘优化：已暂停</span>
+          <span>广告计划：{{ manualPause ? '人工暂停' : planStatusDisplay(preview.planStatus, preview.qcStatus).label }}</span>
+        </div>
+        <div class="resume-paused-notice"><el-icon><InfoFilled /></el-icon><strong>只恢复盯盘优化，不会恢复广告投放</strong></div>
+      </template>
+      <div v-else-if="autoPause || remind" class="resume-warning">
         <el-icon><InfoFilled /></el-icon>
         <div><strong>{{ autoPause ? '恢复后将立即提交暂停本广告计划的请求' : '今日消耗已达保护金额，恢复后将提醒你处理' }}</strong><small v-if="autoPause">保存的处理方式：允许小灵自动暂停本计划</small></div>
       </div>
@@ -17,27 +24,37 @@
         <div><small>今天已消耗</small><strong>{{ money(preview.spend) }}</strong></div>
         <div><small>当天消耗保护金额</small><strong>{{ money(preview.rules.spendProtection) }}</strong></div>
       </div>
-      <div v-if="!autoPause && !remind" class="resume-rules">
-        <div><small>目标ROI保护</small>净成交ROI不低于 {{ preview.rules.roiFloor }}</div>
-        <div><small>消耗提醒 / 保护</small>{{ money(preview.rules.spendReminder) }} / {{ money(preview.rules.spendProtection) }}</div>
-        <div><small>跑飞提醒</small>最近{{ preview.rules.runawayMinutes }}分钟消耗达到{{ money(preview.rules.runawaySpend) }}</div>
-        <div><small>追加预算</small>每次{{ money(preview.rules.maxAddition) }} · 每日累计{{ money(preview.rules.dailyAddition) }}</div>
-      </div>
-      <div v-if="!autoPause" class="resume-method"><span>当前保存的处理方式</span><strong>{{ automatic ? '允许小灵自动暂停本计划' : '提醒我确认暂停' }}</strong></div>
-      <p v-if="autoPause" class="resume-copy">请确认本次暂停，或先修改保护规则。提交后会继续核实暂停结果。</p>
-      <p v-else-if="remind" class="resume-copy"><strong>本次只恢复盯盘优化，广告仍会继续投放并产生消耗。</strong><br>需要暂停广告时，由你单独确认。</p>
-      <p v-else-if="preview.outcome === 'PLAN_NOT_DELIVERING'" class="resume-copy">仅恢复盯盘优化。恢复广告投放需单独确认。</p>
-      <p v-else-if="automatic" class="resume-copy">当天消耗达到 {{ money(preview.rules.spendProtection) }} 后，将按已保存的授权暂停本计划。</p>
-      <div v-if="autoPause && runningTaskCount" class="resume-warning">
-        <span>{{ runningTaskCount }} 项独立调控任务仍在运行，暂停主计划不会自动停止这些任务。</span>
-        <el-button link type="primary" :disabled="busy" @click="emit('tasks')">查看任务</el-button>
-      </div>
-      <div class="resume-note">
-        当天消耗和追加额度继续累计。<template v-if="Number(preview.committed) > 0">当日已追加 {{ money(preview.committed) }}，计入每日 {{ money(preview.rules.dailyAddition) }} 额度。</template>
-        <template v-if="remind">本次不变更自动执行授权。</template><template v-else-if="!autoPause">旧建议已失效，恢复后按最新数据重新判断。</template>
-      </div>
-      <el-button v-if="remind" link type="primary" :disabled="busy" @click="emit('edit')">先修改规则 ›</el-button>
-      <small class="resume-time">数据截至 {{ fetchedAt }}</small>
+      <template v-if="pausedPlan">
+        <p class="resume-copy">确认后将启用已保存的规则。基础异常监控和历史任务核实继续，经营判断等待广告恢复投放。</p>
+        <dl class="resume-pause-details">
+          <div><dt>广告暂停时间 / 操作人</dt><dd>{{ pauseDetails }}</dd></div>
+          <div><dt>恢复盯盘后的状态</dt><dd><span>规则已开启 · 等待投放</span></dd></div>
+        </dl>
+        <p class="resume-copy">如需恢复广告，请在计划操作中另行确认。跨日或数据回流均不会自动恢复广告。</p>
+      </template>
+      <template v-else>
+        <div v-if="!autoPause && !remind" class="resume-rules">
+          <div><small>目标ROI保护</small>净成交ROI不低于 {{ preview.rules.roiFloor }}</div>
+          <div><small>消耗提醒 / 保护</small>{{ money(preview.rules.spendReminder) }} / {{ money(preview.rules.spendProtection) }}</div>
+          <div><small>跑飞提醒</small>最近{{ preview.rules.runawayMinutes }}分钟消耗达到{{ money(preview.rules.runawaySpend) }}</div>
+          <div><small>追加预算</small>每次{{ money(preview.rules.maxAddition) }} · 每日累计{{ money(preview.rules.dailyAddition) }}</div>
+        </div>
+        <div v-if="!autoPause" class="resume-method"><span>当前保存的处理方式</span><strong>{{ automatic ? '允许小灵自动暂停本计划' : '提醒我确认暂停' }}</strong></div>
+        <p v-if="autoPause" class="resume-copy">请确认本次暂停，或先修改保护规则。提交后会继续核实暂停结果。</p>
+        <p v-else-if="remind" class="resume-copy"><strong>本次只恢复盯盘优化，广告仍会继续投放并产生消耗。</strong><br>需要暂停广告时，由你单独确认。</p>
+        <p v-else-if="preview.outcome === 'PLAN_NOT_DELIVERING'" class="resume-copy">仅恢复盯盘优化。恢复广告投放需单独确认。</p>
+        <p v-else-if="automatic" class="resume-copy">当天消耗达到 {{ money(preview.rules.spendProtection) }} 后，将按已保存的授权暂停本计划。</p>
+        <div v-if="autoPause && runningTaskCount" class="resume-warning">
+          <span>{{ runningTaskCount }} 项独立调控任务仍在运行，暂停主计划不会自动停止这些任务。</span>
+          <el-button link type="primary" :disabled="busy" @click="emit('tasks')">查看任务</el-button>
+        </div>
+        <div class="resume-note">
+          当天消耗和追加额度继续累计。<template v-if="Number(preview.committed) > 0">当日已追加 {{ money(preview.committed) }}，计入每日 {{ money(preview.rules.dailyAddition) }} 额度。</template>
+          <template v-if="remind">本次不变更自动执行授权。</template><template v-else-if="!autoPause">旧建议已失效，恢复后按最新数据重新判断。</template>
+        </div>
+        <el-button v-if="remind" link type="primary" :disabled="busy" @click="emit('edit')">先修改规则 ›</el-button>
+        <small class="resume-time">数据截至 {{ fetchedAt }}</small>
+      </template>
     </template>
     <p v-if="error" class="resume-error" role="alert">{{ error }}</p>
     <template #footer>
@@ -52,13 +69,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { InfoFilled } from '@element-plus/icons-vue';
 import type { OptimizationResumePreview } from '@/features/delivery/optimizationApi';
+import { isPausedPlanResume, manualPlanPauseLog } from '@/features/delivery/optimizationDetails';
+import { insightLogs, type InsightLog } from '@/features/delivery/planInsightsApi';
+import { reviewTime } from '@/features/delivery/planReview';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
+import { shiftDay } from '@/features/delivery/statisticsRange';
 
-const props = defineProps<{ modelValue: boolean; preview?: OptimizationResumePreview; loading: boolean; busy: boolean; error?: string; runningTaskCount: number }>();
+const props = defineProps<{ modelValue: boolean; planId: string; preview?: OptimizationResumePreview; loading: boolean; busy: boolean; error?: string; runningTaskCount: number }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: []; refresh: []; edit: []; tasks: [] }>();
+const pausedPlan = computed(() => isPausedPlanResume(props.preview));
+const manualPause = computed(() => pausedPlan.value && props.preview?.qcStatus === 'DISABLE');
+const pauseLog = ref<InsightLog>();
+const pauseDetails = computed(() => pauseLog.value ? `${reviewTime(pauseLog.value.time, '—')} · ${pauseLog.value.actor?.trim() || '—'}` : '—');
+watch(() => props.modelValue && manualPause.value ? props.preview : undefined, async (preview, _, onCleanup) => {
+  pauseLog.value = undefined;
+  if (!preview) return;
+  let current = true;
+  onCleanup(() => { current = false; });
+  try {
+    const logs = await insightLogs(props.planId, [shiftDay(preview.day, -29), preview.day], 'PLATFORM', 1);
+    if (current) pauseLog.value = manualPlanPauseLog(logs.records, preview.fetchedAt);
+  } catch {
+    // Pause history is supplementary to the live status and spend verification.
+  }
+}, { immediate: true });
 const autoPause = computed(() => props.preview?.outcome === 'LIMIT_PAUSE');
 const remind = computed(() => props.preview?.outcome === 'LIMIT_REMINDER');
 const automatic = computed(() => props.preview?.rules.protectionAction === 'AUTO_PAUSE');
@@ -75,6 +112,16 @@ const money = (value: string | number) => amount.format(Number(value));
 .resume-warning{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #ffdbaf;border-radius:8px;background:#fff8ed;color:#985411;font-size:13px}
 .resume-warning .el-icon{flex:none}
 .resume-warning small{display:block;margin-top:4px;color:#68708e}
+.resume-statuses,.resume-pause-details>div{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.resume-statuses{margin-bottom:10px}
+.resume-statuses span,.resume-pause-details dd span{padding:3px 7px;border-radius:4px;background:#fff3e2;color:#965515;font-size:11px}
+.resume-paused-notice{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e9e3ff;border-radius:8px;background:#f3f0ff;color:#24263f;font-size:13px}
+.resume-paused-notice .el-icon{flex:none}
+.resume-pause-details{margin:12px 0;padding:4px 12px;border:1px solid #e6e7f4;border-radius:8px;color:#24263f;font-size:12px}
+.resume-pause-details>div{padding:10px 0}
+.resume-pause-details>div+div{border-top:1px solid #eceef7}
+.resume-pause-details dd{margin:0}
+.resume-pause-details dd span{background:#f2efff;color:#5543e5}
 .resume-method{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:14px 12px;border:1px solid #e6e7f4;border-radius:8px;color:#24263f;font-size:12px}
 .resume-metrics,.resume-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
 .resume-metrics>div,.resume-rules>div,.resume-note{padding:10px 12px;background:#f5f5fc;border-radius:8px;color:#24263f;font-size:12px}

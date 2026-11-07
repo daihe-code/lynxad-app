@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 public class OptimizationRuleResumeService {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     public enum Outcome { BELOW_LIMIT, LIMIT_PAUSE, LIMIT_REMINDER, PLAN_NOT_DELIVERING }
-    public record Preview(long version,LocalDate day,String planStatus,BigDecimal spend,Instant fetchedAt,
+    public record Preview(long version,LocalDate day,String planStatus,String qcStatus,BigDecimal spend,Instant fetchedAt,
                           BigDecimal committed,OptimizationRules rules,Outcome outcome){}
     public record Confirmation(long version,LocalDate day,String planStatus,Outcome outcome){}
     public record Result(String pauseStatus){}
@@ -78,7 +78,8 @@ public class OptimizationRuleResumeService {
     private Evidence inspect(AdPlan plan,OptimizationStore.State state){
         if(!gateway.ready())throw new BizException(1801,"真实盯盘需要连接千川正式数据源");
         if(OptimizationMonitoringService.rulePlanEnded(plan))throw new BizException(1801,"计划已结束");
-        var facts=gateway.facts(plan);
+        var platform=gateway.readPlanFacts(plan);
+        var facts=platform.facts();
         String status=facts.path("status").asText();
         if("FINISHED".equals(status) || "DELETED".equals(status))throw new BizException(1801,"计划已结束");
         if(status.isBlank() || "UNKNOWN".equals(status))throw new BizException(1803,"暂时无法核实广告计划状态，请重试");
@@ -98,7 +99,7 @@ public class OptimizationRuleResumeService {
             outcome=OptimizationRules.AUTO_PAUSE.equals(rules.protectionAction())?Outcome.LIMIT_PAUSE:Outcome.LIMIT_REMINDER;
         var committed=confirmations.committed(state.tenant(),state.plan(),day.toString())
             .add(journal.extraBudgetToday(state.tenant(),state.plan()));
-        return new Evidence(new Preview(state.version(),day,status,spend,fetched,committed,rules,outcome),facts);
+        return new Evidence(new Preview(state.version(),day,status,platform.qcStatus(),spend,fetched,committed,rules,outcome),facts);
     }
 
     private JsonNode report(AdPlan plan,OptimizationStore.State state,Evidence evidence){

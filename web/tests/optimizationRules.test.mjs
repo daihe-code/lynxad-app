@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultOptimizationRules, validateOptimizationRules, numericOptimizationRules } from '../src/features/delivery/optimizationRules.ts';
-import { monitoringDuration, optimizationDetailState } from '../src/features/delivery/optimizationDetails.ts';
+import { isPausedPlanResume, manualPlanPauseLog, monitoringDuration, optimizationDetailState } from '../src/features/delivery/optimizationDetails.ts';
 
 test('initial rule amounts follow this plan and never default to automatic pause', () => {
   const rules = defaultOptimizationRules(4.9, 300);
@@ -29,7 +29,21 @@ test('waiting, missing net revenue, stale and authorization loss remain distinct
 });
 test('paused plans with running independent tasks are not presented as fully handled', () => {
   assert.equal(optimizationDetailState(fixture(), 'PAUSED', 'ACTIVE', 1).label, '部分生效');
-  assert.equal(optimizationDetailState(fixture(), 'PAUSED', 'ACTIVE', 0).label, '随计划暂停');
+  assert.equal(optimizationDetailState(fixture(), 'PAUSED', 'ACTIVE', 0).label, '等待投放');
+});
+test('only a paused plan uses the waiting-for-delivery confirmation', () => {
+  assert.equal(isPausedPlanResume({ planStatus: 'PAUSED', qcStatus: 'DISABLE', outcome: 'PLAN_NOT_DELIVERING' }), true);
+  assert.equal(isPausedPlanResume({ planStatus: 'PENDING_AUDIT', outcome: 'PLAN_NOT_DELIVERING' }), false);
+  assert.equal(isPausedPlanResume({ planStatus: 'DELIVERING', outcome: 'LIMIT_PAUSE' }), false);
+});
+test('pause details use the latest explicit plan operation observed at the time of verification', () => {
+  const pause = { operation: '暂停投放', time: '2026-11-08 14:00:00', actor: '店主' };
+  const resume = { operation: '恢复投放', time: '2026-11-08 14:10:00', actor: '店主' };
+  const task = { operation: '暂停素材追投', time: '2026-11-08 14:15:00', actor: '运营' };
+  const checked = '2026-11-08T06:20:00Z';
+  assert.equal(manualPlanPauseLog([task, pause], checked), pause);
+  assert.equal(manualPlanPauseLog([task, pause, resume], checked), undefined);
+  assert.equal(manualPlanPauseLog([pause, { ...resume, time: '2026-11-08 14:21:00' }], checked), undefined);
 });
 test('monitoring duration uses observed seconds and never invents historical time', () => {
   assert.equal(monitoringDuration(0), '—'); assert.equal(monitoringDuration(90), '1分钟'); assert.equal(monitoringDuration(194400), '2天6小时');

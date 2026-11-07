@@ -54,8 +54,8 @@ public class PlanManagementService {
         this.plans=plans;this.port=port;this.credentials=credentials;this.store=store;this.query=query;this.billing=billing;this.audit=audit;this.jdbc=jdbc;this.json=json;
     }
     private AdPlan require(TenantId tenant,PlanId id) { return plans.findById(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在")); }
-    public record MonitoringFacts(String qcId,String status,String bidType,BigDecimal budget,BigDecimal roi,List<String> productIds,String deepExternalAction) {
-        public MonitoringFacts(String qcId,String status,String bidType,BigDecimal budget,BigDecimal roi,List<String> products){this(qcId,status,bidType,budget,roi,products,null);}
+    public record MonitoringFacts(String qcId,String status,String bidType,BigDecimal budget,BigDecimal roi,List<String> productIds,String deepExternalAction,String qcStatus) {
+        public MonitoringFacts(String qcId,String status,String bidType,BigDecimal budget,BigDecimal roi,List<String> products){this(qcId,status,bidType,budget,roi,products,null,null);}
     }
     /** Read the physical plan without submitting an operation or deriving membership from a draft. */
     public MonitoringFacts monitoringFacts(TenantId tenant,PlanId id) {
@@ -64,8 +64,12 @@ public class PlanManagementService {
         if(!qc.equals(row.path("ad_id").asText()) || !row.hasNonNull("status") || !row.has("delivery_setting"))throw new BizException(1406,"平台计划信息不完整，暂无法盯盘");
         var setting=row.path("delivery_setting");var budget=QianchuanPlanMapping.number(setting,"budget");
         if(budget==null || budget.signum()<=0 || !setting.hasNonNull("smart_bid_type"))throw new BizException(1406,"平台计划预算或模式缺失");
-        return new MonitoringFacts(qc,QianchuanPlanMapping.status(row.path("status").asText()).name(),
-            SmartBidType.fromOcean(setting.path("smart_bid_type").asText()).name(),budget,QianchuanPlanMapping.number(setting,"roi2_goal"),List.copyOf(PlanProductsService.boundProducts(row,qc).keySet()),QianchuanPlanMapping.text(setting,"deep_external_action"));
+        String qcStatus=row.path("status").asText();
+        var status=PlanEditVersion.platformStatus(row);
+        if(status==PlanStatus.PAUSED && "DISABLE".equals(row.path("opt_status").asText()))qcStatus="DISABLE";
+        return new MonitoringFacts(qc,status.name(),SmartBidType.fromOcean(setting.path("smart_bid_type").asText()).name(),
+            budget,QianchuanPlanMapping.number(setting,"roi2_goal"),List.copyOf(PlanProductsService.boundProducts(row,qc).keySet()),
+            QianchuanPlanMapping.text(setting,"deep_external_action"),qcStatus);
     }
     private void editable(AdPlan plan) {
         if(plan.qcPlanId().isEmpty() || (plan.status()!=PlanStatus.DELIVERING && plan.status()!=PlanStatus.PAUSED))

@@ -56,7 +56,7 @@
           <div v-if="state.reason" class="status-notice" :class="state.tone">{{ state.reason }}</div>
           <section v-if="state.label === '授权失效'"><h3>请重新授权，恢复检查能力</h3><p>无法获取新的投放状态，也不能确认广告已停止消耗。</p><el-button type="primary" @click="router.push('/accounts')">前往账户管理</el-button><div class="summary">最近成功检查：{{ time(data.view.lastSuccess) }}<br>最近可见消耗：{{ money(data.view.result?.daily_spend) }}（历史数据）</div></section>
           <section v-if="data.pending.length"><h3>小灵正在核对操作结果</h3><article v-for="event in data.pending" :key="event.id" class="verification"><strong>{{ event.title }}</strong><span class="badge warning">{{ event.status === 'UNKNOWN' ? '结果待人工核查' : '核实中' }}</span><p>{{ event.error || '已提交请求，平台状态回读尚未确认。' }}</p><div class="steps"><span>保护条件命中</span><span>请求已提交</span><span>平台结果核实中</span></div><small>结果未明前不会重复提交。独立调控任务另行核对。</small><el-button link type="primary" :loading="checking === event.id" @click="recheck(event)">查看最新状态</el-button></article></section>
-          <section v-if="planDisplay.group === 'PAUSED'"><h3>暂停广告，保留必要的跟踪</h3><div class="state-row"><strong>新的经营判断与增长建议</strong><span class="badge muted">暂停</span></div><div class="state-row"><strong>已提交操作的结果核实</strong><span>{{ data.pending.length ? '继续核实' : '暂无待核实操作' }}</span></div><p>恢复投放需再次确认，跨日、ROI回升或商品恢复均不会自动启动广告。</p><el-button type="primary" @click="emit('data', 'data')">核对计划与投放设置</el-button></section>
+          <section v-if="planDisplay.group === 'PAUSED'"><h3>广告已暂停，保留必要的跟踪</h3><div class="state-row"><strong>新的经营判断与增长建议</strong><span class="badge muted">{{ paused ? '暂停' : '等待投放' }}</span></div><div class="state-row"><strong>已提交操作的结果核实</strong><span>{{ data.pending.length ? '继续核实' : '暂无待核实操作' }}</span></div><p>恢复投放需再次确认，跨日、ROI回升或商品恢复均不会自动启动广告。</p><el-button type="primary" @click="emit('data', 'data')">核对计划与投放设置</el-button></section>
           <section v-if="tasks.length || taskError"><h3>{{ planDisplay.group === 'PAUSED' ? '独立任务仍有风险需要核对' : '独立调控任务' }}</h3><p v-if="taskError">{{ taskError }}</p><article v-for="task in tasks" :key="`${task.kind}:${task.id}`" class="task"><strong>{{ task.name || task.kind }} · {{ task.id }}</strong><span class="badge warning">{{ task.task_status === 'PROCESSING' ? '仍在运行' : '状态需核对' }}</span><div class="summary">任务预算 {{ money(task.budget) }} · 已消耗 {{ money(task.metrics?.cost) }}</div><button class="panel-link" @click="emit('data', 'controls')">查看任务并确认处理 ›</button></article><small>本计划的自动暂停授权不包含独立任务终止；计划整体报表中的消耗不再与任务消耗相加。</small></section>
           <template v-if="canShowCurrent">
             <div class="metrics current-metrics"><article><small>今日消耗</small><strong>{{ money(data.view.result?.daily_spend) }}</strong></article><article><small>成熟窗口净成交ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>最近检查</small><strong>{{ time(data.view.lastCheck, true) }}</strong></article></div>
@@ -82,7 +82,7 @@
       <template #footer><el-button :disabled="confirming" @click="decision = undefined">取消</el-button><el-button type="primary" :loading="confirming" :disabled="!!decisionError" @click="confirmDecision">确认执行</el-button></template>
     </el-dialog>
     <PlanOptimizationPauseDialog v-model="pauseConfirmOpen" :busy="closing" :error="pauseError" :tasks="tasks" :tasks-loading="tasksLoading" :tasks-unavailable="!!taskError" @confirm="pauseOptimization" @tasks="showControlTasks" />
-    <PlanOptimizationResumeDialog v-model="resumeOpen" :preview="resumePreview" :loading="resumeLoading"
+    <PlanOptimizationResumeDialog v-model="resumeOpen" :plan-id="planId" :preview="resumePreview" :loading="resumeLoading"
       :busy="resuming" :error="resumeError" :running-task-count="runningTasks.length"
       @confirm="resumeOptimization" @refresh="loadResumePreview" @edit="emit('edit')" @tasks="emit('data', 'controls')" />
     <footer v-if="data && (!planEnded || data.pending.length)">
@@ -109,7 +109,7 @@ import PlanOptimizationResumeDialog from './PlanOptimizationResumeDialog.vue';
 import PlanOptimizationAuthorizationRecovery from './PlanOptimizationAuthorizationRecovery.vue';
 import { requestFailure } from '@/api/apiErrors';
 import { previewOptimizationDecision, confirmOptimizationDecision, startOptimizationReview, type DecisionPreview, type MonitoringRecommendation, getOptimizationDetails, recheckOptimization, saveOptimizationRules, type OptimizationDetails, type OptimizationEvent, getOptimizationResumePreview, confirmOptimizationResume, type OptimizationResumePreview } from '@/features/delivery/optimizationApi';
-import { isOptimizationPlanEnded, monitoringDuration, optimizationDetailState } from '@/features/delivery/optimizationDetails';
+import { isOptimizationPlanEnded, isPausedPlanResume, monitoringDuration, optimizationDetailState } from '@/features/delivery/optimizationDetails';
 import { defaultOptimizationRules } from '@/features/delivery/optimizationRules';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { listControlTasks, type ControlTask, type PlanListVo } from '@/features/delivery/deliveryApi';
@@ -297,6 +297,7 @@ async function resumeOptimization() {
     const result = await confirmOptimizationResume(props.planId, preview);
     if (disposed) return;
     resumeOpen.value = false;
+    if (isPausedPlanResume(preview)) tab.value = 'current';
     emit('saved');
     await load();
     if (preview.outcome !== 'LIMIT_PAUSE') ElMessage.success('盯盘优化已恢复');

@@ -92,6 +92,7 @@ export interface OptimizationResumePreview {
   version: number;
   day: string;
   planStatus: string;
+  qcStatus?: string | null;
   outcome: 'BELOW_LIMIT' | 'LIMIT_PAUSE' | 'LIMIT_REMINDER' | 'PLAN_NOT_DELIVERING';
   spend: number;
   fetchedAt: string;

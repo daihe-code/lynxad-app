@@ -35,7 +35,22 @@ public class OptimizationExecutionGateway {
         this.plans=plans;this.management=management;this.ads=ads;this.statuses=statuses;this.listing=listing;this.credentials=credentials;this.transfers=transfers;this.billing=billing;this.properties=properties;this.json=json;tx=new TransactionTemplate(manager);
     }
     public AdPlan plan(String tenant,String id){return plans.findById(new TenantId(tenant),new PlanId(id)).filter(p->p.status()!=PlanStatus.DELETED && p.qcPlanId().isPresent()).orElseThrow(()->new BizException(1405,"已发布计划不存在"));}
-    public JsonNode facts(AdPlan p){var value=management.monitoringFacts(p.tenantId(),p.id());var node=json.createObjectNode();node.put("qcId",value.qcId()).put("status",value.status()).put("bidType",value.bidType()).put("budget",value.budget().stripTrailingZeros().toPlainString());if(value.roi()==null)node.putNull("roi");else node.put("roi",value.roi().stripTrailingZeros().toPlainString());if(value.deepExternalAction()==null)node.putNull("deepExternalAction");else node.put("deepExternalAction",value.deepExternalAction());var products=node.putArray("productIds");value.productIds().stream().sorted().forEach(products::add);if(tactics!=null){var bindings=tactics.bindingFacts(p);if(bindings!=null)node.set("bindings",bindings);}return node;}
+    public record PlanFacts(JsonNode facts,String qcStatus) {}
+    public JsonNode facts(AdPlan p){return readPlanFacts(p).facts();}
+    public PlanFacts readPlanFacts(AdPlan p){
+        var value=management.monitoringFacts(p.tenantId(),p.id());
+        var node=json.createObjectNode().put("qcId",value.qcId()).put("status",value.status())
+            .put("bidType",value.bidType()).put("budget",value.budget().stripTrailingZeros().toPlainString())
+            .put("roi",value.roi()==null?null:value.roi().stripTrailingZeros().toPlainString())
+            .put("deepExternalAction",value.deepExternalAction());
+        var products=node.putArray("productIds");
+        value.productIds().stream().sorted().forEach(products::add);
+        if(tactics!=null){
+            var bindings=tactics.bindingFacts(p);
+            if(bindings!=null)node.set("bindings",bindings);
+        }
+        return new PlanFacts(node,value.qcStatus());
+    }
     public boolean ready(){return !properties.getMock().isQianchuan();}
     public JsonNode reviewFacts(AdPlan p){var result=(com.fasterxml.jackson.databind.node.ObjectNode)facts(p);if(tactics!=null)result.set("bindings",tactics.merchantBindings(p));return result;}
     public void writable(AdPlan p){if(!ready())throw new BizException(1801,"自动执行仅支持正式千川数据源");billing.assertWritable(p.tenantId(),Instant.now(),WriteAction.SAVE_PLAN);}

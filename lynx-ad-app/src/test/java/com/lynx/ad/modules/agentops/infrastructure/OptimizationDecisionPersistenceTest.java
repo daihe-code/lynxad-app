@@ -88,6 +88,7 @@ class OptimizationDecisionPersistenceTest {
         when(gateway.ready()).thenReturn(true);
         var platformStatus=new java.util.concurrent.atomic.AtomicReference<>("DELIVERING");
         when(gateway.facts(plan)).thenAnswer(call->json.createObjectNode().put("qcId","123").put("status",platformStatus.get()));
+        when(gateway.readPlanFacts(plan)).thenAnswer(call->new OptimizationExecutionGateway.PlanFacts(gateway.facts(plan),"DELIVERY_OK"));
         doAnswer(call->{platformStatus.set("PAUSED");return null;}).when(gateway).write(eq(plan),any());
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true)))
             .thenReturn(spend("320"),spend("480"),spend("480"),spend("520"));
@@ -119,7 +120,7 @@ class OptimizationDecisionPersistenceTest {
         when(plan.status()).thenReturn(PlanStatus.DELIVERING);
         when(gateway.plan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
-        when(gateway.facts(plan)).thenReturn(json.createObjectNode().put("qcId","123").put("status","DELIVERING"));
+        when(gateway.readPlanFacts(plan)).thenReturn(planFacts("DELIVERING","DELIVERY_OK"));
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true))).thenReturn(spend("520"));
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
         var preview=service.preview(plan.tenantId(),plan.id());
@@ -139,7 +140,7 @@ class OptimizationDecisionPersistenceTest {
         when(plan.status()).thenReturn(PlanStatus.DELIVERING);
         when(gateway.plan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
-        when(gateway.facts(plan)).thenReturn(json.createObjectNode().put("qcId","123").put("status","DELIVERING"));
+        when(gateway.readPlanFacts(plan)).thenReturn(planFacts("DELIVERING","DELIVERY_OK"));
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true)))
             .thenReturn(spend("520"))
             .thenThrow(new BizException(1211,"授权已失效"));
@@ -155,6 +156,44 @@ class OptimizationDecisionPersistenceTest {
         assertTrue(journal.ruleActions("tenant","plan",preview.version()+1).isEmpty());
         verifyNoInteractions(execution);
         verify(gateway,never()).writable(any());
+    }
+    @Test void manuallyPausedPlanResumesRulesWithoutAnyDeliveryWriteEvenAboveProtectionLimit(){
+        store.automationStore(journal);
+        var p=state.policy();
+        var rules=p.rules();
+        var automatic=new OptimizationRules(rules.roiFloor(),rules.spendReminder(),rules.spendProtection(),
+            OptimizationRules.AUTO_PAUSE,rules.runawayMinutes(),rules.runawaySpend(),rules.maxAddition(),rules.dailyAddition());
+        store.save(plan,new OptimizationPolicy(false,p.mode(),p.dailySpendLimit(),p.maxLoss(),p.minSpend(),p.minOrders(),
+            p.persistenceWindows(),p.conversionDelayMinutes(),List.of(),null,null,null,automatic),1);
+        var gateway=mock(OptimizationExecutionGateway.class);
+        var insights=mock(PlanInsightsService.class);
+        var execution=mock(OptimizationExecutionService.class);
+        when(plan.status()).thenReturn(PlanStatus.PAUSED);
+        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.ready()).thenReturn(true);
+        when(gateway.readPlanFacts(plan)).thenReturn(planFacts("PAUSED","DISABLE"),planFacts("DELIVERING","DELIVERY_OK"),planFacts("PAUSED","DISABLE"));
+        when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true))).thenAnswer(call->spend("520"));
+        var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
+        var preview=service.preview(plan.tenantId(),plan.id());
+        assertEquals("DISABLE",preview.qcStatus());
+        assertEquals(OptimizationRuleResumeService.Outcome.PLAN_NOT_DELIVERING,preview.outcome());
+        assertEquals(1804,assertThrows(BizException.class,()->service.resume(plan.tenantId(),plan.id(),confirm(preview))).code());
+        assertFalse(store.get(plan.tenantId(),plan.id()).orElseThrow().enabled());
+
+        var checked=service.preview(plan.tenantId(),plan.id());
+        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(checked)).pauseStatus());
+        var resumed=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertTrue(resumed.enabled());
+        assertEquals(automatic,resumed.policy().rules());
+        assertEquals("PAUSED",resumed.result().path("state").asText());
+        assertEquals("520",resumed.result().path("daily_spend").asText());
+        assertTrue(journal.ruleActions("tenant","plan",resumed.version()).isEmpty());
+        verify(gateway,never()).writable(any());
+        verify(gateway,never()).write(any(),any());
+        verifyNoInteractions(execution);
+    }
+    private OptimizationExecutionGateway.PlanFacts planFacts(String status,String qcStatus){
+        return new OptimizationExecutionGateway.PlanFacts(json.createObjectNode().put("qcId","123").put("status",status),qcStatus);
     }
     private PlanInsightsService.Statistics spend(String amount){
         return new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal(amount)),List.of(),null,Instant.now(),null);
