@@ -1,11 +1,11 @@
 <template>
   <div v-loading="loading" class="monitor-details">
     <header>
-      <div class="heading"><h2>盯盘优化详情</h2><span v-if="state" class="badge" :class="state.tone">● {{ state.label }}</span><button class="close" aria-label="关闭盯盘详情" @click="emit('close')">×</button></div>
+      <div class="heading"><h2>盯盘优化详情</h2><span class="badge" :class="restartAt ? 'success' : state.tone">{{ restartAt ? '盯盘优化：运行中' : `● ${state.label}` }}</span><button class="close" aria-label="关闭盯盘详情" @click="emit('close')">×</button></div>
       <div class="plan" :class="{ 'plan-recovery': recoveryBlocked }">
         <div><strong>{{ data?.view.planName || plan?.name || '当前投放计划' }}</strong><small>广告账户：{{ data?.accountName || account?.accountName || data?.view.accountId || '—' }}<template v-if="plan?.qcPlanId"> · 计划ID：{{ plan.qcPlanId }}</template></small></div>
         <span v-if="recoveryBlocked" class="badge muted">广告计划：状态待核实</span>
-        <el-tag v-else size="small">{{ planDisplay.label }}</el-tag>
+        <el-tag v-else size="small" :type="restartAt ? 'success' : undefined">{{ restartAt ? '广告计划：投放中' : planDisplay.label }}</el-tag>
       </div>
       <button v-if="risks.length" class="risk-banner" @click="tab = 'current'"><span>!　{{ risks.length }}项风险需核对处理</span><span>去处理 ›</span></button>
       <nav><button :class="{ active: tab === 'overview' }" @click="tab = 'overview'">盯盘成效</button><button :class="{ active: tab === 'current' }" @click="tab = 'current'">当前处理<template v-if="!recoveryBlocked">（{{ risks.length + (data?.pending.length || 0) }}）</template></button><button :class="{ active: tab === 'history' }" @click="tab = 'history'">工作记录</button></nav>
@@ -52,20 +52,50 @@
           :authorization-url="authorizationUrl" :can-check="canCheckRecovery" :checking="canCheckRecovery && (recoveryChecking || tasksLoading)"
           :error="recoveryError" @authorize="openAuthorization" @check="checkRecovery" />
         <template v-else-if="tab === 'current'">
-          <div class="stats-strip">有效盯盘 {{ monitoringDuration(data.effectiveSeconds) }} · 优化点 {{ data.summary.found }}项 · 已完成 {{ data.summary.completed }}项 <button @click="tab = 'overview'">查看成效 ›</button></div>
-          <div v-if="state.reason" class="status-notice" :class="state.tone">{{ state.reason }}</div>
+          <template v-if="restartAt">
+            <div class="status-notice success restart-notice" role="status">
+              <strong>✓ 盯盘优化已恢复 · {{ restartTime(restartAt) }}</strong>
+              <small>{{ data.view.result?.complete && !data.pending.length ? '已按最新数据重新开始判断。' : '正在核对最新投放数据和待确认结果。' }}</small>
+            </div>
+            <section>
+              <h3>当前运行情况</h3>
+              <div class="state-row"><strong>目标ROI保护</strong><span>根据最新可用数据继续判断</span></div>
+              <div class="state-row">
+                <strong>消耗保护</strong>
+                <span>{{ money(data.view.result?.daily_spend) }} / {{ money(data.view.policy.rules?.spendProtection) }}
+                  <span class="badge" :class="data.view.result?.complete && !data.pending.length ? 'success' : 'muted'">{{ data.pending.length ? '核实中' : data.view.result?.complete ? '生效中' : '等待数据' }}</span>
+                </span>
+              </div>
+              <div class="state-row"><strong>增长机会洞察</strong><span>重新评估，新增投入仍逐次确认</span></div>
+            </section>
+            <div class="status-notice restart-usage">
+              <strong>消耗与额度继续累计</strong>
+              <small>暂停期间不计入有效盯盘时长，当天已发生的消耗和已用追加额度继续累计。</small>
+            </div>
+            <section><h3>旧建议已失效，不补执行</h3><small>根据恢复后的数据重新生成建议。</small></section>
+            <section>
+              <h3>{{ data.view.result?.actual_net_roi == null ? '正在重新分析' : '最新分析' }}</h3>
+              <div class="state-row"><strong>最新成交数据</strong><span>{{ data.view.result?.actual_net_roi == null ? '等待有效成交数据' : `成熟窗口净成交ROI ${number(data.view.result.actual_net_roi)}` }}</span></div>
+              <div class="state-row"><strong>新的增长建议</strong><span>{{ growth.length ? `${growth.length}项待核对` : '暂无可执行建议' }}</span></div>
+            </section>
+            <section v-if="data.pending.length || followingReviews"><h3>仍在跟进</h3><small>继续核实已提交的操作和复评历史任务。已核实的结果才计入成效。</small></section>
+          </template>
+          <template v-else>
+            <div class="stats-strip">有效盯盘 {{ monitoringDuration(data.effectiveSeconds) }} · 优化点 {{ data.summary.found }}项 · 已完成 {{ data.summary.completed }}项 <button @click="tab = 'overview'">查看成效 ›</button></div>
+            <div v-if="state.reason" class="status-notice" :class="state.tone">{{ state.reason }}</div>
+          </template>
           <section v-if="state.label === '授权失效'"><h3>请重新授权，恢复检查能力</h3><p>无法获取新的投放状态，也不能确认广告已停止消耗。</p><el-button type="primary" @click="router.push('/accounts')">前往账户管理</el-button><div class="summary">最近成功检查：{{ time(data.view.lastSuccess) }}<br>最近可见消耗：{{ money(data.view.result?.daily_spend) }}（历史数据）</div></section>
           <section v-if="data.pending.length"><h3>小灵正在核对操作结果</h3><article v-for="event in data.pending" :key="event.id" class="verification"><strong>{{ event.title }}</strong><span class="badge warning">{{ event.status === 'UNKNOWN' ? '结果待人工核查' : '核实中' }}</span><p>{{ event.error || '已提交请求，平台状态回读尚未确认。' }}</p><div class="steps"><span>保护条件命中</span><span>请求已提交</span><span>平台结果核实中</span></div><small>结果未明前不会重复提交。独立调控任务另行核对。</small><el-button link type="primary" :loading="checking === event.id" @click="recheck(event)">查看最新状态</el-button></article></section>
           <section v-if="planDisplay.group === 'PAUSED'"><h3>广告已暂停，保留必要的跟踪</h3><div class="state-row"><strong>新的经营判断与增长建议</strong><span class="badge muted">{{ paused ? '暂停' : '等待投放' }}</span></div><div class="state-row"><strong>已提交操作的结果核实</strong><span>{{ data.pending.length ? '继续核实' : '暂无待核实操作' }}</span></div><p>恢复投放需再次确认，跨日、ROI回升或商品恢复均不会自动启动广告。</p><el-button type="primary" @click="emit('data', 'data')">核对计划与投放设置</el-button></section>
           <section v-if="tasks.length || taskError"><h3>{{ planDisplay.group === 'PAUSED' ? '独立任务仍有风险需要核对' : '独立调控任务' }}</h3><p v-if="taskError">{{ taskError }}</p><article v-for="task in tasks" :key="`${task.kind}:${task.id}`" class="task"><strong>{{ task.name || task.kind }} · {{ task.id }}</strong><span class="badge warning">{{ task.task_status === 'PROCESSING' ? '仍在运行' : '状态需核对' }}</span><div class="summary">任务预算 {{ money(task.budget) }} · 已消耗 {{ money(task.metrics?.cost) }}</div><button class="panel-link" @click="emit('data', 'controls')">查看任务并确认处理 ›</button></article><small>本计划的自动暂停授权不包含独立任务终止；计划整体报表中的消耗不再与任务消耗相加。</small></section>
           <template v-if="canShowCurrent">
-            <div class="metrics current-metrics"><article><small>今日消耗</small><strong>{{ money(data.view.result?.daily_spend) }}</strong></article><article><small>成熟窗口净成交ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>最近检查</small><strong>{{ time(data.view.lastCheck, true) }}</strong></article></div>
+            <div v-if="!restartAt" class="metrics current-metrics"><article><small>今日消耗</small><strong>{{ money(data.view.result?.daily_spend) }}</strong></article><article><small>成熟窗口净成交ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>最近检查</small><strong>{{ time(data.view.lastCheck, true) }}</strong></article></div>
             <h3 v-if="risks.length">先看原因，再决定怎样调整</h3>
             <section v-for="(item, index) in risks" :key="index" class="risk"><h3>{{ item.title }}</h3><p>{{ item.evidence }}</p><template v-if="item.type === 'ROI_PROTECTION'"><div class="metrics"><article><small>成熟窗口ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>你的要求</small><strong>{{ number(data.view.policy.rules?.roiFloor) }}</strong></article><article><small>窗口消耗</small><strong>{{ money(data.view.result?.mature_spend) }}</strong></article></div><div v-if="data.view.result?.roi_windows?.length" class="windows"><div v-for="window in data.view.result.roi_windows" :key="window.window_end"><small>{{ time(window.window_start, true) }}—{{ time(window.window_end, true) }}</small><strong>ROI {{ windowRoi(window) }}</strong></div></div><p>根据真实的连续完整小时与成交回补判断；原因仍需结合商品、素材和流量数据核对。</p></template><div class="actions"><el-button v-if="item.action && eventFor(item)?.status === 'RECOMMENDED'" type="primary" :loading="deciding === eventFor(item)?.id" @click="preview(item)">查看并确认{{ item.action.kind === 'PAUSE' ? '暂停' : '预算调整' }}</el-button><el-button v-else type="primary" :loading="!!deciding" @click="handoff(item)">{{ item.workflow === 'materials' ? '调整对应素材' : '核对计划并处理' }}</el-button></div></section>
-            <section v-if="!risks.length"><h3>小灵正在观察，暂不急着调整</h3><p>{{ data.view.result?.reasons?.join('；') || '持续核对最新消耗与成交数据。没有合适机会时保持当前设置。' }}</p><div class="state-row"><strong>消耗检查</strong><span class="badge" :class="data.view.result?.complete && !data.view.stale ? 'success' : 'warning'">{{ data.view.result?.complete && !data.view.stale ? '数据可用' : '等待最新数据' }}</span></div><div class="state-row"><strong>ROI效果判断</strong><span>{{ data.view.result?.actual_net_roi ? '已取得成熟窗口' : '等待有效成交数据' }}</span></div></section>
+            <section v-if="!restartAt && !risks.length"><h3>小灵正在观察，暂不急着调整</h3><p>{{ data.view.result?.reasons?.join('；') || '持续核对最新消耗与成交数据。没有合适机会时保持当前设置。' }}</p><div class="state-row"><strong>消耗检查</strong><span class="badge" :class="data.view.result?.complete && !data.view.stale ? 'success' : 'warning'">{{ data.view.result?.complete && !data.view.stale ? '数据可用' : '等待最新数据' }}</span></div><div class="state-row"><strong>ROI效果判断</strong><span>{{ data.view.result?.actual_net_roi ? '已取得成熟窗口' : '等待有效成交数据' }}</span></div></section>
             <section v-if="growth.length"><h3>增长机会</h3><article v-for="(item, index) in growth" :key="index"><strong>{{ item.title }}</strong><p>{{ item.evidence }}</p><div class="summary">单次建议上限 {{ money(data.view.policy.rules?.maxAddition) }} · 每日累计建议上限 {{ money(data.view.policy.rules?.dailyAddition) }}</div><el-button type="primary" :loading="!!deciding" @click="item.action ? preview(item) : handoff(item)">{{ item.action ? '查看预算调整方案' : '查看素材调整方案' }}</el-button></article></section>
           </template>
-          <section v-else-if="!paused && !planEnded && state.label !== '授权失效' && planDisplay.group !== 'PAUSED' && !data.pending.length"><h3>仅暂停受影响的判断</h3><p>{{ data.view.error || '等待最新可用数据；历史数值不能代表当前投放状态。' }}</p><el-button @click="load">刷新状态</el-button></section>
+          <section v-else-if="!restartAt && !paused && !planEnded && state.label !== '授权失效' && planDisplay.group !== 'PAUSED' && !data.pending.length"><h3>仅暂停受影响的判断</h3><p>{{ data.view.error || '等待最新可用数据；历史数值不能代表当前投放状态。' }}</p><el-button @click="load">刷新状态</el-button></section>
           <PlanOptimizationReviews :reviews="data.reviews || []" />
         </template>
         <template v-else>
@@ -74,7 +104,7 @@
           <div class="timeline"><article v-for="event in data.history.records" :key="event.id"><small>{{ time(event.createdAt) }}</small><details><summary><strong>{{ event.title }}</strong><span class="badge" :class="event.status === 'SUCCEEDED' ? 'success' : 'muted'">{{ eventStatus(event.status) }}</span></summary><p>{{ event.evidence }}</p><p v-if="event.error">{{ event.error }}</p><div v-if="event.kind === 'RULES_CHANGE' && event.report.rules" class="summary">{{ ruleChangeText(event) }}</div><template v-if="event.kind !== 'RULES_CHANGE'"><p>当前结果：{{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? '已记录建议，尚无已执行结果' : eventStatus(event.status) }}</p><el-button v-if="['EXECUTING','VERIFY_PENDING','UNKNOWN'].includes(event.status)" link type="primary" @click="recheck(event)">只读回查结果</el-button></template></details></article></div>
           <el-empty v-if="!data.history.records.length" description="暂无工作记录" :image-size="50" /><el-pagination v-if="data.history.total > 20" small layout="prev, pager, next" :total="data.history.total" :page-size="20" v-model:current-page="page" />
         </template>
-        <details v-if="tab !== 'history'" class="current-rules"><summary>{{ paused || planEnded ? '已保存规则' : '当前生效规则' }} <span>查看 ⌄</span></summary><div v-if="data.view.policy.rules" class="rule-grid"><div><small>净成交ROI不低于</small><strong>{{ number(data.view.policy.rules.roiFloor) }}</strong></div><div><small>提醒 / 保护金额</small><strong>{{ money(data.view.policy.rules.spendReminder) }} / {{ money(data.view.policy.rules.spendProtection) }}</strong></div><div><small>暂停方式</small><strong>{{ data.view.policy.rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认' }}</strong></div><div><small>跑飞提醒</small><strong>{{ data.view.policy.rules.runawayMinutes }}分钟 / {{ money(data.view.policy.rules.runawaySpend) }}</strong></div><div><small>单次 / 每日追加建议上限</small><strong>{{ money(data.view.policy.rules.maxAddition) }} / {{ money(data.view.policy.rules.dailyAddition) }}</strong></div></div><p v-else>当前为历史版本规则。</p></details>
+        <details v-if="tab !== 'history'" class="current-rules"><summary>{{ restartAt && tab === 'current' ? '已保存规则（3项）' : paused || planEnded ? '已保存规则' : '当前生效规则' }} <span>查看 ⌄</span></summary><div v-if="data.view.policy.rules" class="rule-grid"><div><small>净成交ROI不低于</small><strong>{{ number(data.view.policy.rules.roiFloor) }}</strong></div><div><small>提醒 / 保护金额</small><strong>{{ money(data.view.policy.rules.spendReminder) }} / {{ money(data.view.policy.rules.spendProtection) }}</strong></div><div><small>暂停方式</small><strong>{{ data.view.policy.rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认' }}</strong></div><div><small>跑飞提醒</small><strong>{{ data.view.policy.rules.runawayMinutes }}分钟 / {{ money(data.view.policy.rules.runawaySpend) }}</strong></div><div><small>单次 / 每日追加建议上限</small><strong>{{ money(data.view.policy.rules.maxAddition) }} / {{ money(data.view.policy.rules.dailyAddition) }}</strong></div></div><p v-else>当前为历史版本规则。</p></details>
       </template>
     </main>
     <el-dialog :model-value="!!decision" title="确认盯盘处理方案" width="min(480px, 90vw)" append-to-body :close-on-click-modal="false" :show-close="!confirming" @close="!confirming && (decision = undefined)">
@@ -131,13 +161,24 @@ const deciding = ref(''), confirming = ref(false), decisionError = ref('');
 const decision = ref<{ title: string; preview: DecisionPreview }>();
 const latestEffect = computed(() => data.value?.reviews?.find(r => r.status === 'COMPARED')?.result);
 let revision = 0, disposed = false, timer: ReturnType<typeof setTimeout> | undefined;
-const planDisplay = computed(() => planStatusDisplay(data.value?.view.planStatus || props.plan?.status, data.value?.view.qcStatus ?? props.plan?.qcStatus));
-const planEnded = computed(() => isOptimizationPlanEnded(planDisplay.value.group)
+const localPlanDisplay = computed(() => planStatusDisplay(data.value?.view.planStatus || props.plan?.status, data.value?.view.qcStatus ?? props.plan?.qcStatus));
+const planEnded = computed(() => isOptimizationPlanEnded(localPlanDisplay.value.group)
   || data.value?.view.planStatus === 'FINISHED' || props.plan?.status === 'FINISHED');
 const paused = computed(() => !!data.value?.view.policy.rules && !data.value.view.policy.enabled);
 const accountStatus = computed(() => data.value?.accountStatus || props.account?.status);
 const recoveryBlocked = computed(() => paused.value && !planEnded.value && !!authorizationRecovery.value);
 const canCheckRecovery = computed(() => accountStatus.value === 'ACTIVE' && authorizationRecovery.value !== 'reauthorize');
+const verifiedDelivery = computed(() => {
+  const view = data.value?.view;
+  if (!view?.policy.enabled || !view.policy.rules || view.stale || view.error || error.value
+      || planEnded.value || accountStatus.value !== 'ACTIVE') return;
+  const status = view.result?.plan_status;
+  if (status === 'PAUSED' || status === 'DELIVERING') return status;
+});
+const planDisplay = computed(() => verifiedDelivery.value && verifiedDelivery.value !== localPlanDisplay.value.group
+  ? planStatusDisplay(verifiedDelivery.value) : localPlanDisplay.value);
+const restartAt = computed(() => verifiedDelivery.value === 'DELIVERING' && !data.value?.view.holdReason
+  ? data.value?.view.result?.optimization_restarted_at : undefined);
 const runningTasks = computed(() => tasks.value.filter(task => task.task_status === 'PROCESSING'));
 const followingReviews = computed(() => data.value?.reviews?.some(review => followingReviewStatuses.includes(review.status)));
 const state = computed(() => error.value && !recoveryBlocked.value ? { label: '检查受限', tone: 'warning', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' } : data.value ? optimizationDetailState(data.value, planEnded.value ? 'FINISHED' : planDisplay.value.group, accountStatus.value, runningTasks.value.length) : { label: '加载中', tone: 'muted', reason: '' });
@@ -148,6 +189,9 @@ const completed = computed(() => data.value?.history.records.filter(e => e.statu
 const number = (value: unknown) => value == null || value === '' || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 const money = (value: unknown) => number(value) === '—' ? '—' : `¥${number(value)}`;
 const time = (value?: string | null, short = false) => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, ...(short ? { hour: '2-digit', minute: '2-digit' } : {}) }) : '—';
+const shanghaiDay = (value: Date) => value.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+const restartTime = (value: string) => shanghaiDay(new Date(value)) === shanghaiDay(new Date())
+  ? `今天 ${time(value, true)}` : time(value);
 const eventStatus = (status: string) => ({ SUCCEEDED: '已生效', RECOMMENDED: '待确认', READY: '待执行检查', EXECUTING: '已提交', VERIFY_PENDING: '核实中', UNKNOWN: '待人工核查', SKIPPED: '未执行', ACKNOWLEDGED: '已人工核查', RESOLVED: '建议已失效' }[status] || status);
 function windowRoi(window: { metrics: { spend: string | null; net_revenue: string | null } }) { return window.metrics.spend != null && window.metrics.net_revenue != null && Number(window.metrics.spend) > 0 ? number(Number(window.metrics.net_revenue) / Number(window.metrics.spend)) : '—'; }
 function ruleChangeText(event: OptimizationEvent) { const rules = (event.report as unknown as { rules: { roiFloor: number; spendReminder: number; spendProtection: number; protectionAction: string } }).rules; return `ROI不低于 ${number(rules.roiFloor)}；${money(rules.spendReminder)}提醒，${money(rules.spendProtection)}保护；${rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认暂停'}`; }
@@ -319,6 +363,12 @@ watch([paused, planEnded, accountStatus], ([isPaused, ended, status]) => {
   if (isPaused && !ended && status && status !== 'ACTIVE') requireAuthorizationRecovery();
 }, { flush: 'sync' });
 watch(recoveryBlocked, blocked => { if (blocked) tab.value = 'current'; });
+let shownRestart: string | undefined;
+watch(restartAt, value => {
+  if (!value || shownRestart === value) return;
+  shownRestart = value;
+  if (shanghaiDay(new Date(value)) === shanghaiDay(new Date())) tab.value = 'current';
+});
 async function poll() { if (disposed) return; if (!refreshing.value && !closing.value && !resuming.value && !confirming.value) { await load(); await loadTasks(); } if (!disposed) timer = setTimeout(poll, 30000); }
 onMounted(async () => {
   window.addEventListener('focus', refreshAuthorizationStatus);
@@ -335,6 +385,9 @@ onBeforeUnmount(() => {
 });
 </script>
 <style scoped>
+.status-notice.restart-notice { border: 1px solid #caeadb; background: #edf9f3; color: #087b56; }
+.restart-usage { border: 1px solid #e8e3fc; background: #f5f2ff; }
+.restart-notice small, .restart-usage small { margin-top: 4px; }
 .plan.plan-recovery { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; padding-right: 14px; }
 .monitor-details{height:100%;display:flex;flex-direction:column;color:#202444;background:#fff}header{flex:none;padding:18px 22px 0}.heading{display:flex;align-items:center;gap:12px}h2{font-size:18px;margin:0}.badge{border-radius:16px;padding:4px 10px;font-size:11px;white-space:nowrap;display:inline-block}.success{color:#15996a;background:#dff8eb}.warning{color:#d4801a;background:#fff0db}.muted{color:#8086aa;background:#eeeff8}.close{margin-left:auto;border:0;background:none;color:#71789c;font-size:27px;cursor:pointer}.plan{position:relative;background:linear-gradient(110deg,#f7f5ff,#f1f6ff);border:1px solid #e1e5f7;border-radius:6px;padding:12px 90px 12px 14px;margin:12px 0}.plan strong{font-size:14px;overflow-wrap:anywhere}.plan .el-tag{position:absolute;right:12px;top:18px}small{display:block;color:#7f86a9;font-size:12px;line-height:1.7}.plan small{margin-top:4px}.risk-banner{display:flex;justify-content:space-between;width:100%;padding:12px;border:1px solid #ffe0b6;background:#fff6eb;border-radius:6px;color:#ed8a1c;font-size:13px;font-weight:600;cursor:pointer}nav{display:flex;border-bottom:1px solid #dde2f6}nav button{flex:1;border:0;border-bottom:2px solid transparent;background:white;padding:15px 4px 12px;font-size:14px;color:#454e80;font-weight:600;cursor:pointer}nav button.active{border-bottom-color:#5947ff;color:#5947ff}main{flex:1;min-height:0;overflow:auto;padding:16px 22px 28px}h3{font-size:16px;margin:4px 0 14px}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.range{display:flex;background:#efefff;border-radius:6px;padding:3px}.range button{border:0;background:none;padding:7px 12px;color:#737da9;border-radius:5px;cursor:pointer}.range button.active{background:#5847ff;color:#fff}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}.metrics article{position:relative;border:1px solid #e3e7f8;border-radius:8px;padding:17px 12px;background:linear-gradient(120deg,#f5f4ff,#fff)}.metrics .el-icon{font-size:22px;background:#eeebff;color:#654eff;padding:7px;border-radius:8px;margin-bottom:8px}.metrics strong{display:block;font-size:22px;line-height:1.6}.metrics em,.large em{font-size:13px;font-style:normal;margin-left:4px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}section{border:1px solid #e1e5f5;border-radius:8px;padding:16px;margin:12px 0}.pair section{margin:0}.protection{background:linear-gradient(130deg,#fff8ed,#fff)}.improvement{background:linear-gradient(130deg,#ebfbf4,#fff);color:#125e4c}.large{font-size:23px}.panel-link{display:block;border:0;background:#f4f3ff;color:#5947ff;padding:10px;width:100%;border-radius:5px;margin-top:12px;cursor:pointer;font-size:12px}p{color:#7a83ab;font-size:12px;line-height:1.9;margin:8px 0}.completed-row{display:flex;align-items:center;gap:10px;font-size:12px;padding:9px 0;border-bottom:1px solid #f0f1fa}.completed-row .el-icon{color:#17aa70}.completed-row small{margin-left:auto;font-size:11px}.issue-link{display:flex;justify-content:space-between;gap:12px;border:1px solid #e4e6f7;border-radius:6px;background:white;color:#4a4d78;padding:12px;width:100%;font-size:12px;cursor:pointer}.issue-link span:last-child{color:#5947ff}.stats-strip,.summary{padding:12px;background:linear-gradient(120deg,#f3f2ff,#f1f6ff);border-radius:6px;font-size:12px;line-height:1.8;margin:10px 0;color:#55618c}.stats-strip button{border:0;float:right;background:none;color:#5947ff;cursor:pointer}.status-notice{padding:13px;border-radius:6px;font-size:13px;margin:12px 0}.state-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #eef0fa;font-size:12px}.verification{margin-top:16px}.verification>.badge,.task>.badge{margin-left:10px}.steps{display:flex;gap:12px;padding:20px 0;font-size:12px;justify-content:space-between}.steps span{flex:1;border-top:2px solid #c7bfff;padding-top:12px}.steps span:last-child{border-top-style:dashed}.task{padding:14px;border:1px solid #e4e8f6;border-radius:6px;font-size:13px;margin:10px 0}.risk{background:#fffcf8}.actions{display:flex;gap:18px;align-items:center}.actions a{font-size:12px;color:#5947ff;text-decoration:none}.windows{display:flex;background:#f3f5ff;border-radius:6px;padding:12px;gap:14px}.windows>div{flex:1}.windows strong{display:block;margin-top:5px;font-size:14px}.history-filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.history-filters>button{border:1px solid transparent;background:#f1f3fc;border-radius:18px;padding:8px 14px;color:#66749a;cursor:pointer;font-size:12px}.history-filters>button.active{border-color:#8c7aff;color:#5847ff;background:#f4f0ff}.history-filters .el-select{width:110px;margin-left:auto}.timeline>article{border-left:2px solid #e3e5f8;padding:0 0 18px 16px;position:relative}.timeline>article:before{content:'';position:absolute;left:-6px;top:4px;width:10px;height:10px;background:#8d87d1;border-radius:50%}.timeline details{border:1px solid #e3e7f6;border-radius:8px;padding:14px;margin-top:8px}.timeline summary{display:flex;align-items:center;gap:12px;cursor:pointer;font-size:13px}.timeline summary .badge{margin-left:auto}.current-rules{border:1px solid #e3e7f6;border-radius:7px;padding:14px;margin-top:16px}.current-rules>summary{cursor:pointer;font-size:13px;font-weight:600;list-style:none}.current-rules>summary span{float:right;color:#9297b4;font-weight:400}.rule-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.rule-grid>div{padding:12px;border:1px solid #eef0fa;border-radius:6px}.rule-grid strong{font-size:13px;display:block;margin-top:6px}footer{flex:none;display:flex;align-items:center;gap:12px;border-top:1px solid #e5e7f5;padding:12px 22px}footer>.el-button{font-size:12px}footer small{font-size:11px;max-width:230px}.footer-actions{margin-left:auto;display:flex;gap:10px}.footer-actions :deep(.el-button+.el-button){margin-left:0}@media(max-width:600px){header{padding:14px 14px 0}main{padding:14px}nav button{font-size:12px}.heading{gap:8px}.heading h2{font-size:16px}.pair{grid-template-columns:1fr}.metrics strong{font-size:17px}.metrics article{padding:12px 8px}.metrics small{font-size:10px}.plan strong{font-size:12px}footer{padding:12px 14px;flex-wrap:wrap}footer small{display:none}.windows{flex-wrap:wrap}.actions{flex-wrap:wrap}.rule-grid{grid-template-columns:1fr}}
 </style>

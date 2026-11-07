@@ -21,7 +21,7 @@ public class OptimizationRuleResumeService {
                           BigDecimal committed,OptimizationRules rules,Outcome outcome){}
     public record Confirmation(long version,LocalDate day,String planStatus,Outcome outcome){}
     public record Result(String pauseStatus){}
-    private record Evidence(Preview preview,JsonNode facts){}
+    private record Evidence(Preview preview,JsonNode facts,Instant checkedAt){}
 
     private final OptimizationStore store;
     private final OptimizationAutomationStore journal;
@@ -78,6 +78,7 @@ public class OptimizationRuleResumeService {
     private Evidence inspect(AdPlan plan,OptimizationStore.State state){
         if(!gateway.ready())throw new BizException(1801,"真实盯盘需要连接千川正式数据源");
         if(OptimizationMonitoringService.rulePlanEnded(plan))throw new BizException(1801,"计划已结束");
+        var checkedAt=Instant.now();
         var platform=gateway.readPlanFacts(plan);
         var facts=platform.facts();
         String status=facts.path("status").asText();
@@ -99,7 +100,7 @@ public class OptimizationRuleResumeService {
             outcome=OptimizationRules.AUTO_PAUSE.equals(rules.protectionAction())?Outcome.LIMIT_PAUSE:Outcome.LIMIT_REMINDER;
         var committed=confirmations.committed(state.tenant(),state.plan(),day.toString())
             .add(journal.extraBudgetToday(state.tenant(),state.plan()));
-        return new Evidence(new Preview(state.version(),day,status,platform.qcStatus(),spend,fetched,committed,rules,outcome),facts);
+        return new Evidence(new Preview(state.version(),day,status,platform.qcStatus(),spend,fetched,committed,rules,outcome),facts,checkedAt);
     }
 
     private JsonNode report(AdPlan plan,OptimizationStore.State state,Evidence evidence){
@@ -110,8 +111,11 @@ public class OptimizationRuleResumeService {
             .put("store_id",state.tenant()).put("account_id",plan.accountId().value())
             .put("plan_id",evidence.facts().path("qcId").asText())
             .put("plan_status",preview.planStatus()).put("observed_at",observed.toOffsetDateTime().toString())
+            .put("plan_checked_at",evidence.checkedAt().toString())
             .put("daily_spend_date",preview.day().toString()).put("daily_spend",preview.spend().toPlainString())
             .put("fetched_at",preview.fetchedAt().toString()).put("complete",true);
+        if(preview.outcome()==Outcome.BELOW_LIMIT || preview.outcome()==Outcome.LIMIT_REMINDER)
+            data.put("optimization_restarted_at",evidence.checkedAt().toString());
         data.set("product_ids",evidence.facts().path("productIds"));
         return OptimizationRulesEvaluator.evaluate(data,null,state.policy());
     }

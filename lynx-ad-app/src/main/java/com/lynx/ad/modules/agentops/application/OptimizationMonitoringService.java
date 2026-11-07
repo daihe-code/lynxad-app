@@ -75,7 +75,8 @@ public class OptimizationMonitoringService {
         if(fetchPlatformIds && config.tactics().content()&&p.qcPlanId().isPresent()&&unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         var result=state==null?null:state.result();
         boolean stale=result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
-        if(result!=null)try {stale=stale || Instant.parse(result.path("observed_at").asText()).plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
+        if(result!=null)try {stale=stale || OffsetDateTime.parse(result.path("observed_at").asText()).toInstant().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
+        if(!stale && state!=null && state.enabled() && !fetchPlatformIds)stale=store.deliveryChangedSinceReport(state);
         return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p,config)==null,unavailable(p,config),
             state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus());
     }
@@ -117,9 +118,9 @@ public class OptimizationMonitoringService {
             var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());var p=plan(tenant,id);
             if(unavailable(p,state.policy())!=null)throw new BizException(1801,unavailable(p,state.policy()));
             var pending=store.pending(state).orElse(null);
-            // Old revisions must not overwrite a changed policy, or starve fresh observations after an outage.
-            long observationTtl=state.policy().rules()==null?600:120;
-            if(pending!=null && (pending.version()!=state.version() || pending.created().plusSeconds(observationTtl).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
+            // Merchant rules are evaluated locally and must re-read delivery status after a retry.
+            if(pending!=null && (state.policy().rules()!=null || pending.version()!=state.version()
+                    || pending.created().plusSeconds(600).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
             if(pending==null)pending=store.enqueue(state,owner,state.policy().rules()==null?collect(p,state):collectRules(p,state));
             var result=state.policy().rules()==null?engine.submit(state.tenant(),pending.payload()):OptimizationRulesEvaluator.evaluate(pending.payload(),state.result(),state.policy(),strategy==null?MonitoringStrategy.Parameters.shadow():strategy.parameters());
             if(creativeContexts!=null)creativeContexts.saveAssessments(state.tenant(),p.accountId().value(),result);
@@ -131,6 +132,7 @@ public class OptimizationMonitoringService {
         }finally{store.release(state,owner,failure);}
     }
     Map<String,Object> collectRules(AdPlan p,OptimizationStore.State state) {
+        var checkedAt=Instant.now();
         var facts=management.monitoringFacts(p.tenantId(),p.id());
         if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()))throw new BizException(1802,"平台计划绑定不一致");
         if(execution!=null)execution.observe(p,state,gateway.facts(p));
@@ -139,6 +141,25 @@ public class OptimizationMonitoringService {
         if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()))throw new BizException(1803,"等待当天最新报表");
         var data=new LinkedHashMap<String,Object>();data.put("request_id",UUID.randomUUID().toString());data.put("store_id",p.tenantId().value());data.put("account_id",p.accountId().value());data.put("plan_id",facts.qcId());data.put("product_ids",facts.productIds());
         data.put("observed_at",observed.toOffsetDateTime().toString());data.put("plan_status",facts.status());data.put("daily_spend_date",today.toString());
+        data.put("plan_checked_at",checkedAt.toString());
+        var previousReport=state.result();
+        if(previousReport!=null && previousReport.hasNonNull("observed_at") && facts.qcId().equals(previousReport.path("plan_id").asText())) {
+            var priorCheck=OffsetDateTime.parse(previousReport.path("plan_checked_at").asText(previousReport.path("observed_at").asText())).toInstant();
+            var manual=store.deliveryChange(state.tenant(),state.plan(),priorCheck).orElse(null);
+            if(manual!=null && (manual.at().isAfter(checkedAt) || "MANUAL_DISABLE".equals(manual.type()) && "DELIVERING".equals(facts.status())))
+                throw new BizException(1803,"投放状态正在核对");
+            boolean previouslyPaused="PAUSED".equals(previousReport.path("plan_status").asText()) || previousReport.path("delivery_paused").asBoolean();
+            if("DELIVERING".equals(facts.status())) {
+                if(previouslyPaused || manual!=null && "MANUAL_ENABLE".equals(manual.type()))
+                    data.put("optimization_restarted_at",checkedAt.toString());
+                else if(previousReport.hasNonNull("optimization_restarted_at"))
+                    data.put("optimization_restarted_at",previousReport.path("optimization_restarted_at").asText());
+            } else if(previouslyPaused || "PAUSED".equals(facts.status()) || manual!=null) {
+                data.put("delivery_paused",true);
+            } else if(previousReport.hasNonNull("optimization_restarted_at")) {
+                data.put("optimization_restarted_at",previousReport.path("optimization_restarted_at").asText());
+            }
+        }
         data.put("daily_spend",decimal(current.summary().get("cost")));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));data.put("complete",current.summary().get("cost")!=null && current.summary().get("cost").signum()>=0);
         data.put("daily_budget",decimal(facts.budget()));data.put("bid_type",facts.bidType());data.put("metric_fields",current.metricFields());data.put("fetched_at",current.fetchedAt().toString());
         data.put("source_as_of",null); // A successful fetch is not the platform's conversion update time.

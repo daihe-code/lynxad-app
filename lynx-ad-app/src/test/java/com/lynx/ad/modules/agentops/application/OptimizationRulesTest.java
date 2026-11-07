@@ -33,6 +33,21 @@ class OptimizationRulesTest {
         var d=data("120","100");assertTrue(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).path("recommendations").isEmpty());mature(d,"100");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM"));assertEquals("READY",r.path("state").asText());assertEquals("2.50000000",r.path("actual_net_roi").asText());assertEquals("ROI_PROTECTION",r.path("recommendations").get(0).path("type").asText());assertFalse(r.path("recommendations").get(0).has("action"));
         ((ObjectNode)d.path("observations").get(1)).put("window_start","2026-11-05T10:00:00+08:00");assertFalse(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).has("actual_net_roi"));
     }
+    @Test void restartedMonitoringUsesNewWindowsButKeepsDailySpendProtection() {
+        var prior=data("320","900");
+        prior.putArray("rule_samples").addObject().put("at",now.minusMinutes(5).toString()).put("spend","320");
+        var resumed=data("480","900").put("optimization_restarted_at",now.minusMinutes(1).toInstant().toString());
+        mature(resumed,"200");
+        var result=OptimizationRulesEvaluator.evaluate(resumed,prior,policy("CONFIRM"));
+        assertEquals(1,result.path("rule_samples").size());
+        assertTrue(result.path("roi_windows").isEmpty());
+        assertEquals("480",result.path("daily_spend").asText());
+        assertEquals(1,result.path("recommendations").size());
+        assertEquals("SPEND_PROTECTION",result.path("recommendations").get(0).path("type").asText());
+
+        resumed.put("optimization_restarted_at",now.minusHours(5).toInstant().toString());
+        assertEquals("READY",OptimizationRulesEvaluator.evaluate(resumed,null,policy("CONFIRM")).path("state").asText());
+    }
     @Test void runawayNeedsActualContinuousMinuteSamplesNotRepeatedReadsOrHourlyInterpolation(){
         var p=policy("CONFIRM");JsonNode previous=null;for(int minute=0;minute<=5;minute++){var d=data(String.valueOf(minute*22),"0").put("observed_at",now.minusMinutes(5-minute).toString());previous=OptimizationRulesEvaluator.evaluate(d,previous,p);}
         assertTrue(previous.path("recommendations").toString().contains("RUNAWAY_CHECK"));assertFalse(previous.path("recommendations").get(0).path("execution_allowed").asBoolean());

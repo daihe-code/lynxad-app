@@ -41,7 +41,9 @@ public class OptimizationReviewService {
             var facts=gateway.reviewFacts(p);var params=strategy.parameters();
             if(!params.approved())throw new BizException(1803,"经营诊断策略尚未完成校准");
             boolean current=false;for(var item:s.result().path("recommendations"))if(item.path("title").asText().equals(event.title())&&workflow.equals(item.path("workflow").asText()))current=true;
-            if(!current||!s.result().path("complete").asBoolean()||OffsetDateTime.parse(s.result().path("observed_at").asText()).toInstant().plusSeconds(120).isBefore(Instant.now()))throw new BizException(1803,"建议或数据已变化，请刷新后核对");
+            if(!current||!s.result().path("complete").asBoolean()||!"DELIVERING".equals(facts.path("status").asText())
+                ||OffsetDateTime.parse(s.result().path("observed_at").asText()).toInstant().plusSeconds(120).isBefore(Instant.now())
+                ||policies.deliveryChangedSinceReport(s))throw new BizException(1803,"建议或数据已变化，请刷新后核对");
             var end=Instant.now().atZone(ZONE).minusMinutes(params.maturityMinutes()).withMinute(0).withSecond(0).withNano(0);
             return reviews.start(event,workflow,facts,window(p,end.minusHours(params.reviewHours()),end,params),params);
         }finally{journal.releaseAccount(tenant,p.accountId().value(),owner);}

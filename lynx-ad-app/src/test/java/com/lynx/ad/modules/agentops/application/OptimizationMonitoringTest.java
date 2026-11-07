@@ -52,6 +52,20 @@ class OptimizationMonitoringTest {
         when(plan.productIds()).thenReturn(List.of());when(store.get(tenant,id)).thenReturn(Optional.of(rulesState()));
         assertTrue(service.rulesView(tenant,id).available());verifyNoInteractions(management,insights,engine);
     }
+    @Test void restartRequiresAConfirmedDeliveringStatus() {
+        var previous=new ObjectMapper().createObjectNode().put("plan_id","1878663839175696")
+            .put("observed_at",Instant.now().minusSeconds(90).toString()).put("plan_status","PAUSED");
+        var s=new OptimizationStore.State("a","p",1,true,rulesState().policy(),null,null,null,previous);
+        when(insights.data(eq(tenant),eq(id),any(),eq(true)))
+            .thenReturn(new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal("320")),List.of(),"stat_time_day",Instant.now(),null));
+        when(management.monitoringFacts(tenant,id)).thenReturn(
+            new PlanManagementService.MonitoringFacts("1878663839175696","PAUSED","CUSTOM",BigDecimal.valueOf(400),null,List.of("item")),
+            new PlanManagementService.MonitoringFacts("1878663839175696","DELIVERING","CUSTOM",BigDecimal.valueOf(400),null,List.of("item")));
+        assertFalse(service.collectRules(plan,s).containsKey("optimization_restarted_at"));
+        var result=service.collectRules(plan,s);
+        assertEquals("320",result.get("daily_spend"));
+        assertNotNull(result.get("optimization_restarted_at"));
+    }
     @Test void ruleObservationOlderThanTwoMinutesIsRecollected() {
         var s=rulesState();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         when(store.pending(s)).thenReturn(Optional.of(new OptimizationStore.Pending("stale-rules",1,"{}",Instant.now().minusSeconds(121))));

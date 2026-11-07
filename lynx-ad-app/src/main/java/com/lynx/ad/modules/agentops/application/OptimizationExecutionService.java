@@ -75,6 +75,7 @@ public class OptimizationExecutionService {
             boolean increase="ENABLE".equals(kind) || "BUDGET".equals(kind) && decimal(event.proposal(),"target").compareTo(decimal(facts,"budget"))>0 || "ROI".equals(kind) && decimal(event.proposal(),"target").compareTo(decimal(facts,"roi"))<0;
             if(increase){var limit=journal.limit(event.tenant(),event.accountId());if(limit==null)throw new BizException(1803,"请先设置广告账户总日预算上限");var sum=gateway.accountBudget(p);var addition="ENABLE".equals(kind)?decimal(facts,"budget"):"BUDGET".equals(kind)?decimal(event.proposal(),"target").subtract(decimal(facts,"budget")):BigDecimal.ZERO;if(sum.add(addition).compareTo(limit)>0)throw new BizException(1803,"账户总日预算会超过授权上限");}
             // The durable journal is committed before any platform mutation. A restart only reads back.
+            if(policies.deliveryChangedSinceReport(state))throw new BizException(1803,"投放已变化，请等待最新判断");
             journal.rememberBefore(event,facts);
             if(!journal.dispatch(event,owner))throw new BizException(1803,"授权或执行租约已变化");
             dispatched=true;
@@ -105,7 +106,7 @@ public class OptimizationExecutionService {
             }
             gateway.lock(p,event.id());
             journal.rememberBefore(event,facts);
-            if(!facts.equals(gateway.facts(p))||!journal.dispatch(event,owner))throw new BizException(1803,"发出前平台事实或规则已变化");
+            if(!facts.equals(gateway.facts(p))||policies.deliveryChangedSinceReport(state)||!journal.dispatch(event,owner))throw new BizException(1803,"发出前平台事实或规则已变化");
             dispatched=true;confirmations.dispatched(approval);gateway.write(p,event.proposal());var actual=gateway.facts(p);
             if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());}
             else journal.finish(event,"VERIFY_PENDING","操作已提交，继续核实平台结果",actual);

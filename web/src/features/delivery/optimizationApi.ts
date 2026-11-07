@@ -44,6 +44,8 @@ export interface MonitoringReport {
   complete?: boolean;
   roi_windows?: { window_start: string; window_end: string; metrics: { spend: string | null; net_revenue: string | null } }[];
   plan_id?: string;
+  plan_status?: string;
+  optimization_restarted_at?: string;
   state: 'READY' | 'WAITING_DATA' | 'PAUSED';
   observed_at: string;
   source: string;

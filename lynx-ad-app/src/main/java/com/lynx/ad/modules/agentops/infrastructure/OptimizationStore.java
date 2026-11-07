@@ -27,6 +27,7 @@ public class OptimizationStore {
         public State(String tenant,String plan,long version,boolean enabled,OptimizationPolicy policy,Instant lastCheck,Instant lastSuccess,String error,JsonNode result){this(tenant,plan,version,enabled,policy,lastCheck,lastSuccess,error,result,null,null,null,null,null);}
     }
     public record Pending(String id,long version,String payload,Instant created) {}
+    public record DeliveryChange(String type,Instant at) {}
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
@@ -45,6 +46,20 @@ public class OptimizationStore {
         catch(SQLException ex){throw ex;}catch(Exception ex){throw new IllegalStateException("Invalid saved monitoring state",ex);}
     }
     public Optional<State> get(TenantId tenant,PlanId id) {return jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=? AND plan_id=?",this::row,tenant.value(),id.value()).stream().findFirst();}
+    public Optional<DeliveryChange> deliveryChange(String tenant,String plan,Instant after) {
+        return jdbc.query("""
+            SELECT action_type,snapshot_ts FROM agent_action
+            WHERE tenant_id=? AND ad_plan_id=? AND result='DONE' AND action_type IN ('MANUAL_ENABLE','MANUAL_DISABLE')
+              AND snapshot_ts>?
+            ORDER BY snapshot_ts DESC LIMIT 1
+            """,(r,n)->new DeliveryChange(r.getString("action_type"),time(r,"snapshot_ts")),tenant,plan,Timestamp.from(after))
+            .stream().findFirst();
+    }
+    public boolean deliveryChangedSinceReport(State state) {
+        if(state.policy().rules()==null || state.result()==null)return false;
+        String checked=state.result().path("plan_checked_at").asText(state.result().path("observed_at").asText());
+        return !checked.isBlank() && deliveryChange(state.tenant(),state.plan(),OffsetDateTime.parse(checked).toInstant()).isPresent();
+    }
     public List<State> forTenant(TenantId tenant){return jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=?",this::row,tenant.value());}
     public List<State> forPlans(TenantId tenant,List<String> ids){
         if(ids.isEmpty())return List.of();
@@ -152,8 +167,18 @@ public class OptimizationStore {
     public void complete(State state,String owner,Pending pending,JsonNode result) {
         tx.executeWithoutResult(s->{
             assertLease(state,owner);var now=Timestamp.from(Instant.now());
+            if(state.policy().rules()!=null && result.hasNonNull("plan_checked_at")
+                && deliveryChange(state.tenant(),state.plan(),Instant.parse(result.path("plan_checked_at").asText())).isPresent())
+                throw new BizException(1803,"投放状态已变化，等待最新检查");
             jdbc.update("UPDATE optimization_outbox SET status='SENT',updated_at=? WHERE id=? AND tenant_id=? AND plan_id=? AND status='PENDING'",now,pending.id(),state.tenant(),state.plan());
             jdbc.update("UPDATE optimization_policy SET result_json=?,last_success_at=?,last_error=NULL WHERE tenant_id=? AND plan_id=? AND lease_owner=?",encode(result),now,state.tenant(),state.plan(),owner);
+            var prior=state.result();
+            boolean restarted=result.hasNonNull("optimization_restarted_at")
+                && (prior==null || !result.path("optimization_restarted_at").equals(prior.path("optimization_restarted_at")));
+            if(state.policy().rules()!=null && (restarted || "PAUSED".equals(result.path("plan_status").asText()))) {
+                if(ruleMetrics!=null)ruleMetrics.reset(state.tenant(),state.plan());
+                if(automationStore!=null)automationStore.expireDeliveryAdvice(state);
+            }
             if(ruleMetrics!=null)ruleMetrics.observed(state,result);
             if(automationStore!=null){automationStore.recordAdvice(state,result);if(state.error()!=null)automationStore.notice(state.tenant(),state.plan(),"OPTIMIZATION_RECOVERED","盯盘采集已恢复","已重新获取最新平台数据。");}
         });

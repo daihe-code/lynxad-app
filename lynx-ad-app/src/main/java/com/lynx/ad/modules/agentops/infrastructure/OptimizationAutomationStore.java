@@ -103,6 +103,23 @@ public class OptimizationAutomationStore {
     }
     public List<Event> rulePending(String tenant,String plan){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND status IN ('EXECUTING','VERIFY_PENDING','UNKNOWN') ORDER BY created_at DESC LIMIT 20",this::row,tenant,plan);}
     public List<Event> ruleActions(String tenant,String plan,long version){return jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY') ORDER BY created_at DESC LIMIT 30",this::row,tenant,plan,version);}
+    public void expireDeliveryAdvice(OptimizationStore.State state) {
+        var now=Timestamp.from(Instant.now());
+        jdbc.update("""
+            UPDATE optimization_confirmation SET status='NOT_SENT'
+            WHERE tenant_id=? AND plan_id=? AND status='RESERVED' AND event_id IN (
+                SELECT id FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status='READY'
+            )
+            """,state.tenant(),state.plan(),state.tenant(),state.plan(),state.version());
+        jdbc.update("""
+            UPDATE optimization_event SET status='RESOLVED',error_message='广告投放状态已变化，原建议已失效',finished_at=?,updated_at=?
+            WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY')
+              AND NOT EXISTS (
+                SELECT 1 FROM optimization_review r WHERE r.tenant_id=optimization_event.tenant_id AND r.event_id=optimization_event.id
+                  AND (r.action_at IS NOT NULL OR r.content_work_id IS NOT NULL)
+              )
+            """,now,now,state.tenant(),state.plan(),state.version());
+    }
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
         String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));

@@ -34,20 +34,28 @@ public final class OptimizationRulesEvaluator {
         result.put("state","WAITING_DATA");result.put("window_count",0);
         var reasons=result.putArray("reasons");var advice=result.putArray("recommendations");
         var observed=OffsetDateTime.parse(data.path("observed_at").asText());
+        var restarted=data.hasNonNull("optimization_restarted_at")
+            ?Instant.parse(data.path("optimization_restarted_at").asText()):null;
         var history=result.putArray("rule_samples");
         boolean complete=data.path("complete").asBoolean();
         BigDecimal spend=decimal(data,"daily_spend"),revenue=decimal(data,"daily_net_revenue");
+        if(!"DELIVERING".equals(data.path("plan_status").asText())){result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;}
+        if(!complete || spend==null || spend.signum()<0){reasons.add("等待完整的当天消耗数据");return result;}
         if(previous!=null)for(var sample:previous.path("rule_samples")){
             try{var time=OffsetDateTime.parse(sample.path("at").asText());
-                if(time.toLocalDate().equals(observed.toLocalDate()) && !time.isAfter(observed) && time.isAfter(observed.minusMinutes(65)))history.add(sample.deepCopy());
+                if(time.toLocalDate().equals(observed.toLocalDate()) && !time.isAfter(observed) && time.isAfter(observed.minusMinutes(65))
+                    && (restarted==null || !time.toInstant().isBefore(restarted)))history.add(sample.deepCopy());
             }catch(RuntimeException ignored){/* Unusable evidence never becomes a baseline. */}
         }
-        if(!complete || spend==null || spend.signum()<0){reasons.add("等待完整的当天消耗数据");return result;}
-        if(!"DELIVERING".equals(data.path("plan_status").asText())){result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;}
         if(data.path("execution_pending").asBoolean()){reasons.add("正在核实已提交操作，不补执行旧建议");return result;}
         var mature=new ArrayList<JsonNode>();
         for(var window:data.path("observations")){
-            try{var end=OffsetDateTime.parse(window.path("window_end").asText());if(window.path("complete").asBoolean() && !end.isAfter(observed.minusMinutes(maturityMinutes)))mature.add(window);}catch(RuntimeException ignored){}
+            try {
+                var start=OffsetDateTime.parse(window.path("window_start").asText());
+                var end=OffsetDateTime.parse(window.path("window_end").asText());
+                if(window.path("complete").asBoolean() && !end.isAfter(observed.minusMinutes(maturityMinutes))
+                    && (restarted==null || !start.toInstant().isBefore(restarted)))mature.add(window);
+            }catch(RuntimeException ignored){}
         }
         mature.sort(Comparator.comparing(w->w.path("window_end").asText()));
         var windows=result.putArray("roi_windows");BigDecimal matureSpend=BigDecimal.ZERO,matureRevenue=BigDecimal.ZERO;boolean matureReady=mature.size()>=windowHours;

@@ -22,6 +22,7 @@ public class OptimizationDecisionService {
         var event=event(tenant,plan,id);var p=gateway.plan(tenant,plan);var state=policies.get(p.tenantId(),p.id()).orElseThrow();
         if(!event.status().equals("RECOMMENDED")||event.proposal()==null)throw new BizException(1803,"当前建议没有可确认执行的操作");
         var facts=gateway.facts(p);validate(state,event,facts,Instant.now());
+        if(policies.deliveryChangedSinceReport(state))throw new BizException(1803,"投放已变化，请等待最新判断");
         String day=LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();var addition=addition(event.proposal());
         var used=confirmations.committed(tenant,plan,day);
         return new Preview(id,state.version(),hash(state,event,facts),facts,event.proposal(),state.result(),addition,used,Instant.now().plusSeconds(90));
@@ -42,7 +43,7 @@ public class OptimizationDecisionService {
         if(s.policy().rules()==null||!s.enabled()||s.holdReason()!=null||s.version()!=event.version()||s.result()==null)throw new BizException(1803,"当前规则或建议已失效");
         var report=s.result();var at=OffsetDateTime.parse(report.path("observed_at").asText()).toInstant();
         if(at.plusSeconds(120).isBefore(now)||at.isAfter(now.plusSeconds(30))||!at.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate().equals(now.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate())||!report.path("complete").asBoolean()||report.path("execution_pending").asBoolean())throw new BizException(1803,"执行依据已过期或有操作待核实");
-        if(!event.tenant().equals(report.path("store_id").asText())||!event.accountId().equals(report.path("account_id").asText())||!facts.path("qcId").equals(report.path("plan_id"))||!facts.path("status").asText().equals("DELIVERING"))throw new BizException(1803,"平台对象或投放状态已变化");
+        if(!event.tenant().equals(report.path("store_id").asText())||!event.accountId().equals(report.path("account_id").asText())||!facts.path("qcId").equals(report.path("plan_id"))||!facts.path("status").asText().equals("DELIVERING")||!"DELIVERING".equals(report.path("plan_status").asText("DELIVERING")))throw new BizException(1803,"平台对象或投放状态已变化");
         var action=event.proposal();String kind=action.path("kind").asText();
         if(!Set.of("BUDGET","PAUSE").contains(kind)||!kind.equals(event.kind()))throw new BizException(1802,"该操作须进入原有流程独立确认");
         boolean current=false;for(var item:report.path("recommendations"))if(action.equals(item.path("action")))current=true;

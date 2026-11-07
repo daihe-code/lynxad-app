@@ -27,6 +27,7 @@ class OptimizationDecisionPersistenceTest {
         var ds=new DriverManagerDataSource("jdbc:h2:mem:monitor_"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE","sa","");jdbc=new JdbcTemplate(ds);var tx=new DataSourceTransactionManager(ds);
         try(var c=ds.getConnection()){for(String migration:List.of("V28__optimization_monitor.sql","V29__optimization_execution.sql","V50__optimization_rule_details.sql","V51__optimization_decision_reviews.sql"))ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/"+migration));}
         jdbc.execute("CREATE TABLE sys_tenant(id VARCHAR(64) PRIMARY KEY)");jdbc.update("INSERT INTO sys_tenant VALUES('tenant')");jdbc.execute("CREATE TABLE notification(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(64),channel VARCHAR(20),title VARCHAR(255),body TEXT,biz_type VARCHAR(64),biz_id VARCHAR(64),sent_at TIMESTAMP)");
+        jdbc.execute("CREATE TABLE agent_action(tenant_id VARCHAR(64),ad_plan_id VARCHAR(64),action_type VARCHAR(32),result VARCHAR(16),snapshot_ts TIMESTAMP(3))");
         var p=mock(AdPlan.class);plan=p;when(p.tenantId()).thenReturn(new TenantId("tenant"));when(p.id()).thenReturn(new PlanId("plan"));when(p.accountId()).thenReturn(new AccountId("account"));when(p.awemeId()).thenReturn(new AwemeId("aweme"));when(p.name()).thenReturn(new PlanName("测试计划"));when(p.qcPlanId()).thenReturn(Optional.empty());
         var repo=mock(AdPlanRepository.class);when(repo.findById(new TenantId("tenant"),new PlanId("plan"))).thenReturn(Optional.of(p));store=new OptimizationStore(jdbc,json,tx);journal=new OptimizationAutomationStore(jdbc,json,tx,repo);confirmations=new OptimizationConfirmationStore(jdbc,json,tx);reviews=new OptimizationReviewStore(jdbc,json);
         var d=OptimizationPolicy.defaults();var rules=new OptimizationRules(BigDecimal.ONE,new BigDecimal("400"),new BigDecimal("480"),"CONFIRM",5,new BigDecimal("100"),new BigDecimal("100"),new BigDecimal("200"));
@@ -208,6 +209,24 @@ class OptimizationDecisionPersistenceTest {
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event",Integer.class));
     }
     @Test void repeatedPollUpdatesOneIssueAndOneNotification(){journal.recordAdvice(state,report("object"));journal.recordAdvice(state,report("object"));assertEquals(1,journal.ruleActions("tenant","plan",state.version()).size());assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification",Integer.class));assertTrue(journal.ruleActions("other","plan",state.version()).isEmpty());}
+    @Test void deliveryRestartExpiresUnsentAdviceButKeepsDispatchedAllowance() {
+        var sent=create("dispatched");
+        assertTrue(journal.claimAccount("tenant","account","owner"));
+        approve(sent,new BigDecimal("100"));
+        assertTrue(journal.dispatch(sent,"owner"));
+        var approval=confirmations.find("tenant",sent.id()).orElseThrow();
+        confirmations.dispatched(approval);
+        var queued=create("queued");
+        approve(queued,new BigDecimal("100"));
+        var suggested=create("suggested");
+
+        journal.expireDeliveryAdvice(state);
+
+        assertEquals("EXECUTING",journal.event("tenant",sent.id()).orElseThrow().status());
+        assertEquals("RESOLVED",journal.event("tenant",queued.id()).orElseThrow().status());
+        assertEquals("RESOLVED",journal.event("tenant",suggested.id()).orElseThrow().status());
+        assertEquals(new BigDecimal("100.00"),confirmations.committed("tenant","plan",approval.day()));
+    }
     @Test void positiveCommitmentsSurviveDispatchTimeoutAndRetries(){var e=create("one");assertTrue(journal.claimAccount("tenant","account","owner"));approve(e,new BigDecimal("100"));approve(e,new BigDecimal("100"));var c=confirmations.find("tenant",e.id()).orElseThrow();assertEquals("user",c.actor());assertEquals(new BigDecimal("100.00"),confirmations.committed("tenant","plan",c.day()));confirmations.dispatched(c);confirmations.notSent(c);assertEquals(new BigDecimal("100.00"),confirmations.committed("tenant","plan",c.day()));assertTrue(confirmations.find("other",e.id()).isEmpty());assertEquals(0,confirmations.committed("other","plan",c.day()).signum());}
     @Test void onlyDefinitelyUnsentReservationsReleaseAllowance(){var e=create("one");journal.claimAccount("tenant","account","owner");approve(e,new BigDecimal("100"));var c=confirmations.find("tenant",e.id()).orElseThrow();confirmations.notSent(c);assertEquals(0,confirmations.committed("tenant","plan",c.day()).signum());}
     @Test void beforeSnapshotSurvivesTheFinalReadback(){var e=create("one");journal.claimAccount("tenant","account","owner");approve(e,new BigDecimal("100"));e=journal.event("tenant",e.id()).orElseThrow();var before=json.createObjectNode().put("budget","300");journal.rememberBefore(e,before);assertTrue(journal.dispatch(e,"owner"));journal.succeeded(e,json.createObjectNode().put("budget","400"));var finalEvent=journal.event("tenant",e.id()).orElseThrow();assertEquals("300",finalEvent.report().path("pre_action_facts").path("budget").asText());assertEquals("400",finalEvent.actual().path("budget").asText());}
