@@ -61,12 +61,26 @@ public class OptimizationStore {
         save(plan,policy,get(plan.tenantId(),plan.id()).map(State::version).orElse(0L));
     }
     public void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion) {
+        save(plan,policy,expectedVersion,null,null);
+    }
+    public void resumeRules(AdPlan plan,State paused,JsonNode report,JsonNode facts) {
+        var policy=paused.policy();
+        var resumed=new OptimizationPolicy(true,policy.mode(),policy.dailySpendLimit(),policy.maxLoss(),
+            policy.minSpend(),policy.minOrders(),policy.persistenceWindows(),policy.conversionDelayMinutes(),
+            policy.economics(),policy.automation(),policy.tactics(),policy.creativeGeneration(),policy.rules());
+        save(plan,resumed,paused.version(),report,facts);
+    }
+    private void save(AdPlan plan,OptimizationPolicy policy,long expectedVersion,JsonNode resumeReport,JsonNode resumeFacts) {
         tx.executeWithoutResult(s->{
             // A tenant row serializes first inserts and cross-plan shared economics changes.
             if(jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",plan.tenantId().value()).isEmpty())throw new BizException(1802,"租户不存在");
-            var previous=get(plan.tenantId(),plan.id());
+            var previous=jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=? AND plan_id=? FOR UPDATE",
+                this::row,plan.tenantId().value(),plan.id().value()).stream().findFirst();
             long version=previous.map(State::version).orElse(0L);
             if(version!=expectedVersion)throw new BizException(1804,"盯盘设置已被更新，请重新加载设置后保存");
+            if(policy.enabled() && resumeReport==null
+                && previous.filter(state->!state.enabled() && state.policy().rules()!=null).isPresent())
+                throw new BizException(1803,"请先核对当天消耗，再确认恢复盯盘优化");
             var now=Timestamp.from(Instant.now());
             for(var e:policy.economics()) {
                 int changed=jdbc.update("UPDATE product_economics_profile SET contribution_margin_rate=?,refund_reserve_rate=?,verified=?,updated_at=? WHERE tenant_id=? AND account_id=? AND aweme_id=? AND product_id=?",
@@ -88,7 +102,32 @@ public class OptimizationStore {
             int changed=jdbc.update("UPDATE optimization_policy SET enabled=?,config_json=?,next_check_at=? WHERE tenant_id=? AND plan_id=?",policy.enabled(),encode(policy.withEconomics(List.of())),now,plan.tenantId().value(),plan.id().value());
             if(changed==0)jdbc.update("INSERT INTO optimization_policy(tenant_id,plan_id,policy_version,enabled,config_json,next_check_at) VALUES(?,?,1,?,?,?)",plan.tenantId().value(),plan.id().value(),policy.enabled(),encode(policy.withEconomics(List.of())),now);
             if(ruleMetrics!=null)ruleMetrics.reset(plan.tenantId().value(),plan.id().value());
-            if(policy.rules()!=null && automationStore!=null)automationStore.ruleChanged(plan,policy,version+1,previous.map(State::enabled).orElse(false));
+            if(policy.rules()!=null && automationStore!=null){
+                var prior=previous.orElse(null);
+                boolean wasEnabled=prior!=null && prior.enabled();
+                OptimizationAutomationStore.PauseSnapshot snapshot=null;
+                if(wasEnabled && !policy.enabled()){
+                    String tenant=plan.tenantId().value(), id=plan.id().value();
+                    var report=prior.result();
+                    snapshot=new OptimizationAutomationStore.PauseSnapshot(
+                        ruleMetrics==null?0:ruleMetrics.seconds(tenant,id,false),
+                        automationStore.ruleSummary(tenant,id,false),
+                        report==null?null:report.get("daily_spend"),
+                        report==null?null:report.path("fetched_at").asText(report.path("observed_at").asText(null)));
+                    jdbc.update("""
+                        UPDATE optimization_event SET status='RESOLVED',error_message='盯盘优化已暂停，原建议已失效',finished_at=?,updated_at=?
+                        WHERE tenant_id=? AND plan_id=? AND status='RECOMMENDED'
+                        """,now,now,tenant,id);
+                }
+                automationStore.ruleChanged(plan,policy,version+1,wasEnabled,snapshot,resumeReport!=null);
+                if(resumeReport!=null){
+                    jdbc.update("""
+                        UPDATE optimization_policy SET result_json=?,last_check_at=?,last_success_at=?,baseline_json=?
+                        WHERE tenant_id=? AND plan_id=?
+                        """,encode(resumeReport),now,now,encode(resumeFacts),plan.tenantId().value(),plan.id().value());
+                    automationStore.recordAdvice(get(plan.tenantId(),plan.id()).orElseThrow(),resumeReport);
+                }
+            }
         });
     }
     public boolean claim(State state,String owner,Instant now) {

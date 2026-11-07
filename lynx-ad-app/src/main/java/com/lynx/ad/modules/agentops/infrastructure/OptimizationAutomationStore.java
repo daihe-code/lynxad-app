@@ -72,15 +72,30 @@ public class OptimizationAutomationStore {
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
     }
-    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version,boolean previouslyEnabled){
+    public void ruleChanged(com.lynx.ad.modules.delivery.domain.model.AdPlan p,com.lynx.ad.modules.agentops.application.OptimizationPolicy policy,long version,boolean previouslyEnabled,PauseSnapshot snapshot,boolean resumed){
         String id=UUID.randomUUID().toString();var report=json.createObjectNode().put("rule_version","merchant-rules-v1");report.set("rules",json.valueToTree(policy.rules()));report.put("enabled",policy.enabled());
-        String title=policy.enabled()?(previouslyEnabled?"盯盘规则已更新":"盯盘优化已开启"):(previouslyEnabled?"盯盘优化已关闭":"盯盘规则已保存");
+        if(snapshot!=null)report.set("pause_snapshot",json.valueToTree(snapshot));
+        String title=resumed?"盯盘优化已恢复":policy.enabled()?(previouslyEnabled?"盯盘规则已更新":"盯盘优化已开启"):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
         String body=policy.enabled()?"净成交ROI要求不低于 "+policy.rules().roiFloor().stripTrailingZeros().toPlainString()+"；当天消耗 ¥"+policy.rules().spendReminder().stripTrailingZeros().toPlainString()+" 时提醒，达到 ¥"+policy.rules().spendProtection().stripTrailingZeros().toPlainString()+" 时"+(policy.rules().protectionAction().equals("AUTO_PAUSE")?"按授权自动暂停本计划。":"提醒你确认暂停。")
-                :"已关闭经营优化，已提交操作继续核对。计划投放状态保持不变。";
+                :previouslyEnabled?"盯盘优化已暂停，已提交操作继续核对。":"规则已保存，盯盘优化仍为暂停状态。";
         jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,report_json,status,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'SUCCEEDED',?,?)",id,p.tenantId().value(),p.id().value(),p.accountId().value(),p.name().text(),id,version,"RULES_CHANGE",title,body,encode(report),Timestamp.from(Instant.now()),Timestamp.from(Instant.now()));
         if(policy.enabled()||previouslyEnabled)notice(p.tenantId().value(),p.id().value(),"OPTIMIZATION_RULES",title,p.name().text()+"："+body);
     }
     public record RuleSummary(long found,long completed,long protectedCount){}
+    public record PauseSnapshot(long effectiveSeconds,RuleSummary summary,JsonNode dailySpend,String dataAt){}
+    public record PausedRules(Instant pausedAt,PauseSnapshot snapshot){}
+    public Optional<PausedRules> lastRulePause(String tenant,String plan,long version){
+        return jdbc.query("""
+            SELECT created_at,report_json FROM optimization_event
+            WHERE tenant_id=? AND plan_id=? AND policy_version<=? AND kind='RULES_CHANGE'
+              AND title IN ('盯盘优化已暂停','盯盘优化已关闭')
+            ORDER BY policy_version DESC LIMIT 1
+            """,(r,n)->{
+                var report=node(r.getString("report_json"));
+                var snapshot=report==null?null:report.get("pause_snapshot");
+                return new PausedRules(time(r,"created_at"),snapshot==null?null:json.convertValue(snapshot,PauseSnapshot.class));
+            },tenant,plan,version).stream().findFirst();
+    }
     public RuleSummary ruleSummary(String tenant,String plan,boolean today){
         String sql="SELECT COUNT(*) AS found, COALESCE(SUM(CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END),0) AS completed, COALESCE(SUM(CASE WHEN status='SUCCEEDED' AND kind='PAUSE' THEN 1 ELSE 0 END),0) AS protected_count FROM optimization_event WHERE tenant_id=? AND plan_id=? AND (kind IS NULL OR kind NOT IN ('RULES_CHANGE','RULE_SPEND_REMINDER','RULE_GROWTH_REVIEW'))";
         var args=new ArrayList<Object>(List.of(tenant,plan));if(today){sql+=" AND created_at>=?";args.add(Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant()));}

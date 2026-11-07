@@ -10,11 +10,39 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon /><el-button v-if="error" link type="primary" @click="load">重试</el-button>
       <template v-if="data">
         <template v-if="tab === 'overview'">
-          <div class="section-heading"><h3>小灵盯盘成效</h3><div class="range"><button :class="{ active: !today }" @click="today = false">自开启以来</button><button :class="{ active: today }" @click="today = true">今日</button></div></div>
+          <template v-if="paused">
+            <div v-if="planDisplay.group === 'DELIVERING'" class="status-notice warning">广告仍在投放，消耗保护当前不生效。</div>
+            <div v-if="data.pause?.pausedAt" class="summary">暂停时间 {{ time(data.pause.pausedAt) }}</div>
+          </template>
+          <div class="section-heading">
+            <h3>{{ paused ? (data.pause?.snapshot ? '暂停前累计成效' : '累计盯盘成效') : '小灵盯盘成效' }}</h3>
+            <div v-if="!paused" class="range"><button :class="{ active: !today }" @click="today = false">自开启以来</button><button :class="{ active: today }" @click="today = true">今日</button></div>
+          </div>
           <div class="metrics"><article><el-icon><Clock /></el-icon><small>有效盯盘</small><strong>{{ monitoringDuration(data.effectiveSeconds) }}</strong></article><article><el-icon><Document /></el-icon><small>发现优化点</small><strong>{{ data.summary.found }}<em>项</em></strong></article><article><el-icon><CircleCheck /></el-icon><small>完成优化任务</small><strong>{{ data.summary.completed }}<em>项</em></strong><small>已核实生效</small></article></div>
+          <template v-if="paused">
+            <section v-if="data.pending.length || followingReviews">
+              <h3>暂停后仍在跟进</h3>
+              <div v-if="data.pending.length" class="state-row"><strong>已提交操作的结果核实</strong><span>{{ data.pending.length }}项待核实</span></div>
+              <div v-if="followingReviews" class="state-row"><strong>历史任务效果复评</strong><span>继续跟进</span></div>
+              <button class="panel-link" @click="tab = 'current'">查看当前处理 ›</button>
+            </section>
+            <section v-if="runningTasks.length">
+              <h3>进行中的独立调控任务</h3>
+              <div v-for="task in runningTasks" :key="`${task.kind}:${task.id}`" class="state-row">
+                <strong>{{ task.name || task.kind }}</strong>
+                <el-button link type="primary" @click="emit('data', 'controls')">查看任务 ›</el-button>
+              </div>
+            </section>
+            <small v-if="data.pause?.snapshot?.dailySpend != null">
+              暂停前最近记录的当日消耗 {{ money(data.pause.snapshot.dailySpend) }}
+              <template v-if="data.pause.snapshot.dataAt"> · 数据截至 {{ time(data.pause.snapshot.dataAt) }}</template>
+            </small>
+          </template>
+          <template v-else>
           <div class="pair"><section class="protection"><h3>消耗风险控制</h3><strong class="large">{{ data.summary.protectedCount }}<em>项已核实暂停</em></strong><p>减少损失金额：—</p><small>暂无可靠估算</small><button class="panel-link" @click="showHistory('RISK')">查看保护记录 ›</button></section><section class="improvement"><h3>投放效果改善</h3><strong class="large">ROI {{ latestEffect?.roi_change == null ? '—' : (Number(latestEffect.roi_change) > 0 ? '+' : '') + number(latestEffect.roi_change) }}</strong><p>{{ latestEffect ? number(latestEffect.before_roi) + ' → ' + number(latestEffect.after_roi) : '暂无同口径的可靠对比数据' }}</p><small>结果变化不等于全部由小灵带来。</small><button class="panel-link" @click="tab = 'current'">查看效果依据 ›</button></section></div>
           <section><h3>近期完成的工作</h3><div v-for="event in completed.slice(0, 3)" :key="event.id" class="completed-row"><el-icon><CircleCheck /></el-icon><span>{{ event.title }}</span><small>{{ time(event.finishedAt || event.createdAt) }}</small></div><el-empty v-if="!completed.length" description="暂无已核实完成的任务" :image-size="40" /></section>
           <section><h3>当前盯盘与处理</h3><p v-if="state.reason">{{ state.reason }}</p><template v-if="risks.length"><button v-for="(item, index) in risks" :key="index" class="issue-link" @click="tab = 'current'"><span>{{ item.title }}</span><span>查看并处理 ›</span></button></template><p v-else>{{ state.label === '盯盘中' ? '持续检查投放表现，暂无待处理建议。' : '数据未满足条件时继续观察，已有工作记录保留。' }}</p><button class="panel-link" @click="tab = 'current'">查看当前处理 ›</button></section>
+          </template>
         </template>
         <template v-else-if="tab === 'current'">
           <div class="stats-strip">有效盯盘 {{ monitoringDuration(data.effectiveSeconds) }} · 优化点 {{ data.summary.found }}项 · 已完成 {{ data.summary.completed }}项 <button @click="tab = 'overview'">查看成效 ›</button></div>
@@ -30,7 +58,7 @@
             <section v-if="!risks.length"><h3>小灵正在观察，暂不急着调整</h3><p>{{ data.view.result?.reasons?.join('；') || '持续核对最新消耗与成交数据。没有合适机会时保持当前设置。' }}</p><div class="state-row"><strong>消耗检查</strong><span class="badge" :class="data.view.result?.complete && !data.view.stale ? 'success' : 'warning'">{{ data.view.result?.complete && !data.view.stale ? '数据可用' : '等待最新数据' }}</span></div><div class="state-row"><strong>ROI效果判断</strong><span>{{ data.view.result?.actual_net_roi ? '已取得成熟窗口' : '等待有效成交数据' }}</span></div></section>
             <section v-if="growth.length"><h3>增长机会</h3><article v-for="(item, index) in growth" :key="index"><strong>{{ item.title }}</strong><p>{{ item.evidence }}</p><div class="summary">单次建议上限 {{ money(data.view.policy.rules?.maxAddition) }} · 每日累计建议上限 {{ money(data.view.policy.rules?.dailyAddition) }}</div><el-button type="primary" :loading="!!deciding" @click="item.action ? preview(item) : handoff(item)">{{ item.action ? '查看预算调整方案' : '查看素材调整方案' }}</el-button></article></section>
           </template>
-          <section v-else-if="state.label !== '授权失效' && planDisplay.group !== 'PAUSED' && !data.pending.length"><h3>仅暂停受影响的判断</h3><p>{{ data.view.error || '等待最新可用数据；历史数值不能代表当前投放状态。' }}</p><el-button @click="load">刷新状态</el-button></section>
+          <section v-else-if="!paused && !planEnded && state.label !== '授权失效' && planDisplay.group !== 'PAUSED' && !data.pending.length"><h3>仅暂停受影响的判断</h3><p>{{ data.view.error || '等待最新可用数据；历史数值不能代表当前投放状态。' }}</p><el-button @click="load">刷新状态</el-button></section>
           <PlanOptimizationReviews :reviews="data.reviews || []" />
         </template>
         <template v-else>
@@ -39,7 +67,7 @@
           <div class="timeline"><article v-for="event in data.history.records" :key="event.id"><small>{{ time(event.createdAt) }}</small><details><summary><strong>{{ event.title }}</strong><span class="badge" :class="event.status === 'SUCCEEDED' ? 'success' : 'muted'">{{ eventStatus(event.status) }}</span></summary><p>{{ event.evidence }}</p><p v-if="event.error">{{ event.error }}</p><div v-if="event.kind === 'RULES_CHANGE' && event.report.rules" class="summary">{{ ruleChangeText(event) }}</div><template v-if="event.kind !== 'RULES_CHANGE'"><p>当前结果：{{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? '已记录建议，尚无已执行结果' : eventStatus(event.status) }}</p><el-button v-if="['EXECUTING','VERIFY_PENDING','UNKNOWN'].includes(event.status)" link type="primary" @click="recheck(event)">只读回查结果</el-button></template></details></article></div>
           <el-empty v-if="!data.history.records.length" description="暂无工作记录" :image-size="50" /><el-pagination v-if="data.history.total > 20" small layout="prev, pager, next" :total="data.history.total" :page-size="20" v-model:current-page="page" />
         </template>
-        <details v-if="tab !== 'history'" class="current-rules"><summary>当前生效规则 <span>查看 ⌄</span></summary><div v-if="data.view.policy.rules" class="rule-grid"><div><small>净成交ROI不低于</small><strong>{{ number(data.view.policy.rules.roiFloor) }}</strong></div><div><small>提醒 / 保护金额</small><strong>{{ money(data.view.policy.rules.spendReminder) }} / {{ money(data.view.policy.rules.spendProtection) }}</strong></div><div><small>暂停方式</small><strong>{{ data.view.policy.rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认' }}</strong></div><div><small>跑飞提醒</small><strong>{{ data.view.policy.rules.runawayMinutes }}分钟 / {{ money(data.view.policy.rules.runawaySpend) }}</strong></div><div><small>单次 / 每日追加建议上限</small><strong>{{ money(data.view.policy.rules.maxAddition) }} / {{ money(data.view.policy.rules.dailyAddition) }}</strong></div></div><p v-else>当前仍为历史版本规则，可通过“修改规则”设置新版保护条件。</p><el-button link type="primary" @click="emit('edit')">修改规则</el-button></details>
+        <details v-if="tab !== 'history'" class="current-rules"><summary>{{ paused || planEnded ? '已保存规则' : '当前生效规则' }} <span>查看 ⌄</span></summary><div v-if="data.view.policy.rules" class="rule-grid"><div><small>净成交ROI不低于</small><strong>{{ number(data.view.policy.rules.roiFloor) }}</strong></div><div><small>提醒 / 保护金额</small><strong>{{ money(data.view.policy.rules.spendReminder) }} / {{ money(data.view.policy.rules.spendProtection) }}</strong></div><div><small>暂停方式</small><strong>{{ data.view.policy.rules.protectionAction === 'AUTO_PAUSE' ? '授权本计划自动暂停' : '逐次确认' }}</strong></div><div><small>跑飞提醒</small><strong>{{ data.view.policy.rules.runawayMinutes }}分钟 / {{ money(data.view.policy.rules.runawaySpend) }}</strong></div><div><small>单次 / 每日追加建议上限</small><strong>{{ money(data.view.policy.rules.maxAddition) }} / {{ money(data.view.policy.rules.dailyAddition) }}</strong></div></div><p v-else>当前为历史版本规则。</p></details>
       </template>
     </main>
     <el-dialog :model-value="!!decision" title="确认盯盘处理方案" width="min(480px, 90vw)" append-to-body :close-on-click-modal="false" :show-close="!confirming" @close="!confirming && (decision = undefined)">
@@ -47,7 +75,19 @@
       <template #footer><el-button :disabled="confirming" @click="decision = undefined">取消</el-button><el-button type="primary" :loading="confirming" :disabled="!!decisionError" @click="confirmDecision">确认执行</el-button></template>
     </el-dialog>
     <PlanOptimizationPauseDialog v-model="pauseConfirmOpen" :busy="closing" :error="pauseError" :tasks="tasks" :tasks-loading="tasksLoading" :tasks-unavailable="!!taskError" @confirm="pauseOptimization" @tasks="showControlTasks" />
-    <footer><el-button v-if="data?.view.policy.enabled" :loading="closing" @click="openPauseConfirmation">暂停盯盘优化</el-button><small v-if="data?.pending.length">暂停后，已提交操作仍会继续核实。</small><div class="footer-actions"><el-button v-if="data?.pending.length" :loading="refreshing" @click="load">查看最新状态</el-button><el-button type="primary" @click="emit('edit')">{{ data?.view.policy.enabled ? '修改规则' : '设置并开启' }}</el-button></div></footer>
+    <PlanOptimizationResumeDialog v-model="resumeOpen" :preview="resumePreview" :loading="resumeLoading"
+      :busy="resuming" :error="resumeError" :running-task-count="runningTasks.length"
+      @confirm="resumeOptimization" @refresh="loadResumePreview" @edit="emit('edit')" @tasks="emit('data', 'controls')" />
+    <footer v-if="data && (!planEnded || data.pending.length)">
+      <el-button v-if="!planEnded && data.view.policy.enabled" :loading="closing" @click="openPauseConfirmation">暂停盯盘优化</el-button>
+      <div class="footer-actions">
+        <el-button v-if="data.pending.length && !paused" :loading="refreshing" @click="load">查看最新状态</el-button>
+        <el-button v-if="!planEnded" :type="paused ? 'default' : 'primary'" :disabled="closing || resuming" @click="emit('edit')">
+          {{ data.view.policy.enabled || paused ? '修改规则' : '设置并开启' }}
+        </el-button>
+        <el-button v-if="paused && !planEnded" type="primary" :disabled="closing" @click="openResumeConfirmation">恢复盯盘优化</el-button>
+      </div>
+    </footer>
   </div>
 </template>
 <script setup lang="ts">
@@ -57,8 +97,9 @@ import { ElMessage } from 'element-plus';
 import { Clock, CircleCheck, Document } from '@element-plus/icons-vue';
 import PlanOptimizationReviews from './PlanOptimizationReviews.vue';
 import PlanOptimizationPauseDialog from './PlanOptimizationPauseDialog.vue';
-import { previewOptimizationDecision, confirmOptimizationDecision, startOptimizationReview, type DecisionPreview, type MonitoringRecommendation, getOptimizationDetails, recheckOptimization, saveOptimizationRules, type OptimizationDetails, type OptimizationEvent } from '@/features/delivery/optimizationApi';
-import { monitoringDuration, optimizationDetailState } from '@/features/delivery/optimizationDetails';
+import PlanOptimizationResumeDialog from './PlanOptimizationResumeDialog.vue';
+import { previewOptimizationDecision, confirmOptimizationDecision, startOptimizationReview, type DecisionPreview, type MonitoringRecommendation, getOptimizationDetails, recheckOptimization, saveOptimizationRules, type OptimizationDetails, type OptimizationEvent, getOptimizationResumePreview, confirmOptimizationResume, type OptimizationResumePreview } from '@/features/delivery/optimizationApi';
+import { isOptimizationPlanEnded, monitoringDuration, optimizationDetailState } from '@/features/delivery/optimizationDetails';
 import { defaultOptimizationRules } from '@/features/delivery/optimizationRules';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { listControlTasks, type ControlTask, type PlanListVo } from '@/features/delivery/deliveryApi';
@@ -67,16 +108,24 @@ const props = defineProps<{ planId: string; plan?: PlanListVo; account?: Account
 const emit = defineEmits<{ edit: []; close: []; saved: []; data: [tab: string] }>();
 const router = useRouter(), tab = ref('overview'), today = ref(false), category = ref('ALL'), days = ref(7), page = ref(1);
 const categories = [{ value: 'ALL', label: '全部' }, { value: 'RISK', label: '风险处理' }, { value: 'GROWTH', label: '增长优化' }, { value: 'RULES', label: '规则变更' }];
+const followingReviewStatuses = ['TRACKING', 'OBSERVING', 'WAITING_DATA'];
 const data = ref<OptimizationDetails>(), loading = ref(true), refreshing = ref(false), closing = ref(false), checking = ref(''), error = ref(''), taskError = ref('');
+const resumeOpen = ref(false), resumeLoading = ref(false), resuming = ref(false), resumeError = ref('');
+const resumePreview = ref<OptimizationResumePreview>();
 const tasks = ref<(ControlTask & { kind: string })[]>([]), scrollArea = ref<HTMLElement>();
 const tasksLoading = ref(false), pauseConfirmOpen = ref(false), pauseError = ref('');
 const deciding = ref(''), confirming = ref(false), decisionError = ref('');
 const decision = ref<{ title: string; preview: DecisionPreview }>();
 const latestEffect = computed(() => data.value?.reviews?.find(r => r.status === 'COMPARED')?.result);
 let revision = 0, disposed = false, timer: ReturnType<typeof setTimeout> | undefined;
-const planDisplay = computed(() => planStatusDisplay(data.value?.view.planStatus || props.plan?.status, data.value?.view.qcStatus || props.plan?.qcStatus));
-const state = computed(() => error.value ? { label: '检查受限', tone: 'warning', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' } : data.value ? optimizationDetailState(data.value, planDisplay.value.group, data.value.accountStatus || props.account?.status, tasks.value.length) : { label: '加载中', tone: 'muted', reason: '' });
-const canShowCurrent = computed(() => !!data.value && !error.value && !data.value.pending.length && data.value.view.policy.enabled && !data.value.view.error && !data.value.view.stale && !data.value.view.holdReason && planDisplay.value.group === 'DELIVERING' && state.value.label !== '授权失效');
+const planDisplay = computed(() => planStatusDisplay(data.value?.view.planStatus || props.plan?.status, data.value?.view.qcStatus ?? props.plan?.qcStatus));
+const planEnded = computed(() => isOptimizationPlanEnded(planDisplay.value.group)
+  || data.value?.view.planStatus === 'FINISHED' || props.plan?.status === 'FINISHED');
+const paused = computed(() => !!data.value?.view.policy.rules && !data.value.view.policy.enabled);
+const runningTasks = computed(() => tasks.value.filter(task => task.task_status === 'PROCESSING'));
+const followingReviews = computed(() => data.value?.reviews?.some(review => followingReviewStatuses.includes(review.status)));
+const state = computed(() => error.value ? { label: '检查受限', tone: 'warning', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' } : data.value ? optimizationDetailState(data.value, planEnded.value ? 'FINISHED' : planDisplay.value.group, data.value.accountStatus || props.account?.status, runningTasks.value.length) : { label: '加载中', tone: 'muted', reason: '' });
+const canShowCurrent = computed(() => !!data.value && !planEnded.value && !error.value && !data.value.pending.length && data.value.view.policy.enabled && !data.value.view.error && !data.value.view.stale && !data.value.view.holdReason && planDisplay.value.group === 'DELIVERING' && state.value.label !== '授权失效');
 const recommendations = computed(() => canShowCurrent.value ? data.value?.view.result?.recommendations || [] : []);
 const risks = computed(() => recommendations.value.filter(r => !r.type.includes('GROWTH'))), growth = computed(() => recommendations.value.filter(r => r.type.includes('GROWTH')));
 const completed = computed(() => data.value?.history.records.filter(e => e.status === 'SUCCEEDED' && e.kind !== 'RULES_CHANGE') || []);
@@ -127,20 +176,75 @@ async function loadTasks() {
   taskError.value = values.some(value => value.status === 'rejected') ? '独立任务状态暂未核实，请到调控中查看。' : '';
 }
 function openPauseConfirmation() {
-  if (!data.value?.view.policy.enabled || closing.value) return;
+  if (planEnded.value || !data.value?.view.policy.enabled || closing.value) return;
   pauseError.value = ''; pauseConfirmOpen.value = true;
   void loadTasks();
 }
 function showControlTasks() { if (closing.value) return; pauseConfirmOpen.value = false; emit('data', 'controls'); }
 async function pauseOptimization() {
-  if (!data.value?.view.policy.enabled || closing.value) return;
+  if (planEnded.value || !data.value?.view.policy.enabled || closing.value) return;
   closing.value = true;
   pauseError.value = '';
-  try { const view = data.value.view; await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version); pauseConfirmOpen.value = false; emit('saved'); await load(); ElMessage.success({ message: '盯盘优化已暂停', duration: 3000 }); } catch (err: any) { pauseError.value = err?.response?.data?.message || err?.message || '暂停失败，请重试'; } finally { closing.value = false; }
+  try {
+    const { view } = data.value;
+    const saved = await saveOptimizationRules(props.planId, view.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget), false, view.version);
+    if (disposed) return;
+    data.value = { ...data.value, view: saved, actions: [] };
+    pauseConfirmOpen.value = false;
+    tab.value = 'overview';
+    emit('saved');
+    await load();
+    ElMessage.success({ message: '盯盘优化已暂停', duration: 3000 });
+  } catch (err: any) {
+    pauseError.value = err?.response?.data?.message || err?.message || '暂停失败，请重试';
+  } finally {
+    closing.value = false;
+  }
+}
+function openResumeConfirmation() {
+  if (!paused.value || planEnded.value || resumeOpen.value) return;
+  resumeOpen.value = true;
+  void loadResumePreview();
+  void loadTasks();
+}
+async function loadResumePreview() {
+  if (resumeLoading.value || resuming.value) return;
+  resumeLoading.value = true;
+  resumeError.value = '';
+  resumePreview.value = undefined;
+  try {
+    resumePreview.value = await getOptimizationResumePreview(props.planId);
+  } catch (err: any) {
+    resumeError.value = err?.message || '暂时无法核实当天消耗，请重试';
+  } finally {
+    resumeLoading.value = false;
+  }
+}
+async function resumeOptimization() {
+  const preview = resumePreview.value;
+  if (!preview || !paused.value || planEnded.value || resuming.value || resumeError.value) return;
+  resuming.value = true;
+  try {
+    const result = await confirmOptimizationResume(props.planId, preview);
+    if (disposed) return;
+    resumeOpen.value = false;
+    emit('saved');
+    await load();
+    if (preview.outcome !== 'LIMIT_PAUSE') ElMessage.success('盯盘优化已恢复');
+    else if (result.pauseStatus === 'SUCCEEDED') ElMessage.success('盯盘优化已恢复，广告计划已暂停');
+    else if (result.pauseStatus === 'SKIPPED') ElMessage.warning('盯盘优化已恢复，本次暂停未执行');
+    else ElMessage.info('盯盘优化已恢复，暂停结果待核实');
+  } catch (err: any) {
+    resumeError.value = err?.message || '暂时无法确认恢复结果，请重新核对';
+    await load();
+    if (!paused.value) resumeOpen.value = false;
+  } finally {
+    resuming.value = false;
+  }
 }
 async function recheck(event: OptimizationEvent) { if (checking.value) return; checking.value = event.id; try { await recheckOptimization(event.id); await load(); emit('saved'); } catch (err: any) { error.value = err?.response?.data?.message || err?.message || '暂时无法核实，请稍后重试'; } finally { checking.value = ''; } }
 watch([today, category, days], () => { page.value = 1; void load(); }); watch(page, () => void load()); watch(tab, () => scrollArea.value?.scrollTo({ top: 0 }));
-async function poll() { if (disposed) return; if (!refreshing.value && !closing.value && !confirming.value) { await load(); await loadTasks(); } if (!disposed) timer = setTimeout(poll, 30000); }
+async function poll() { if (disposed) return; if (!refreshing.value && !closing.value && !resuming.value && !confirming.value) { await load(); await loadTasks(); } if (!disposed) timer = setTimeout(poll, 30000); }
 onMounted(async () => { await load(); void loadTasks(); if (!disposed) timer = setTimeout(poll, 30000); });
 onBeforeUnmount(() => { disposed = true; revision++; if (timer) clearTimeout(timer); });
 </script>

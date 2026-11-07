@@ -8,6 +8,7 @@ import com.lynx.ad.modules.agentops.infrastructure.*;
 import com.lynx.ad.modules.delivery.application.*;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
+import com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore;
 import java.math.BigDecimal;
 import java.time.*;
@@ -48,8 +49,15 @@ public class OptimizationMonitoringService {
     }
     private String unavailable(AdPlan p,OptimizationPolicy policy) {
         if(policy.rules()==null)return unavailable(p);
+        return rulesUnavailable(p);
+    }
+    private String rulesUnavailable(AdPlan p) {
+        if(rulePlanEnded(p))return "计划已结束";
         if(p.qcPlanId().isEmpty())return "草稿尚未发布";
         return properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
+    }
+    static boolean rulePlanEnded(AdPlan plan) {
+        return plan.status()==PlanStatus.FINISHED || PlanStatusPolicy.matches(plan.status().name(),plan.qcStatus(),"FINISHED");
     }
     private List<OptimizationPolicy.Economics> economics(AdPlan p,Set<String> ids) {return store.economics(p).stream().filter(e->ids.contains(e.productId())).toList();}
     public View view(TenantId tenant,PlanId id) {
@@ -73,7 +81,8 @@ public class OptimizationMonitoringService {
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
         var p=plan(tenant,id);if(policy==null)throw new BizException(1802,"请填写盯盘设置");
-        if(policy.enabled() && unavailable(p,policy)!=null)throw new BizException(1801,unavailable(p,policy));
+        String reason=unavailable(p,policy);
+        if(reason!=null && (policy.enabled() || policy.rules()!=null && rulePlanEnded(p)))throw new BizException(1801,reason);
         var ids=p.productIds().stream().map(QcProductId::value).toList();
         if(policy.rules()==null && unavailable(p,policy)==null)ids=management.monitoringFacts(tenant,id).productIds();
         if(expectedVersion<0)throw new BizException(1802,"盯盘设置版本不正确");
@@ -92,7 +101,7 @@ public class OptimizationMonitoringService {
     }
     public View rulesView(TenantId tenant,PlanId id) {
         var value=view(tenant,id,false);var p=plan(tenant,id);
-        String reason=p.qcPlanId().isEmpty()?"草稿尚未发布":properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
+        String reason=rulesUnavailable(p);
         return new View(value.policy(),value.version(),value.productIds(),reason==null,reason,value.lastCheck(),value.lastSuccess(),value.error(),value.stale(),value.result(),value.holdReason(),value.lastAction(),value.bidType(),value.planName(),value.accountId(),value.planStatus(),value.qcStatus());
     }
     public View run(TenantId tenant,PlanId id) {

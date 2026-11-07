@@ -88,6 +88,25 @@ export async function saveOptimizationRules(id: string, rules: OptimizationRules
   requestInboxRefresh();
   return view;
 }
+export interface OptimizationResumePreview {
+  version: number;
+  day: string;
+  planStatus: string;
+  outcome: 'BELOW_LIMIT' | 'LIMIT_PAUSE' | 'LIMIT_REMINDER' | 'PLAN_NOT_DELIVERING';
+  spend: number;
+  fetchedAt: string;
+  committed: number;
+  rules: OptimizationRules;
+}
+export const getOptimizationResumePreview = (id: string) => apiGet<OptimizationResumePreview>(
+  `${path(id)}/rules/resume-preview`, { headers: { 'X-Quiet-Request': 'true' } },
+);
+export async function confirmOptimizationResume(id: string, { version, day, planStatus, outcome }: OptimizationResumePreview) {
+  const result = await apiPost<{ pauseStatus?: string | null }>(`${path(id)}/rules/resume`,
+    { version, day, planStatus, outcome }, { timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
+  requestInboxRefresh();
+  return result;
+}
 export interface CandidatePlan { id: string; name: string; qcId: string }
 export const getOptimizationCandidates = (id: string) => apiGet<CandidatePlan[]>(`${path(id)}/candidates`, { headers: { 'X-Quiet-Request': 'true' } });
 export const saveOptimization = (id: string, policy: OptimizationPolicy, expectedVersion: number) => apiPut<OptimizationView>(path(id), { policy, expectedVersion });
@@ -103,7 +122,18 @@ export interface CenterAccount { accountId: string; name: string; budgetLimit?: 
 export interface CenterView { records: CenterRow[]; total: number; watched: number; automatic: number; held: number; accounts: CenterAccount[]; pageNum: number; pageSize: number }
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
-export interface OptimizationDetails { actions?: OptimizationEvent[]; reviews?: OptimizationReview[]; view: OptimizationView; effectiveSeconds: number; summary: { found: number; completed: number; protectedCount: number }; pending: OptimizationEvent[]; history: HistoryPage; accountStatus?: string; accountName?: string }
+export interface OptimizationDetails {
+  actions?: OptimizationEvent[];
+  reviews?: OptimizationReview[];
+  view: OptimizationView;
+  effectiveSeconds: number;
+  summary: { found: number; completed: number; protectedCount: number };
+  pending: OptimizationEvent[];
+  history: HistoryPage;
+  accountStatus?: string;
+  accountName?: string;
+  pause?: { pausedAt: string; snapshot?: { dailySpend?: string | number | null; dataAt?: string | null } | null } | null;
+}
 export const getOptimizationDetails = (id: string, params: Record<string, unknown>) => apiGet<OptimizationDetails>(`${path(id)}/details`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getMonitoringCenter = (params: Record<string, unknown>) => apiGet<CenterView>(`${centerPath}/center`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationHistory = (params: Record<string, unknown>, signal?: AbortSignal) => apiGet<HistoryPage>(`${centerPath}/history`, { params, signal, headers: { 'X-Quiet-Request': 'true' } });

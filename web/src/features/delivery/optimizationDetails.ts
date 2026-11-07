@@ -1,10 +1,15 @@
 import type { OptimizationDetails } from './optimizationApi';
+export function isOptimizationPlanEnded(group?: string) {
+  return ['FINISHED', 'COMPLETED', 'TERMINATED', 'DELETED'].includes(group || '');
+}
+
 export function optimizationDetailState(data: OptimizationDetails, planStatus?: string, accountStatus?: string, runningTasks = 0) {
+  if (isOptimizationPlanEnded(planStatus)) return { label: '已结束', tone: 'muted', reason: '计划已结束，历史工作记录仍可查看。' };
+  if (!data.view.policy.enabled && data.view.policy.rules) return { label: '已暂停', tone: 'warning', reason: '盯盘优化已暂停，消耗保护当前不生效。' };
   if (accountStatus && accountStatus !== 'ACTIVE') return { label: '授权失效', tone: 'warning', reason: '广告账户授权不可用，无法确认最新投放与消耗状态。' };
   if (data.pending.length) return { label: '正在核实', tone: 'warning', reason: '已提交的操作仍在核实，结果未明前不会重复提交。' };
   if (!data.view.policy.enabled) return { label: '已关闭', tone: 'muted', reason: '已停止新的经营判断，历史记录保留。' };
   if (planStatus === 'PAUSED') return runningTasks ? { label: '部分生效', tone: 'warning', reason: '主计划已暂停，独立调控任务仍需核对。' } : { label: '随计划暂停', tone: 'muted', reason: '计划已暂停，不会自动恢复投放。' };
-  if (['FINISHED', 'COMPLETED', 'TERMINATED', 'DELETED'].includes(planStatus || '')) return { label: '已结束', tone: 'muted', reason: '计划已结束，历史工作记录仍可查看。' };
   if (data.view.holdReason) return { label: '需核对规则', tone: 'warning', reason: data.view.holdReason };
   if (data.view.error) return { label: '检查受限', tone: 'warning', reason: data.view.error };
   if (!data.view.result && !data.view.lastSuccess) return { label: '等待数据', tone: 'muted', reason: '规则已开启，正在积累可用于判断的数据。' };
