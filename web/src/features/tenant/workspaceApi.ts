@@ -15,7 +15,11 @@ export const pointEntries = (page: number) => apiGet<PointEntry[]>(`${base}/curr
 export const saveClientSpace = (name: string, id?: string) => id ? apiPut(`${base}/current/clients/${encodeURIComponent(id)}`, { name }) : apiPost(`${base}/current/clients`, { name });
 export const deleteClientSpace = (id: string) => apiDelete(`${base}/current/clients/${encodeURIComponent(id)}`);
 export const assignClientSpace = (id: string, clientSpaceId: string) => apiPut(`${base}/current/accounts/${encodeURIComponent(id)}/client`, { clientSpaceId });
-export const workspaceRoles: Record<string, string> = { OWNER: '主管理员', ADMIN: '管理员', FINANCE: '财务', OPERATOR: '运营', MEMBER: '成员', VIEWER: '查看者' };
+export const workspaceRoles: Record<string, string> = { OWNER: '主账户', ADMIN: '团队管理员', FINANCE: '财务', OPERATOR: '运营', MEMBER: '成员', VIEWER: '查看者' };
+export function workspaceAccountLabel(role?: string): string {
+  if (!role || !Object.hasOwn(workspaceRoles, role)) return '';
+  return role === 'OWNER' ? workspaceRoles.OWNER : `子账户 · ${workspaceRoles[role]}`;
+}
 export type ChildRole = 'OPERATOR' | 'FINANCE' | 'VIEWER';
 export interface WorkspaceChild { id: string; phone: string; role: string; status: string; expiresAt?: string }
 export interface WorkspaceTeam { used: number; limit: number; members: WorkspaceChild[]; invites: WorkspaceChild[] }

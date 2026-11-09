@@ -2,7 +2,7 @@
   <section v-if="team">
     <div class="heading">
       <h3>子账户 <small>{{ team.used }} / {{ team.limit }}</small></h3>
-      <el-button type="primary" :disabled="team.used >= team.limit" @click="open">邀请子账户</el-button>
+      <el-button type="primary" :disabled="team.used >= team.limit" @click="open">创建子账户</el-button>
     </div>
     <el-table :data="[...team.members, ...team.invites]" empty-text="暂无子账户">
       <el-table-column prop="phone" label="手机号" min-width="125" />
@@ -23,15 +23,15 @@
         </template>
       </el-table-column>
     </el-table>
-    <el-dialog v-model="dialog" title="邀请子账户" width="min(440px, 92vw)" :close-on-click-modal="false">
+    <el-dialog v-model="dialog" title="创建子账户" width="min(440px, 92vw)" :close-on-click-modal="false">
       <el-form v-if="!link" label-position="top" @submit.prevent="invite">
         <el-form-item label="手机号" :error="phoneError"><el-input v-model="phone" type="tel" maxlength="11" autocomplete="off" @input="phoneError = ''" /></el-form-item>
         <el-form-item label="权限"><el-select v-model="role"><el-option v-for="option in roles" :key="option" :label="workspaceRoles[option]" :value="option" /></el-select></el-form-item>
       </el-form>
-      <el-input v-else :model-value="link" aria-label="邀请链接" readonly />
+      <el-input v-else :model-value="link" aria-label="激活链接" readonly />
       <template #footer>
         <el-button @click="dialog = false">{{ link ? '关闭' : '取消' }}</el-button>
-        <el-button type="primary" :loading="busy" @click="link ? copy() : invite()">{{ link ? '复制邀请链接' : '生成邀请链接' }}</el-button>
+        <el-button type="primary" :loading="busy" @click="link ? copy() : invite()">{{ link ? '复制激活链接' : '创建' }}</el-button>
       </template>
     </el-dialog>
   </section>
@@ -63,8 +63,8 @@ async function invite() {
   } catch { /* API shows the failure. */ } finally { busy.value = false; }
 }
 async function copy() {
-  try { await navigator.clipboard.writeText(link.value); ElMessage.success('邀请链接已复制'); }
-  catch { ElMessage.info('请手动复制邀请链接'); }
+  try { await navigator.clipboard.writeText(link.value); ElMessage.success('激活链接已复制'); }
+  catch { ElMessage.info('请手动复制激活链接'); }
 }
 async function update(row: WorkspaceChild, nextRole: string, active: boolean) {
   if (busy.value) return;

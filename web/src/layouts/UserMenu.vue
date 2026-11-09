@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { workspaceRoles } from '@/features/tenant/workspaceApi';
+import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { accountNavigation } from '@/features/tenant/accountNavigation';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -32,7 +32,7 @@ const user = useUserStore(), route = useRoute(), router = useRouter();
 const open = ref(false), trigger = ref<HTMLButtonElement>(), panel = ref<HTMLElement>();
 const name = computed(() => user.me?.nickname || props.fallbackName || user.me?.phone || '用户');
 const subtitle = computed(() => {
-  const role = workspaceRoles[user.me?.memberRole || ''] || '';
+  const role = workspaceAccountLabel(user.me?.memberRole);
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';
 });
 const entries = accountNavigation;

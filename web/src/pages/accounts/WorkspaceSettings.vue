@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading" class="workspace-settings">
     <template v-if="overview">
-      <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceRoles[overview.role] || overview.role }}</el-tag><span>千川账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
+      <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceAccountLabel(overview.role) }}</el-tag><span>千川账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
       <WorkspaceRecharge v-if="overview.role === 'OWNER'" @paid="load" />
       <section v-if="overview.wallet" class="wallet-grid" aria-label="工作空间积分">
         <div><span>可用积分</span><strong>{{ number(overview.wallet.available) }}</strong></div>
@@ -32,7 +32,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/user';
 import WorkspaceTeam from './WorkspaceTeam.vue';
 import WorkspaceRecharge from './WorkspaceRecharge.vue';
-import { workspaceOverview, workspaceAccounts, pointEntries, saveClientSpace, deleteClientSpace, assignClientSpace, workspaceRoles, type WorkspaceOverview, type AccountBinding, type ClientSpace, type PointEntry } from '@/features/tenant/workspaceApi';
+import { workspaceOverview, workspaceAccounts, pointEntries, saveClientSpace, deleteClientSpace, assignClientSpace, workspaceAccountLabel, type WorkspaceOverview, type AccountBinding, type ClientSpace, type PointEntry } from '@/features/tenant/workspaceApi';
 const user = useUserStore(), overview = ref<WorkspaceOverview>(), accounts = ref<AccountBinding[]>([]), entries = ref<PointEntry[]>([]), page = ref(1), loading = ref(true);
 const canManage = computed(() => ['OWNER', 'ADMIN'].includes(overview.value?.role || ''));
 const bindingStatus: Record<string, string> = { ACTIVE: '已绑定', REVIEW_REQUIRED: '待核验', RELEASED: '已解绑' };

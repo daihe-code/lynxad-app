@@ -12,7 +12,7 @@
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
         <el-table v-if="tab === 'users'" :data="users.records" v-loading="loading" empty-text="暂无符合条件的注册用户">
           <el-table-column label="用户" min-width="200"><template #default="{row}"><strong>{{ row.nickname || '未填写昵称' }}</strong> <el-tag v-if="row.status === 'BLOCKED'" size="small" type="danger">已拉黑</el-tag><small>{{ row.phone }}</small><small>ID：{{ row.id }}</small></template></el-table-column>
-          <el-table-column label="公司 / 灵投账户" min-width="220"><template #default="{row}">{{ row.companyName || '未填写公司' }}<small>{{ row.tenantName || '尚未创建灵投账户' }}{{ row.memberRole ? ` · ${memberRoles[row.memberRole] || row.memberRole}` : '' }}</small></template></el-table-column>
+          <el-table-column label="公司 / 灵投账户" min-width="220"><template #default="{row}">{{ row.companyName || '未填写公司' }}<small>{{ [row.tenantName || '尚未创建灵投账户', workspaceAccountLabel(row.memberRole)].filter(Boolean).join(' · ') }}</small></template></el-table-column>
           <el-table-column label="套餐与到期时间" min-width="230"><template #default="{row}"><el-tag :type="row.packageStatus === 'ACTIVE' ? 'success' : row.packageStatus === 'TRIAL' ? 'primary' : 'info'">{{ packageStates[row.packageStatus] || row.packageStatus }}</el-tag><span class="plan-name">{{ row.planCode ? plans[row.planCode] : '' }}</span><small>{{ time(row.expiresAt) }}</small></template></el-table-column>
           <el-table-column label="注册时间" min-width="185"><template #default="{row}">{{ time(row.registeredAt) }}</template></el-table-column>
           <el-table-column label="最近成功登录" min-width="185"><template #default="{row}">{{ time(row.lastLoginAt) }}<small>成功登录 {{ row.loginCount }} 次</small></template></el-table-column>
@@ -55,6 +55,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { blockPhone, deleteAdminUser } from '@/features/admin/adminApi';
+import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { adminSession, adminLogout, changeAdminPassword, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
 import PhoneBlacklist from './PhoneBlacklist.vue';
@@ -62,7 +63,6 @@ const router=useRouter();
 const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FLAGSHIP:'旗舰版'};
 const packageStates:Record<string,string>={ACTIVE:'套餐生效中',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
 const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员人工开通'};
-const memberRoles:Record<string,string>={OWNER:'账户所有者',MEMBER:'成员'};
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
 const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
 const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label:'注册用户'},{key:'accounts',label:'灵投账户'},{key:'activePackages',label:'生效套餐'},{key:'activeTrials',label:'试用中账户'},{key:'todayLogins',label:'今日成功登录'}];

@@ -37,7 +37,7 @@ public class Tenant {
     public MemberInvitation invite(UserId actor, PhoneNumber phone) {
         TenantMember member = memberOf(actor).orElseThrow(() -> new DomainException(403, "非本公司成员"));
         if (!member.canInvite()) {
-            throw new DomainException(403, "仅主账号可邀请同事");
+            throw new DomainException(403, "仅主账户可创建子账户");
         }
         return new MemberInvitation(phone, id, Instant.now().plusSeconds(7 * 24 * 3600));
     }

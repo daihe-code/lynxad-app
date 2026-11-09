@@ -135,7 +135,7 @@ async function sendCode() {
 async function save() {
     if (saving.value)
         return;
-    if (['org', 'invoice'].includes(modal.value) && (!canManage.value || legalLoading.value || legalError.value)) { error.value = '请先加载企业资料，并使用账户所有者身份操作'; return; }
+    if (['org', 'invoice'].includes(modal.value) && (!canManage.value || legalLoading.value || legalError.value)) { error.value = '请先加载企业资料，并使用主账户操作'; return; }
     error.value = '';
     if (modal.value === 'pwd' && !isValidPassword(password.next)) {
         error.value = PASSWORD_HINT;

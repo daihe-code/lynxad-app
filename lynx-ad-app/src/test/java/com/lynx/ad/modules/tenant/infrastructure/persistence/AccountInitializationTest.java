@@ -261,6 +261,7 @@ class AccountInitializationTest {
         assertFalse(result.path("needOnboarding").asBoolean());
         String token = result.path("token").asText();
         var principal = jwt.parse(token);
+        assertEquals(SysRole.USER, principal.sysRole());
         assertEquals(MemberRole.OWNER, principal.memberRole().orElseThrow());
         assertTrue(principal.tenantId().isPresent());
         var me = call("GET", "/api/v1/tenant/users/me", null, token).path("data");
@@ -315,7 +316,10 @@ class AccountInitializationTest {
         String invitation;
         try {
             TenantContext.set(owner);
+            assertEquals(1911, assertThrows(BizException.class, () -> team.invite(invited, MemberRole.OWNER)).code());
+            assertEquals(1911, assertThrows(BizException.class, () -> team.invite(invited, MemberRole.ADMIN)).code());
             invitation=team.invite(invited,MemberRole.OPERATOR).token();
+            assertEquals("PENDING", team.list().invites().getFirst().status());
             assertThrows(com.lynx.ad.common.exception.BizException.class,
                     () -> team.invite(new PhoneNumber("13900008809"),MemberRole.VIEWER));
         } finally { TenantContext.clear(); }
@@ -327,10 +331,14 @@ class AccountInitializationTest {
         assertEquals(0,result.path("code").asInt(),result.toString());
         var member = jwt.parse(result.path("data").path("token").asText());
         assertEquals(owner.tenantId(), member.tenantId());
+        assertEquals(SysRole.USER, member.sysRole());
         assertEquals(MemberRole.OPERATOR, member.memberRole().orElseThrow());
         assertEquals(1, count("sys_tenant")); assertEquals(2, count("tenant_member")); assertEquals(1, count("billing_trial"));
         assertEquals(0, count("user_profile"));
         try {
+            TenantContext.set(member);
+            assertEquals(403, assertThrows(BizException.class,
+                    () -> team.invite(new PhoneNumber("13900008809"), MemberRole.VIEWER)).code());
             TenantContext.set(owner);
             var child=team.list().members().getFirst();
             team.update(child.id(),MemberRole.OPERATOR,false);

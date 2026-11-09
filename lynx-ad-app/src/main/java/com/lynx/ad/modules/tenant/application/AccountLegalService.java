@@ -53,7 +53,7 @@ public class AccountLegalService {
     }
     private String owner() {
         var p=TenantContext.require();
-        if(p.memberRole().orElse(null)!=MemberRole.OWNER)throw new BizException(403,"仅账户所有者可修改企业和发票资料");
+        if(p.memberRole().orElse(null)!=MemberRole.OWNER)throw new BizException(403,"仅主账户可修改企业和发票资料");
         return TenantContext.requireTenantId().value();
     }
     // A stable parent row serializes first submission, invoice saves and reviews on both SQL dialects.
