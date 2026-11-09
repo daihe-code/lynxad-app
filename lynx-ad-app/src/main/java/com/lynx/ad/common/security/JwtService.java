@@ -99,12 +99,14 @@ public class JwtService {
     }
 
     private String credentialVersion(User user) {
+        if (!user.isActive()) throw new BizException(401, "未登录");
         try {
             // Bind sessions to the durable credential without exposing its password hash in the JWT.
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new javax.crypto.spec.SecretKeySpec(key().getEncoded(), "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal((user.id().value() + ":" +
-                    Optional.ofNullable(user.passwordHash()).orElse("")).getBytes(StandardCharsets.UTF_8)));
+            String credential = user.id().value() + ":" + Optional.ofNullable(user.passwordHash()).orElse("");
+            if (user.sessionVersion() > 0) credential += ":" + user.sessionVersion();
+            return HexFormat.of().formatHex(mac.doFinal(credential.getBytes(StandardCharsets.UTF_8)));
         } catch (java.security.GeneralSecurityException ex) {
             throw new IllegalStateException("Unable to bind session credential", ex);
         }

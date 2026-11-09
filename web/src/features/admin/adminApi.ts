@@ -50,6 +50,11 @@ export const getAdminLogins = (params: Record<string, unknown>) => get<AdminPage
 export const getPackageAdjustments = (params: Record<string, unknown>) => get<AdminPage<PackageAdjustment>>('/package-adjustments', params);
 export const getAdminAudit = (params: Record<string, unknown>) => get<AdminPage<AdminAudit>>('/audit-logs', params);
 export const extendPackage = (id: string, body: ExtendPackage) => post<PackageAdjustment>(`/users/${encodeURIComponent(id)}/package/extend`, body);
+export interface PhoneBlacklistEntry { phone: string; reason: string; updatedAt: string }
+export const getPhoneBlacklist = (q: string, pageNum: number) => get<AdminPage<PhoneBlacklistEntry>>('/phone-blacklist', { q, pageNum });
+export const blockPhone = (phone: string, reason: string, userId?: string) => post<void>('/phone-blacklist', { phone, reason, userId });
+export const unblockPhone = (phone: string) => post<void>(`/phone-blacklist/${encodeURIComponent(phone)}/unblock`, {});
+export const deleteAdminUser = (id: string, reason: string) => post<void>(`/users/${encodeURIComponent(id)}/delete`, { reason });
 export interface Qualification { tenantId: string; companyName: string; creditCode: string; verificationStatus: string; revision: number; submittedAt: string; reviewedAt?: string; reviewReason?: string }
 export const getQualifications = (status: string, pageNum: number) => get<AdminPage<Qualification>>('/qualifications', { status, pageNum });
 export const reviewQualification = (item: Qualification, status: 'APPROVED' | 'REJECTED', reason: string) => post<Qualification>(`/qualifications/${encodeURIComponent(item.tenantId)}/review`, { revision: item.revision, status, reason });

@@ -12,22 +12,33 @@ public class User {
 
     private final UserId id;
     private PhoneNumber phone;
+    private final PhoneNumber originalPhone;
     private String passwordHash;
     private final String originalPasswordHash;
     private UserProfile profile;
     private final Instant createdAt;
+    private final String status;
+    private final long sessionVersion;
 
     public User(UserId id, PhoneNumber phone, String passwordHash, UserProfile profile) {
         this(id, phone, passwordHash, profile, Instant.now());
     }
 
     public User(UserId id, PhoneNumber phone, String passwordHash, UserProfile profile, Instant createdAt) {
+        this(id, phone, passwordHash, profile, createdAt, "ACTIVE", 0);
+    }
+
+    public User(UserId id, PhoneNumber phone, String passwordHash, UserProfile profile, Instant createdAt,
+                String status, long sessionVersion) {
         this.id = id;
         this.phone = phone;
+        this.originalPhone = phone;
         this.passwordHash = passwordHash;
         this.originalPasswordHash = passwordHash;
         this.profile = profile;
         this.createdAt = createdAt == null ? Instant.now() : createdAt;
+        this.status = status;
+        this.sessionVersion = sessionVersion;
     }
 
     public static User register(PhoneNumber phone) {
@@ -73,6 +84,18 @@ public class User {
 
     public PhoneNumber phone() {
         return phone;
+    }
+
+    public PhoneNumber originalPhone() {
+        return originalPhone;
+    }
+
+    public boolean isActive() {
+        return "ACTIVE".equals(status);
+    }
+
+    public long sessionVersion() {
+        return sessionVersion;
     }
 
     public Optional<UserProfile> profile() {

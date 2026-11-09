@@ -27,7 +27,7 @@ public class AdminPackageService {
         String id=tenant.getFirst();String hash=hash(user,request);
         // Serialize this account's manual grants; repeat submissions are re-read under the lock.
         jdbc.queryForObject("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",String.class,id);
-        var currentMembership=jdbc.query("SELECT tenant_id FROM tenant_member WHERE user_id=? FOR UPDATE",(r,n)->r.getString(1),user);
+        var currentMembership=jdbc.query("SELECT tenant_id FROM tenant_member WHERE user_id=? AND status<>'REMOVED' FOR UPDATE",(r,n)->r.getString(1),user);
         if(currentMembership.size()!=1||!id.equals(currentMembership.getFirst()))throw new BizException(409,"用户的灵投账户归属已更新，请刷新后重新操作");
         var existing=jdbc.query("SELECT * FROM platform_package_adjustment WHERE request_id=? FOR UPDATE",(r,n)->new Receipt(AdminUserQuery.ADJUSTMENT.mapRow(r,n),r.getString("admin_id"),r.getString("request_hash")),request.requestId()).stream().findFirst().orElse(null);
         if(existing!=null){if(!admin.id().equals(existing.admin())||!hash.equals(existing.hash()))throw new BizException(409,"该请求已用于其他操作，请重新确认");return existing.adjustment();}

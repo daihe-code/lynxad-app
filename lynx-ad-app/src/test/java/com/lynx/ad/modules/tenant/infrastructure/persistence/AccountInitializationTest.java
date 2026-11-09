@@ -13,9 +13,11 @@ import com.lynx.ad.common.api.GlobalExceptionHandler;
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.domain.PhoneNumber;
+import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.*;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.admin.application.AdminAuthService;
+import com.lynx.ad.modules.admin.application.AdminAccountModeration;
 import com.lynx.ad.modules.admin.infrastructure.AdminAccountStore;
 import com.lynx.ad.modules.billing.application.*;
 import com.lynx.ad.modules.billing.domain.port.TrialRepository;
@@ -77,8 +79,13 @@ class AccountInitializationTest {
         jdbc.execute("CREATE TABLE client_space(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36),name VARCHAR(128),is_default BOOLEAN)");
         jdbc.execute("CREATE TABLE point_wallet(tenant_id VARCHAR(36) PRIMARY KEY,available NUMERIC(20,4) DEFAULT 0,frozen NUMERIC(20,4) DEFAULT 0,consumed NUMERIC(20,4) DEFAULT 0,version BIGINT DEFAULT 1)");
         jdbc.execute("CREATE TABLE workspace_session_revocation(session_id VARCHAR(64) PRIMARY KEY,expires_at TIMESTAMP)");
+        jdbc.execute("CREATE TABLE ad_account_binding(tenant_id VARCHAR(36),bound_user_id VARCHAR(36),status VARCHAR(24))");
+        jdbc.execute("CREATE TABLE ad_plan(tenant_id VARCHAR(36),status VARCHAR(24))");
+        jdbc.execute("CREATE TABLE billing_order(tenant_id VARCHAR(36),status VARCHAR(24))");
+        jdbc.execute("CREATE TABLE billing_subscription(tenant_id VARCHAR(36),status VARCHAR(24),period_end TIMESTAMP)");
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                new org.springframework.core.io.ClassPathResource("db/migration/V53__workspace_team_and_points.sql")).execute(ds);
+                new org.springframework.core.io.ClassPathResource("db/migration/V53__workspace_team_and_points.sql"),
+                new org.springframework.core.io.ClassPathResource("db/" + ("MySQL".equals(mode) ? "migration-mysql" : "migration") + "/V54__platform_account_moderation.sql")).execute(ds);
         var config = new MybatisConfiguration();
         config.setMapUnderscoreToCamelCase(true);
         for (Class<?> mapper : List.of(UserMapper.class, UserProfileMapper.class, TenantMapper.class, TenantMemberMapper.class)) config.addMapper(mapper);
@@ -103,6 +110,10 @@ class AccountInitializationTest {
         context.registerBean(JdbcTemplate.class, () -> jdbc);
         context.registerBean(WorkspaceFoundation.class, () -> new WorkspaceFoundation(jdbc));
         context.registerBean(WorkspaceAccess.class);
+        context.registerBean(PhoneAccess.class);
+        context.registerBean(AdminAuthService.class, () -> mock(AdminAuthService.class));
+        context.registerBean(AdminAccountStore.class, () -> mock(AdminAccountStore.class));
+        context.registerBean(AdminAccountModeration.class);
         context.registerBean(WorkspacePricing.class);
         context.registerBean(EntitlementQueryService.class, () -> {
             var limits=mock(EntitlementQueryService.class);
@@ -126,15 +137,18 @@ class AccountInitializationTest {
         context.registerBean(PasswordLoginGuard.class, () -> mock(PasswordLoginGuard.class));
         context.registerBean(AccountInitializationService.class);
         context.registerBean(AuthCommandService.class);
+        context.registerBean(TenantQuerySupport.class, () -> new TenantQuerySupport(
+                users, context.getBean(TenantRepository.class), trials, mock(SubscriptionQueryService.class), properties));
+        context.registerBean(AccountCommandService.class);
         context.refresh();
         users = context.getBean(UserRepository.class);
         tenants = context.getBean(TenantRepository.class);
         initialization = context.getBean(AccountInitializationService.class);
         auth = context.getBean(AuthCommandService.class);
-        var queries = new TenantQuerySupport(users, tenants, trials, mock(SubscriptionQueryService.class), properties);
+        var queries = context.getBean(TenantQuerySupport.class);
         mvc = MockMvcBuilders.standaloneSetup(
                 new TenantAuthController(auth, mock(UserLoginJournal.class)),
-                new TenantUserController(queries, mock(OnboardingCommandService.class), mock(AccountCommandService.class), auth),
+                new TenantUserController(queries, mock(OnboardingCommandService.class), context.getBean(AccountCommandService.class), auth),
                 new AccountLegalController(new AccountLegalService(jdbc, queries, mock(AdminAuthService.class), mock(AdminAccountStore.class), mock(AuditRecorder.class))),
                 new WelcomeController(jdbc, context.getBean(PlatformTransactionManager.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).build();
@@ -155,6 +169,90 @@ class AccountInitializationTest {
         return result.path("data");
     }
     int count(String table) { return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class); }
+
+    @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
+    void blacklistBlocksRegistrationAndLoginAndUnblockingNeverRevivesOldSessions(String mode) throws Exception {
+        database(mode);
+        var moderation = context.getBean(AdminAccountModeration.class);
+        String phone = "13900008820";
+        moderation.block(phone, null, "测试拉黑");
+        assertEquals(1, moderation.blacklist(phone, 1, 20).total());
+        assertEquals(1121, call("POST", "/api/v1/tenant/auth/sms/send", "{\"phone\":\"" + phone + "\"}", null).path("code").asInt());
+        assertEquals(1121, call("POST", "/api/v1/tenant/auth/sms/login", "{\"phone\":\"" + phone + "\",\"code\":\"123456\"}", null).path("code").asInt());
+        assertEquals(0, count("sys_user"));
+
+        moderation.unblock(phone);
+        String token = login(phone).path("token").asText();
+        var user = jwt.parse(token).userId();
+        moderation.block(phone, user.value(), "重复违规");
+        assertEquals(401, call("GET", "/api/v1/tenant/users/me", null, token).path("code").asInt());
+        assertEquals(1121, call("POST", "/api/v1/tenant/auth/password/login",
+                "{\"phone\":\"" + phone + "\",\"password\":\"Password123\"}", null).path("code").asInt());
+        assertEquals(1121, call("POST", "/api/v1/tenant/auth/password/reset",
+                "{\"phone\":\"" + phone + "\",\"code\":\"123456\",\"password\":\"Password123\"}", null).path("code").asInt());
+        moderation.unblock(phone);
+        assertThrows(BizException.class, () -> jwt.parse(token));
+        String newToken = login(phone).path("token").asText();
+        assertEquals(user, jwt.parse(newToken).userId());
+        assertEquals(0, moderation.blacklist(phone, 1, 20).total());
+        assertEquals(2L, jdbc.queryForObject("SELECT permission_version FROM tenant_member WHERE user_id=?", Long.class, user.value()));
+        String nextPhone = "13900008823";
+        String rebind = "{\"phone\":\"" + nextPhone + "\",\"code\":\"123456\"}";
+        moderation.block(nextPhone, null, "测试拉黑");
+        assertEquals(1121, call("PUT", "/api/v1/tenant/users/me/phone", rebind, newToken).path("code").asInt());
+        moderation.unblock(nextPhone);
+        assertEquals(0, call("PUT", "/api/v1/tenant/users/me/phone", rebind, newToken).path("code").asInt());
+        assertEquals(user, jwt.parse(login(nextPhone).path("token").asText()).userId());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
+    void aBlacklistEntryCreatedDuringOtpVerificationPreventsRegistration(String mode) throws Exception {
+        database(mode);
+        var phone = new PhoneNumber("13900008822");
+        var checkingOtp = new CountDownLatch(1);
+        var finishOtp = new CountDownLatch(1);
+        when(otp.verifyAndConsume(phone, "123456")).thenAnswer(call -> {
+            checkingOtp.countDown();
+            return finishOtp.await(5, TimeUnit.SECONDS);
+        });
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var registration = pool.submit(() -> assertThrows(BizException.class, () -> auth.smsLogin(phone, "123456")));
+            try {
+                assertTrue(checkingOtp.await(5, TimeUnit.SECONDS));
+                context.getBean(AdminAccountModeration.class).block(phone.value(), null, "测试拉黑");
+            } finally {
+                finishOtp.countDown();
+            }
+            assertEquals(1121, registration.get(5, TimeUnit.SECONDS).code());
+        }
+        assertEquals(0, count("sys_user"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
+    void deletionProtectsSharedPointsAndRetainsAccountHistoryWithoutAllowingLogin(String mode) throws Exception {
+        database(mode);
+        var moderation = context.getBean(AdminAccountModeration.class);
+        String phone = "13900008821";
+        String token = login(phone).path("token").asText();
+        var principal = jwt.parse(token);
+        String user = principal.userId().value(), tenant = principal.tenantId().orElseThrow().value();
+        jdbc.update("UPDATE point_wallet SET available=5 WHERE tenant_id=?", tenant);
+        assertThrows(BizException.class, () -> moderation.delete(user, "测试删除"));
+        assertEquals(principal.userId(), jwt.parse(token).userId());
+        jdbc.update("UPDATE point_wallet SET available=0 WHERE tenant_id=?", tenant);
+        moderation.block(phone, user, "测试拉黑");
+        moderation.delete(user, "测试删除");
+        moderation.delete(user, "重复提交");
+        moderation.unblock(phone);
+        assertEquals("DELETED", jdbc.queryForObject("SELECT status FROM sys_tenant WHERE id=?", String.class, tenant));
+        assertEquals("REMOVED", jdbc.queryForObject("SELECT status FROM tenant_member WHERE user_id=?", String.class, user));
+        assertEquals(1, count("billing_trial"));
+        assertEquals(1121, call("POST", "/api/v1/tenant/auth/sms/login",
+                "{\"phone\":\"" + phone + "\",\"code\":\"123456\"}", null).path("code").asInt());
+        assertThrows(BizException.class, () -> jwt.parse(token));
+        verify(context.getBean(AdminAccountStore.class), times(1))
+                .audit(isNull(AdminAccountStore.Account.class), eq("USER_DELETE"), eq("SUCCESS"), eq(user), eq(tenant), anyString());
+    }
 
     @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
     void firstLoginCreatesUsableOwnerSessionAndTrialWithoutCollectingProfile(String mode) throws Exception {

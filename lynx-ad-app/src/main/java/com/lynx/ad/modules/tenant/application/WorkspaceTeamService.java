@@ -47,7 +47,7 @@ public class WorkspaceTeamService {
     public Team list() {
         String tenant = access.require(MemberRole.OWNER).tenantId();
         return new Team(used(tenant), limits.childAccountLimit(new TenantId(tenant)),
-                jdbc.query("SELECT m.membership_id,u.phone,m.member_role,m.status FROM tenant_member m JOIN sys_user u ON u.id=m.user_id WHERE m.tenant_id=? AND m.member_role<>'OWNER' ORDER BY m.created_at",
+                jdbc.query("SELECT m.membership_id,u.phone,m.member_role,m.status FROM tenant_member m JOIN sys_user u ON u.id=m.user_id WHERE m.tenant_id=? AND m.member_role<>'OWNER' AND m.status<>'REMOVED' ORDER BY m.created_at",
                         (r,i) -> new Child(r.getString(1),r.getString(2),r.getString(3),r.getString(4),null),tenant),
                 jdbc.query("SELECT id,phone,member_role,status,expires_at FROM workspace_child_invite WHERE tenant_id=? AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC",
                         (r,i) -> new Child(r.getString(1),r.getString(2),r.getString(3),r.getString(4),r.getTimestamp(5).toInstant()),tenant));
@@ -90,7 +90,7 @@ public class WorkspaceTeamService {
     public void update(String id, MemberRole role, boolean active) {
         var owner = lockOwner();
         role = childRole(role);
-        var old = jdbc.query("SELECT member_role,status FROM tenant_member WHERE tenant_id=? AND membership_id=? AND member_role<>'OWNER'",
+        var old = jdbc.query("SELECT member_role,status FROM tenant_member WHERE tenant_id=? AND membership_id=? AND member_role<>'OWNER' AND status<>'REMOVED'",
                 (r,i) -> new Child(id,null,r.getString(1),r.getString(2),null),owner.tenantId(),id).stream().findFirst()
                 .orElseThrow(() -> new BizException(404,"子账户不存在"));
         String status = active ? "ACTIVE" : "DISABLED";

@@ -38,14 +38,15 @@ public class AdminUserQuery {
             "SUBSCRIPTION".equals(kind)?r.getString("plan_code"):"TRIAL".equals(kind)?"PROFESSIONAL":null,"SUBSCRIPTION".equals(kind)?paid:trial,instant(r,"last_login"),r.getLong("login_count"));
     }
     public Page<UserRow> users(String q,String state,int page,int size) {
-        page=page(page);size=size(size);var args=new ArrayList<Object>();StringBuilder where=new StringBuilder(" WHERE 1=1");
+        page=page(page);size=size(size);var args=new ArrayList<Object>();StringBuilder where=new StringBuilder(" WHERE u.status<>'DELETED'");
         if(q!=null&&!q.isBlank()){String term="%"+q.trim()+"%";where.append(" AND (u.phone LIKE ? OR p.nickname LIKE ? OR p.company_name LIKE ? OR t.name LIKE ? OR u.id=?)");Collections.addAll(args,term,term,term,term,q.trim());}
         if(state!=null&&!state.isBlank()){if(!List.of("ACTIVE","TRIAL","EXPIRED","NONE").contains(state))throw new BizException(1904,"套餐状态不正确");where.append(" AND (").append(STATUS).append(")=?");args.add(ts(Instant.now()));args.add(ts(Instant.now()));args.add(state);}
         long total=jdbc.queryForObject("SELECT COUNT(*)"+JOIN+where,Long.class,args.toArray());args.add(size);args.add((page-1)*size);
         return new Page<>(jdbc.query(SELECT+JOIN+where+" ORDER BY u.created_at DESC,u.id LIMIT ? OFFSET ?",(r,n)->row(r),args.toArray()),total,page,size);
     }
     public Detail detail(String id) {
-        var user=jdbc.query(SELECT+JOIN+" WHERE u.id=?",(r,n)->row(r),id).stream().findFirst().orElseThrow(()->new BizException(1904,"用户不存在"));
+        var user=jdbc.query(SELECT+JOIN+" WHERE u.id=? ORDER BY CASE WHEN m.member_role='OWNER' THEN 0 ELSE 1 END,t.id",
+                (r,n)->row(r),id).stream().findFirst().orElseThrow(()->new BizException(1904,"用户不存在"));
         var profile=jdbc.query("SELECT * FROM user_profile WHERE user_id=?",(r,n)->new Profile(r.getString("avatar_url"),r.getString("company_scale"),r.getString("position"),r.getString("monthly_budget"),r.getString("ad_experience"),r.getString("core_demand"),instant(r,"completed_at")),id).stream().findFirst().orElse(null);
         String tenant=user.tenantId();Package subscription=null,trial=null;long members=0,ads=0,plans=0;
         if(tenant!=null){
@@ -58,9 +59,9 @@ public class AdminUserQuery {
     private long count(String table,String tenant) { return jdbc.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE tenant_id=?",Long.class,tenant); }
     public Overview overview() {
         var now=Instant.now();var today=LocalDate.now(ZoneId.of("Asia/Shanghai")).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
-        return new Overview(jdbc.queryForObject("SELECT COUNT(*) FROM sys_user",Long.class),jdbc.queryForObject("SELECT COUNT(*) FROM sys_tenant",Long.class),
+        return new Overview(jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE status<>'DELETED'",Long.class),jdbc.queryForObject("SELECT COUNT(*) FROM sys_tenant WHERE status<>'DELETED'",Long.class),
             jdbc.queryForObject("SELECT COUNT(*) FROM billing_subscription WHERE status IN ('ACTIVE','PENDING_DOWNGRADE') AND period_end>?",Long.class,ts(now)),
-            jdbc.queryForObject("SELECT COUNT(*) FROM billing_trial b WHERE expires_at>? AND NOT EXISTS (SELECT 1 FROM billing_subscription s WHERE s.tenant_id=b.tenant_id AND s.status IN ('ACTIVE','PENDING_DOWNGRADE') AND s.period_end>?)",Long.class,ts(now),ts(now)),
+            jdbc.queryForObject("SELECT COUNT(*) FROM billing_trial b JOIN sys_tenant t ON t.id=b.tenant_id WHERE t.status<>'DELETED' AND b.expires_at>? AND NOT EXISTS (SELECT 1 FROM billing_subscription s WHERE s.tenant_id=b.tenant_id AND s.status IN ('ACTIVE','PENDING_DOWNGRADE') AND s.period_end>?)",Long.class,ts(now),ts(now)),
             jdbc.queryForObject("SELECT COUNT(*) FROM user_login_record WHERE result='SUCCESS' AND created_at>=?",Long.class,ts(today)));
     }
     public Page<LoginRow> logins(String user,String q,String result,LocalDate from,LocalDate to,int page,int size) {

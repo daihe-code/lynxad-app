@@ -28,6 +28,7 @@ import com.lynx.ad.modules.tenant.domain.service.SingleTenantMembershipPolicy;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -48,6 +49,7 @@ public class AuthCommandService {
     private final AuditRecorder auditRecorder;
     private final PasswordLoginGuard passwordGuard;
     private final AccountInitializationService initialization;
+    private final PhoneAccess phoneAccess;
     private WorkspaceTeamService team;
     @org.springframework.beans.factory.annotation.Autowired
     public void workspaceTeam(WorkspaceTeamService value) { team = value; }
@@ -64,7 +66,7 @@ public class AuthCommandService {
             JwtService jwtService,
             LynxAdProperties properties,
             AuditRecorder auditRecorder, PasswordLoginGuard passwordGuard,
-            AccountInitializationService initialization) {
+            AccountInitializationService initialization, PhoneAccess phoneAccess) {
         this.otpStore = otpStore;
         this.smsGateway = smsGateway;
         this.userRepository = userRepository;
@@ -75,9 +77,11 @@ public class AuthCommandService {
         this.auditRecorder = auditRecorder;
         this.passwordGuard = passwordGuard;
         this.initialization = initialization;
+        this.phoneAccess = phoneAccess;
     }
 
     public SendSmsResponse sendSms(PhoneNumber phone) {
+        phoneAccess.requireAllowed(phone);
         var sms = properties.getSms();
         if (sms.isOff()) {
             throw new BizException(1112, "短信网关已关闭");
@@ -98,6 +102,7 @@ public class AuthCommandService {
     }
 
     public PeekSmsResponse peekSms(PhoneNumber phone, String code) {
+        phoneAccess.requireAllowed(phone);
         return new PeekSmsResponse(otpStore.peek(phone, code));
     }
 
@@ -108,9 +113,11 @@ public class AuthCommandService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse smsLogin(PhoneNumber phone, String code, String invite) {
+        phoneAccess.requireAllowed(phone);
         if (!otpStore.verifyAndConsume(phone, code)) {
             throw new BizException(1101, "验证码不正确或已过期");
         }
+        phoneAccess.lockAllowed(phone);
         if (invite != null && !invite.isBlank()) {
             var joined = team.activate(phone, invite);
             var tenant = tenantRepository.findById(new TenantId(joined.tenant())).orElseThrow();
@@ -130,24 +137,37 @@ public class AuthCommandService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse passwordLogin(PhoneNumber phone, String rawPassword) {
+        phoneAccess.requireAllowed(phone);
         passwordGuard.check(phone.value());
         User user = userRepository.findByPhone(phone).orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
+        requireActive(user);
         if (!user.canPasswordLogin() || !user.matchesPassword(rawPassword, passwordHasher)) {
             passwordGuard.failed(phone.value());
             throw new BizException(1101, "账号或密码错误");
         }
+        phoneAccess.lockAllowed(phone);
+        User current = userRepository.findByIdForUpdate(user.id())
+                .filter(value -> value.phone().equals(phone))
+                .orElseThrow(() -> new BizException(1101, "账号或密码错误"));
+        requireActive(current);
+        if (!Objects.equals(user.passwordHash(), current.passwordHash())) {
+            throw new BizException(1101, "账号或密码错误");
+        }
         passwordGuard.clear(phone.value());
-        return issue(user);
+        return issue(current);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void resetPassword(PhoneNumber phone, String code, String password) {
+        phoneAccess.requireAllowed(phone);
         com.lynx.ad.modules.tenant.domain.service.PasswordRules.require(password);
         if (!otpStore.verifyAndConsume(phone, code)) {
             throw new BizException(1101, "验证码不正确或已过期");
         }
+        phoneAccess.lockAllowed(phone);
         User user = userRepository.findByPhone(phone)
                 .orElseThrow(() -> new BizException(1101, "该手机号尚未注册"));
+        requireActive(user);
         user.setPassword(password, passwordHasher);
         userRepository.save(user);
     }
@@ -173,10 +193,15 @@ public class AuthCommandService {
     }
 
     private LoginResponse issue(User user) {
+        requireActive(user);
         Tenant tenant = initialization.initialize(user.id());
         LoginResponse response = session(user, tenant);
         recordLogin(user, tenant, response.token());
         return response;
+    }
+
+    private static void requireActive(User user) {
+        if (!user.isActive()) throw new BizException(1121, "该手机号已被限制注册或登录");
     }
 
     private LoginResponse session(User user, Tenant tenant) {

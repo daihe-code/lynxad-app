@@ -40,8 +40,12 @@ public class MpUserRepository implements UserRepository {
         } else {
             var update = new LambdaUpdateWrapper<UserPo>()
                     .eq(UserPo::getId, user.id().value())
-                    .set(UserPo::getPhone, user.phone().value());
+                    .eq(UserPo::getStatus, "ACTIVE");
+            boolean phoneChanged = !user.phone().equals(user.originalPhone());
             boolean passwordChanged = !Objects.equals(user.passwordHash(), user.originalPasswordHash());
+            if (phoneChanged) {
+                update.eq(UserPo::getPhone, user.originalPhone().value()).set(UserPo::getPhone, user.phone().value());
+            }
             if (passwordChanged) {
                 // A stale account/profile snapshot must never overwrite a newer credential.
                 if (user.originalPasswordHash() == null) {
@@ -51,8 +55,7 @@ public class MpUserRepository implements UserRepository {
                 }
                 update.set(UserPo::getPasswordHash, user.passwordHash());
             }
-            int changed = userMapper.update(null, update);
-            if (passwordChanged && changed != 1) {
+            if ((passwordChanged || phoneChanged) && userMapper.update(null, update) != 1) {
                 throw new BizException(409, "账户凭据已更新，请重新登录后重试");
             }
         }
@@ -117,6 +120,7 @@ public class MpUserRepository implements UserRepository {
                         pp.getCoreDemand(),
                         pp.getCompanyScale(),
                         pp.getCompletedAt());
-        return new User(new UserId(po.getId()), new PhoneNumber(po.getPhone()), po.getPasswordHash(), profile, po.getCreatedAt());
+        return new User(new UserId(po.getId()), new PhoneNumber(po.getPhone()), po.getPasswordHash(), profile,
+                po.getCreatedAt(), po.getStatus(), po.getSessionVersion());
     }
 }

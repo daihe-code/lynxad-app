@@ -16,6 +16,7 @@ import com.lynx.ad.modules.billing.domain.port.OrderRepository;
 import com.lynx.ad.modules.billing.domain.port.PlanRepository;
 import com.lynx.ad.modules.billing.domain.port.SubscriptionRepository;
 import com.lynx.ad.modules.billing.domain.service.PricePolicy;
+import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +33,7 @@ public class OrderCommandService {
     private final PricePolicy pricePolicy = new PricePolicy();
     private final IdempotencyService idempotencyService;
     private final ObjectMapper objectMapper;
+    private final WorkspaceFoundation workspace;
 
     public OrderCommandService(
             PlanRepository planRepository,
@@ -39,17 +41,20 @@ public class OrderCommandService {
             SubscriptionRepository subscriptionRepository,
             SubscriptionSupport subscriptionSupport,
             IdempotencyService idempotencyService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            WorkspaceFoundation workspace) {
         this.planRepository = planRepository;
         this.orderRepository = orderRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionSupport = subscriptionSupport;
         this.idempotencyService = idempotencyService;
         this.objectMapper = objectMapper;
+        this.workspace = workspace;
     }
 
     @Transactional
     public OrderView create(TenantId tenantId, String planCodeRaw, String idempotencyKey) {
+        workspace.ensure(tenantId.value());
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             Optional<String> replay =
                     idempotencyService.findReplay(tenantId, new IdempotencyKey(idempotencyKey));

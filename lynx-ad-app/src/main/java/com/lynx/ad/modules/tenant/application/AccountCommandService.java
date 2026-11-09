@@ -21,7 +21,10 @@ import com.lynx.ad.modules.tenant.domain.model.User;
 import com.lynx.ad.modules.tenant.domain.port.OtpStore;
 import com.lynx.ad.modules.tenant.domain.port.TenantRepository;
 import com.lynx.ad.modules.tenant.domain.port.UserRepository;
+import java.util.Comparator;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -34,6 +37,7 @@ public class AccountCommandService {
     private final TenantQuerySupport querySupport;
     private final AuditRecorder auditRecorder;
     private final JwtService jwtService;
+    private final PhoneAccess phoneAccess;
 
     public AccountCommandService(
             UserRepository userRepository,
@@ -42,7 +46,7 @@ public class AccountCommandService {
             OtpStore otpStore,
             TenantQuerySupport querySupport,
             AuditRecorder auditRecorder,
-            JwtService jwtService) {
+            JwtService jwtService, PhoneAccess phoneAccess) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.passwordHasher = passwordHasher;
@@ -50,6 +54,7 @@ public class AccountCommandService {
         this.querySupport = querySupport;
         this.auditRecorder = auditRecorder;
         this.jwtService = jwtService;
+        this.phoneAccess = phoneAccess;
     }
 
     @Transactional
@@ -79,13 +84,19 @@ public class AccountCommandService {
         return new AuthenticatedUserUpdate(querySupport.current(userId), token);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CurrentUserResponse updatePhone(UserId userId, UpdatePhoneRequest req) {
-        User user = require(userId);
+        PhoneNumber original = require(userId).phone();
         PhoneNumber next = new PhoneNumber(req.phone());
+        phoneAccess.requireAllowed(next);
         if (!otpStore.verifyAndConsume(next, req.code())) {
             throw new BizException(1101, "验证码不正确或已过期");
         }
+        Stream.of(original, next).distinct().sorted(Comparator.comparing(PhoneNumber::value))
+                .forEach(phoneAccess::lockAllowed);
+        User user = userRepository.findByIdForUpdate(userId).filter(User::isActive)
+                .orElseThrow(() -> new BizException(401, "未登录"));
+        if (!user.phone().equals(original)) throw new BizException(409, "手机号已更新，请刷新后重试");
         userRepository.findByPhone(next).ifPresent(existing -> {
             if (!existing.id().equals(userId)) {
                 throw new BizException(1106, "该手机号已被使用");
@@ -98,7 +109,7 @@ public class AccountCommandService {
     }
 
     private User require(UserId userId) {
-        return userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
+        return userRepository.findById(userId).filter(User::isActive).orElseThrow(() -> new BizException(401, "未登录"));
     }
 
     private void record(User user, String label) {

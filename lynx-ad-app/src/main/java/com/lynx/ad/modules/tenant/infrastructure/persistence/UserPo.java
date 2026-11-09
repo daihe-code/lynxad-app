@@ -12,6 +12,7 @@ public class UserPo {
     private String phone;
     private String passwordHash;
     private String status;
+    private long sessionVersion;
     private Instant createdAt;
 
     public String getId() { return id; }
@@ -22,6 +23,8 @@ public class UserPo {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public long getSessionVersion() { return sessionVersion; }
+    public void setSessionVersion(long sessionVersion) { this.sessionVersion = sessionVersion; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

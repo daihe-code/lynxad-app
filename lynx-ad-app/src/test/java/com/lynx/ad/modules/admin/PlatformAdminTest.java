@@ -66,20 +66,29 @@ class PlatformAdminTest {
     }
     @Test void actualRegisteredInterceptorProtectsAllAdministrativeEndpointsAndLeavesLoginPublic()throws Exception {
         var users=mock(AdminUserQuery.class);var packages=mock(AdminPackageService.class);
+        var moderation=mock(AdminAccountModeration.class);
         when(accounts.username(account.username())).thenReturn(Optional.of(account));when(accounts.account(account.id())).thenReturn(Optional.of(account));when(accounts.validSession(eq(account.id()),anyString(),any())).thenReturn(true);
         when(users.overview()).thenReturn(new AdminUserQuery.Overview(1,1,1,0,1));
         class Registry extends InterceptorRegistry { List<Object> all(){return getInterceptors();} }
         var registry=new Registry();new AdminAccessConfiguration(auth).addInterceptors(registry);
-        var mvc=MockMvcBuilders.standaloneSetup(new PlatformAdminController(auth,users,packages)).setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).addInterceptors((HandlerInterceptor)registry.all().getFirst()).build();
+        var mvc=MockMvcBuilders.standaloneSetup(new PlatformAdminController(auth,users,packages), new AdminAccountModerationController(moderation)).setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).addInterceptors((HandlerInterceptor)registry.all().getFirst()).build();
         assertTrue(mvc.perform(get("/api/v1/admin/overview")).andReturn().getResponse().getContentAsString().contains("\"code\":401"));
         when(tenantUsers.findById(new UserId("customer"))).thenReturn(Optional.of(new com.lynx.ad.modules.tenant.domain.model.User(
                 new UserId("customer"), new com.lynx.ad.common.domain.PhoneNumber("13900009801"), null, null)));
         String customer=jwt.issue(new UserId("customer"),Optional.of(new TenantId("tenant")),MemberRole.OWNER,SysRole.USER);
-        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
-        assertTrue(mvc.perform(post("/api/v1/admin/users/one/package/extend").header("Authorization","Bearer "+customer).contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));verifyNoInteractions(users,packages);
+        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
+        for (String path : List.of("/users/one/package/extend", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock")) {
+            assertTrue(mvc.perform(post("/api/v1/admin" + path).header("Authorization","Bearer " + customer)
+                    .contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
+        }
+        verifyNoInteractions(users, packages, moderation);
         var raw=mvc.perform(post("/api/v1/admin/auth/login").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"platform-admin\",\"password\":\"AdminFixture2026!\"}")).andReturn().getResponse().getContentAsString();
         String token=new ObjectMapper().readTree(raw).path("data").path("token").asText();assertFalse(token.isEmpty());
         assertTrue(mvc.perform(get("/api/v1/admin/overview").header("Authorization","Bearer "+token)).andReturn().getResponse().getContentAsString().contains("\"users\":1"));
+        assertTrue(mvc.perform(post("/api/v1/admin/phone-blacklist").header("Authorization","Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"phone\":\"13900009801\",\"reason\":\"test\"}"))
+                .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
+        verify(moderation).block("13900009801", null, "test");
     }
     @Test void failedUserLoginsAreRecordedAfterAuthFailureAndSuccessRemainsCompatible() {
         var commands=mock(AuthCommandService.class);var journal=mock(UserLoginJournal.class);var controller=new TenantAuthController(commands,journal);

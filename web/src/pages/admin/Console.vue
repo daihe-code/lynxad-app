@@ -4,23 +4,32 @@
     <div class="admin-content">
       <div class="overview"><article v-for="card in overviewCards" :key="card.key"><span>{{ card.label }}</span><strong>{{ overview?.[card.key] ?? '—' }}</strong></article></div>
       <section class="admin-panel">
-        <el-tabs v-model="tab"><el-tab-pane label="注册用户" name="users" /><el-tab-pane label="用户登录日志" name="logins" /><el-tab-pane label="套餐延期记录" name="adjustments" /><el-tab-pane label="管理员操作记录" name="audit" /><el-tab-pane label="企业资质审核" name="qualifications" /></el-tabs>
+        <el-tabs v-model="tab"><el-tab-pane label="注册用户" name="users" /><el-tab-pane label="手机号黑名单" name="blacklist" /><el-tab-pane label="用户登录日志" name="logins" /><el-tab-pane label="套餐延期记录" name="adjustments" /><el-tab-pane label="管理员操作记录" name="audit" /><el-tab-pane label="企业资质审核" name="qualifications" /></el-tabs>
         <QualificationQueue v-if="tab === 'qualifications'" />
-        <div v-if="tab !== 'qualifications'" class="filters"><template v-if="['users','logins'].includes(tab)"><el-input v-model="q" clearable :placeholder="tab === 'users' ? '搜索手机号、昵称、公司或账户名称' : '搜索手机号或昵称'" aria-label="搜索用户" @keyup.enter="search" @clear="search" /><el-select v-if="tab === 'users'" v-model="status" clearable placeholder="全部套餐状态" @change="search"><el-option v-for="(label,key) in packageStates" :key="key" :label="label" :value="key" /></el-select><el-select v-else v-model="result" clearable placeholder="全部登录结果" @change="search"><el-option label="登录成功" value="SUCCESS" /><el-option label="登录失败" value="FAILURE" /></el-select><el-date-picker v-if="tab === 'logins'" v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="search" /><el-button type="primary" @click="search">搜索</el-button></template><el-button :loading="loading" @click="load">刷新</el-button></div>
+        <PhoneBlacklist v-else-if="tab === 'blacklist'" />
+        <div v-else class="filters"><template v-if="['users','logins'].includes(tab)"><el-input v-model="q" clearable :placeholder="tab === 'users' ? '搜索手机号、昵称、公司或账户名称' : '搜索手机号或昵称'" aria-label="搜索用户" @keyup.enter="search" @clear="search" /><el-select v-if="tab === 'users'" v-model="status" clearable placeholder="全部套餐状态" @change="search"><el-option v-for="(label,key) in packageStates" :key="key" :label="label" :value="key" /></el-select><el-select v-else v-model="result" clearable placeholder="全部登录结果" @change="search"><el-option label="登录成功" value="SUCCESS" /><el-option label="登录失败" value="FAILURE" /></el-select><el-date-picker v-if="tab === 'logins'" v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="search" /><el-button type="primary" @click="search">搜索</el-button></template><el-button :loading="loading" @click="load">刷新</el-button></div>
         <p v-if="filterUser" class="filter-hint">当前只查看用户 {{ filterName || filterUser }} 的{{ tab === 'logins' ? '登录记录' : '套餐延期记录' }} <el-button link type="primary" @click="clearUserFilter">查看全部用户</el-button></p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
         <el-table v-if="tab === 'users'" :data="users.records" v-loading="loading" empty-text="暂无符合条件的注册用户">
-          <el-table-column label="用户" min-width="200"><template #default="{row}"><strong>{{ row.nickname || '未填写昵称' }}</strong><small>{{ row.phone }}</small><small>ID：{{ row.id }}</small></template></el-table-column>
+          <el-table-column label="用户" min-width="200"><template #default="{row}"><strong>{{ row.nickname || '未填写昵称' }}</strong> <el-tag v-if="row.status === 'BLOCKED'" size="small" type="danger">已拉黑</el-tag><small>{{ row.phone }}</small><small>ID：{{ row.id }}</small></template></el-table-column>
           <el-table-column label="公司 / 灵投账户" min-width="220"><template #default="{row}">{{ row.companyName || '未填写公司' }}<small>{{ row.tenantName || '尚未创建灵投账户' }}{{ row.memberRole ? ` · ${memberRoles[row.memberRole] || row.memberRole}` : '' }}</small></template></el-table-column>
           <el-table-column label="套餐与到期时间" min-width="230"><template #default="{row}"><el-tag :type="row.packageStatus === 'ACTIVE' ? 'success' : row.packageStatus === 'TRIAL' ? 'primary' : 'info'">{{ packageStates[row.packageStatus] || row.packageStatus }}</el-tag><span class="plan-name">{{ row.planCode ? plans[row.planCode] : '' }}</span><small>{{ time(row.expiresAt) }}</small></template></el-table-column>
           <el-table-column label="注册时间" min-width="185"><template #default="{row}">{{ time(row.registeredAt) }}</template></el-table-column>
           <el-table-column label="最近成功登录" min-width="185"><template #default="{row}">{{ time(row.lastLoginAt) }}<small>成功登录 {{ row.loginCount }} 次</small></template></el-table-column>
-          <el-table-column label="操作" min-width="170" fixed="right"><template #default="{row}"><el-button link type="primary" @click="openUser(row.id)">查看资料</el-button><el-button link type="primary" :disabled="!row.tenantId || openingExtension" @click="openExtend(row.id)">延长套餐</el-button></template></el-table-column>
+          <el-table-column label="操作" min-width="250" fixed="right">
+            <template #default="{row}">
+              <el-button link type="primary" @click="openUser(row.id)">查看资料</el-button>
+              <el-button link type="primary" :disabled="!row.tenantId || openingExtension" @click="openExtend(row.id)">延长套餐</el-button>
+              <el-button v-if="row.status === 'BLOCKED'" link type="primary" @click="tab = 'blacklist'">管理黑名单</el-button>
+              <el-button v-else link type="danger" :disabled="moderating" @click="moderateUser(row, false)">拉黑</el-button>
+              <el-button link type="danger" :disabled="moderating" @click="moderateUser(row, true)">删除账户</el-button>
+            </template>
+          </el-table-column>
         </el-table>
         <el-table v-else-if="tab === 'logins'" :data="logins.records" v-loading="loading" empty-text="暂无登录记录"><el-table-column label="用户" min-width="180"><template #default="{row}">{{ row.nickname || '—' }}<small>{{ row.phone || '未识别手机号' }}</small></template></el-table-column><el-table-column label="登录时间（北京时间）" min-width="205"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column label="登录方式" min-width="110"><template #default="{row}">{{ loginMethods[row.method] || row.method }}</template></el-table-column><el-table-column label="结果" min-width="110"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="ip" label="来源 IP" min-width="150" /><el-table-column prop="userAgent" label="浏览器 / 设备信息" min-width="260" show-overflow-tooltip /><el-table-column prop="failureReason" label="说明" min-width="220" /></el-table>
         <el-table v-else-if="tab === 'adjustments'" :data="adjustments.records" v-loading="loading" empty-text="暂无人工延期记录"><el-table-column label="操作时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="操作管理员" min-width="145" /><el-table-column label="影响用户 / 账户" min-width="260"><template #default="{row}">{{ row.userId }}<small>灵投账户：{{ row.tenantId }}</small></template></el-table-column><el-table-column label="套餐 / 延长天数" min-width="170"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }}<small>延长 {{ row.days }} 天</small></template></el-table-column><el-table-column label="延期前 → 延期后" min-width="250"><template #default="{row}">{{ time(row.beforeEnd) }}<small>→ {{ time(row.afterEnd) }}</small></template></el-table-column><el-table-column prop="reason" label="操作原因" min-width="240" /></el-table>
         <el-table v-else-if="tab === 'audit'" :data="audit.records" v-loading="loading" empty-text="暂无管理员操作记录"><el-table-column label="时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="管理员" min-width="145" /><el-table-column label="操作" min-width="160"><template #default="{row}">{{ actions[row.action] || row.action }}</template></el-table-column><el-table-column label="结果" min-width="100"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="description" label="说明" min-width="320" /><el-table-column prop="ip" label="来源 IP" min-width="150" /></el-table>
-        <el-pagination v-if="tab !== 'qualifications'" class="admin-pagination" background layout="total, prev, pager, next" :total="total" :page-size="20" v-model:current-page="page" :disabled="loading" @current-change="load" />
+        <el-pagination v-if="tab !== 'qualifications' && tab !== 'blacklist'" class="admin-pagination" background layout="total, prev, pager, next" :total="total" :page-size="20" v-model:current-page="page" :disabled="loading" @current-change="load" />
       </section>
     </div>
     <el-drawer :model-value="!!selectedId" title="用户账户资料" size="min(980px, 95vw)" @close="closeUser">
@@ -44,16 +53,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { blockPhone, deleteAdminUser } from '@/features/admin/adminApi';
 import { adminSession, adminLogout, changeAdminPassword, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
+import PhoneBlacklist from './PhoneBlacklist.vue';
 const router=useRouter();
 const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FLAGSHIP:'旗舰版'};
 const packageStates:Record<string,string>={ACTIVE:'套餐生效中',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
 const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员人工开通'};
 const memberRoles:Record<string,string>={OWNER:'账户所有者',MEMBER:'成员'};
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
-const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',QUALIFICATION_REVIEW:'企业资质人工审核'};
+const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
 const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label:'注册用户'},{key:'accounts',label:'灵投账户'},{key:'activePackages',label:'生效套餐'},{key:'activeTrials',label:'试用中账户'},{key:'todayLogins',label:'今日成功登录'}];
 const blank=<T,>():AdminPage<T>=>({records:[],total:0,pageNum:1,pageSize:20});
 const overview=ref<AdminOverview>(),users=ref(blank<AdminUser>()),logins=ref(blank<AdminLoginLog>()),adjustments=ref(blank<PackageAdjustment>()),audit=ref(blank<AdminAudit>());
@@ -62,7 +73,7 @@ const total=computed(()=>({users:users.value.total,logins:logins.value.total,adj
 const time=(value?:string|null)=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
 const msg=(e:unknown)=>e instanceof Error?e.message:'管理数据暂不可用，请重试';
 let loadNumber=0;
-async function load(){if(tab.value==='qualifications'){++loadNumber;loading.value=false;error.value='';return;}const n=++loadNumber;loading.value=true;error.value='';const params={pageNum:page.value,pageSize:20};try{const [summary,data]=await Promise.all([getAdminOverview(),tab.value==='users'?getAdminUsers({...params,q:q.value,status:status.value}):tab.value==='logins'?getAdminLogins({...params,q:q.value,result:result.value,userId:filterUser.value,from:range.value?.[0],to:range.value?.[1]}):tab.value==='adjustments'?getPackageAdjustments({...params,userId:filterUser.value}):getAdminAudit(params)]);if(n!==loadNumber)return;overview.value=summary;if(tab.value==='users')users.value=data as AdminPage<AdminUser>;else if(tab.value==='logins')logins.value=data as AdminPage<AdminLoginLog>;else if(tab.value==='adjustments')adjustments.value=data as AdminPage<PackageAdjustment>;else audit.value=data as AdminPage<AdminAudit>;}catch(e){if(n===loadNumber)error.value=msg(e);}finally{if(n===loadNumber)loading.value=false;}}
+async function load(){if(['qualifications','blacklist'].includes(tab.value)){++loadNumber;loading.value=false;error.value='';return;}const n=++loadNumber;loading.value=true;error.value='';const params={pageNum:page.value,pageSize:20};try{const [summary,data]=await Promise.all([getAdminOverview(),tab.value==='users'?getAdminUsers({...params,q:q.value,status:status.value}):tab.value==='logins'?getAdminLogins({...params,q:q.value,result:result.value,userId:filterUser.value,from:range.value?.[0],to:range.value?.[1]}):tab.value==='adjustments'?getPackageAdjustments({...params,userId:filterUser.value}):getAdminAudit(params)]);if(n!==loadNumber)return;overview.value=summary;if(tab.value==='users')users.value=data as AdminPage<AdminUser>;else if(tab.value==='logins')logins.value=data as AdminPage<AdminLoginLog>;else if(tab.value==='adjustments')adjustments.value=data as AdminPage<PackageAdjustment>;else audit.value=data as AdminPage<AdminAudit>;}catch(e){if(n===loadNumber)error.value=msg(e);}finally{if(n===loadNumber)loading.value=false;}}
 function search(){page.value=1;void load();}
 function tabChanged(){page.value=1;q.value='';status.value='';result.value='';range.value=undefined;if(!['logins','adjustments'].includes(tab.value)){filterUser.value='';filterName.value='';}void load();}
 watch(tab,tabChanged);
@@ -72,6 +83,38 @@ let detailNumber=0;
 async function openUser(id:string){selectedId.value=id;detail.value=undefined;detailLogins.value=blank();detailAdjustments.value=blank();await loadDetail(id);}
 async function loadDetail(id:string){const n=++detailNumber;detailLoading.value=true;detailError.value='';try{const [value,logs,history]=await Promise.all([getAdminUser(id),getAdminLogins({userId:id,pageNum:1,pageSize:10}),getPackageAdjustments({userId:id,pageNum:1,pageSize:10})]);if(n===detailNumber&&selectedId.value===id){detail.value=value;detailLogins.value=logs;detailAdjustments.value=history;}}catch(e){if(n===detailNumber)detailError.value=msg(e);}finally{if(n===detailNumber)detailLoading.value=false;}}
 function closeUser(){detailNumber++;selectedId.value='';detail.value=undefined;}
+const moderating = ref(false);
+async function moderateUser(user: AdminUser, deleting: boolean) {
+  if (moderating.value) return;
+  moderating.value = true;
+  const title = deleting ? '删除账户' : '拉黑手机号';
+  const description = deleting
+    ? `删除 ${user.phone} 的账户后，该账户无法恢复，手机号将保留，历史记录可供审计。`
+    : `拉黑 ${user.phone} 后，将禁止注册和登录，已有会话也会失效。`;
+  try {
+    const { value } = await ElMessageBox.prompt(description, title, {
+      confirmButtonText: deleting ? '确认删除' : '确认拉黑',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+      closeOnClickModal: false,
+      inputPlaceholder: '请输入操作原因',
+      inputValidator: (value: string) => {
+        const length = value?.trim().length ?? 0;
+        return length >= 2 && length <= 300 || '请填写2至300字的操作原因';
+      },
+    });
+    if (deleting) await deleteAdminUser(user.id, value.trim());
+    else await blockPhone(user.phone, value.trim(), user.id);
+    ElMessage.success(deleting ? '账户已删除' : '已加入黑名单');
+    if (deleting && selectedId.value === user.id) closeUser();
+    if (deleting && users.value.records.length === 1 && page.value > 1) page.value--;
+    await load();
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(msg(error));
+  } finally {
+    moderating.value = false;
+  }
+}
 function showUserRecords(target:string,user:AdminUser){filterUser.value=user.id;filterName.value=user.phone;closeUser();if(tab.value!==target)tab.value=target;else search();}
 const extensionOpen=ref(false),extensionTarget=ref<AdminUserDetail>(),openingExtension=ref(false),extensionType=ref<'TRIAL'|'SUBSCRIPTION'>('TRIAL'),planCode=ref('PROFESSIONAL'),days=ref(30),reason=ref(''),requestId=ref(''),extending=ref(false),extendError=ref('');
 const expectedEnd=computed(()=>extensionType.value==='TRIAL'?extensionTarget.value?.trial?.expiresAt||null:extensionTarget.value?.subscription?.expiresAt||null);

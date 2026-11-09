@@ -31,7 +31,8 @@ public class AccountInitializationService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Tenant initialize(UserId userId) {
         // Serialize first use across sessions, then read the latest membership after acquiring the lock.
-        User user = users.findByIdForUpdate(userId).orElseThrow(() -> new BizException(401, "未登录"));
+        User user = users.findByIdForUpdate(userId).filter(User::isActive)
+                .orElseThrow(() -> new BizException(401, "未登录"));
         Tenant result=tenants.findByUserId(userId).orElseGet(() -> {
             if (foundation != null && foundation.hasMembership(userId.value()))
                 throw new BizException(403, "工作空间成员身份已停用");

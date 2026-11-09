@@ -10,6 +10,7 @@ import com.lynx.ad.modules.billing.application.OrderCommandService;
 import com.lynx.ad.modules.billing.application.SubscriptionSupport;
 import com.lynx.ad.modules.billing.domain.model.*;
 import com.lynx.ad.modules.billing.domain.port.*;
+import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ class PendingOrderQueryTest {
         when(repository.findPendingPay(other)).thenReturn(Optional.empty());
         var service = new OrderCommandService(mock(PlanRepository.class), repository,
                 mock(SubscriptionRepository.class), mock(SubscriptionSupport.class),
-                mock(IdempotencyService.class), new ObjectMapper());
+                mock(IdempotencyService.class), new ObjectMapper(), mock(WorkspaceFoundation.class));
         var result = service.pending(owner);
         assertEquals("pending-order", result.orderId());
         assertEquals(42000, result.payableFen());
