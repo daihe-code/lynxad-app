@@ -91,6 +91,26 @@ class QianchuanRestClientRetryTest {
         assertEquals("{\"code\":400153}",client().exchange(RequestSpec.get(url()).build(),String.class));assertEquals(1,hits.get());
     }
 
+    @Test void upstreamRpcTimeoutRetriesOnlyReads() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        String failure = """
+                {"code":40000,"message":"RPCError{Method:[MGetCarouselMetaInfo] ErrType:[RPC_FAILED] error_code=1204 reason=request timeout}"}
+                """;
+        String success = "{\"code\":0}";
+        start(ex -> {
+            byte[] body = (hits.incrementAndGet() == 1 ? failure : success).getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        var client = client();
+        assertEquals(success, client.exchange(RequestSpec.get(url()).build(), String.class));
+        assertEquals(2, hits.get());
+        hits.set(0);
+        assertEquals(failure, client.exchange(RequestSpec.post(url()).json("{}").build(), String.class));
+        assertEquals(1, hits.get());
+    }
+
     @Test void platformHttp401WithoutReplayNeverExpiresLynxLogin() throws Exception {
         AtomicInteger hits=new AtomicInteger();
         start(ex->{hits.incrementAndGet();ex.sendResponseHeaders(401,-1);ex.close();});

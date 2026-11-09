@@ -65,4 +65,8 @@ public class OceanJson {
             return -1;
         }
     }
+
+    public static boolean isRpcTimeoutMessage(String message) {
+        return message != null && message.contains("RPC_FAILED") && message.contains("request timeout");
+    }
 }

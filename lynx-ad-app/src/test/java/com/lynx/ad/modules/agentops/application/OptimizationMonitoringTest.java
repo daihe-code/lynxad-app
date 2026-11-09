@@ -41,7 +41,7 @@ class OptimizationMonitoringTest {
         var s=state();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         var pending=new OptimizationStore.Pending("old",1,"{}",Instant.now().minusSeconds(601));when(store.pending(s)).thenReturn(Optional.of(pending));
         when(management.monitoringFacts(tenant,id)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
-        verify(store).discard(s,"old");verify(store).release(eq(s),anyString(),eq("授权失效"));verify(engine,never()).submit(anyString(),anyString());
+        verify(store).discard(s,"old");verify(store).release(eq(s),anyString(),eq("广告账户授权已失效，请重新授权。"));verify(engine,never()).submit(anyString(),anyString());
     }
     OptimizationStore.State rulesState() {
         var rules=new OptimizationRules(new BigDecimal("4"),new BigDecimal("400"),new BigDecimal("480"),"CONFIRM",5,new BigDecimal("100"),new BigDecimal("100"),new BigDecimal("200"));
@@ -70,13 +70,38 @@ class OptimizationMonitoringTest {
         var s=rulesState();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         when(store.pending(s)).thenReturn(Optional.of(new OptimizationStore.Pending("stale-rules",1,"{}",Instant.now().minusSeconds(121))));
         when(management.monitoringFacts(tenant,id)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
-        verify(store).discard(s,"stale-rules");verify(store).release(eq(s),anyString(),eq("授权失效"));verifyNoInteractions(engine);
+        verify(store).discard(s,"stale-rules");verify(store).release(eq(s),anyString(),eq("广告账户授权已失效，请重新授权。"));verifyNoInteractions(engine);
     }
     @Test void networkFailureRetainsOutboxForIdenticalRetry() {
         var s=state();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         var pending=new OptimizationStore.Pending("retry",1,"payload",Instant.now());when(store.pending(s)).thenReturn(Optional.of(pending));
         when(engine.submit("a","payload")).thenThrow(new BizException(1801,"暂不可用"));service.cycle(s);
-        verify(store,never()).discard(any(),anyString());verify(store,never()).complete(any(),anyString(),any(),any());verify(store).release(eq(s),anyString(),eq("暂不可用"));verifyNoInteractions(insights,management);
+        verify(store,never()).discard(any(),anyString());verify(store,never()).complete(any(),anyString(),any(),any());verify(store).release(eq(s),anyString(),eq("暂时无法获取最新投放数据，系统会自动重试。"));verifyNoInteractions(insights,management);
+    }
+    @Test void collectionTimeoutDoesNotPublishAnObservation() {
+        var state = rulesState();
+        when(store.claim(eq(state), anyString(), any())).thenReturn(true);
+        when(management.monitoringFacts(tenant, id)).thenThrow(new BizException(1406,
+                "RPCError{ErrType:[RPC_FAILED] reason=request timeout}"));
+
+        service.cycle(state);
+
+        verify(store).release(eq(state), anyString(), eq("平台响应超时，系统会自动重试。"));
+        verify(store, never()).enqueue(any(), anyString(), any());
+        verifyNoInteractions(insights, engine);
+    }
+    @Test void ruleCollectionSkipsRedundantAutomaticExecutionRead() {
+        var gateway = mock(OptimizationExecutionGateway.class);
+        var journal = mock(OptimizationAutomationStore.class);
+        service.execution(new OptimizationExecutionService(store, journal, gateway, insights), gateway, journal);
+        when(management.monitoringFacts(tenant, id)).thenReturn(new PlanManagementService.MonitoringFacts(
+                "1878663839175696", "DELIVERING", "CUSTOM", BigDecimal.valueOf(400), null, List.of("item")));
+        when(insights.data(eq(tenant), eq(id), any(), eq(true)))
+                .thenReturn(new PlanInsightsService.Statistics(Map.of("cost", BigDecimal.TEN), List.of(),
+                        "stat_time_day", Instant.now(), null));
+
+        assertEquals("10", service.collectRules(plan, rulesState()).get("daily_spend"));
+        verify(gateway, never()).facts(any());
     }
     @Test void expiredOrConcurrentLeaseCannotCollectOrSubmit() {service.cycle(state());verifyNoInteractions(engine,insights,management);}
     @Test void cumulativeSummaryIsNotSentAsHourlyEvidence() {

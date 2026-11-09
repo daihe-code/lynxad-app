@@ -24,8 +24,9 @@ public class OptimizationExecutionService {
     public OptimizationExecutionService(OptimizationStore policies,OptimizationAutomationStore journal,OptimizationExecutionGateway gateway,PlanInsightsService insights){this.policies=policies;this.journal=journal;this.gateway=gateway;this.insights=insights;}
     @Scheduled(fixedDelayString="${lynx.ad.monitoring.execution-scan-ms:10000}")
     public void scan(){for(var event:journal.pending())if(!"MATERIAL_GENERATE".equals(event.kind()))try{process(event);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("execution check unavailable event={} type={}",event.id(),ex.getClass().getSimpleName());}}
-    public void observe(AdPlan p,OptimizationStore.State state,JsonNode facts){
+    public void observe(AdPlan p,OptimizationStore.State state){
         if(!"AUTO_LIMITED".equals(state.policy().mode()) || state.holdReason()!=null)return;
+        var facts = gateway.facts(p);
         if(state.baseline()==null)journal.baseline(state,facts);
         else if(!state.baseline().equals(facts) && !journal.unresolved(state.tenant(),p.accountId().value()))hold(p,"检测到千川后台或人工变更，已暂停自动调控，请核查并重新授权");
     }

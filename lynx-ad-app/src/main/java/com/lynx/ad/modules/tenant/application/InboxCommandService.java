@@ -5,6 +5,7 @@ import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.RequestMeta;
+import com.lynx.ad.modules.agentops.application.OptimizationCollectionError;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.audit.application.SuccessAuditCommand;
 import com.lynx.ad.modules.audit.domain.model.AuditActionType;
@@ -58,7 +59,8 @@ public class InboxCommandService {
                 .map(m -> new InboxMessageVo(
                         m.id().value(),
                         m.title(),
-                        m.body(),
+                        m.ref() != null && "OPTIMIZATION_ERROR".equals(m.ref().bizType())
+                                ? OptimizationCollectionError.publicMessage(m.body()) : m.body(),
                         m.ref() == null ? null : m.ref().bizType(),
                         m.ref() == null ? null : m.ref().bizId(),
                         m.unread(),
