@@ -42,6 +42,7 @@ class PlanInsightsTest {
     @Test void pausedPlanHasActualZeroAndMissingMetricsStayUnknown() {
         report(row(qcId,null),List.of(row(qcId,today.toString())));var data=service.data(tenant,id,range,false);
         assertEquals(BigDecimal.ZERO,data.summary().get("cost"));assertNull(data.summary().get("gmv"));assertEquals(1,data.trend().size());assertNull(data.summary().get("refundRate"));
+        verifyNoInteractions(fallback);
     }
     @Test void reportCacheStillChecksOwnershipAndRefreshFetchesAgain() {
         report(row(qcId,null),List.of());assertSame(service.data(tenant,id,range,false),service.data(tenant,id,range,false));service.data(tenant,id,range,true);
@@ -85,6 +86,42 @@ class PlanInsightsTest {
         when(port.insightReport(credential,qcId,today,today)).thenThrow(new BizException(1406,"权限不足"));
         when(fallback.report(tenant,account.value(),range,false)).thenReturn(new PlanStatisticsService.Snapshot(Map.of(qcId,new PlanStatisticsService.Metrics(new BigDecimal("10.46"),BigDecimal.ZERO,BigDecimal.ZERO,0L)),Instant.now()));
         var data=service.data(tenant,id,range,false);assertEquals(new BigDecimal("10.46"),data.summary().get("cost"));assertTrue(data.trend().isEmpty());assertTrue(data.warning().contains("权限不足"));
+    }
+    @Test void retryRefreshesAccountSpendWhenFilteredReportOmitsAggregate() {
+        report(json.createObjectNode(), List.of(row(qcId,today.toString())));
+        var fetchedAt = Instant.now().minusSeconds(5);
+        var spend = new BigDecimal("320.55");
+        when(fallback.report(tenant,account.value(),range,true))
+            .thenReturn(new PlanStatisticsService.Snapshot(Map.of(qcId,new PlanStatisticsService.Metrics(null,null,null,null)),fetchedAt))
+            .thenReturn(new PlanStatisticsService.Snapshot(Map.of(qcId,new PlanStatisticsService.Metrics(spend,null,null,null)),fetchedAt));
+
+        assertNull(service.data(tenant,id,range,true).summary().get("cost"));
+        var retried = service.data(tenant,id,range,true);
+        assertEquals(spend,retried.summary().get("cost"));
+        assertEquals(fetchedAt,retried.fetchedAt());
+        assertEquals(1,retried.trend().size());
+        verify(fallback,times(2)).report(tenant,account.value(),range,true);
+    }
+    @Test void completeAccountReportCanConfirmNoActivityForTheSelectedPlan() {
+        report(json.createObjectNode(), List.of());
+        var other = new PlanStatisticsService.Metrics(new BigDecimal("520"),null,null,null);
+        when(fallback.report(tenant,account.value(),range,true))
+            .thenReturn(new PlanStatisticsService.Snapshot(Map.of("other",other),Instant.now()));
+
+        assertEquals(BigDecimal.ZERO,service.data(tenant,id,range,true).summary().get("cost"));
+
+        var hourly = row(qcId,today.toString());
+        hourly.withObject("/metrics").put("stat_cost",10);
+        report(json.createObjectNode(), List.of(hourly));
+        assertNull(service.data(tenant,id,range,true).summary().get("cost"));
+    }
+    @Test void fallbackFailureCannotSupplySpendAndAuthorizationErrorsPropagate() {
+        report(json.createObjectNode(), List.of());
+        when(fallback.report(tenant,account.value(),range,true))
+            .thenThrow(new BizException(1406,"统计数据暂未更新"),new BizException(1211,"授权已失效"));
+
+        assertNull(service.data(tenant,id,range,true).summary().get("cost"));
+        assertEquals(1211,assertThrows(BizException.class,()->service.data(tenant,id,range,true)).code());
     }
     @Test void deletedPlanCannotReadAnyModule() { when(plan.status()).thenReturn(PlanStatus.DELETED);assertThrows(BizException.class,()->service.localLogs(tenant,id,range,1));verifyNoInteractions(port,store,credentials); }
     @Test void draftCannotQueryPlatformReports() { when(plan.qcPlanId()).thenReturn(Optional.empty());assertThrows(BizException.class,()->service.data(tenant,id,range,false));verifyNoInteractions(port); }

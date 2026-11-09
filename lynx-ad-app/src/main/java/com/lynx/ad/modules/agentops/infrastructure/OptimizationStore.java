@@ -3,6 +3,7 @@ package com.lynx.ad.modules.agentops.infrastructure;
 import com.fasterxml.jackson.databind.*;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.modules.agentops.application.OptimizationCollectionError;
 import com.lynx.ad.modules.agentops.application.OptimizationPolicy;
 import com.lynx.ad.modules.delivery.domain.model.AdPlan;
 import java.sql.*;
@@ -40,7 +41,7 @@ public class OptimizationStore {
     private Instant time(ResultSet row,String field) throws SQLException {var v=row.getTimestamp(field);return v==null?null:v.toInstant();}
     private State row(ResultSet r,int n) throws SQLException {
         try {return new State(r.getString("tenant_id"),r.getString("plan_id"),r.getLong("policy_version"),r.getBoolean("enabled"),
-            json.readValue(r.getString("config_json"),OptimizationPolicy.class),time(r,"last_check_at"),time(r,"last_success_at"),r.getString("last_error"),
+            json.readValue(r.getString("config_json"),OptimizationPolicy.class),time(r,"last_check_at"),time(r,"last_success_at"),OptimizationCollectionError.publicMessage(r.getString("last_error")),
             r.getString("result_json")==null?null:json.readTree(r.getString("result_json")),r.getString("hold_reason"),
             r.getString("baseline_json")==null?null:json.readTree(r.getString("baseline_json")),time(r,"last_action_at"),r.getString("auto_paused_reason"),time(r,"auto_paused_at"));}
         catch(SQLException ex){throw ex;}catch(Exception ex){throw new IllegalStateException("Invalid saved monitoring state",ex);}

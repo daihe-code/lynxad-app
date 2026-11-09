@@ -14,11 +14,14 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class OptimizationMonitoringService {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
+    private static final Logger log = LoggerFactory.getLogger(OptimizationMonitoringService.class);
     private final AdPlanRepository plans;
     private final OptimizationStore store;
     private final MonitoringEngineClient engine;
@@ -129,16 +132,22 @@ public class OptimizationMonitoringService {
             if(creativeContexts!=null)creativeContexts.saveAssessments(state.tenant(),p.accountId().value(),result);
             store.complete(state,owner,pending,result);
         }catch(RuntimeException ex) {
-            if(ex instanceof BizException biz && biz.code()==1405)store.disableMissing(state,owner);
-            failure=ex instanceof BizException?ex.getMessage():"盯盘采集失败，将自动重试";
-            org.slf4j.LoggerFactory.getLogger(getClass()).warn("monitor unavailable plan={} type={}",state.plan(),ex.getClass().getSimpleName());
+            if (ex instanceof BizException biz) {
+                if (biz.code() == 1405) store.disableMissing(state,owner);
+                failure = biz.code() == 1211 ? OptimizationCollectionError.AUTHORIZATION
+                        : OptimizationCollectionError.publicMessage(Objects.toString(biz.getMessage(), ""));
+                log.warn("monitor unavailable plan={} code={} reason={}",state.plan(),biz.code(),failure);
+            } else {
+                failure = OptimizationCollectionError.UNAVAILABLE;
+                log.warn("monitor unavailable plan={} type={}",state.plan(),ex.getClass().getSimpleName());
+            }
         }finally{store.release(state,owner,failure);}
     }
     Map<String,Object> collectRules(AdPlan p,OptimizationStore.State state) {
         var checkedAt=Instant.now();
         var facts=management.monitoringFacts(p.tenantId(),p.id());
         if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()))throw new BizException(1802,"平台计划绑定不一致");
-        if(execution!=null)execution.observe(p,state,gateway.facts(p));
+        if (execution != null) execution.observe(p,state);
         var today=LocalDate.now(ZONE);var current=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);
         var observed=Instant.now().atZone(ZONE);
         if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()))throw new BizException(1803,"等待当天最新报表");
@@ -178,7 +187,7 @@ public class OptimizationMonitoringService {
     }
     Map<String,Object> collect(AdPlan p,OptimizationStore.State state) {
         var facts=management.monitoringFacts(p.tenantId(),p.id());
-        if(execution!=null)execution.observe(p,state,gateway.facts(p));
+        if (execution != null) execution.observe(p,state);
         if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()) || facts.productIds().isEmpty())throw new BizException(1802,"平台计划或商品绑定不完整");
         var today=LocalDate.now(ZONE);var reports=new ArrayList<PlanInsightsService.Statistics>();
         var previous=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today.minusDays(1),today.minusDays(1)),true);

@@ -1,5 +1,6 @@
 package com.lynx.ad.common.http;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.domain.Ids.AccountId;
 import com.lynx.ad.common.exception.BizException;
@@ -83,15 +84,29 @@ public class QianchuanRestClient {
             HttpResponse<String> response = doExchange(spec);
             int status = response.statusCode();
             // A POST may have committed before a 5xx response; never blindly recreate a task.
-            int businessCode=status==200?OceanJson.peekCode(response.body()):-1;
-            boolean retryableGet="GET".equalsIgnoreCase(spec.method()) && (businessCode==40100 || businessCode==50000);
-            if ((retryableGet || (shouldRetry(status) && ("GET".equalsIgnoreCase(spec.method()) || status == 429))) && attempt < MAX_RETRIES) {
+            int businessCode = status == 200 ? OceanJson.peekCode(response.body()) : -1;
+            boolean read = "GET".equalsIgnoreCase(spec.method());
+            boolean retryableRead = read && (status >= 500 || businessCode == 40100 || businessCode == 50000
+                    || (status == 200 && isRpcTimeout(response.body())));
+            if ((retryableRead || status == 429) && attempt < MAX_RETRIES) {
                 log.warn("qianchuan retry status={} code={} attempt={}", status, businessCode, attempt + 1);
                 sleepQuietly(BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
                 attempt++;
                 continue;
             }
             return response;
+        }
+    }
+
+    private boolean isRpcTimeout(String body) {
+        if (!OceanJson.isRpcTimeoutMessage(body)) return false;
+        try {
+            var response = objectMapper.readTree(body);
+            int code = response.path("code").asInt(0);
+            return code != 0 && !Qianchuan401ReplayCodes.isAuthExpiredCode(code)
+                    && OceanJson.isRpcTimeoutMessage(response.path("message").asText());
+        } catch (JsonProcessingException ex) {
+            return false;
         }
     }
 
@@ -185,10 +200,6 @@ public class QianchuanRestClient {
             Thread.currentThread().interrupt();
             throw new BizException(9999, "千川重试中断");
         }
-    }
-
-    private static boolean shouldRetry(int status) {
-        return status == 429 || status >= 500;
     }
 
     private static String sanitizeUrl(String url) {

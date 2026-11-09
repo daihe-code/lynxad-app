@@ -7,9 +7,11 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.tenant.application.InboxCommandService;
+import com.lynx.ad.modules.tenant.domain.model.BizRef;
 import com.lynx.ad.modules.tenant.domain.model.InboxMessage;
 import com.lynx.ad.modules.tenant.domain.port.InboxMessageRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -44,5 +46,18 @@ class InboxReadTest {
     @Test void inboxReadAttemptsOnlyTheCurrentTenantsDueRecovery() {
         var delivery=mock(com.lynx.ad.modules.tenant.application.InboxDeliveryJob.class);service.deliveryJob(delivery);
         service.list(tenant);verify(delivery).recover(tenant);verify(repository).listByTenant(tenant);
+    }
+
+    @Test void historicalCollectionErrorsDoNotExposeProviderDiagnostics() {
+        var error = InboxMessage.post(tenant, "盯盘采集异常",
+                "RPCError{PSM:[ad.site.lego] ErrType:[RPC_FAILED] reason=request timeout}",
+                new BizRef("OPTIMIZATION_ERROR", "plan"));
+        var recovered = InboxMessage.post(tenant, "盯盘采集已恢复", "已重新获取最新平台数据。",
+                new BizRef("OPTIMIZATION_RECOVERED", "plan"));
+        when(repository.listByTenant(tenant)).thenReturn(List.of(error, recovered));
+
+        var messages = service.list(tenant);
+        assertEquals("平台响应超时，系统会自动重试。", messages.getFirst().body());
+        assertEquals("已重新获取最新平台数据。", messages.getLast().body());
     }
 }
