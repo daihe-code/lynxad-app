@@ -3,6 +3,7 @@ package com.lynx.ad.modules.delivery.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.http.Qianchuan401ReplayCodes;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.*;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanPlanMapping;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class PlanInsightsService {
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     public record Point(String time,Map<String,BigDecimal> metrics) {}
     public record Statistics(Map<String,BigDecimal> summary,List<Point> trend,String timeDimension,Instant fetchedAt,String warning,Map<String,String> metricFields) {
         public Statistics(Map<String,BigDecimal> summary,List<Point> trend,String timeDimension,Instant fetchedAt,String warning){this(summary,trend,timeDimension,fetchedAt,warning,Map.of());}
@@ -67,7 +69,7 @@ public class PlanInsightsService {
         // The live uni_promotion API returns time dimensions as Unix milliseconds.
         if(value.matches("\\d{13}") || value.matches("\\d{10}")) {
             long timestamp=Long.parseLong(value);if(value.length()==10)timestamp*=1000;
-            var time=Instant.ofEpochMilli(timestamp).atZone(ZoneId.of("Asia/Shanghai"));
+            var time=Instant.ofEpochMilli(timestamp).atZone(SHANGHAI);
             if(time.toLocalDate().isBefore(range.startDate()) || time.toLocalDate().isAfter(range.endDate()))throw new BizException(1406,"千川趋势报表日期超出所选区间");
             return "stat_time_day".equals(dimension)?time.toLocalDate().toString():time.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         }
@@ -84,13 +86,15 @@ public class PlanInsightsService {
     }
     public Statistics data(TenantId tenant,PlanId id,PlanStatisticsRange range,boolean refresh) {
         Access access=access(tenant,id);String qcId=qcId(access);Key key=new Key(tenant.value(),id.value(),range);
+        LocalDate today = LocalDate.now(SHANGHAI);
+        boolean todayOnly = today.equals(range.startDate()) && today.equals(range.endDate());
         cache.entrySet().removeIf(e->e.getValue().fetchedAt().plusSeconds(60).isBefore(Instant.now()));
         Statistics cached=cache.get(key);if(!refresh && cached!=null)return cached;
         AdManagementPort.InsightReport report;
         try { report=port.insightReport(access.credential(),qcId,range.startDate(),range.endDate()); }
         catch(BizException ex) {
             var snapshot=statistics.report(tenant,access.plan().accountId().value(),range,refresh);
-            var value=snapshot.plans().get(qcId);Map<String,BigDecimal> summary=new LinkedHashMap<>();
+            var value=todayOnly?snapshot.forPlan(qcId):snapshot.plans().get(qcId);Map<String,BigDecimal> summary=new LinkedHashMap<>();
             summary.put("cost",value==null?null:value.cost());summary.put("orders",value==null || value.orders()==null?null:BigDecimal.valueOf(value.orders()));
             summary.put("gmv",value==null?null:value.gmv());summary.put("roi",value==null?null:value.roi());
             return new Statistics(Collections.unmodifiableMap(summary),List.of(),null,snapshot.fetchedAt(),"扩展报表暂不可用："+ex.getMessage());
@@ -103,8 +107,30 @@ public class PlanInsightsService {
             points.add(new Point(time,metrics(row,report.metricFields())));
         }
         points.sort(Comparator.comparing(Point::time));
-        Statistics result=new Statistics(metrics(report.summary(),report.metricFields()),List.copyOf(points),report.timeDimension(),Instant.now(),report.warning(),report.metricFields());
+        Instant fetchedAt = Instant.now();
+        Map<String,BigDecimal> summary = metrics(report.summary(),report.metricFields());
+        if (todayOnly && summary.get("cost") == null) {
+            // A successful filtered report may still omit the aggregate. Check the same plan in the account report.
+            try {
+                var snapshot = statistics.report(tenant,access.plan().accountId().value(),range,refresh);
+                var cost = snapshot.forPlan(qcId).cost();
+                if (cost != null && cost.signum() >= 0 && (cost.signum() > 0 || points.stream().noneMatch(PlanInsightsService::hasSpend))) {
+                    var combined = new LinkedHashMap<>(summary);
+                    combined.put("cost",cost);
+                    summary = Collections.unmodifiableMap(combined);
+                    if (snapshot.fetchedAt().isBefore(fetchedAt)) fetchedAt = snapshot.fetchedAt();
+                }
+            } catch (BizException ex) {
+                if (ex.code() == 1201 || ex.code() == 1211 || Qianchuan401ReplayCodes.isAuthExpiredCode(ex.code())) throw ex;
+                // Keep the available metrics. Spend-dependent callers will reject the missing value.
+            }
+        }
+        Statistics result=new Statistics(summary,List.copyOf(points),report.timeDimension(),fetchedAt,report.warning(),report.metricFields());
         if(cache.size()>=256)cache.clear();cache.put(key,result);return result;
+    }
+    private static boolean hasSpend(Point point) {
+        var cost = point.metrics().get("cost");
+        return cost != null && cost.signum() > 0;
     }
     public PlanInsightsStore.Page<PlatformLog> platformLogs(TenantId tenant,PlanId id,PlanStatisticsRange range,int page) {
         page(page);Access access=access(tenant,id);String qcId=qcId(access);
