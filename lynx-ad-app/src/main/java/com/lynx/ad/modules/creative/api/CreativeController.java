@@ -43,6 +43,8 @@ public class CreativeController {
     private final LibraryQueryService libraryQueryService;
     private final StoragePort storagePort;
     private final LynxAdProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.billing.application.WorkspacePricing workspacePricing;
     private com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads;
     @org.springframework.beans.factory.annotation.Autowired
     public void uploadedMedia(com.lynx.ad.modules.creative.infrastructure.persistence.AssetUploadRepository uploads) { this.uploads=uploads; }
@@ -63,6 +65,7 @@ public class CreativeController {
     @RequiresActiveTrial
     @PostMapping({"/api/v1/creative/creatives/generate", "/creatives/generate"})
     public ApiResponse<GenerateResponse> generate(@RequestBody GenerateRequest req) {
+        requireLegacyGenerationAllowed();
         CreativeMode mode = req.mode() == null ? CreativeMode.STANDARD : CreativeMode.valueOf(req.mode());
         List<QcProductId> ids = req.productIds() == null ? List.of() : req.productIds().stream().map(QcProductId::new).toList();
         var taskId = commandService.submit(
@@ -107,9 +110,14 @@ public class CreativeController {
     @PostMapping("/api/v1/creative/packages/{id}/items/{productId}/regenerate")
     public ApiResponse<GenerateResponse> regenerate(@PathVariable String id, @PathVariable String productId,
             @RequestBody MaterialRequest request) {
+        requireLegacyGenerationAllowed();
         var taskId = commandService.regenerate(TenantContext.requireTenantId(), new PackageId(id),
                 new QcProductId(productId), materialType(request.type()), new com.lynx.ad.modules.creative.domain.model.MaterialFeedback(request.reasons(), request.description()));
         return ApiResponse.ok(new GenerateResponse(taskId.value()));
+    }
+
+    private void requireLegacyGenerationAllowed() {
+        if (workspacePricing != null && workspacePricing.isEnabled()) throw new BizException(1503,"请在投放计划的素材页面生成素材");
     }
 
     @DeleteMapping("/api/v1/creative/packages/{id}/items/{productId}")

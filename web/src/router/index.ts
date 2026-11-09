@@ -121,6 +121,11 @@ router.beforeEach(async (to) => {
     }
     if (user.welcomeAcknowledged === null) await user.loadWelcome();
     if (!user.welcomeAcknowledged && to.path !== '/welcome') return '/welcome';
+    if (user.me?.memberRole === 'FINANCE' && !['/accounts','/subscription','/welcome'].includes(to.path)) return '/accounts?tab=workspace';
+    if (user.me?.memberRole === 'VIEWER') {
+      if (to.meta.requireAweme || /\/(?:edit|transfer)$/.test(to.path)) return '/campaigns';
+      if (!to.path.startsWith('/campaigns') && !['/accounts','/welcome'].includes(to.path)) return '/campaigns';
+    }
     if (to.meta.requireAweme) {
       const accounts = await listAccounts();
       if (!hasUsableAweme(accounts)) {

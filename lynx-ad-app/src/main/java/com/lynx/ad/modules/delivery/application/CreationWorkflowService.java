@@ -32,6 +32,27 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class CreationWorkflowService {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(CreationWorkflowService.class);
+    private com.lynx.ad.modules.billing.application.GenerationCharges charges;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void generationCharges(com.lynx.ad.modules.billing.application.GenerationCharges value) { charges=value; regeneration.generationCharges(value); }
+
+    private void holdGeneration(CreationState s, String key, Map<String,Integer> counts) {
+        if (charges == null || !charges.hold(s.tenantId,key,s.accountId,s.userId,counts)) return;
+        s.generationChargeKey=key;
+        s.generationChargeBaseline=s.materials.stream().map(m->m.id).toList();
+    }
+    private void finishGeneration(CreationState s, boolean rejected) {
+        if (charges==null || s.generationChargeKey==null) return;
+        var counts=new HashMap<String,Integer>();
+        if (!rejected) for (var m:s.materials) {
+            if (!"READY".equals(m.status) || s.generationChargeBaseline.contains(m.id)) continue;
+            if (s.regeneration!=null && !Objects.equals(s.regeneration.resultMaterialId,m.id)) continue;
+            if (s.generationRetry==null && s.regeneration==null && !Objects.equals(s.engineJobId,m.engineJobId)) continue;
+            counts.merge(com.lynx.ad.modules.billing.application.GenerationCharges.kind(m.type),1,Integer::sum);
+        }
+        charges.finish(s.tenantId,s.generationChargeKey,counts);
+        s.generationChargeKey=null;s.generationChargeBaseline=new ArrayList<>();
+    }
     private final CreationStore store;
     private final AdPlanRepository plans;
     private final AdPlanCreativeBindingStore bindings;
@@ -380,6 +401,8 @@ public class CreationWorkflowService {
             var decisions=new LinkedHashSet<>(s.generationSelection==null?List.<String>of():s.generationSelection);decisions.addAll(g.productIds);
             s.generationSelection=new ArrayList<>(decisions);s.generationPendingProductIds.clear();
             if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
+            int each=2*new LinkedHashSet<>(g.productIds).size();
+            holdGeneration(s,"initial:"+id+":"+s.revision,Map.of("video",each,"image",each,"native_image_text",each));
             s.generationGroupProducts.clear();for(int n=0;n<s.products.size();n++)s.generationGroupProducts.put("group-"+(n+1),s.products.get(n).qcProductId());
             s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
             s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
@@ -405,6 +428,7 @@ public class CreationWorkflowService {
             var product=s.products.stream().filter(p->Objects.equals(p.qcProductId(),request.productId)).findFirst().orElseThrow(()->new BizException(1503,"商品不属于当前计划"));
             if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材");
             if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用100个素材");
+            holdGeneration(s,"addition:"+id+":"+request.requestId,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(request.type),1));
             var body=new LinkedHashMap<String,Object>();body.put("store_id",s.tenantId);body.put("ai_plan_task_id",s.enginePlanId);body.put("request_id",request.requestId);
             body.put("product_id",request.productId);body.put("target",additionTarget(request.type));body.put("instruction",description);
             body.put("budget",s.budget);if(s.roi2Goal!=null)body.put("roi",s.roi2Goal);
@@ -452,16 +476,19 @@ public class CreationWorkflowService {
                     s.generationIssues.stream().filter(i->request.type.equals(i.type())&&!s.generationIssueDismissed(i)&&i.slotId()!=null).toList();
             retry.targets=issues.stream().map(i->new CreationState.GenerationRetryTarget(i.productId(),i.slotId())).distinct().toList();
             if(retry.targets.isEmpty()&&s.dismissedGenerationIssues.stream().anyMatch(d->Objects.equals(s.engineJobId,d.jobId())))throw new BizException(1503,"当前没有可重试的失败项，请刷新后重试");
+            int count=retry.targets.isEmpty()?s.generationCounts.stream().filter(c->c.type().equals(request.type)).mapToInt(CreationState.GenerationCount::failed).sum():retry.targets.size();
+            holdGeneration(s,"retry:"+id+":"+retry.requestId,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(request.type),count));
             s.generationRetry=retry;
             s.generationStatus="UNCERTAIN";s.generationMessage="正在提交失败项重试，成功素材已保留";s.changed();
         });
         try {
+            if (charges!=null) charges.validate(reserved.tenantId,reserved.generationChargeKey);
             var body=new LinkedHashMap<String,Object>();body.put("store_id",reserved.tenantId);body.put("ai_plan_task_id",reserved.enginePlanId);body.put("type",request.type);body.put("request_id",reserved.generationRetry.requestId);
             if(!reserved.generationRetry.targets.isEmpty())body.put("targets",reserved.generationRetry.targets);
             var response=engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(reserved.engineJobId)+"/retry-failed",body);
             acceptGenerationRetry(reserved,response);
         }catch(BizException error){
-            if(error.code()!=8003)store.mutate(reserved.tenantId,id,null,s->{s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage=error.getMessage();});
+            if(error.code()!=8003)store.mutate(reserved.tenantId,id,null,s->{finishGeneration(s,true);s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage=error.getMessage();});
         }
         return get(tenant,id);
     }
@@ -473,7 +500,7 @@ public class CreationWorkflowService {
         store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
             if(s.generationRetry==null||!retry.requestId.equals(s.generationRetry.requestId))return;
             if("ACCEPTED".equals(status)){s.generationRetry.status="ACCEPTED";s.regeneration=null;s.pendingRegenerationId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.generationStatus="RUNNING";s.generationMessage="失败项重试已提交，成功素材已保留";s.resetGenerationReconciliation();}
-            else if("FAILED".equals(status)){s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage="失败项未能提交，请核对原任务与失败原因";}
+            else if("FAILED".equals(status)){finishGeneration(s,true);s.generationRetry.status="FAILED";s.generationStatus="FAILED";s.generationMessage="失败项未能提交，请核对原任务与失败原因";}
         });
     }
     public CreationState keepProductGroup(TenantId tenant,String requestedId,Version request) {
@@ -706,6 +733,7 @@ public class CreationWorkflowService {
             String materialPlan=m.enginePlanId==null?state.enginePlanId:m.enginePlanId;
             if(materialPlan==null||m.groupId==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(m.type,"")))throw new BizException(1503,"素材生成归属信息不完整，请先核查原任务");
             com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.reserve(state,System.currentTimeMillis());
+            holdGeneration(state,"regenerate:"+id+":"+state.revision,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(m.type),1));
             if(published)publishedMaterials.reserve(tenant,requestedId,state,m,"regenerate");
             recordFeedback(state,material,"regenerate",feedback);
             var r=new CreationState.Regeneration();r.requestId=UUID.randomUUID().toString();r.sourceId=m.id;r.parentId=m.engineMaterialId;r.jobId=m.engineJobId;r.planTaskId=materialPlan;r.groupId=m.groupId;r.target=additionTarget(m.type);r.instruction=instruction;
@@ -782,7 +810,7 @@ public class CreationWorkflowService {
     public void discard(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,true);
         var s=store.get(tenant.value(),id);if(s.publishedEdit!=null){compositions.discard(tenant,id);return;}if(!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"已提交发布的计划不能丢弃");
-        store.mutate(tenant.value(),id,null,state->{if(!Set.of("NONE","FAILED").contains(state.publishStatus))throw new BizException(1403,"计划已提交");state.analysisStatus="CANCELLED";state.generationStatus="CANCELLED";});
+        store.mutate(tenant.value(),id,null,state->{if(!Set.of("NONE","FAILED").contains(state.publishStatus))throw new BizException(1403,"计划已提交");if(state.generationChargeKey!=null)throw new BizException(1403,"素材任务仍在处理中，请完成后再删除草稿");state.analysisStatus="CANCELLED";state.generationStatus="CANCELLED";});
         if(s.engineJobId!=null)try{engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(s.engineJobId)+"/control",Map.of("store_id",s.tenantId,"action","cancel"));}catch(BizException ignored){}
         tx.executeWithoutResult(status->{if(!plans.discardDraft(tenant,new PlanId(id)))throw new BizException(1403,"仅可丢弃未发布草稿");bindings.upsert(new PlanId(id),List.of());store.delete(tenant.value(),id);});
     }
@@ -828,11 +856,13 @@ public class CreationWorkflowService {
             return;
         }
         if("QUEUED".equals(snapshot.generationStatus)) {
+            if (charges!=null) try { charges.validate(snapshot.tenantId,snapshot.generationChargeKey); }
+            catch (BizException denied) { store.mutate(snapshot.tenantId,id,null,s->{finishGeneration(s,true);s.generationStatus="FAILED";s.generationMessage=denied.getMessage();}); return; }
             if(snapshot.enginePlanId==null) {
                 CreationState registered;
                 try { registered=registerEnginePlan(snapshot); }
                 catch(BizException unavailable) {
-                    store.mutate(snapshot.tenantId,id,null,s->{if("QUEUED".equals(s.generationStatus)){s.generationStatus="FAILED";s.generationMessage="引擎任务初始化失败，尚未提交素材生成，可稍后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});
+                    store.mutate(snapshot.tenantId,id,null,s->{if("QUEUED".equals(s.generationStatus)){finishGeneration(s,true);s.generationStatus="FAILED";s.generationMessage="引擎任务初始化失败，尚未提交素材生成，可稍后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});
                     return;
                 }
                 process(registered);
@@ -851,7 +881,7 @@ public class CreationWorkflowService {
                 var job=engine.post("/api/v1/capabilities/generation/jobs",body);String jobId=job.path("job_id").asText(job.path("id").asText());
                 if(jobId.isBlank())throw new BizException(8003,"引擎未返回生成任务 ID，提交结果待确认");
                 store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.engineJobId=jobId;s.groups=groups;s.generationStatus="RUNNING";s.generationMessage="AI 引擎生成中";}});
-            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();if("FAILED".equals(s.generationStatus))s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}});}
+            }catch(BizException e){store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.generationStatus=e.code()==8003?"UNCERTAIN":"FAILED";s.generationMessage=e.getMessage();if("FAILED".equals(s.generationStatus)){finishGeneration(s,true);s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,s.generationMessage));}}});}
             return;
         }
         var current=store.get(snapshot.tenantId,id);
@@ -912,6 +942,7 @@ public class CreationWorkflowService {
             if(!Set.of("IMPORTING","FAILED").contains(s.generationStatus)||s.engineTerminalStatus==null)return;
             long finished=s.materials.stream().filter(m->Set.of("READY","FAILED").contains(m.status)).count();
             if(finished<s.materials.size()){s.progress=Math.max(s.progress,80+(int)(19*finished/s.materials.size()));return;}
+            finishGeneration(s,false);
             boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
             boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->(s.pendingRegenerationId.equals(m.replacesId)||s.pendingRegenerationId.equals(m.reviewSourceId))&&"READY".equals(m.status));
             boolean completeCounts=s.generationCounts.stream().allMatch(c->c.total()==null||c.completed()>=c.total());
@@ -940,10 +971,13 @@ public class CreationWorkflowService {
             boolean posted=false;
             try {
                 var receipt=engine.find("/api/v1/capabilities/generation/materials/additions/"+CreationEngineClient.query(rid)+"?store_id="+CreationEngineClient.query(tenant));
-                if(receipt==null){posted=true;receipt=engine.post("/api/v1/capabilities/generation/materials/additions",request.engineRequest);}
+                if(receipt==null){
+                    if (charges!=null) try {charges.validate(tenant,snapshot.generationChargeKey);} catch (BizException denied) {failAddition(tenant,id,rid,denied.getMessage());return;}
+                    posted=true;receipt=engine.post("/api/v1/capabilities/generation/materials/additions",request.engineRequest);
+                }
                 if(!rid.equals(receipt.path("request_id").asText())||!request.productId.equals(receipt.path("product_id").asText())||!additionTarget(request.type).equals(receipt.path("target").asText())
                         ||!snapshot.enginePlanId.equals(receipt.path("ai_plan_task_id").asText())||receipt.path("job_id").asText().isBlank()){
-                    failAddition(tenant,id,rid,"引擎新增素材回执不匹配，请核查原任务");return;
+                    store.mutate(tenant,id,null,s->{var current=additionRecord(s,rid);current.status="UNKNOWN";current.error="引擎新增素材回执不匹配，请核查原任务";});return;
                 }
                 String jobId=receipt.path("job_id").asText();
                 store.mutate(tenant,id,null,s->{var r=additionRecord(s,rid);r.engineJobId=jobId;r.status="RUNNING";r.error=null;s.engineJobId=jobId;s.generationStatus="RUNNING";s.generationMessage="正在生成新增素材";s.generationStage="generation";});
@@ -998,12 +1032,12 @@ public class CreationWorkflowService {
         final var saved=current.materials.stream().filter(m->Objects.equals(m.id,savedMaterialId)).findFirst().orElse(null);
         boolean ready=saved!=null&&"READY".equals(saved.status);
         if(terminal&&(saved==null||Set.of("READY","FAILED").contains(saved.status))) {
-            if(ready&&"succeeded".equals(job.path("status").asText()))store.mutate(tenant,id,null,s->{var done=additionRecord(s,rid);done.status="SUCCEEDED";done.error=null;s.generationStatus="SUCCEEDED";s.generationMessage="新增素材已生成并同步千川";s.generationStage="finished";s.progress=100;s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(done.type,1,1)));});
+            if(ready)store.mutate(tenant,id,null,s->{finishGeneration(s,false);var done=additionRecord(s,rid);done.status="SUCCEEDED";done.error=null;s.generationStatus="SUCCEEDED";s.generationMessage="新增素材已生成并同步千川";s.generationStage="finished";s.progress=100;s.generationCounts=new ArrayList<>(List.of(new CreationState.GenerationCount(done.type,1,1)));});
             else failAddition(tenant,id,rid,saved!=null&&saved.error!=null?saved.error:GenerationIssueMapper.message(job.path("error"),"本次新增素材未完成，原有素材已保留"));
         }
     }
     private void failAddition(String tenant,String id,String rid,String error) {
-        store.mutate(tenant,id,null,s->{var r=additionRecord(s,rid);r.status="FAILED";r.error=error;s.generationStatus="FAILED";s.generationMessage=error;s.generationStage="finished";
+        store.mutate(tenant,id,null,s->{finishGeneration(s,true);var r=additionRecord(s,rid);r.status="FAILED";r.error=error;s.generationStatus="FAILED";s.generationMessage=error;s.generationStage="finished";
             var product=s.products.stream().filter(p->p.qcProductId().equals(r.productId)).findFirst().orElse(null);s.generationIssues=new ArrayList<>(List.of(new CreationState.GenerationIssue(r.productId,product==null?r.productId:product.name(),error,r.type,r.materialId,"新增"+switch(r.type){case "VIDEO"->"视频";case "IMAGE"->"商品卡图片";default->"图文";},"addition:"+rid)));});
     }
     private static int engineProgress(CreationState state,JsonNode job) {

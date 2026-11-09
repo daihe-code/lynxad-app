@@ -28,6 +28,9 @@ public class IdentityOauthController {
     private final OauthQueryService queryService;
     private final LynxAdProperties properties;
     @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
+    private void requireBinding(String id) { if(workspace!=null)workspace.requireReadableBinding(TenantContext.requireTenantId().value(),id); }
+    @org.springframework.beans.factory.annotation.Autowired
     private com.lynx.ad.modules.identity.application.LiveQianchuanAuthorizationService liveAuthorization;
 
     public IdentityOauthController(
@@ -98,6 +101,7 @@ public class IdentityOauthController {
 
     @PostMapping("/api/v1/identity/accounts/{id}/refresh")
     public ApiResponse<AccountVo> refresh(@PathVariable String id) {
+        requireBinding(id);
         commandService.refresh(TenantContext.requireTenantId(), new AccountId(id));
         return accounts().data().stream()
                 .filter(a -> a.accountId().equals(id))
@@ -112,12 +116,14 @@ public class IdentityOauthController {
 
     @DeleteMapping("/api/v1/identity/accounts/{id}")
     public ApiResponse<Void> unbind(@PathVariable String id) {
+        requireBinding(id);
         commandService.unbind(TenantContext.requireTenantId(), new AccountId(id));
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/api/v1/identity/accounts/{id}/remove")
     public ApiResponse<Void> remove(@PathVariable String id) {
+        requireBinding(id);
         commandService.remove(TenantContext.requireTenantId(), new AccountId(id));
         return ApiResponse.ok(null);
     }

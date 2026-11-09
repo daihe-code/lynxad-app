@@ -15,4 +15,11 @@ export const pointEntries = (page: number) => apiGet<PointEntry[]>(`${base}/curr
 export const saveClientSpace = (name: string, id?: string) => id ? apiPut(`${base}/current/clients/${encodeURIComponent(id)}`, { name }) : apiPost(`${base}/current/clients`, { name });
 export const deleteClientSpace = (id: string) => apiDelete(`${base}/current/clients/${encodeURIComponent(id)}`);
 export const assignClientSpace = (id: string, clientSpaceId: string) => apiPut(`${base}/current/accounts/${encodeURIComponent(id)}/client`, { clientSpaceId });
-export const workspaceRoles: Record<string, string> = { OWNER: '所有者', ADMIN: '管理员', FINANCE: '财务', OPERATOR: '运营', MEMBER: '成员', VIEWER: '查看者' };
+export const workspaceRoles: Record<string, string> = { OWNER: '主管理员', ADMIN: '管理员', FINANCE: '财务', OPERATOR: '运营', MEMBER: '成员', VIEWER: '查看者' };
+export type ChildRole = 'OPERATOR' | 'FINANCE' | 'VIEWER';
+export interface WorkspaceChild { id: string; phone: string; role: string; status: string; expiresAt?: string }
+export interface WorkspaceTeam { used: number; limit: number; members: WorkspaceChild[]; invites: WorkspaceChild[] }
+export const workspaceTeam = () => apiGet<WorkspaceTeam>(`${base}/current/team`);
+export const inviteChild = (phone: string, role: ChildRole) => apiPost<{ token: string; expiresAt: string }>(`${base}/current/team/invitations`, { phone, role });
+export const changeChild = (id: string, role: string, active: boolean) => apiPut(`${base}/current/team/members/${encodeURIComponent(id)}`, { role, active });
+export const revokeChildInvite = (id: string) => apiDelete(`${base}/current/team/invitations/${encodeURIComponent(id)}`);

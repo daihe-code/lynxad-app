@@ -69,8 +69,8 @@ export function verifySms(phone: string, code: string) {
   return apiPost<PeekSmsResult>("/api/v1/tenant/auth/sms/verify", { phone, code });
 }
 
-export function smsLogin(phone: string, code: string) {
-  return apiPost<LoginResult>("/api/v1/tenant/auth/sms/login", { phone, code });
+export function smsLogin(phone: string, code: string, invite?: string) {
+  return apiPost<LoginResult>("/api/v1/tenant/auth/sms/login", { phone, code, invite });
 }
 
 export function passwordLogin(phone: string, password: string) {

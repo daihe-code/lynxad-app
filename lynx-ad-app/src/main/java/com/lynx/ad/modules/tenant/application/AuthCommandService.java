@@ -42,14 +42,15 @@ public class AuthCommandService {
     private final SmsGateway smsGateway;
     private final UserRepository userRepository;
     private final TenantRepository tenantRepository;
-    private final InvitationStore invitationStore;
     private final PasswordHasher passwordHasher;
     private final JwtService jwtService;
     private final LynxAdProperties properties;
     private final AuditRecorder auditRecorder;
     private final PasswordLoginGuard passwordGuard;
     private final AccountInitializationService initialization;
-    private final SingleTenantMembershipPolicy membershipPolicy = new SingleTenantMembershipPolicy();
+    private WorkspaceTeamService team;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void workspaceTeam(WorkspaceTeamService value) { team = value; }
     private org.springframework.jdbc.core.JdbcTemplate sessionJdbc;
     @org.springframework.beans.factory.annotation.Autowired public void sessionJdbc(org.springframework.jdbc.core.JdbcTemplate value) { sessionJdbc=value; }
 
@@ -68,7 +69,6 @@ public class AuthCommandService {
         this.smsGateway = smsGateway;
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
-        this.invitationStore = invitationStore;
         this.passwordHasher = passwordHasher;
         this.jwtService = jwtService;
         this.properties = properties;
@@ -103,15 +103,27 @@ public class AuthCommandService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public LoginResponse smsLogin(PhoneNumber phone, String code) {
+        return smsLogin(phone, code, null);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public LoginResponse smsLogin(PhoneNumber phone, String code, String invite) {
         if (!otpStore.verifyAndConsume(phone, code)) {
             throw new BizException(1101, "验证码不正确或已过期");
+        }
+        if (invite != null && !invite.isBlank()) {
+            var joined = team.activate(phone, invite);
+            var tenant = tenantRepository.findById(new TenantId(joined.tenant())).orElseThrow();
+            passwordGuard.clear(phone.value());
+            LoginResponse result = session(joined.user(), tenant);
+            recordLogin(joined.user(), tenant, result.token());
+            return result;
         }
         User user = userRepository.findByPhone(phone).orElseGet(() -> {
             User created = User.register(phone);
             userRepository.save(created);
             return created;
         });
-        claimInviteIfPresent(user, phone);
         passwordGuard.clear(phone.value());
         return issue(user);
     }
@@ -158,25 +170,6 @@ public class AuthCommandService {
     public LoginResponse initializeAccount(UserId userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new BizException(401, "未登录"));
         return session(user, initialization.initialize(userId));
-    }
-
-    private void claimInviteIfPresent(User user, PhoneNumber phone) {
-        // Login must not implicitly join another workspace. Existing invitations are accepted explicitly in the team phase.
-        if(tenantRepository.findByUserId(user.id()).isPresent())return;
-        Optional<MemberInvitation> inv = invitationStore.findByPhone(phone);
-        if (inv.isEmpty() || inv.get().isExpired(Instant.now())) {
-            return;
-        }
-        Tenant target = tenantRepository.findById(inv.get().tenantId()).orElse(null);
-        if (target == null) {
-            return;
-        }
-        Optional<TenantId> existing = tenantRepository.findByUserId(user.id()).map(Tenant::id);
-        membershipPolicy.assertCanJoin(existing, target.id());
-        if (existing.isEmpty()) {
-            target.joinAsMember(user.id(), phone);
-            tenantRepository.save(target);
-        }
     }
 
     private LoginResponse issue(User user) {

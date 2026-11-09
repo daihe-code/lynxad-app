@@ -94,3 +94,9 @@ export function mockComplete(paymentId: string, success: boolean, nonce: string)
 export function listBills() {
   return apiGet<{ items: BillItem[] }>("/api/v1/billing/bills");
 }
+
+export interface RechargeOption { code: string; priceFen: number; points: number }
+export const rechargeOptions = () => apiGet<RechargeOption[]>('/api/v1/billing/points/recharge-options');
+export const createRecharge = (code: string, key: string) =>
+  apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
+export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);

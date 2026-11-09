@@ -7,6 +7,8 @@ import com.lynx.ad.modules.agentops.infrastructure.*;
 import com.lynx.ad.modules.agentops.infrastructure.OptimizationAutomationStore.Event;
 import com.lynx.ad.modules.agentops.infrastructure.OptimizationCreativeStore.Job;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
+import com.lynx.ad.modules.billing.application.GenerationCharges;
+import com.lynx.ad.modules.identity.application.EngineExecutionTickets;
 import com.lynx.ad.modules.delivery.application.CreationWorkflowService;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import java.math.BigDecimal;
@@ -26,6 +28,12 @@ public class OptimizationCreativeService {
     private final CreationEngineClient engine;
     private final CreationWorkflowService workflow;
     private final ObjectMapper json;
+    private GenerationCharges charges;
+    private EngineExecutionTickets tickets;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void workspaceGeneration(GenerationCharges charges, EngineExecutionTickets tickets) {
+        this.charges=charges; this.tickets=tickets;
+    }
     private com.lynx.ad.modules.creative.application.MaterialCreativeContextService creativeContexts;
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(com.lynx.ad.modules.creative.application.MaterialCreativeContextService value){creativeContexts=value;}
     public OptimizationCreativeService(OptimizationStore policies,OptimizationAutomationStore journal,OptimizationCreativeStore jobs,
@@ -74,20 +82,61 @@ public class OptimizationCreativeService {
     }
     private void advance(Job job){
         var body=(ObjectNode)job.body().deepCopy();body.remove("error");
+        String chargeKey="optimization:"+job.id();
         // First reconcile an already submitted publication, even if a user has since revoked authorization.
         if(Set.of("PUBLISHING","REMOVING").contains(job.status())){reconcile(job,body);return;}
         AdPlan p;OptimizationStore.State state;
         try{p=gateway.plan(job.tenant(),job.planId());state=active(p,job.version());}
-        catch(BizException ex){body.put("error",ex.getMessage());jobs.update(job,"CANCELLED",body);return;}
+        catch(BizException ex){
+            if(Set.of("QUEUED","GENERATING","UNKNOWN").contains(job.status())){
+                var receipt=monitoring.creative(job.tenant(),"/"+CreationEngineClient.query(job.id()),null);
+                if(receipt!=null){
+                    String engineId=receipt.path("job_id").asText();
+                    if(engineId.isBlank()||!job.id().equals(receipt.path("request_id").asText()))return;
+                    var result=engine.get("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(engineId)+"?store_id="+CreationEngineClient.query(job.tenant()));
+                    if(!engineId.equals(result.path("job_id").asText())||!terminal(result))return;
+                    var delivered=parse(result,job.productId(),body.path("strategy").path("target").asText(),engineId);
+                    if(delivered!=null){
+                        body.put("engine_job_id",engineId);
+                        body.set("material",json.valueToTree(delivered));
+                        settle(job,chargeKey,true);
+                        body.put("error","生成已完成；原盯盘授权失效，未自动发布");
+                        jobs.update(job,"REVIEW",body);return;
+                    }
+                }
+            }
+            settle(job,chargeKey,false);
+            body.put("error",ex.getMessage());jobs.update(job,"CANCELLED",body);return;
+        }
         if(Set.of("PLATFORM_REVIEW","TRIAL").contains(job.status())){evaluateTrial(p,state,job,body);return;}
         // Persisted request lookup precedes every possible retry. Unknown receipts never cause another generation.
         if(Set.of("QUEUED","GENERATING","UNKNOWN").contains(job.status())){
             var receipt=monitoring.creative(job.tenant(),"/"+CreationEngineClient.query(job.id()),null);
             if(receipt==null){
                 gateway.tactics().generationState(p,state.policy(),job.productId());
+                String ticket;
+                try {
+                    var request=body.path("request");
+                    var actor=state.policy().creativeGeneration().authorizedBy();
+                    if(charges!=null){
+                        charges.hold(job.tenant(),chargeKey,request.path("account_id").asText(),actor,
+                                Map.of(GenerationCharges.kind(body.path("strategy").path("target").asText()),1));
+                        charges.validate(job.tenant(),chargeKey);
+                    }
+                    var ticketBody=(ObjectNode)request.deepCopy();
+                    ticketBody.putObject("operator").put("user_id",actor);
+                    ticket=tickets==null?null:tickets.header(ticketBody);
+                }catch(BizException denied){
+                    settle(job,chargeKey,false);
+                    body.put("error",denied.getMessage());jobs.update(job,"FAILED",body);return;
+                }
                 // Engine's durable request ID is reused with exactly the same saved payload, including after a restart.
                 jobs.update(job,"GENERATING",body);job=jobs.get(job.tenant(),job.id()).orElseThrow();
-                try{receipt=monitoring.creative(job.tenant(),"",body.path("request"));}catch(BizException ex){body.put("error",ex.getMessage());jobs.update(job,ex.code()==8002?"FAILED":"UNKNOWN",body);return;}
+                try{receipt=ticket==null?monitoring.creative(job.tenant(),"",body.path("request")):monitoring.creative(job.tenant(),"",body.path("request"),ticket);}
+                catch(BizException ex){
+                    if(ex.code()==8002)settle(job,chargeKey,false);
+                    body.put("error",ex.getMessage());jobs.update(job,ex.code()==8002?"FAILED":"UNKNOWN",body);return;
+                }
             }
             if(receipt==null||!job.id().equals(receipt.path("request_id").asText()))throw new BizException(8002,"引擎生成回执不匹配");
             String engineId=receipt.path("job_id").asText("");if(engineId.isBlank()){
@@ -96,9 +145,10 @@ public class OptimizationCreativeService {
             body.put("engine_job_id",engineId);var result=engine.get("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(engineId)+"?store_id="+CreationEngineClient.query(job.tenant()));
             if(!engineId.equals(result.path("job_id").asText()))throw new BizException(8002,"生成任务响应归属不匹配");
             for(var direction:result.path("direction_planning"))if("group-1".equals(direction.path("group_id").asText())&&job.productId().equals(direction.path("product_id").asText())&&body.path("strategy").path("target").asText().equals(direction.path("target").asText()))body.set("directionPlan",direction);
-            if(!Set.of("succeeded","partial_failed","failed","cancelled").contains(result.path("status").asText())){if("UNCERTAIN".equals(receipt.path("status").asText())||job.createdAt().plusSeconds(7200).isBefore(Instant.now())){body.put("error","原生成任务尚未完成或投递不明确，请核查引擎任务 "+engineId+"；不会创建重复任务，可停止本批后续发布");jobs.update(job,"UNKNOWN",body);}else jobs.update(job,"GENERATING",body);return;}
+            if(!terminal(result)){if("UNCERTAIN".equals(receipt.path("status").asText())||job.createdAt().plusSeconds(7200).isBefore(Instant.now())){body.put("error","原生成任务尚未完成或投递不明确，请核查引擎任务 "+engineId+"；不会创建重复任务，可停止本批后续发布");jobs.update(job,"UNKNOWN",body);}else jobs.update(job,"GENERATING",body);return;}
             var material=parse(result,job.productId(),body.path("strategy").path("target").asText(),engineId);
-            if(material==null){String reason=body.path("directionPlan").path("failure_reason").asText();body.put("error",reason.isBlank()?"未生成符合当前策略的完整素材，请查看引擎任务":"素材方向规划未通过，任务已停止："+reason);jobs.update(job,"FAILED",body);return;}
+            if(material==null){settle(job,chargeKey,false);String reason=body.path("directionPlan").path("failure_reason").asText();body.put("error",reason.isBlank()?"未生成符合当前策略的完整素材，请查看引擎任务":"素材方向规划未通过，任务已停止："+reason);jobs.update(job,"FAILED",body);return;}
+            if(!state.policy().creativeGeneration().autoPublish())settle(job,chargeKey,true);
             body.set("material",json.valueToTree(material));jobs.update(job,state.policy().creativeGeneration().autoPublish()?"SYNCING":"REVIEW",body);
             journal.notice(job.tenant(),job.planId(),"OPTIMIZATION_EXECUTION","自动生成素材已完成",state.policy().creativeGeneration().autoPublish()?"正在同步所选账户，等待发布检查":"请到自动盯盘页面审核素材并确认发布");return;
         }
@@ -107,8 +157,9 @@ public class OptimizationCreativeService {
             if(!state.policy().creativeGeneration().autoPublish()&&!body.path("approved").asBoolean())throw new BizException(1802,"生成素材尚未确认发布");
             var context=gateway.tactics().generationState(p,state.policy(),job.productId());
             CreationState.Material material=material(body);workflow.importOptimizationMaterial(context,material);body.set("material",json.valueToTree(material));
-            if("FAILED".equals(material.status)){body.put("error",material.error);jobs.update(job,"FAILED",body);return;}
+            if("FAILED".equals(material.status)){settle(job,chargeKey,false);body.put("error",material.error);jobs.update(job,"FAILED",body);return;}
             if(!"READY".equals(material.status)){jobs.update(job,"SYNCING",body);return;}
+            settle(job,chargeKey,true);
             if(creativeContexts!=null&&!body.path("approved").asBoolean()){
                 creativeContexts.hydrate(context,material);body.set("material",json.valueToTree(material));
                 if("FAILED".equals(material.creativeProfileStatus)){body.put("error","实际素材场景尚未确认，已转为人工审核，不自动发布");jobs.update(job,"REVIEW",body);return;}
@@ -121,6 +172,13 @@ public class OptimizationCreativeService {
             if(!readyToEnqueue(p,state,job,action,report,body)){jobs.update(job,"SYNCING",body);return;}
             jobs.update(job,"SYNCING",body);job=jobs.get(job.tenant(),job.id()).orElseThrow();jobs.enqueue(job,action,report);
         }
+    }
+    private static boolean terminal(JsonNode result){
+        return Set.of("succeeded","partial_failed","failed","cancelled").contains(result.path("status").asText());
+    }
+    private void settle(Job job,String chargeKey,boolean delivered){
+        if(charges!=null)charges.finish(job.tenant(),chargeKey,delivered
+                ?Map.of(GenerationCharges.kind(job.body().path("strategy").path("target").asText()),1):Map.of());
     }
     private void reconcile(Job job,ObjectNode body){
         String field="REMOVING".equals(job.status())?"removal_event_id":"publication_event_id";var event=journal.event(job.tenant(),body.path(field).asText()).orElse(null);

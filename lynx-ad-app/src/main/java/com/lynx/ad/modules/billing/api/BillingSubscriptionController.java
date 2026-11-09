@@ -108,13 +108,17 @@ public class BillingSubscriptionController {
     }
 
     @PostMapping(value = "/payments/wechat/notify", consumes = MediaType.ALL_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public String wechatNotify(@RequestBody(required = false) String body, jakarta.servlet.http.HttpServletRequest request) {
+    public org.springframework.http.ResponseEntity<String> wechatNotify(@RequestBody(required = false) String body, jakarta.servlet.http.HttpServletRequest request) {
         Map<String, String> headers = new HashMap<>();
         Enumeration<String> names = request.getHeaderNames();
         while (names.hasMoreElements()) {
             String name = names.nextElement();
             headers.put(name, request.getHeader(name));
         }
-        return paymentCommandService.wechatNotify(body == null ? "" : body, headers);
+        try { return org.springframework.http.ResponseEntity.ok(paymentCommandService.wechatNotify(body == null ? "" : body, headers)); }
+        catch (BizException failure) {
+            int status = failure.code() == 1609 ? 400 : 500;
+            return org.springframework.http.ResponseEntity.status(status).body("{\"code\":\"FAIL\",\"message\":\"支付通知未确认\"}");
+        }
     }
 }

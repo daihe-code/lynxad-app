@@ -17,6 +17,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PlanSyncService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
     public record SyncAccount(String accountId,int plans,List<String> warnings) {}
     public record SyncResult(List<SyncAccount> accounts,Instant completedAt) {}
     private final AdPlanRepository plans;
@@ -48,7 +50,9 @@ public class PlanSyncService {
         if (selectedAccount != null && accounts.findById(tenant, new AccountId(selectedAccount)).isEmpty())
             throw new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户");
         List<SyncAccount> results=new ArrayList<>();
+        var allowed=workspace==null?java.util.Optional.<java.util.Set<String>>empty():workspace.readableBindings(tenant.value());
         for(var account:accounts.findByTenant(tenant)) {
+            if(allowed.isPresent()&&!allowed.get().contains(account.id().value()))continue;
             if(account.platform()!=com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN || (live && account.grantId()==null)) continue;
             if(!"ACTIVE".equals(account.status()) || (selectedAccount!=null && !selectedAccount.equals(account.id().value()))) continue;
             List<String> warnings=new ArrayList<>(); int count=0;

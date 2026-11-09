@@ -20,10 +20,17 @@ import { accountNavigation } from '@/features/tenant/accountNavigation';
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import AccountIcon from './AccountIcon.vue';
+import { useUserStore } from '@/stores/user';
 const props = defineProps<{
     active: string;
 }>();
-const menus = accountNavigation;
-const current = computed(() => menus.find(item => item.key === props.active));
+const user = useUserStore();
+const menus = computed(() => accountNavigation.filter(item => {
+  const role = user.me?.memberRole;
+  if (role === 'FINANCE') return ['workspace','billing','info'].includes(item.key);
+  if (role === 'VIEWER') return ['workspace','info'].includes(item.key);
+  return item.key !== 'billing' || !role || role === 'OWNER';
+}));
+const current = computed(() => menus.value.find(item => item.key === props.active));
 </script>
 <style src="./account.css"></style>

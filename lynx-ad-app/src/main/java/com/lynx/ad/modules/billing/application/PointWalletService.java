@@ -25,7 +25,7 @@ public class PointWalletService {
         return value.setScale(4);
     }
     private void key(String key,int max) {if(key==null||key.isBlank()||key.length()>max)throw new BizException(1901,"积分记账标识无效");}
-    private Optional<Reservation> reservation(String tenant,String task) {
+    Optional<Reservation> reservation(String tenant,String task) {
         return jdbc.query("SELECT * FROM point_reservation WHERE tenant_id=? AND task_key=?",(r,i)->new Reservation(r.getString("id"),tenant,task,r.getString("binding_id"),r.getString("actor_user_id"),r.getBigDecimal("amount"),r.getBigDecimal("settled"),r.getString("status")),tenant,task).stream().findFirst();
     }
     private void ledger(String tenant,String event,String type,BigDecimal value,Reservation r) {
@@ -34,6 +34,10 @@ public class PointWalletService {
     /** Internal settlement/payment integration only; there is deliberately no end-user credit API. */
     @Transactional
     public Wallet credit(String tenant,String event,BigDecimal value) {
+        return credit(tenant,event,value,null);
+    }
+    @Transactional
+    public Wallet credit(String tenant,String event,BigDecimal value,String actor) {
         key(event,160);value=amount(value,false);lock(tenant);
         var old=jdbc.queryForList("SELECT event_type,amount FROM point_ledger WHERE tenant_id=? AND event_key=?",tenant,event);
         if(!old.isEmpty()) {
@@ -41,7 +45,9 @@ public class PointWalletService {
             return balance(tenant);
         }
         jdbc.update("UPDATE point_wallet SET available=available+?,version=version+1 WHERE tenant_id=?",value,tenant);
-        ledger(tenant,event,"CREDIT",value,null);return balance(tenant);
+        jdbc.update("INSERT INTO point_ledger(id,tenant_id,event_key,event_type,amount,actor_user_id) VALUES(?,?,?,'CREDIT',?,?)",
+                UUID.randomUUID().toString(),tenant,event,value,actor);
+        return balance(tenant);
     }
     @Transactional
     public Reservation reserve(String tenant,String task,String binding,String actor,BigDecimal value) {
@@ -92,6 +98,6 @@ public class PointWalletService {
     }
     public List<Map<String,Object>> ledger(String tenant,int page,int size) {
         int limit=Math.clamp(size,1,100),offset=(Math.clamp(page,1,10000)-1)*limit;
-        return jdbc.queryForList("SELECT event_type,amount,binding_id,actor_user_id,reservation_id,created_at FROM point_ledger WHERE tenant_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",tenant,limit,offset);
+        return jdbc.queryForList("SELECT event_key,event_type,amount,binding_id,actor_user_id,reservation_id,created_at FROM point_ledger WHERE tenant_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",tenant,limit,offset);
     }
 }

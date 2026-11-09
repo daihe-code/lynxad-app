@@ -45,6 +45,8 @@ management:
 # 开发、试用、正式共用这棵树。本机 dev 用字面量覆盖两枝连接。
 lynx:
   ad:
+    workspace-pricing:
+      enabled: ${LYNXAD_WORKSPACE_PRICING_ENABLED:false}
     monitoring:
       api-key: ${LYNXAD_MONITORING_API_KEY:}
       engine-api-key: ${LYNXAD_ENGINE_API_KEY:}

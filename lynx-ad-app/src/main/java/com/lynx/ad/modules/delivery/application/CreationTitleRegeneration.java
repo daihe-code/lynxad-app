@@ -15,6 +15,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class CreationTitleRegeneration {
     private final CreationStore store;private final CreationEngineClient engine;private final CreationAssetImporter importer;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.billing.application.GenerationCharges charges;
+    private static String chargeKey(CreationState s,String request){return "title:"+s.planId+":"+request;}
+    private void charge(CreationState s,String request,boolean delivered){if(charges!=null)charges.finish(s.tenantId,chargeKey(s,request),delivered?Map.of("title",1):Map.of());}
     public CreationTitleRegeneration(CreationStore store,CreationEngineClient engine,CreationAssetImporter importer){this.store=store;this.engine=engine;this.importer=importer;}
     public CreationState submit(CreationState s,String product,String kind,int index,String original) {
         return submit(s,product,kind,index,original,false,UUID.randomUUID().toString());
@@ -38,11 +42,12 @@ public class CreationTitleRegeneration {
         var existing=new ArrayList<>(before);if(existing.isEmpty())existing.add(reference);
         var reserved=store.mutate(s.tenantId,s.planId,s.revision,current->{
             if(current.titleGenerationPending())throw new BizException(1404,"标题正在生成，请等待本次结果");
+            if(charges!=null)charges.hold(current.tenantId,chargeKey(current,request),current.accountId,current.userId,Map.of("title",1));
             var r=new CreationState.TitleGeneration();r.requestId=request;r.productId=product;r.kind=kind;r.index=index;r.original=reference;r.before=before;r.addition=addition;r.sentAt=System.currentTimeMillis();r.message=addition?"正在生成新增标题":"正在重新生成标题";
             current.titleGeneration=r;current.changed();
         });
         JsonNode result;
-        try {result=engine.post("/api/v1/capabilities/generation/titles",Map.of("store_id",s.tenantId,"account_id",Objects.toString(s.accountId,""),"request_id",request,"product_id",product,"kind",kind,
+        try {if(charges!=null)charges.validate(s.tenantId,chargeKey(s,request));result=engine.post("/api/v1/capabilities/generation/titles",Map.of("store_id",s.tenantId,"account_id",Objects.toString(s.accountId,""),"request_id",request,"product_id",product,"kind",kind,
                 "original",reference,"existing_titles",existing,"product_name",p.name(),"category",Objects.toString(p.category(),"")));}
         catch(BizException error) {
             if(error.code()!=8003)return finish(reserved,request,"FAILED","标题生成未完成，原标题已保留，请重试。");
@@ -78,13 +83,13 @@ public class CreationTitleRegeneration {
             if(!owns(current,request))return;
             var pool=ProductTitlePool.of(current,r.productId);
             if(!ProductTitlePool.values(pool,card).equals(r.before)||!Set.of("NONE","FAILED").contains(current.publishStatus)||current.publishedEdit!=null&&!"DRAFT".equals(current.publishedEdit.status)) {
-                current.titleGeneration.status="FAILED";current.titleGeneration.message="标题或计划已变化，生成结果未覆盖当前内容。";current.changed();return;
+                charge(current,request,false);current.titleGeneration.status="FAILED";current.titleGeneration.message="标题或计划已变化，生成结果未覆盖当前内容。";current.changed();return;
             }
             var generated=ProductTitlePool.generated(pool,card);generated.retainAll(titles);generated.add(title);
             if(card){pool.cardTitles=titles;pool.cardTextAssetId=text;}else{pool.customTitles=titles;pool.customTextAssetId=text;}
-            current.titlePools.put(r.productId,pool);current.titleGeneration.status="SUCCEEDED";current.titleGeneration.message=r.addition?"标题已新增":"标题已重新生成";current.mediaChanged();
+            charge(current,request,true);current.titlePools.put(r.productId,pool);current.titleGeneration.status="SUCCEEDED";current.titleGeneration.message=r.addition?"标题已新增":"标题已重新生成";current.mediaChanged();
         });
     }
     private static boolean owns(CreationState s,String request){return s.titleGenerationPending()&&request.equals(s.titleGeneration.requestId);}
-    private CreationState finish(CreationState s,String request,String status,String message){return store.mutate(s.tenantId,s.planId,null,current->{if(owns(current,request)){current.titleGeneration.status=status;current.titleGeneration.message=current.titleGeneration.addition?message.replace("原标题","已有标题"):message;current.changed();}});}
+    private CreationState finish(CreationState s,String request,String status,String message){return store.mutate(s.tenantId,s.planId,null,current->{if(owns(current,request)){if("FAILED".equals(status))charge(current,request,false);current.titleGeneration.status=status;current.titleGeneration.message=current.titleGeneration.addition?message.replace("原标题","已有标题"):message;current.changed();}});}
 }

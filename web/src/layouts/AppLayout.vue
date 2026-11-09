@@ -16,10 +16,10 @@
           {{ usesReferenceHeader ? '灵投智营' : '灵投' }}
         </router-link>
         <el-menu id="app-navigation" mode="horizontal" :ellipsis="false" :default-active="active" @select="navOpen = false" :class="{ 'mobile-menu-open': usesReferenceHeader && navOpen }" router>
-          <el-menu-item index="/campaigns">广告投放</el-menu-item>
-          <el-menu-item index="/monitoring">全店盯盘</el-menu-item>
-          <el-menu-item index="/creatives">素材中心</el-menu-item>
-          <el-menu-item v-if="!usesReferenceHeader" index="/analytics">数据分析</el-menu-item>
+          <el-menu-item v-if="user.me?.memberRole !== 'FINANCE'" index="/campaigns">广告投放</el-menu-item>
+          <el-menu-item v-if="businessWriteRole" index="/monitoring">全店盯盘</el-menu-item>
+          <el-menu-item v-if="businessWriteRole" index="/creatives">素材中心</el-menu-item>
+          <el-menu-item v-if="businessWriteRole && !usesReferenceHeader" index="/analytics">数据分析</el-menu-item>
           <el-menu-item index="/accounts">账户管理</el-menu-item>
         </el-menu>
       </div>
@@ -27,7 +27,7 @@
         <button v-if="usesReferenceHeader" class="nav-toggle" type="button" :aria-label="navOpen ? '收起导航' : '展开导航'" aria-controls="app-navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" /></svg></button>
         <WorkspacePicker />
         <AdvertisingAccountPicker v-if="showAdvertisingAccount" />
-        <NotificationCenter />
+        <NotificationCenter v-if="businessWriteRole" />
         <UserMenu v-if="usesReferenceHeader" />
         <template v-else><span class="who">{{ user.me?.nickname || user.me?.phone || "用户" }}</span><el-button text @click="onLogout">退出</el-button></template>
       </div>
@@ -70,6 +70,7 @@ import ReferenceFooter from "@/pages/campaigns/reference/ReferenceFooter.vue";
 import "@/pages/campaigns/reference/reference.css";
 
 const user = useUserStore();
+const businessWriteRole = computed(() => !['FINANCE','VIEWER'].includes(user.me?.memberRole || ''));
 const route = useRoute();
 const advertisingAccounts = useAdvertisingAccountsStore();
 const showAdvertisingAccount = computed(() => ['/campaigns', '/monitoring', '/creatives'].includes(route.path));

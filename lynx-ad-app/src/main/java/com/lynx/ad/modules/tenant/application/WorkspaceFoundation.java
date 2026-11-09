@@ -10,6 +10,10 @@ public class WorkspaceFoundation {
     private final JdbcTemplate jdbc;
     public WorkspaceFoundation(JdbcTemplate jdbc) { this.jdbc=jdbc; }
 
+    public boolean hasMembership(String userId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM tenant_member WHERE user_id=?",Integer.class,userId) > 0;
+    }
+
     @Transactional
     public void ensure(String tenant) {
         if(jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? AND status='ACTIVE' FOR UPDATE",String.class,tenant).isEmpty())

@@ -226,7 +226,7 @@ const account = computed(() => {
   return { key: `${p.accountId}:${p.awemeId}`, awemeName: aweme?.name || (known ? p.awemeId : '暂未获取抖音号'), awemeId: known ? p.awemeId : '—', avatar: aweme?.avatar };
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
-const canEdit = computed(() => user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
+const canEdit = computed(() => user.me?.memberRole !== 'VIEWER' && user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
 const productAdjustmentAvailable = computed(() => editing.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
 const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);

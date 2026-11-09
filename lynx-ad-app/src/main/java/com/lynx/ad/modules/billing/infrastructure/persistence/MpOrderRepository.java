@@ -156,6 +156,7 @@ public class MpOrderRepository implements OrderRepository {
     public Optional<BillingOrder> findPendingPay(TenantId tenantId) {
         BillingOrderPo po = mapper.selectOne(new LambdaQueryWrapper<BillingOrderPo>()
                 .eq(BillingOrderPo::getTenantId, tenantId.value())
+                .ne(BillingOrderPo::getType, "POINT_RECHARGE")
                 .eq(BillingOrderPo::getStatus, OrderStatus.PENDING_PAY.name())
                 .last("limit 1"));
         return Optional.ofNullable(po).map(MpOrderRepository::toDomain);
@@ -165,6 +166,7 @@ public class MpOrderRepository implements OrderRepository {
     public boolean hasPaidPlan(TenantId tenantId, PlanCode planCode) {
         return mapper.selectCount(new LambdaQueryWrapper<BillingOrderPo>()
                         .eq(BillingOrderPo::getTenantId, tenantId.value())
+                        .ne(BillingOrderPo::getType, "POINT_RECHARGE")
                         .eq(BillingOrderPo::getPlanCode, planCode.name())
                         .eq(BillingOrderPo::getStatus, OrderStatus.PAID.name()))
                 > 0;

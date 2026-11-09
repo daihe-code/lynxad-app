@@ -36,8 +36,8 @@ export const useUserStore = defineStore("user", () => {
     return loadMe();
   }
 
-  async function loginBySms(phone: string, code: string) {
-    return afterLogin(await smsLogin(phone, code));
+  async function loginBySms(phone: string, code: string, invite?: string) {
+    return afterLogin(await smsLogin(phone, code, invite));
   }
 
   async function loginByPassword(phone: string, password: string) {
@@ -64,6 +64,8 @@ export const useUserStore = defineStore("user", () => {
     if (!me.value) await loadMe();
     if (welcomeAcknowledged.value === null) await loadWelcome();
     if (!welcomeAcknowledged.value) return "/welcome";
+    if (me.value?.memberRole === 'FINANCE') return '/accounts?tab=workspace';
+    if (me.value?.memberRole === 'VIEWER') return '/campaigns';
     return loginLandingPath();
   }
 

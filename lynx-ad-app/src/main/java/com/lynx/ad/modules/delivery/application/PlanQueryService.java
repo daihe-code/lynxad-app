@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class PlanQueryService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
     private final AdPlanRepository plans;
     private final MetricSnapshotRepository snapshots;
     private final ProductRepository products;
@@ -214,7 +216,9 @@ public class PlanQueryService {
         Map<String,List<Product>> catalogs=new HashMap<>();
         Set<String> authorized=new HashSet<>();
         Set<String> realAccounts=new HashSet<>();
+        var allowed=workspace==null?java.util.Optional.<Set<String>>empty():workspace.readableBindings(tenant.value());
         for(var account:accounts.findByTenant(tenant)) {
+            if(allowed.isPresent()&&!allowed.get().contains(account.id().value()))continue;
             if(account.platform()!=com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN) continue;
             if(!liveAuthorization || account.grantId()!=null) realAccounts.add(account.id().value());
             if(realAccounts.contains(account.id().value()) && "ACTIVE".equals(account.status()) &&

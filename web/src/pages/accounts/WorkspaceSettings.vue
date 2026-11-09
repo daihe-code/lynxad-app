@@ -1,12 +1,14 @@
 <template>
   <div v-loading="loading" class="workspace-settings">
     <template v-if="overview">
-      <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceRoles[overview.role] || overview.role }}</el-tag><span>广告账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
+      <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceRoles[overview.role] || overview.role }}</el-tag><span>千川账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
+      <WorkspaceRecharge v-if="overview.role === 'OWNER'" @paid="load" />
       <section v-if="overview.wallet" class="wallet-grid" aria-label="工作空间积分">
         <div><span>可用积分</span><strong>{{ number(overview.wallet.available) }}</strong></div>
         <div><span>预占积分</span><strong>{{ number(overview.wallet.frozen) }}</strong></div>
         <div><span>已消耗积分</span><strong>{{ number(overview.wallet.consumed) }}</strong></div>
       </section>
+      <WorkspaceTeam v-if="overview.role === 'OWNER'" />
       <div class="section-heading"><h3>客户分组</h3><el-button v-if="canManage" text type="primary" @click="editClient()">新增分组</el-button></div>
       <div class="client-groups"><span v-for="client in overview.clientSpaces" :key="client.id"><b>{{ client.name }}</b><template v-if="canManage"><el-button text size="small" @click="editClient(client)">重命名</el-button><el-button v-if="!client.is_default" text size="small" type="danger" @click="removeClient(client)">删除</el-button></template></span></div>
       <h3>账户绑定</h3>
@@ -28,6 +30,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/user';
+import WorkspaceTeam from './WorkspaceTeam.vue';
+import WorkspaceRecharge from './WorkspaceRecharge.vue';
 import { workspaceOverview, workspaceAccounts, pointEntries, saveClientSpace, deleteClientSpace, assignClientSpace, workspaceRoles, type WorkspaceOverview, type AccountBinding, type ClientSpace, type PointEntry } from '@/features/tenant/workspaceApi';
 const user = useUserStore(), overview = ref<WorkspaceOverview>(), accounts = ref<AccountBinding[]>([]), entries = ref<PointEntry[]>([]), page = ref(1), loading = ref(true);
 const canManage = computed(() => ['OWNER', 'ADMIN'].includes(overview.value?.role || ''));

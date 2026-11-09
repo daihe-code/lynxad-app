@@ -113,7 +113,7 @@
             <span>返回首页</span>
           </router-link>
 
-          <h1 class="auth-title">登录/注册</h1>
+          <h1 class="auth-title">{{ invitation ? '激活子账户' : '登录/注册' }}</h1>
           <p class="auth-subtitle">开启智能广告投放新体验</p>
           <p v-if="resetSuccess" class="auth-subtitle" role="status">密码已重置，请使用新密码登录。</p>
 
@@ -122,7 +122,7 @@
                     :aria-selected="tab === 'sms'" :tabindex="tab === 'sms' ? 0 : -1" aria-controls="panel-code" @click="switchTab('sms')" @keydown="onTabKeydown($event, 'sms')">
               验证码登录/注册
             </button>
-            <button class="auth-tab" type="button" role="tab" id="tab-password"
+            <button v-if="!invitation" class="auth-tab" type="button" role="tab" id="tab-password"
                     :aria-selected="tab === 'password'" :tabindex="tab === 'password' ? 0 : -1" aria-controls="panel-password" @click="switchTab('password')" @keydown="onTabKeydown($event, 'password')">
               密码登录
             </button>
@@ -273,9 +273,10 @@ import { useUserStore } from "@/stores/user";
 import { isCnMobile } from "@/utils/phone";
 
 const route = useRoute(), router = useRouter(), user = useUserStore();
+const invitation = new URLSearchParams(route.hash.slice(1)).get('invite') || undefined;
 type LoginTab = "sms" | "password";
 type FieldKey = "smsPhone" | "code" | "pwdPhone" | "password" | "newPassword" | "confirmPassword";
-const tab = ref<LoginTab>(route.query.tab === "password" ? "password" : "sms");
+const tab = ref<LoginTab>(!invitation && route.query.tab === "password" ? "password" : "sms");
 const phone = ref(""), code = ref(""), pwdPhone = ref(""), password = ref("");
 const agreed = ref(false), showPassword = ref(false);
 const resetting = ref(false), resetSuccess = ref(false), newPassword = ref(""), confirmPassword = ref("");
@@ -422,7 +423,7 @@ async function onSmsLogin() {
   if (loading.value || !validateForm(["smsPhone", "code"])) return;
   loading.value = true;
   try {
-    await user.loginBySms(phone.value.trim(), code.value.trim());
+    await user.loginBySms(phone.value.trim(), code.value.trim(), invitation);
     if (!disposed) await afterLogin();
   } catch { /* The API interceptor reports failed authentication. */ }
   finally { loading.value = false; }

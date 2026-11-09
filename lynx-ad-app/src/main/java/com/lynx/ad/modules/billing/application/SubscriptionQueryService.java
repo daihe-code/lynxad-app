@@ -178,7 +178,9 @@ public class SubscriptionQueryService {
 
     private BillItemView toBill(BillingOrder order) {
         String title;
-        if (order.type() == OrderType.UPGRADE) {
+        if (order.type() == OrderType.POINT_RECHARGE) {
+            title = "工作空间积分充值";
+        } else if (order.type() == OrderType.UPGRADE) {
             String from = order.fromPlanCode() == null ? "" : order.fromPlanCode().displayName();
             title = from + " → " + order.planCode().displayName() + " · 差价补缴";
         } else if (order.discountLabel() != null && !order.discountLabel().isBlank()) {

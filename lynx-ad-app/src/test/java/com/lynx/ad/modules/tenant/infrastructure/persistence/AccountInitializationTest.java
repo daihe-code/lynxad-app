@@ -66,7 +66,7 @@ class AccountInitializationTest {
         jdbc = new JdbcTemplate(ds);
         jdbc.execute("CREATE TABLE sys_user(id VARCHAR(36) PRIMARY KEY,phone VARCHAR(20) UNIQUE NOT NULL,password_hash VARCHAR(128),status VARCHAR(16),created_at TIMESTAMP)");
         jdbc.execute("CREATE TABLE sys_tenant(id VARCHAR(36) PRIMARY KEY,name VARCHAR(128) NOT NULL,status VARCHAR(16),created_at TIMESTAMP)");
-        jdbc.execute("CREATE TABLE tenant_member(tenant_id VARCHAR(36) REFERENCES sys_tenant(id),user_id VARCHAR(36) REFERENCES sys_user(id),member_role VARCHAR(16),created_at TIMESTAMP,PRIMARY KEY(tenant_id,user_id))");
+        jdbc.execute("CREATE TABLE tenant_member(tenant_id VARCHAR(36) REFERENCES sys_tenant(id),user_id VARCHAR(36) REFERENCES sys_user(id),member_role VARCHAR(16),created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(tenant_id,user_id))");
         jdbc.execute("CREATE TABLE user_profile(user_id VARCHAR(36) PRIMARY KEY REFERENCES sys_user(id),nickname VARCHAR(64),email VARCHAR(128),avatar_url VARCHAR(512),company_name VARCHAR(128),industry VARCHAR(64),position VARCHAR(64),monthly_budget VARCHAR(64),ad_experience VARCHAR(64),core_demand VARCHAR(128),company_scale VARCHAR(64),completed_at TIMESTAMP)");
         jdbc.execute("CREATE TABLE billing_trial(tenant_id VARCHAR(36) PRIMARY KEY,started_at TIMESTAMP NOT NULL,expires_at TIMESTAMP NOT NULL)");
         jdbc.execute("CREATE TABLE user_welcome_ack(user_id VARCHAR(36) PRIMARY KEY REFERENCES sys_user(id),acknowledged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)");
@@ -77,6 +77,8 @@ class AccountInitializationTest {
         jdbc.execute("CREATE TABLE client_space(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36),name VARCHAR(128),is_default BOOLEAN)");
         jdbc.execute("CREATE TABLE point_wallet(tenant_id VARCHAR(36) PRIMARY KEY,available NUMERIC(20,4) DEFAULT 0,frozen NUMERIC(20,4) DEFAULT 0,consumed NUMERIC(20,4) DEFAULT 0,version BIGINT DEFAULT 1)");
         jdbc.execute("CREATE TABLE workspace_session_revocation(session_id VARCHAR(64) PRIMARY KEY,expires_at TIMESTAMP)");
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new org.springframework.core.io.ClassPathResource("db/migration/V53__workspace_team_and_points.sql")).execute(ds);
         var config = new MybatisConfiguration();
         config.setMapUnderscoreToCamelCase(true);
         for (Class<?> mapper : List.of(UserMapper.class, UserProfileMapper.class, TenantMapper.class, TenantMemberMapper.class)) config.addMapper(mapper);
@@ -100,6 +102,14 @@ class AccountInitializationTest {
         context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(ds));
         context.registerBean(JdbcTemplate.class, () -> jdbc);
         context.registerBean(WorkspaceFoundation.class, () -> new WorkspaceFoundation(jdbc));
+        context.registerBean(WorkspaceAccess.class);
+        context.registerBean(WorkspacePricing.class);
+        context.registerBean(EntitlementQueryService.class, () -> {
+            var limits=mock(EntitlementQueryService.class);
+            when(limits.childAccountLimit(any())).thenReturn(1);
+            return limits;
+        });
+        context.registerBean(WorkspaceTeamService.class);
         context.registerBean(UserRepository.class, () -> users);
         context.registerBean(TenantRepository.class, () -> new MpTenantRepository(session.getMapper(TenantMapper.class), session.getMapper(TenantMemberMapper.class)));
         context.registerBean(BillingTrialService.class, () -> trials);
@@ -203,12 +213,35 @@ class AccountInitializationTest {
         database(mode);
         var owner = jwt.parse(login("13900008803").path("token").asText());
         PhoneNumber invited = new PhoneNumber("13900008804");
-        when(invitations.findByPhone(invited)).thenReturn(Optional.of(new MemberInvitation(invited, owner.tenantId().orElseThrow(), Instant.now().plusSeconds(3600))));
-        var member = jwt.parse(login(invited.value()).path("token").asText());
+        var team=context.getBean(WorkspaceTeamService.class);
+        String invitation;
+        try {
+            TenantContext.set(owner);
+            invitation=team.invite(invited,MemberRole.OPERATOR).token();
+            assertThrows(com.lynx.ad.common.exception.BizException.class,
+                    () -> team.invite(new PhoneNumber("13900008809"),MemberRole.VIEWER));
+        } finally { TenantContext.clear(); }
+        var bad=call("POST","/api/v1/tenant/auth/sms/login",
+                json.writeValueAsString(Map.of("phone","13900008809","code","123456","invite",invitation)),null);
+        assertNotEquals(0,bad.path("code").asInt());
+        var result=call("POST","/api/v1/tenant/auth/sms/login",
+                json.writeValueAsString(Map.of("phone",invited.value(),"code","123456","invite",invitation)),null);
+        assertEquals(0,result.path("code").asInt(),result.toString());
+        var member = jwt.parse(result.path("data").path("token").asText());
         assertEquals(owner.tenantId(), member.tenantId());
-        assertEquals(MemberRole.MEMBER, member.memberRole().orElseThrow());
+        assertEquals(MemberRole.OPERATOR, member.memberRole().orElseThrow());
         assertEquals(1, count("sys_tenant")); assertEquals(2, count("tenant_member")); assertEquals(1, count("billing_trial"));
         assertEquals(0, count("user_profile"));
+        try {
+            TenantContext.set(owner);
+            var child=team.list().members().getFirst();
+            team.update(child.id(),MemberRole.OPERATOR,false);
+            assertEquals(0,team.list().used());
+            TenantContext.set(member);
+            assertThrows(com.lynx.ad.common.exception.BizException.class,() -> context.getBean(WorkspaceAccess.class).current());
+        } finally { TenantContext.clear(); }
+        assertThrows(com.lynx.ad.common.exception.BizException.class,() -> auth.smsLogin(invited,"123456"));
+        assertEquals(1,count("sys_tenant"));
     }
 
     @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})

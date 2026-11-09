@@ -6,7 +6,7 @@
         <div class="statistics-picker">
           <el-date-picker v-model="rangeDraft" type="daterange" value-format="YYYY-MM-DD" format="YYYY-MM-DD" range-separator="至" start-placeholder="统计开始日期" end-placeholder="统计结束日期" :clearable="false" :shortcuts="rangeShortcuts" :disabled-date="disabledStatisticsDate" popper-class="campaign-date-picker" @calendar-change="onRangeCalendar" @visible-change="onRangeVisible" @change="applyStatisticsRange" />
         </div>
-        <el-button class="square-button" :loading="syncing" aria-label="刷新数据" @click="syncRemote"><el-icon><Refresh /></el-icon></el-button>
+        <el-button class="square-button" :loading="syncing || (readOnlyRole && loading)" aria-label="刷新数据" @click="readOnlyRole ? load() : syncRemote()"><el-icon><Refresh /></el-icon></el-button>
       </div>
     </div>
     <el-alert v-if="!user.trialActive" class="trial-alert" type="warning" show-icon :closable="false" title="试用已结束，工作台只读。仍可查看历史计划与报表。" />
@@ -26,7 +26,7 @@
       <div class="section-heading"><h2 id="plans-title">投放计划列表</h2></div>
       <div class="toolbar" :class="{ expanded: filtersExpanded }">
         <div class="toolbar-left">
-          <el-button type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
+          <el-button v-if="!readOnlyRole" type="primary" :disabled="!user.trialActive" @click="startCreate"><el-icon><Plus /></el-icon>创建投放计划</el-button>
           <el-input v-model="keyword" class="search-input" clearable placeholder="搜索计划名称 / 商品名称 / 计划ID" aria-label="搜索计划名称或 ID"><template #prefix><el-icon><Search /></el-icon></template></el-input>
           <el-cascader ref="statusPicker" v-model="status" class="status-select" :options="planStatusOptions" :props="{ emitPath: false, checkStrictly: true, expandTrigger: 'click' }" :show-all-levels="false" clearable placeholder="全部状态" aria-label="计划状态" popper-class="campaign-status-menu" @change="closeStatusFilter">
             <template #default="{ data }"><span class="status-option-label" @click="selectStatusLabel(data, $event)">{{ data.label }}</span></template>
@@ -69,7 +69,7 @@
                   <span v-if="isDeleted(row)" class="plan-name" :title="row.name">{{ row.name }}</span>
                   <router-link v-else class="plan-name" :to="insightsLink(row.planId)" :title="row.name">{{ row.name }}</router-link>
                 <div class="plan-id" :title="row.qcPlanId || row.planId">ID：{{ row.qcPlanId || row.planId }}</div>
-                <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
+                <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) && !readOnlyRole ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
               <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
@@ -83,7 +83,7 @@
                 </div>
               </td>
               <td class="schedule-cell"><template v-if="row.startDate"><span class="schedule-range" :title="`${row.startDate} ~ ${row.endDate || '不限'}`">{{ fullDate(row.startDate) }} ~ {{ row.endDate ? fullDate(row.endDate) : '不限' }}</span><small>{{ row.status === 'FINISHED' ? '已结束' : row.endDate ? remainingDays(row.endDate) : '持续投放' }}</small></template><span v-else class="muted">—</span></td>
-              <td class="optimization-cell">
+              <td v-if="!readOnlyRole" class="optimization-cell">
                 <span class="optimization-status" :class="optimizationPresentation(row).tone">{{ optimizationPresentation(row).label }}</span>
                 <button v-if="optimizationPresentation(row).action" type="button" class="optimization-link" @click="openOptimization(row)">{{ optimizationPresentation(row).action }}</button>
               </td>
@@ -97,14 +97,14 @@
                 </template>
               </td>
               <td class="actions-cell">
-                <router-link v-if="isDraft(row)" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
+                <router-link v-if="isDraft(row) && !readOnlyRole" :to="`/campaigns/${row.planId}/edit`">继续编辑</router-link>
                 <span v-else-if="isDeleted(row)" class="muted">已删除</span>
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
-                  <router-link v-if="canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED')" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
-                  <button v-if="row.status === 'DELIVERING' || row.status === 'PAUSED'" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
+                  <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
+                  <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
                 </template>
-                <button type="button" v-if="!isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
+                <button type="button" v-if="!readOnlyRole && !isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
               <td v-for="column in metricColumns" :key="column.field" class="number-cell"><strong :class="{ 'roi-good': column.kind === 'roi' && (row[column.field] ?? 0) > 0 }">{{ metricText(row[column.field], column.kind, true) }}</strong><small v-if="column.field === 'costYuan' && row.historicalMetrics && row.statisticsDate" class="statistics-date">{{ row.statisticsDate }} 数据</small><div v-if="(row[column.field] != null || row.comparison) && !row.historicalMetrics" class="metric-change-line"><MetricDelta v-bind="metricDelta(row, column)" :label="column.label" /></div></td>
             </tr>
@@ -210,11 +210,13 @@ function openOptimization(row: PlanListVo) {
 const openByPlan = ref<Record<string, string[]>>({});
 const pageNum = ref(1), pageSize = ref(10), compact = ref(false), showTools = ref(true);
 const hasControlTools = (row: PlanListVo) => row.smartBidType === 'SMART_BID_CUSTOM';
-const toolsColumnVisible = computed(() => showTools.value && records.value.some(hasControlTools));
+const readOnlyRole = computed(() => user.me?.memberRole === 'VIEWER');
+const toolsColumnVisible = computed(() => !readOnlyRole.value && showTools.value && records.value.some(hasControlTools));
 type SortField = MetricField;
 const metricTemplate = ref<PlanMetricTemplate>('PAYMENT'), displayedMetricTemplate = ref<PlanMetricTemplate>('PAYMENT');
 const metricColumns = computed(() => metricTemplates[displayedMetricTemplate.value].columns);
-const tableColumns = computed(() => campaignTableColumns(displayedMetricTemplate.value, toolsColumnVisible.value));
+const tableColumns = computed(() => campaignTableColumns(displayedMetricTemplate.value, toolsColumnVisible.value)
+  .filter(column => !readOnlyRole.value || column.key !== 'optimization'));
 const columnWidthsStorageKey = computed(() => columnWidthsPreferenceKey(user.me?.tenantId, user.me?.userId));
 const { tableRef, columnWidth, tableStyle, resizingColumn, startResize, moveResize, endResize, cancelResize, resizeKey } = useCampaignColumnResize(tableColumns, columnWidthsStorageKey);
 const templateStorageKey = computed(() => templatePreferenceKey(user.me?.tenantId, user.me?.userId));
@@ -308,12 +310,12 @@ const budgetText = (value?: number | null) => value == null ? '—' : `¥${Numbe
 const goalText = (value?: number | null) => value == null ? '—' : Number(value).toString();
 const fullDate = (date: string) => date.slice(0, 10);
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
-const canManage = (row: PlanListVo) => !isDeleted(row) && user.trialActive && row.canEdit === true;
+const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
 const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
   ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
   : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
-const canSwitchDraft = (row: PlanListVo) => user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
+const canSwitchDraft = (row: PlanListVo) => !readOnlyRole.value && user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
 const pagedRows = computed(() => records.value);
@@ -344,7 +346,7 @@ async function load(refreshStatistics = false) {
       if (!displayedFilters.value || campaignTrendScope(displayedFilters.value) !== campaignTrendScope(filters) || refreshStatistics) clearCampaignTrend(refreshStatistics);
       displayedFilters.value = filters;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
-      void loadOptimizationStatuses(result.records);
+      if (!readOnlyRole.value) void loadOptimizationStatuses(result.records);
       displayedMetricTemplate.value = requestedTemplate;
       try { if (templateStorageKey.value) localStorage.setItem(templateStorageKey.value, requestedTemplate); } catch { /* Storage is optional. */ }
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
@@ -352,6 +354,7 @@ async function load(refreshStatistics = false) {
     finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
   })();
   const alertsTask = (async () => {
+    if (readOnlyRole.value) return;
     const actions = await listActions().catch(() => []);
     const grouped: Record<string, string[]> = {};
     for (const row of actions) if (row.open) { const list = grouped[row.planId] ||= []; if (!list.includes(row.type)) list.push(row.type); }
@@ -460,7 +463,7 @@ onMounted(async () => {
   await nextTick();
   clearTimeout(loadTimer);
   await load();
-  if (accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
+  if (!readOnlyRole.value && accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
 });
 </script>
 

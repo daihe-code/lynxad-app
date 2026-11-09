@@ -10,7 +10,7 @@ public interface PaymentPort {
 
     record PaymentCreateResult(PayChannel channel, String channelTradeNo, String mockNonce, String codeUrl) {}
 
-    record PaymentNotify(String paymentId, boolean success, String channelTradeNo) {}
+    record PaymentNotify(String paymentId, boolean success, String channelTradeNo, Integer amountFen) {}
 
     PaymentCreateResult create(PaymentCreateCommand command);
 

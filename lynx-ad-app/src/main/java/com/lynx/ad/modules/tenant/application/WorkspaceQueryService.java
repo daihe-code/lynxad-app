@@ -17,6 +17,7 @@ public class WorkspaceQueryService {
     private final JdbcTemplate jdbc; private final WorkspaceAccess access; private final WorkspaceFoundation foundation;
     private final UserRepository users; private final JwtService jwt; private final LynxAdProperties properties;
     private final EntitlementQueryService entitlements; private final PointWalletService points;
+    @org.springframework.beans.factory.annotation.Autowired private WorkspacePointOrders pointOrders;
     public WorkspaceQueryService(JdbcTemplate jdbc,WorkspaceAccess access,WorkspaceFoundation foundation,UserRepository users,JwtService jwt,LynxAdProperties properties,EntitlementQueryService entitlements,PointWalletService points) {
         this.jdbc=jdbc;this.access=access;this.foundation=foundation;this.users=users;this.jwt=jwt;this.properties=properties;this.entitlements=entitlements;this.points=points;
     }
@@ -38,7 +39,10 @@ public class WorkspaceQueryService {
         result.put("accountLimit",entitlements.adAccountLimit(new TenantId(tenant)));
         result.put("accountsUsed",jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_binding WHERE tenant_id=? AND status IN ('ACTIVE','REVIEW_REQUIRED')",Integer.class,tenant));
         result.put("clientSpaces",jdbc.queryForList("SELECT id,name,is_default FROM client_space WHERE tenant_id=? ORDER BY is_default DESC,name",tenant));
-        if(member.role()==MemberRole.OWNER||member.role()==MemberRole.FINANCE)result.put("wallet",points.balance(tenant));
+        if(member.role()==MemberRole.OWNER||member.role()==MemberRole.FINANCE) {
+            if (pointOrders != null) pointOrders.ensureCurrentGrant(tenant);
+            result.put("wallet",points.balance(tenant));
+        }
         return result;
     }
     public List<Map<String,Object>> bindings() {

@@ -8,6 +8,8 @@ import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.billing.application.*;
+import com.lynx.ad.modules.billing.domain.model.*;
+import com.lynx.ad.modules.billing.domain.port.*;
 import com.lynx.ad.modules.tenant.application.*;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +49,8 @@ public class AccountSystemPersistenceTest {
         }
         String migration=new String(new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V52__workspace_account_system.sql").getInputStream().readAllBytes(),StandardCharsets.UTF_8).replace("md5(","HASH_MD5(");
         try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new org.springframework.core.io.ByteArrayResource(migration.getBytes(StandardCharsets.UTF_8)));}
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V53__workspace_team_and_points.sql")).execute(ds);
         var foundation=new WorkspaceFoundation(jdbc);var quotas=mock(EntitlementQueryService.class);when(quotas.adAccountLimit(any())).thenReturn(2);
         return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),new PointWalletService(jdbc,foundation));
     }
@@ -120,5 +124,79 @@ public class AccountSystemPersistenceTest {
             assertEquals(1,wins);assertEquals(0,new BigDecimal("30").compareTo(f.points.balance("a").available()));
             assertEquals(0,new BigDecimal("70").compareTo(f.points.balance("a").frozen()));
         }
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void generationUsesTheOriginalRateAndOnlyChargesDeliveredMaterials(String mode) throws Exception {
+        var f=fixture(mode);
+        bind(f,"a","x","1001","ACTIVE","a",null);
+        var pricing=new WorkspacePricing();
+        pricing.setEnabled(true);
+        var charges=new GenerationCharges(pricing,mock(WorkspacePointOrders.class),new WorkspaceFoundation(f.jdbc),f.points,
+                f.bindings,f.jdbc,new com.fasterxml.jackson.databind.ObjectMapper());
+        f.tx.executeWithoutResult(s -> {
+            f.points.credit("a","trial",new BigDecimal("600"));
+            assertTrue(charges.hold("a","generation","x","a",Map.of("video",2,"image",1)));
+        });
+        assertEquals(0,new BigDecimal("495").compareTo(f.points.balance("a").frozen()));
+        pricing.getGenerationPoints().put("video",900L);
+        f.tx.executeWithoutResult(s -> {
+            assertTrue(charges.hold("a","generation","x","a",Map.of("video",2,"image",1)));
+            charges.finish("a","generation",Map.of("video",1));
+            charges.finish("a","generation",Map.of("video",1));
+        });
+        assertEquals(0,new BigDecimal("240").compareTo(f.points.balance("a").consumed()));
+        assertEquals(0,new BigDecimal("360").compareTo(f.points.balance("a").available()));
+        assertEquals(0,f.points.balance("a").frozen().signum());
+        assertEquals(0,f.points.balance("b").consumed().signum());
+        f.tx.executeWithoutResult(s -> {
+            charges.hold("a","retry","x","a",Map.of("image",1));
+            charges.finish("a","retry",Map.of());
+        });
+        assertEquals(0,new BigDecimal("360").compareTo(f.points.balance("a").available()));
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void rechargeUsesPurchasedPointsAndOnlyCreditsAValidCallbackOnce(String mode) throws Exception {
+        var f=fixture(mode);
+        var tenant=new TenantId("a");
+        var foundation=new WorkspaceFoundation(f.jdbc);
+        var access=mock(WorkspaceAccess.class);
+        var role=com.lynx.ad.common.security.MemberRole.OWNER;
+        when(access.require(role)).thenReturn(new WorkspaceAccess.Membership("member","a","a",role,1));
+        var pricing=new WorkspacePricing();
+        pricing.setEnabled(true);
+        var orders=mock(OrderRepository.class);
+        var payments=mock(PaymentRepository.class);
+        var subscriptions=mock(SubscriptionSupport.class);
+        var recharge=new WorkspacePointOrders(pricing,access,foundation,orders,f.points,f.jdbc,subscriptions,mock(BillingTrialService.class));
+        var orderState=new java.util.concurrent.atomic.AtomicReference<BillingOrder>();
+        when(orders.findById(eq(tenant),anyString())).thenAnswer(call -> Optional.ofNullable(orderState.get()));
+        doAnswer(call -> { orderState.set(call.getArgument(0)); return null; }).when(orders).save(any());
+        var created=f.tx.execute(s -> recharge.create("r99","recharge-request"));
+        assertNotNull(created);
+        var order=orderState.get();
+        pricing.getRecharge().put("r99",new WorkspacePricing.Recharge(12900,2000));
+        assertEquals(created,f.tx.execute(s -> recharge.create("r99","recharge-request")));
+        var payment=new BillingPayment("wechat-payment",tenant,order.id(),PayChannel.WECHAT,PaymentStatus.CREATED,
+                9900,null,null,Instant.now(),null);
+        when(payments.findByIdOnly(payment.id())).thenReturn(Optional.of(payment));
+        var paymentGateway=mock(PaymentPort.class);
+        var checkout=new PaymentCommandService(orders,payments,mock(SubscriptionRepository.class),subscriptions,
+                paymentGateway,null,null,null,null);
+        org.springframework.test.util.ReflectionTestUtils.setField(checkout,"pointOrders",recharge);
+        org.springframework.test.util.ReflectionTestUtils.setField(checkout,"foundation",foundation);
+        when(paymentGateway.parseAndVerifyNotify(eq("callback"),anyMap()))
+                .thenReturn(new PaymentPort.PaymentNotify(payment.id(),true,"wechat-trade",9899));
+        assertThrows(BizException.class,() -> f.tx.execute(s -> checkout.wechatNotify("callback",Map.of())));
+        assertEquals(0,f.points.balance("a").available().signum());
+        when(paymentGateway.parseAndVerifyNotify(eq("callback"),anyMap()))
+                .thenReturn(new PaymentPort.PaymentNotify(payment.id(),true,"wechat-trade",9900));
+        f.tx.execute(s -> checkout.wechatNotify("callback",Map.of()));
+        f.tx.execute(s -> checkout.wechatNotify("callback",Map.of()));
+        assertEquals(OrderStatus.PAID,order.status());
+        assertEquals(0,new BigDecimal("1000").compareTo(f.points.balance("a").available()));
+        assertEquals(1,f.points.ledger("a",1,10).size());
+        assertEquals(0,f.points.balance("b").available().signum());
     }
 }

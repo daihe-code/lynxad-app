@@ -144,6 +144,7 @@ public class OrderCommandService {
         BillingOrder order = orderRepository
                 .findById(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
+        if (order.type() == OrderType.POINT_RECHARGE) throw new BizException(1603,"积分充值单不支持通过套餐订单关闭");
         if (order.status() != OrderStatus.PENDING_PAY) {
             throw new BizException(1603, "订单状态不允许关闭");
         }

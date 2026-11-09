@@ -21,14 +21,18 @@ public class MonitoringEngineClient {
     }
     public boolean ready() {return !key.isBlank() && properties.getAi().getReview().getBaseUrl()!=null && !properties.getAi().getReview().getBaseUrl().isBlank();}
     public JsonNode creative(String tenant,String path,Object body){
+        return creative(tenant,path,body,null);
+    }
+    public JsonNode creative(String tenant,String path,Object body,String executionTicket){
         if(!ready())throw new BizException(1801,"盯盘服务尚未配置");
         try{
             var uri=properties.getAi().getReview().getBaseUrl().replaceAll("/+$","")+"/api/v1/monitoring/external/creative-jobs"+path;
             var request=HttpRequest.newBuilder(URI.create(uri)).timeout(Duration.ofSeconds(30)).header("Content-Type","application/json").header("X-Monitoring-Key",key).header("X-Store-ID",tenant).header("X-LynxAd-Caller","lynxad-app");
             if(!apiKey.isBlank())request.header("X-API-Key",apiKey);
+            if(executionTicket!=null)request.header("X-Workspace-Execution",executionTicket);
             if(body==null)request.GET();else request.POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
             var response=http.send(request.build(),HttpResponse.BodyHandlers.ofString());
-            if(response.statusCode()==404)return null;
+            if(response.statusCode()==404&&body==null)return null;
             if(response.statusCode()<200||response.statusCode()>=300)throw new BizException(response.statusCode()<500?8002:8003,"生成提交或查询失败（HTTP "+response.statusCode()+"），先回查原请求");
             if(response.body().length()>1024*1024)throw new BizException(1801,"生成响应超出限制");
             return json.readTree(response.body());

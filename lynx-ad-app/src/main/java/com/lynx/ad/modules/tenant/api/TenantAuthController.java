@@ -41,7 +41,7 @@ public class TenantAuthController {
 
     @PostMapping("/sms/login")
     public ApiResponse<LoginResponse> smsLogin(@RequestBody SmsLoginRequest req) {
-        return recorded(req.phone(),"SMS",()->authCommandService.smsLogin(new PhoneNumber(req.phone()), req.code()));
+        return recorded(req.phone(),"SMS",()->authCommandService.smsLogin(new PhoneNumber(req.phone()), req.code(), req.invite()));
     }
 
     @PostMapping("/password/login")

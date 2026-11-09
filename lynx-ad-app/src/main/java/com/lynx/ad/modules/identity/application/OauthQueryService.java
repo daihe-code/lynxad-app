@@ -12,6 +12,11 @@ import org.springframework.stereotype.Service;
 public class OauthQueryService {
 
     private final OauthAccountRepository repository;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
+    private boolean visible(TenantId tenantId,OauthAccount account) {
+        return workspace==null||workspace.canReadBinding(tenantId.value(),account.id().value());
+    }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.lynx.ad.common.config.LynxAdProperties properties;
     @org.springframework.beans.factory.annotation.Autowired
@@ -24,18 +29,18 @@ public class OauthQueryService {
 
     public List<AccountVo> list(TenantId tenantId) {
         return repository.findByTenant(tenantId).stream()
-                .filter(a -> !"DELETED".equals(a.status()))
+                .filter(a -> !"DELETED".equals(a.status()) && visible(tenantId,a))
                 .map(OauthQueryService::toVo).toList();
     }
 
     public boolean hasBoundQianchuan(TenantId tenantId) {
         return repository.findByTenant(tenantId).stream().anyMatch(a -> a.platform() == com.lynx.ad.modules.identity.domain.model.Platform.QIANCHUAN
-                && "ACTIVE".equals(a.status())
+                && "ACTIVE".equals(a.status()) && visible(tenantId,a)
                 && (properties == null || !properties.getOauth().getQianchuan().isLive() || a.grantId() != null)
                 && (a.refreshExpiresAt() == null || a.refreshExpiresAt().isAfter(java.time.Instant.now())));
     }
     public com.lynx.ad.modules.identity.api.dto.AccountAuthorizationDetailVo detail(TenantId tenantId,com.lynx.ad.common.domain.Ids.AccountId id) {
-        OauthAccount account=repository.findById(tenantId,id).filter(a->!"DELETED".equals(a.status()))
+        OauthAccount account=repository.findById(tenantId,id).filter(a->!"DELETED".equals(a.status())&&visible(tenantId,a))
             .orElseThrow(()->new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户"));
         var metadata=authorizationStore.identityMetadata(tenantId.value(),id.value());
         String role=null,parent=null;

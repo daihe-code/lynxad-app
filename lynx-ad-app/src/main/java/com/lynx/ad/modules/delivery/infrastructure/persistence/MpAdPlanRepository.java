@@ -107,12 +107,23 @@ public class MpAdPlanRepository implements AdPlanRepository {
 
     @Override
     public boolean discardDraft(TenantId tenantId, PlanId id) {
+        if(findById(tenantId,id).isEmpty())return false;
         return mapper.delete(new LambdaQueryWrapper<AdPlanPo>()
                 .eq(AdPlanPo::getId, id.value()).eq(AdPlanPo::getTenantId, tenantId.value())
                 .eq(AdPlanPo::getStatus, PlanStatus.DRAFT.name()).isNull(AdPlanPo::getQcPlanId)) == 1;
     }
 
     private final AdPlanMapper mapper;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
+    private boolean visible(AdPlanPo row){return workspace==null||workspace.canReadBinding(row.getTenantId(),row.getOauthAccountId());}
+    private LambdaQueryWrapper<AdPlanPo> scoped(TenantId tenant){
+        var q=new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getTenantId,tenant.value());
+        if(workspace!=null)workspace.readableBindings(tenant.value()).ifPresent(ids->{
+            if(ids.isEmpty())q.apply("1=0");else q.in(AdPlanPo::getOauthAccountId,ids);
+        });
+        return q;
+    }
     private final AdPlanCreativeBindingStore bindingStore;
     private PlanReviewStore reviews;
     @org.springframework.beans.factory.annotation.Autowired public void reviewStore(PlanReviewStore value){reviews=value;}
@@ -173,7 +184,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
     @Override
     public Optional<AdPlan> findById(TenantId tenantId, PlanId id) {
         AdPlanPo po = mapper.selectById(id.value());
-        if (po == null || !tenantId.value().equals(po.getTenantId())) {
+        if (po == null || !tenantId.value().equals(po.getTenantId()) || !visible(po)) {
             return Optional.empty();
         }
         return Optional.of(withOrigin(toDomain(po)));
@@ -181,8 +192,8 @@ public class MpAdPlanRepository implements AdPlanRepository {
 
     @Override
     public Optional<AdPlan> findByIdForUpdate(TenantId tenantId, PlanId id) {
-        return Optional.ofNullable(mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>()
-                .eq(AdPlanPo::getId, id.value()).eq(AdPlanPo::getTenantId, tenantId.value()).last("FOR UPDATE")))
+        return Optional.ofNullable(mapper.selectOne(scoped(tenantId)
+                .eq(AdPlanPo::getId, id.value()).last("FOR UPDATE")))
                 .map(this::toDomain).map(this::withOrigin);
     }
 
@@ -199,31 +210,29 @@ public class MpAdPlanRepository implements AdPlanRepository {
 
     @Override
     public Optional<AdPlan> findByQcPlanId(TenantId tenantId, QcPlanId qcPlanId) {
-        AdPlanPo po = mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>()
-                .eq(AdPlanPo::getTenantId, tenantId.value())
+        AdPlanPo po = mapper.selectOne(scoped(tenantId)
                 .eq(AdPlanPo::getQcPlanId, qcPlanId.value()));
         return Optional.ofNullable(po).map(this::toDomain).map(this::withOrigin);
     }
 
     @Override
     public List<AdPlan> findByTenant(TenantId tenantId) {
-        return withOrigins(mapper.selectList(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getTenantId, tenantId.value())).stream()
+        return withOrigins(mapper.selectList(scoped(tenantId)).stream()
                 .map(this::toDomain)
                 .toList());
     }
 
     @Override
     public Map<String, ListMetadata> listMetadataByTenant(TenantId tenantId) {
-        return mapper.selectList(new LambdaQueryWrapper<AdPlanPo>()
-                        .select(AdPlanPo::getId, AdPlanPo::getCreatedAt, AdPlanPo::getDeliveryPlatform)
-                        .eq(AdPlanPo::getTenantId, tenantId.value()))
+        return mapper.selectList(scoped(tenantId)
+                        .select(AdPlanPo::getId, AdPlanPo::getCreatedAt, AdPlanPo::getDeliveryPlatform))
                 .stream().collect(Collectors.toMap(AdPlanPo::getId,
                         row -> new ListMetadata(row.getCreatedAt(), row.getDeliveryPlatform())));
     }
 
     @Override
     public Optional<AdPlan> findByIdOnly(PlanId id) {
-        return Optional.ofNullable(mapper.selectById(id.value())).map(this::toDomain).map(this::withOrigin);
+        return Optional.ofNullable(mapper.selectById(id.value())).filter(this::visible).map(this::toDomain).map(this::withOrigin);
     }
 
     @Override

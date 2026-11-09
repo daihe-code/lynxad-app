@@ -12,6 +12,9 @@ import java.util.function.Consumer;
 /** One durable dispatch; all recovery uses revision metadata GETs, never a repeated POST. */
 final class CreationRegeneration {
     private final CreationStore store;private final CreationEngineClient engine;
+    private com.lynx.ad.modules.billing.application.GenerationCharges charges;
+    void generationCharges(com.lynx.ad.modules.billing.application.GenerationCharges value){charges=value;}
+    private void release(CreationState s){if(charges!=null&&s.generationChargeKey!=null){charges.finish(s.tenantId,s.generationChargeKey,Map.of());s.generationChargeKey=null;s.generationChargeBaseline=new ArrayList<>();}}
     CreationRegeneration(CreationStore store,CreationEngineClient engine){this.store=store;this.engine=engine;}
     private static boolean owns(CreationState s,String request){return s.regeneration!=null&&request.equals(s.regeneration.requestId)&&"REVISING".equals(s.generationStatus);}
     private void update(CreationState s,String request,Consumer<CreationState> change){store.mutate(s.tenantId,s.planId,null,current->{if(owns(current,request))change.accept(current);});}
@@ -21,6 +24,7 @@ final class CreationRegeneration {
         if(!claimed.get())return store.get(snapshot.tenantId,snapshot.planId);
         JsonNode response;
         try {
+            if(charges!=null)charges.validate(snapshot.tenantId,snapshot.generationChargeKey);
             response=engine.post("/api/v1/capabilities/generation/materials/"+CreationEngineClient.query(r.parentId)+"/revisions",
                 Map.of("job_id",r.jobId,"ai_plan_task_id",r.planTaskId,"store_id",snapshot.tenantId,"group_id",r.groupId,"operation","regenerate","target",r.target,"instruction",r.instruction));
             var receipt=response.path("revision");
@@ -31,7 +35,7 @@ final class CreationRegeneration {
                 throw new BizException(8003,"重新生成回执不完整或归属不匹配，请核查引擎修订记录，原素材已保留");
         }catch(BizException e) {
             boolean uncertain=e.code()==8003;
-            update(snapshot,request,s->{s.regeneration.status=uncertain?"UNCERTAIN":"FAILED";s.generationStatus=uncertain?"REVISING":"FAILED";s.generationMessage=uncertain?"重新生成提交结果待确认，原素材已保留，不会重复提交":"引擎未接受本次重新生成，原素材已保留，请核对原因后重试";if(!uncertain)s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,e.getMessage()));});
+            update(snapshot,request,s->{s.regeneration.status=uncertain?"UNCERTAIN":"FAILED";s.generationStatus=uncertain?"REVISING":"FAILED";s.generationMessage=uncertain?"重新生成提交结果待确认，原素材已保留，不会重复提交":"引擎未接受本次重新生成，原素材已保留，请核对原因后重试";if(!uncertain){s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,e.getMessage()));release(s);}});
             if(!uncertain)throw e;
             return store.get(snapshot.tenantId,snapshot.planId);
         }
@@ -60,7 +64,7 @@ final class CreationRegeneration {
         }
         var row=candidates.getFirst();String status=row.path("status").asText();
         if(Set.of("failed","cancelled").contains(status)) {
-            update(snapshot,request,s->{s.regeneration.status="FAILED";s.generationStatus="FAILED";s.generationMessage="本次重新生成未完成，原素材已保留，可调整要求后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,GenerationIssueMapper.message(row.path("error"),s.generationMessage)));s.progress=0;});return false;
+            update(snapshot,request,s->{s.regeneration.status="FAILED";s.generationStatus="FAILED";s.generationMessage="本次重新生成未完成，原素材已保留，可调整要求后重试";s.generationIssues=new ArrayList<>(GenerationIssueMapper.requested(s,GenerationIssueMapper.message(row.path("error"),s.generationMessage)));s.progress=0;release(s);});return false;
         }
         if(!"succeeded".equals(status)) {
             update(snapshot,request,s->s.generationMessage="本次修订"+("paused".equals(status)?"已暂停":"仍在生成中")+"，原素材已保留");return false;

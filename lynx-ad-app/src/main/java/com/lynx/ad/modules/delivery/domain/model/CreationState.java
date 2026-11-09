@@ -56,6 +56,8 @@ public class CreationState {
     /** Read-model flag; never persisted into the shared creation/audit snapshot. */
     @com.fasterxml.jackson.annotation.JsonIgnore public Boolean publishedMaterialsCurrent;
     public String generationStatus = "NONE", generationMessage, engineTerminalStatus, engineTerminalJobId, pendingRegenerationId;
+    public String generationChargeKey;
+    public List<String> generationChargeBaseline = new ArrayList<>();
     public long regenerationRetryAt;
     /** Internal dispatch receipt. A source job ID alone never proves a revision was accepted. */
     public Regeneration regeneration;

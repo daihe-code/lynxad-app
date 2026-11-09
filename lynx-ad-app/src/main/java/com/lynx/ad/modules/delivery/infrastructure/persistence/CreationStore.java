@@ -18,6 +18,8 @@ public class CreationStore {
     private final ObjectMapper json;
     private final TransactionTemplate tx;
     private DraftExpiryStore expiry;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.tenant.application.WorkspaceAccess workspace;
     @org.springframework.beans.factory.annotation.Autowired public void draftExpiry(DraftExpiryStore value) { expiry=value; }
     private com.lynx.ad.modules.identity.application.AccountBindingRegistry executionBindings;
     @org.springframework.beans.factory.annotation.Autowired public void executionBindings(com.lynx.ad.modules.identity.application.AccountBindingRegistry value) { executionBindings=value; }
@@ -29,7 +31,11 @@ public class CreationStore {
         jdbc.update("INSERT INTO delivery_creation(plan_id,tenant_id,revision,state_json,work_pending,updated_at) VALUES(?,?,?,?,?,?)",
                 state.planId,state.tenantId,state.revision,encode(state),work(state),now());
     }
-    public CreationState get(String tenant,String id) { return read(tenant,id,false); }
+    public CreationState get(String tenant,String id) {
+        var state=read(tenant,id,false);
+        if(workspace!=null)workspace.requireReadableBinding(tenant,state.accountId);
+        return state;
+    }
     public Optional<com.fasterxml.jackson.databind.JsonNode> publishedPayload(String tenant,String id) {
         return jdbc.query("SELECT payload_json FROM delivery_publish_attempt WHERE tenant_id=? AND plan_id=? AND status='CREATED' ORDER BY created_at DESC LIMIT 1",
                 (r,n)->{try{return json.readTree(r.getString(1));}catch(Exception e){throw new IllegalStateException(e);}},tenant,id).stream().findFirst();
