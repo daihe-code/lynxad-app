@@ -76,6 +76,19 @@ public class AccountSystemPersistenceTest {
         assertEquals("a",f.bindings.find("a","x").orElseThrow().boundUserId());
     }
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void currentClaimCanRenewAfterOtherWorkspaceBindingIsRetired(String mode) throws Exception {
+        var f=fixture(mode);bind(f,"a","x","1001","ACTIVE","a","direct");
+        f.jdbc.update("INSERT INTO ad_account_binding(id,tenant_id,real_account_id,bound_user_id,status) VALUES('legacy-b','b',?,'b','REVIEW_REQUIRED')",
+                f.bindings.find("a","x").orElseThrow().realAccountId());
+        assertThrows(BizException.class,()->bind(f,"a","x","1001","ACTIVE","a","renewed"));
+        f.tx.executeWithoutResult(s->f.bindings.release("b","legacy-b"));
+        bind(f,"a","x","1001","ACTIVE","a","renewed");
+        assertEquals("x",f.bindings.executionScope("a","x","a").bindingId());
+        assertEquals("RELEASED",f.bindings.find("b","legacy-b").orElseThrow().status());
+        assertThrows(BizException.class,()->bind(f,"b","legacy-b","1001","ACTIVE","b","old"));
+        assertEquals(2,f.jdbc.queryForObject("SELECT COUNT(*) FROM account_grant_path WHERE binding_id='x'",Integer.class));
+    }
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void invalidTokensStillOccupyCapacityAndGlobalClaim(String mode) throws Exception {
         var f=fixture(mode);bind(f,"a","x","1001","ACTIVE","a",null);bind(f,"a","x","1001","UNUSABLE","a",null);bind(f,"a","y","1002","ACTIVE","a",null);
         assertThrows(BizException.class,()->bind(f,"a","z","1003","ACTIVE","a",null));

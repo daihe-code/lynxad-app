@@ -61,10 +61,15 @@ public class AccountBindingRegistry {
             }
             if(account.authorizedByUserId().isPresent()&&!responsible.equals(account.authorizedByUserId().get()))
                 throw new BizException(403,"重新授权不能变更账户责任人");
-            if(jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_binding WHERE real_account_id=? AND tenant_id<>?",Integer.class,real,tenant)>0)
-                throw new BizException(1206,"该广告账户存在其他工作空间的绑定记录，请先完成账户移交核验");
             var claim=jdbc.queryForList("SELECT binding_id FROM ad_account_claim WHERE real_account_id=?",String.class,real);
             if(!claim.isEmpty()&&!claim.getFirst().equals(id)) throw new BizException(1206,"该广告账户已有有效绑定，请先完成账户移交");
+            boolean renewingCurrentClaim=existing.filter(b->"ACTIVE".equals(b.status())).isPresent()
+                    &&jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_claim WHERE real_account_id=? AND binding_id=? AND tenant_id=? AND bound_user_id=?",
+                            Integer.class,real,id,tenant,responsible)==1;
+            String historicalConflict="SELECT COUNT(*) FROM ad_account_binding WHERE real_account_id=? AND tenant_id<>?";
+            if(renewingCurrentClaim) historicalConflict+=" AND status<>'RELEASED'";
+            if(jdbc.queryForObject(historicalConflict,Integer.class,real,tenant)>0)
+                throw new BizException(1206,"该广告账户存在其他工作空间的绑定记录，请先完成账户移交核验");
             boolean additional=existing.isEmpty()||!"ACTIVE".equals(existing.get().status());
             int count=jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_binding WHERE tenant_id=? AND status IN ('ACTIVE','REVIEW_REQUIRED')",Integer.class,tenant);
             if(additional&&count>=entitlements.adAccountLimit(account.tenantId())) throw new BizException(1206,"当前工作空间的广告账户容量不足");
