@@ -80,6 +80,19 @@ public class WorkspaceTeamService {
     }
 
     @Transactional
+    public void updateInviteRole(String id, MemberRole role) {
+        var owner = lockOwner();
+        String nextRole = childRole(role).name();
+        var previousRole = jdbc.queryForList("""
+                SELECT member_role FROM workspace_child_invite
+                WHERE id=? AND tenant_id=? AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP FOR UPDATE
+                """, String.class, id, owner.tenantId()).stream().findFirst().orElseThrow(WorkspaceTeamService::invalid);
+        if (nextRole.equals(previousRole)) return;
+        jdbc.update("UPDATE workspace_child_invite SET member_role=? WHERE id=? AND tenant_id=?", nextRole, id, owner.tenantId());
+        event(owner,id,"UPDATE_INVITE_ROLE");
+    }
+
+    @Transactional
     public void revoke(String id) {
         var owner = lockOwner();
         if (jdbc.update("UPDATE workspace_child_invite SET status='REVOKED' WHERE id=? AND tenant_id=? AND status='PENDING'",id,owner.tenantId()) == 1)
@@ -87,18 +100,22 @@ public class WorkspaceTeamService {
     }
 
     @Transactional
-    public void update(String id, MemberRole role, boolean active) {
+    public void update(String id, MemberRole role, Boolean active) {
         var owner = lockOwner();
-        role = childRole(role);
-        var old = jdbc.query("SELECT member_role,status FROM tenant_member WHERE tenant_id=? AND membership_id=? AND member_role<>'OWNER' AND status<>'REMOVED'",
+        if (role == null && active == null) throw new BizException(1911,"请选择权限或账户状态");
+        var old = jdbc.query("SELECT member_role,status FROM tenant_member WHERE tenant_id=? AND membership_id=? AND member_role<>'OWNER' AND status<>'REMOVED' FOR UPDATE",
                 (r,i) -> new Child(id,null,r.getString(1),r.getString(2),null),owner.tenantId(),id).stream().findFirst()
                 .orElseThrow(() -> new BizException(404,"子账户不存在"));
-        String status = active ? "ACTIVE" : "DISABLED";
-        if (status.equals(old.status()) && role.name().equals(old.role())) return;
-        if (active && !"ACTIVE".equals(old.status())) requireSeat(owner.tenantId());
+        String nextRole = role == null ? old.role() : childRole(role).name();
+        String status = active == null ? old.status() : active ? "ACTIVE" : "DISABLED";
+        if (status.equals(old.status()) && nextRole.equals(old.role())) return;
+        if ("ACTIVE".equals(status) && !"ACTIVE".equals(old.status())) {
+            childRole(MemberRole.valueOf(nextRole));
+            requireSeat(owner.tenantId());
+        }
         jdbc.update("UPDATE tenant_member SET member_role=?,status=?,permission_version=permission_version+1 WHERE tenant_id=? AND membership_id=?",
-                role.name(), status, owner.tenantId(), id);
-        event(owner,id,active ? "UPDATE_MEMBER" : "DISABLE_MEMBER");
+                nextRole, status, owner.tenantId(), id);
+        event(owner,id,status.equals(old.status()) || "ACTIVE".equals(status) ? "UPDATE_MEMBER" : "DISABLE_MEMBER");
     }
 
     /** Called after successful verification of this phone's OTP, in the login transaction. */
@@ -106,8 +123,8 @@ public class WorkspaceTeamService {
     public Activation activate(PhoneNumber phone, String token) {
         if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw invalid();
         String hash = hash(token);
-        Pending initial = pending(hash);
-        if (!initial.phone().equals(phone.value())) throw invalid();
+        Pending initial = pending(hash, false);
+        validatePending(initial, phone);
         User user = users.findByPhone(phone).orElseGet(() -> {
             User created = User.register(phone);
             users.save(created);
@@ -115,9 +132,8 @@ public class WorkspaceTeamService {
         });
         users.findByIdForUpdate(user.id()).orElseThrow(WorkspaceTeamService::invalid);
         lock(initial.tenant());
-        Pending invite = pending(hash);
-        if (!"PENDING".equals(invite.status()) || !invite.expiresAt().isAfter(Instant.now()) || !invite.phone().equals(phone.value()))
-            throw invalid();
+        Pending invite = pending(hash, true);
+        validatePending(invite, phone);
         if (used(invite.tenant()) > limits.childAccountLimit(new TenantId(invite.tenant()))) throw quota();
         MemberRole role = childRole(MemberRole.valueOf(invite.role()));
         if (jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE id=? AND status='ACTIVE'",Integer.class,user.id().value()) != 1
@@ -130,10 +146,15 @@ public class WorkspaceTeamService {
         return new Activation(user,invite.tenant(),role);
     }
 
-    private Pending pending(String hash) {
-        return jdbc.query("SELECT id,tenant_id,phone,member_role,status,expires_at FROM workspace_child_invite WHERE token_hash=?",
+    private Pending pending(String hash, boolean lock) {
+        String sql = "SELECT id,tenant_id,phone,member_role,status,expires_at FROM workspace_child_invite WHERE token_hash=?";
+        return jdbc.query(lock ? sql + " FOR UPDATE" : sql,
                 (r,i) -> new Pending(r.getString(1),r.getString(2),r.getString(3),r.getString(4),r.getString(5),r.getTimestamp(6).toInstant()),hash)
                 .stream().findFirst().orElseThrow(WorkspaceTeamService::invalid);
+    }
+    private static void validatePending(Pending invite, PhoneNumber phone) {
+        if (!"PENDING".equals(invite.status()) || !invite.expiresAt().isAfter(Instant.now()) || !invite.phone().equals(phone.value()))
+            throw invalid();
     }
     private int used(String tenant) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM tenant_member WHERE tenant_id=? AND member_role<>'OWNER' AND status='ACTIVE'",Integer.class,tenant)

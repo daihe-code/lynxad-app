@@ -21,7 +21,7 @@
 
 <script setup lang="ts">
 import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
-import { accountNavigation } from '@/features/tenant/accountNavigation';
+import { accountNavigationForRole } from '@/features/tenant/accountNavigation';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { UserFilled } from '@element-plus/icons-vue';
@@ -35,7 +35,7 @@ const subtitle = computed(() => {
   const role = workspaceAccountLabel(user.me?.memberRole);
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';
 });
-const entries = accountNavigation;
+const entries = computed(() => accountNavigationForRole(user.me?.memberRole));
 watch(() => route.fullPath, () => { open.value = false; });
 function close() { open.value = false; trigger.value?.focus(); }
 async function triggerKey(event: KeyboardEvent) {

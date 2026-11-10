@@ -150,6 +150,8 @@ class AccountInitializationTest {
                 new TenantAuthController(auth, mock(UserLoginJournal.class)),
                 new TenantUserController(queries, mock(OnboardingCommandService.class), context.getBean(AccountCommandService.class), auth),
                 new AccountLegalController(new AccountLegalService(jdbc, queries, mock(AdminAuthService.class), mock(AdminAccountStore.class), mock(AuditRecorder.class))),
+                new WorkspaceController(mock(WorkspaceQueryService.class), context.getBean(WorkspaceAccess.class),
+                        mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class)),
                 new WelcomeController(jdbc, context.getBean(PlatformTransactionManager.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).build();
     }
@@ -310,43 +312,56 @@ class AccountInitializationTest {
     @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
     void invitedMemberJoinsExistingWorkspaceWithoutStartingAnotherTrial(String mode) throws Exception {
         database(mode);
-        var owner = jwt.parse(login("13900008803").path("token").asText());
+        String ownerToken = login("13900008803").path("token").asText();
+        var owner = jwt.parse(ownerToken);
         PhoneNumber invited = new PhoneNumber("13900008804");
-        var team=context.getBean(WorkspaceTeamService.class);
-        String invitation;
-        try {
-            TenantContext.set(owner);
-            assertEquals(1911, assertThrows(BizException.class, () -> team.invite(invited, MemberRole.OWNER)).code());
-            assertEquals(1911, assertThrows(BizException.class, () -> team.invite(invited, MemberRole.ADMIN)).code());
-            invitation=team.invite(invited,MemberRole.OPERATOR).token();
-            assertEquals("PENDING", team.list().invites().getFirst().status());
-            assertThrows(com.lynx.ad.common.exception.BizException.class,
-                    () -> team.invite(new PhoneNumber("13900008809"),MemberRole.VIEWER));
-        } finally { TenantContext.clear(); }
+        String teamPath = "/api/v1/tenant/workspaces/current/team";
+        String invitationsPath = teamPath + "/invitations";
+        for (var role : List.of(MemberRole.OWNER, MemberRole.ADMIN)) {
+            String body = json.writeValueAsString(Map.of("phone", invited.value(), "role", role.name()));
+            assertEquals(1911, call("POST", invitationsPath, body, ownerToken).path("code").asInt());
+        }
+        var inviteResult = call("POST", invitationsPath, "{\"phone\":\"" + invited.value() + "\",\"role\":\"OPERATOR\"}", ownerToken);
+        assertEquals(0, inviteResult.path("code").asInt(), inviteResult.toString());
+        String invitation = inviteResult.path("data").path("token").asText();
+        var pending = call("GET", teamPath, null, ownerToken).path("data").path("invites").get(0);
+        assertEquals("PENDING", pending.path("status").asText());
+        String invitationPath = invitationsPath + "/" + pending.path("id").asText();
+        assertEquals(0, call("PUT", invitationPath, "{\"role\":\"VIEWER\"}", ownerToken).path("code").asInt());
+        assertEquals(1910, call("POST", invitationsPath, "{\"phone\":\"13900008809\",\"role\":\"VIEWER\"}", ownerToken).path("code").asInt());
         var bad=call("POST","/api/v1/tenant/auth/sms/login",
                 json.writeValueAsString(Map.of("phone","13900008809","code","123456","invite",invitation)),null);
         assertNotEquals(0,bad.path("code").asInt());
         var result=call("POST","/api/v1/tenant/auth/sms/login",
                 json.writeValueAsString(Map.of("phone",invited.value(),"code","123456","invite",invitation)),null);
         assertEquals(0,result.path("code").asInt(),result.toString());
-        var member = jwt.parse(result.path("data").path("token").asText());
+        String memberToken = result.path("data").path("token").asText();
+        var member = jwt.parse(memberToken);
         assertEquals(owner.tenantId(), member.tenantId());
         assertEquals(SysRole.USER, member.sysRole());
-        assertEquals(MemberRole.OPERATOR, member.memberRole().orElseThrow());
+        assertEquals(MemberRole.VIEWER, member.memberRole().orElseThrow());
         assertEquals(1, count("sys_tenant")); assertEquals(2, count("tenant_member")); assertEquals(1, count("billing_trial"));
         assertEquals(0, count("user_profile"));
+        assertEquals(403, call("GET", teamPath, null, memberToken).path("code").asInt());
+        assertEquals(1911, call("PUT", invitationPath, "{\"role\":\"FINANCE\"}", ownerToken).path("code").asInt());
+        var child = call("GET", teamPath, null, ownerToken).path("data").path("members").get(0);
+        String memberPath = teamPath + "/members/" + child.path("id").asText();
+        assertEquals(0, call("PUT", memberPath, "{\"role\":\"OPERATOR\"}", ownerToken).path("code").asInt());
         try {
             TenantContext.set(member);
-            assertEquals(403, assertThrows(BizException.class,
-                    () -> team.invite(new PhoneNumber("13900008809"), MemberRole.VIEWER)).code());
-            TenantContext.set(owner);
-            var child=team.list().members().getFirst();
-            team.update(child.id(),MemberRole.OPERATOR,false);
-            assertEquals(0,team.list().used());
-            TenantContext.set(member);
-            assertThrows(com.lynx.ad.common.exception.BizException.class,() -> context.getBean(WorkspaceAccess.class).current());
+            assertEquals(MemberRole.OPERATOR, context.getBean(WorkspaceAccess.class).current().role());
         } finally { TenantContext.clear(); }
-        assertThrows(com.lynx.ad.common.exception.BizException.class,() -> auth.smsLogin(invited,"123456"));
+        assertEquals(0, call("PUT", memberPath, "{\"active\":false}", ownerToken).path("code").asInt());
+        assertEquals(0, call("PUT", memberPath, "{\"role\":\"FINANCE\"}", ownerToken).path("code").asInt());
+        var after = call("GET", teamPath, null, ownerToken).path("data");
+        assertEquals(0, after.path("used").asInt());
+        assertEquals("DISABLED", after.path("members").get(0).path("status").asText());
+        assertEquals("FINANCE", after.path("members").get(0).path("role").asText());
+        try {
+            TenantContext.set(member);
+            assertThrows(BizException.class, () -> context.getBean(WorkspaceAccess.class).current());
+        } finally { TenantContext.clear(); }
+        assertThrows(BizException.class, () -> auth.smsLogin(invited,"123456"));
         assertEquals(1,count("sys_tenant"));
     }
 

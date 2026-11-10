@@ -27,10 +27,14 @@ public class WorkspaceController {
     @DeleteMapping("/current/clients/{id}") public ApiResponse<?> deleteClient(@PathVariable String id) {clients.delete(id);return ApiResponse.ok(null);}
     @PutMapping("/current/accounts/{id}/client") public ApiResponse<?> assignClient(@PathVariable String id,@RequestBody AssignRequest body) {clients.assign(id,body.clientSpaceId());return ApiResponse.ok(null);}
     public record Invite(String phone, MemberRole role) {}
-    public record ChangeMember(MemberRole role, boolean active) {}
+    public record ChangeInvite(MemberRole role) {}
+    public record ChangeMember(MemberRole role, Boolean active) {}
     @GetMapping("/current/team") public ApiResponse<?> team() { return ApiResponse.ok(team.list()); }
     @PostMapping("/current/team/invitations") public ApiResponse<?> invite(@RequestBody Invite body) {
         return ApiResponse.ok(team.invite(new com.lynx.ad.common.domain.PhoneNumber(body.phone()),body.role()));
+    }
+    @PutMapping("/current/team/invitations/{id}") public ApiResponse<?> inviteRole(@PathVariable String id,@RequestBody ChangeInvite body) {
+        team.updateInviteRole(id,body.role()); return ApiResponse.ok(null);
     }
     @DeleteMapping("/current/team/invitations/{id}") public ApiResponse<?> revoke(@PathVariable String id) { team.revoke(id); return ApiResponse.ok(null); }
     @PutMapping("/current/team/members/{id}") public ApiResponse<?> member(@PathVariable String id,@RequestBody ChangeMember body) {

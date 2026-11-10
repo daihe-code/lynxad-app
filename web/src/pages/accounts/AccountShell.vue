@@ -8,7 +8,7 @@
         </nav>
       </aside>
       <section class="acct-main"><div class="acct-wrap">
-        <header class="acct-head"><h1 class="acct-head__h">{{ current?.label }}</h1><p class="acct-head__d">{{ current?.description }}</p></header>
+        <header class="acct-head"><h1 class="acct-head__h">{{ current?.label }}</h1><p v-if="current?.description" class="acct-head__d">{{ current.description }}</p></header>
         <slot />
       </div></section>
     </div>
@@ -16,7 +16,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { accountNavigation } from '@/features/tenant/accountNavigation';
+import { accountNavigationForRole } from '@/features/tenant/accountNavigation';
 import { computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import AccountIcon from './AccountIcon.vue';
@@ -25,12 +25,7 @@ const props = defineProps<{
     active: string;
 }>();
 const user = useUserStore();
-const menus = computed(() => accountNavigation.filter(item => {
-  const role = user.me?.memberRole;
-  if (role === 'FINANCE') return ['workspace','billing','info'].includes(item.key);
-  if (role === 'VIEWER') return ['workspace','info'].includes(item.key);
-  return item.key !== 'billing' || !role || role === 'OWNER';
-}));
+const menus = computed(() => accountNavigationForRole(user.me?.memberRole));
 const current = computed(() => menus.value.find(item => item.key === props.active));
 </script>
 <style src="./account.css"></style>

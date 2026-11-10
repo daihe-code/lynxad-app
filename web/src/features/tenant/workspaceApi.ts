@@ -7,6 +7,7 @@ export interface WorkspaceOverview extends Workspace { accountLimit: number; acc
 export interface AccountBinding { id: string; bound_user_id: string; client_space_id: string; status: string; advertiser_id: string; account_name: string; authorization_status: string; authorization_paths: number }
 export interface PointEntry { event_type: string; amount: number; binding_id?: string; created_at: string }
 const base = '/api/v1/tenant/workspaces';
+const teamPath = `${base}/current/team`;
 export const listWorkspaces = () => apiGet<Workspace[]>(base);
 export const switchWorkspace = (id: string) => apiPost<{ token: string }>(`${base}/${encodeURIComponent(id)}/switch`, {});
 export const workspaceOverview = () => apiGet<WorkspaceOverview>(`${base}/current`);
@@ -20,10 +21,18 @@ export function workspaceAccountLabel(role?: string): string {
   if (!role || !Object.hasOwn(workspaceRoles, role)) return '';
   return role === 'OWNER' ? workspaceRoles.OWNER : `子账户 · ${workspaceRoles[role]}`;
 }
-export type ChildRole = 'OPERATOR' | 'FINANCE' | 'VIEWER';
+export const childRoleDescriptions = {
+  OPERATOR: '绑定千川账户，管理本人负责的投放',
+  FINANCE: '查看订阅、账单及积分',
+  VIEWER: '查看投放计划与数据',
+};
+export type ChildRole = keyof typeof childRoleDescriptions;
 export interface WorkspaceChild { id: string; phone: string; role: string; status: string; expiresAt?: string }
 export interface WorkspaceTeam { used: number; limit: number; members: WorkspaceChild[]; invites: WorkspaceChild[] }
-export const workspaceTeam = () => apiGet<WorkspaceTeam>(`${base}/current/team`);
-export const inviteChild = (phone: string, role: ChildRole) => apiPost<{ token: string; expiresAt: string }>(`${base}/current/team/invitations`, { phone, role });
-export const changeChild = (id: string, role: string, active: boolean) => apiPut(`${base}/current/team/members/${encodeURIComponent(id)}`, { role, active });
-export const revokeChildInvite = (id: string) => apiDelete(`${base}/current/team/invitations/${encodeURIComponent(id)}`);
+const quietTeamRequest = { headers: { 'X-Quiet-Request': 'true' } };
+export const workspaceTeam = () => apiGet<WorkspaceTeam>(teamPath, quietTeamRequest);
+export const inviteChild = (phone: string, role: ChildRole) => apiPost<{ token: string; expiresAt: string }>(`${teamPath}/invitations`, { phone, role }, quietTeamRequest);
+export const changeChild = (id: string, change: { role: ChildRole } | { active: boolean }) =>
+  apiPut(`${teamPath}/members/${encodeURIComponent(id)}`, change, quietTeamRequest);
+export const changeChildInviteRole = (id: string, role: ChildRole) => apiPut(`${teamPath}/invitations/${encodeURIComponent(id)}`, { role }, quietTeamRequest);
+export const revokeChildInvite = (id: string) => apiDelete(`${teamPath}/invitations/${encodeURIComponent(id)}`, quietTeamRequest);
