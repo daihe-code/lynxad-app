@@ -50,6 +50,30 @@ class OptimizationDecisionPersistenceTest {
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE title='盯盘规则已更新'",Integer.class));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE tenant_id='other'",Integer.class));
     }
+
+    @Test void firstRuleStartIsIndependentOfEditsResumesAndTheHistoryWindow() {
+        var first = Instant.now().minus(Duration.ofDays(200)).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        journal.ruleChanged(plan, policy(false), null, null, 0, null, "operator", first.minusSeconds(60));
+        journal.ruleChanged(plan, policy(true), state, null, 0, null, "operator", first.minusSeconds(30));
+        assertNull(journal.firstRuleEnabledAt("tenant", "plan"));
+
+        journal.ruleChanged(plan, policy(true), null, null, 0, null, "operator", first);
+        journal.ruleChanged(plan, policy(true), state, null, 0, json.createObjectNode(), "operator", Instant.now());
+        assertEquals(1, journal.ruleHistory("tenant", "plan", "RULES", 7, 1, 20).total());
+        assertEquals(first, journal.firstRuleEnabledAt("tenant", "plan"));
+        assertNull(journal.firstRuleEnabledAt("other", "plan"));
+        assertNull(journal.firstRuleEnabledAt("tenant", "another-plan"));
+    }
+
+    @Test void firstRuleStartReadsHistoricalActivationRecordedAsAnUpdate() {
+        var first = Instant.parse("2026-11-05T02:27:38Z");
+        journal.ruleChanged(plan, policy(true), null, null, 0, null, "operator", first);
+        jdbc.update("UPDATE optimization_event SET title=?, report_json=? WHERE kind='RULES_CHANGE'",
+            "盯盘规则已更新", json.createObjectNode().put("enabled", true).toString());
+        journal.ruleChanged(plan, policy(true), null, null, 0, null, "operator", first.plusSeconds(60));
+        assertEquals(first, journal.firstRuleEnabledAt("tenant", "plan"));
+    }
+
     @Test void pausedEditsAndLaterVerificationDoNotChangeTheSnapshot(){
         store.automationStore(journal);
         store.ruleMetrics(new OptimizationRuleMetricsStore(jdbc));

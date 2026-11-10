@@ -139,6 +139,7 @@ export interface OptimizationDetails {
   actions?: OptimizationEvent[];
   reviews?: OptimizationReview[];
   view: OptimizationView;
+  firstEnabledAt?: string | null;
   effectiveSeconds: number;
   summary: { found: number; completed: number; protectedCount: number };
   pending: OptimizationEvent[];

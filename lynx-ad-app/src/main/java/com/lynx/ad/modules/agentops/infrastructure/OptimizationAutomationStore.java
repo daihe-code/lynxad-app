@@ -76,6 +76,8 @@ public class OptimizationAutomationStore {
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
     }
+    private static final String RULES_ENABLED_TITLE = "盯盘优化已开启";
+
     void ruleChanged(AdPlan p,OptimizationPolicy policy,OptimizationStore.State previous,PauseSnapshot snapshot,
                      int expired,JsonNode resumeReport,String operator,Instant at){
         long version=previous==null?1:previous.version()+1;
@@ -106,7 +108,7 @@ public class OptimizationAutomationStore {
             lastRulePause(p.tenantId().value(),p.id().value(),previous.version())
                 .ifPresent(pause->report.put("paused_at",pause.pausedAt().toString()));
         }
-        String title=resumed?"盯盘优化已恢复":policy.enabled()?(previouslyEnabled?"盯盘规则已更新":"盯盘优化已开启"):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
+        String title=resumed?"盯盘优化已恢复":policy.enabled()?(previouslyEnabled?"盯盘规则已更新":RULES_ENABLED_TITLE):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
         String body=policy.enabled()?"净成交ROI要求不低于 "+policy.rules().roiFloor().stripTrailingZeros().toPlainString()+"；当天消耗 ¥"+policy.rules().spendReminder().stripTrailingZeros().toPlainString()+" 时提醒，达到 ¥"+policy.rules().spendProtection().stripTrailingZeros().toPlainString()+" 时"+(policy.rules().protectionAction().equals("AUTO_PAUSE")?"按授权自动暂停本计划。":"提醒你确认暂停。")
                 :previouslyEnabled?"盯盘优化已暂停，已提交操作继续核对。":"规则已保存，盯盘优化仍为暂停状态。";
         ruleEntry(p,version,title,body,report,at);
@@ -163,6 +165,25 @@ public class OptimizationAutomationStore {
               )
             """,reason,now,now,state.tenant(),state.plan(),state.version());
     }
+    public Instant firstRuleEnabledAt(String tenant, String plan) {
+        return jdbc.query("""
+            SELECT created_at, title, report_json FROM optimization_event
+            WHERE tenant_id=? AND plan_id=? AND kind='RULES_CHANGE' AND status='SUCCEEDED'
+              AND title IN (?, '盯盘规则已更新')
+            ORDER BY created_at
+            """, rows -> {
+            while (rows.next()) {
+                if (RULES_ENABLED_TITLE.equals(rows.getString("title"))) return time(rows, "created_at");
+                // Early rule records used the update title for both activation and edits.
+                JsonNode report = node(rows.getString("report_json"));
+                if (report != null && !report.has("activity") && report.path("enabled").asBoolean()) {
+                    return time(rows, "created_at");
+                }
+            }
+            return null;
+        }, tenant, plan, RULES_ENABLED_TITLE);
+    }
+
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
         String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));
