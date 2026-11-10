@@ -21,7 +21,7 @@ public class OptimizationDecisionService {
     public Preview preview(String tenant,String plan,String id){
         var event=event(tenant,plan,id);var p=gateway.plan(tenant,plan);var state=policies.get(p.tenantId(),p.id()).orElseThrow();
         if(!event.status().equals("RECOMMENDED")||event.proposal()==null)throw new BizException(1803,"当前建议没有可确认执行的操作");
-        var facts=gateway.facts(p);validate(state,event,facts,Instant.now());
+        var facts=OptimizationExecutionService.actionFacts(gateway,p,event);validate(state,event,facts,Instant.now());
         if(policies.deliveryChangedSinceReport(state))throw new BizException(1803,"投放已变化，请等待最新判断");
         String day=LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();var addition=addition(event.proposal());
         var used=confirmations.committed(tenant,plan,day);

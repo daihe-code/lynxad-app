@@ -28,6 +28,25 @@ class OptimizationDiagnosticsTest {
         var r=evaluate(report("100"),approved());assertTrue(r.path("diagnostics").toString().contains("E4-04"));assertTrue(r.path("diagnostics_ready").asBoolean());assertFalse(r.path("business_ready").asBoolean());assertFalse(r.path("recommendations").toString().contains("GROWTH_BUDGET"));assertTrue(r.path("recommendations").get(0).path("requires_confirmation").asBoolean());assertFalse(r.path("recommendations").get(0).path("execution_allowed").asBoolean());
     }
     @Test void highRoiDoesNotInventBudgetBottleneck()throws Exception{var d=report("240");for(var row:d.path("observations"))((ObjectNode)row.path("metrics")).put("clicks","100");var r=evaluate(d,approved());assertFalse(r.path("recommendations").toString().contains("GROWTH_BUDGET"));}
+    @Test void confirmedBudgetConstraintProducesAnAdvisoryUntilTheLedgerIsVerified() throws Exception {
+        var data=report("240").put("platform_status","PRE_OFFLINE_BUDGET").put("daily_budget","500");
+        for(var row:data.path("observations"))((ObjectNode)row.path("metrics")).put("clicks","100");
+        var context=(ObjectNode)data.path("diagnostic_context");
+        context.put("budget_constrained",true).put("headroom","80").put("addition_committed","150");
+        var advisory=evaluate(data,approved()).path("recommendations");
+        assertEquals(1,advisory.size());
+        assertEquals("BUDGET_CONSTRAINT",advisory.get(0).path("type").asText());
+        assertFalse(advisory.get(0).has("action"));
+
+        context.put("ledger_verified",true);
+        var recommendations=evaluate(data,approved()).path("recommendations");
+        assertEquals(1,recommendations.size());
+        var proposal=recommendations.get(0);
+        assertEquals("GROWTH_BUDGET",proposal.path("type").asText());
+        assertEquals("550.00",proposal.path("action").path("target").asText());
+        assertTrue(proposal.path("requires_confirmation").asBoolean());
+        assertFalse(proposal.path("execution_allowed").asBoolean());
+    }
     @Test void zeroKnownNetIsDifferentFromMissingNet()throws Exception{
         var known=evaluate(report("0"),approved());assertTrue(known.path("diagnostics").toString().contains("E4-03"));
         var missing=report("0");for(var row:missing.path("observations"))((ObjectNode)row.path("metrics")).remove("net_revenue");var r=evaluate(missing,approved());assertFalse(r.path("diagnostics").toString().contains("E4-03"));assertFalse(r.path("diagnostics_ready").asBoolean());

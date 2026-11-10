@@ -8,9 +8,12 @@ export function planOptimizationPresentation(plan: { qcPlanId?: string | null; s
   if (loading) return { label: '加载中', tone: 'muted', action: '' };
   if (failed) return { label: '加载失败', tone: 'warning', action: '重试' };
   const action = state ? '查看盯盘详情' : '设置盯盘规则';
-  if (isOptimizationPlanEnded(status.group)) return { label: '已结束', tone: 'muted', action: state ? action : '' };
+  if (isOptimizationPlanEnded(status.group) || state?.holdReason === 'PLAN_ENDED') return { label: '已结束', tone: 'muted', action: state ? action : '' };
   if (!state) return { label: '待配置', tone: 'warning', action };
   if (!state.enabled) return state.ruleBased ? { label: '已暂停', tone: 'warning', action } : { label: '已关闭', tone: 'muted', action };
+  if (state.holdReason === 'AUTHORIZATION_REQUIRED') return { label: '待核对授权', tone: 'warning', action };
+  if (state.holdReason === 'SERVICE_EXPIRED') return { label: '服务到期', tone: 'warning', action };
+  if (state.holdReason === 'REVISION_REQUIRED') return { label: '规则待生效', tone: 'warning', action };
   if (state.failed) return { label: '检测受限', tone: 'warning', action };
   if (state.holdReason) return { label: '需核对配置', tone: 'warning', action };
   if (status.detail === 'TIME_NO_REACH' || ['PENDING_AUDIT', 'AUDIT', 'REAUDIT'].includes(status.group) || plan.qcStatus === 'PRE_ONLINE') return { label: '待投放生效', tone: 'muted', action };

@@ -10,6 +10,9 @@ import java.util.*;
 public final class OptimizationRulesEvaluator {
     private static final ObjectMapper JSON=new ObjectMapper();
     private OptimizationRulesEvaluator() {}
+    static boolean planBudgetConstrained(String platformStatus) {
+        return "OFFLINE_BUDGET".equals(platformStatus) || "PRE_OFFLINE_BUDGET".equals(platformStatus);
+    }
     public static JsonNode evaluate(String payload,JsonNode previous,OptimizationPolicy policy) {
         try{return evaluate(JSON.readTree(payload),previous,policy);}catch(java.io.IOException e){throw new IllegalArgumentException("Invalid rule observation",e);}
     }
@@ -39,7 +42,17 @@ public final class OptimizationRulesEvaluator {
         var history=result.putArray("rule_samples");
         boolean complete=data.path("complete").asBoolean();
         BigDecimal spend=decimal(data,"daily_spend"),revenue=decimal(data,"daily_net_revenue");
-        if(!"DELIVERING".equals(data.path("plan_status").asText())){result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;}
+        boolean pending=data.path("execution_pending").asBoolean();
+        String platformStatus=data.path("platform_status").asText();
+        if(!pending && planBudgetConstrained(platformStatus)) {
+            boolean exhausted="OFFLINE_BUDGET".equals(platformStatus);
+            advice(advice,"BUDGET_CONSTRAINT",exhausted?"计划预算不足":"计划预算即将用尽",
+                "千川已报告该计划的预算限制，可核对预算与当日消耗。")
+                .put("requires_confirmation",false).put("workflow","data");
+        }
+        if(!"DELIVERING".equals(data.path("plan_status").asText())){
+            result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;
+        }
         if(!data.path("execution_pending").asBoolean() && (spend==null || spend.signum()==0)) {
             var since = zeroDeliverySince(data, previous, observed, restarted);
             if (since != null) {
@@ -52,7 +65,6 @@ public final class OptimizationRulesEvaluator {
                 }
             }
         }
-        if(!complete || spend==null || spend.signum()<0){reasons.add("等待完整的当天消耗数据");return result;}
         if(previous!=null)for(var sample:previous.path("rule_samples")){
             try{var time=OffsetDateTime.parse(sample.path("at").asText());
                 if(time.toLocalDate().equals(observed.toLocalDate()) && !time.isAfter(observed) && time.isAfter(observed.minusMinutes(65))
@@ -82,6 +94,13 @@ public final class OptimizationRulesEvaluator {
         if(priorEnd==null || !priorEnd.equals(expectedEnd) || matureSpend.signum()<=0)matureReady=false;
         if(matureReady){result.put("state","READY");result.put("actual_net_roi",matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP).toPlainString());result.put("mature_spend",matureSpend.toPlainString());result.put("mature_net_revenue",matureRevenue.toPlainString());result.put("window_count",windowHours);}
         else reasons.add("等待连续完整小时及成交回补，暂不判断ROI效果");
+        var matureRoi=matureReady?matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP):null;
+        if(matureRoi!=null && matureRoi.compareTo(rules.roiFloor())<0)
+            advice(advice,"ROI_PROTECTION","净成交ROI低于本计划要求","最近 "+windowHours+" 个完整成熟小时的净成交ROI "+matureRoi.setScale(2,RoundingMode.HALF_UP)+"，期望不低于 "+rules.roiFloor()+"；先核对成交回传与投放变化。");
+        if(!complete || spend==null || spend.signum()<0){
+            reasons.add("等待完整的当天消耗数据，暂缓消耗保护和新增投入判断");
+            return result;
+        }
         // One sample per minute; repeated reads cannot create evidence of elapsed time.
         if(history.isEmpty() || !history.get(history.size()-1).path("at").asText().startsWith(observed.toString().substring(0,16))){
             var sample=history.addObject();sample.put("at",observed.toString());sample.put("spend",spend.toPlainString());
@@ -99,9 +118,6 @@ public final class OptimizationRulesEvaluator {
         }else if(spend.compareTo(rules.spendReminder())>=0)advice(advice,"SPEND_REMINDER","当天消耗达到提醒金额","当天消耗 ¥"+spend.toPlainString()+"，提醒金额 ¥"+rules.spendReminder()+"。");
         if(revenue!=null && revenue.signum()>=0 && spend.signum()>0)
             result.put("cumulative_net_roi",revenue.divide(spend,8,RoundingMode.HALF_UP).toPlainString());
-        var matureRoi=matureReady?matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP):null;
-        if(matureRoi!=null && matureRoi.compareTo(rules.roiFloor())<0)
-            advice(advice,"ROI_PROTECTION","净成交ROI低于本计划要求","最近 "+windowHours+" 个完整成熟小时的净成交ROI "+matureRoi.setScale(2,RoundingMode.HALF_UP)+"，期望不低于 "+rules.roiFloor()+"；先核对成交回传与投放变化。");
         // Spend acceleration is an independent lead. Intraminute conversion deltas are not mature ROI.
         JsonNode baseline=null;var cutoff=observed.minusMinutes(rules.runawayMinutes());
         for(var sample:history){var at=OffsetDateTime.parse(sample.path("at").asText());if(!at.isAfter(cutoff) && !at.isBefore(cutoff.minusSeconds(90)))baseline=sample;}

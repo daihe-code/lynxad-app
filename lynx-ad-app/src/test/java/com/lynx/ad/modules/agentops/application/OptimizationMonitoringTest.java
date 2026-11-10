@@ -58,7 +58,7 @@ class OptimizationMonitoringTest {
         var s=new OptimizationStore.State("a","p",1,true,rulesState().policy(),null,null,null,previous);
         when(insights.data(eq(tenant),eq(id),any(),eq(true)))
             .thenReturn(new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal("320")),List.of(),"stat_time_day",Instant.now(),null));
-        when(management.monitoringFacts(tenant,id)).thenReturn(
+        when(management.monitoringFacts(tenant,id,false)).thenReturn(
             new PlanManagementService.MonitoringFacts("1878663839175696","PAUSED","CUSTOM",BigDecimal.valueOf(400),null,List.of("item")),
             new PlanManagementService.MonitoringFacts("1878663839175696","DELIVERING","CUSTOM",BigDecimal.valueOf(400),null,List.of("item")));
         assertFalse(service.collectRules(plan,s).containsKey("optimization_restarted_at"));
@@ -69,7 +69,7 @@ class OptimizationMonitoringTest {
     @Test void ruleObservationOlderThanTwoMinutesIsRecollected() {
         var s=rulesState();when(store.claim(eq(s),anyString(),any())).thenReturn(true);
         when(store.pending(s)).thenReturn(Optional.of(new OptimizationStore.Pending("stale-rules",1,"{}",Instant.now().minusSeconds(121))));
-        when(management.monitoringFacts(tenant,id)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
+        when(management.monitoringFacts(tenant,id,false)).thenThrow(new BizException(1801,"授权失效"));service.cycle(s);
         verify(store).discard(s,"stale-rules");verify(store).release(eq(s),anyString(),eq("广告账户授权已失效，请重新授权。"));verifyNoInteractions(engine);
     }
     @Test void networkFailureRetainsOutboxForIdenticalRetry() {
@@ -81,7 +81,7 @@ class OptimizationMonitoringTest {
     @Test void collectionTimeoutDoesNotPublishAnObservation() {
         var state = rulesState();
         when(store.claim(eq(state), anyString(), any())).thenReturn(true);
-        when(management.monitoringFacts(tenant, id)).thenThrow(new BizException(1406,
+        when(management.monitoringFacts(tenant, id,false)).thenThrow(new BizException(1406,
                 "RPCError{ErrType:[RPC_FAILED] reason=request timeout}"));
 
         service.cycle(state);
@@ -94,7 +94,7 @@ class OptimizationMonitoringTest {
         var gateway = mock(OptimizationExecutionGateway.class);
         var journal = mock(OptimizationAutomationStore.class);
         service.execution(new OptimizationExecutionService(store, journal, gateway, insights), gateway, journal);
-        when(management.monitoringFacts(tenant, id)).thenReturn(new PlanManagementService.MonitoringFacts(
+        when(management.monitoringFacts(tenant, id,false)).thenReturn(new PlanManagementService.MonitoringFacts(
                 "1878663839175696", "DELIVERING", "CUSTOM", BigDecimal.valueOf(400), null, List.of("item")));
         when(insights.data(eq(tenant), eq(id), any(), eq(true)))
                 .thenReturn(new PlanInsightsService.Statistics(Map.of("cost", BigDecimal.TEN), List.of(),

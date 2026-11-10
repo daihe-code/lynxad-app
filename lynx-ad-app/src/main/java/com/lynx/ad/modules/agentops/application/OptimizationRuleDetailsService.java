@@ -28,7 +28,7 @@ public class OptimizationRuleDetailsService {
         var summary=snapshot==null?journal.ruleSummary(tenantId,planId,enabled && today):snapshot.summary();
         return new Details(view,seconds,summary,journal.rulePending(tenantId,planId),
             journal.ruleHistory(tenantId,planId,category,days,page,size),account==null?"UNAVAILABLE":account.status(),
-            account==null?null:account.accountName(),enabled?journal.ruleActions(tenantId,planId,view.version()):List.of(),
+            account==null?null:account.accountName(),enabled && !OptimizationStore.lifecycleHold(view.holdReason())?journal.ruleActions(tenantId,planId,view.version()):List.of(),
             reviews==null?List.of():reviews.history(tenantId,planId,enabled && today),pause,
             journal.firstRuleEnabledAt(tenantId,planId));
     }

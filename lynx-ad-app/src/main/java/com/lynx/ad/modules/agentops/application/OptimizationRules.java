@@ -21,6 +21,22 @@ public record OptimizationRules(BigDecimal roiFloor, BigDecimal spendReminder, B
         amount(dailyAddition,"每日追加预算",new BigDecimal("0.01"),new BigDecimal("999999999.99"));
         if(maxAddition.compareTo(dailyAddition)>0)throw new BizException(1802,"每天累计追加预算不能低于单次追加预算");
     }
+    public OptimizationPolicy policy(boolean enabled) {
+        var defaults = OptimizationPolicy.defaults();
+        return new OptimizationPolicy(enabled, "OBSERVE", spendProtection, defaults.maxLoss(),
+            defaults.minSpend(), defaults.minOrders(), defaults.persistenceWindows(),
+            defaults.conversionDelayMinutes(), java.util.List.of(), null, null, null, this);
+    }
+
+    public boolean restricts(OptimizationRules previous) {
+        return AUTO_PAUSE.equals(previous.protectionAction()) &&
+                (!AUTO_PAUSE.equals(protectionAction) || spendProtection.compareTo(previous.spendProtection()) != 0)
+            || roiFloor.compareTo(previous.roiFloor()) > 0
+            || spendReminder.compareTo(previous.spendReminder()) < 0
+            || maxAddition.compareTo(previous.maxAddition()) < 0
+            || dailyAddition.compareTo(previous.dailyAddition()) < 0;
+    }
+
     private static void amount(BigDecimal value,String label,BigDecimal min,BigDecimal max) {
         if(value==null || value.compareTo(min)<0 || value.compareTo(max)>0 || value.stripTrailingZeros().scale()>2)
             throw new BizException(1802,label+"超出范围，最多两位小数");

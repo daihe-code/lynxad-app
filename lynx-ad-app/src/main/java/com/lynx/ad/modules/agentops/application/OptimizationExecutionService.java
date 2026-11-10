@@ -25,7 +25,7 @@ public class OptimizationExecutionService {
     @Scheduled(fixedDelayString="${lynx.ad.monitoring.execution-scan-ms:10000}")
     public void scan(){for(var event:journal.pending())if(!"MATERIAL_GENERATE".equals(event.kind()))try{process(event);}catch(RuntimeException ex){org.slf4j.LoggerFactory.getLogger(getClass()).warn("execution check unavailable event={} type={}",event.id(),ex.getClass().getSimpleName());}}
     public void observe(AdPlan p,OptimizationStore.State state){
-        if(!"AUTO_LIMITED".equals(state.policy().mode()) || state.holdReason()!=null)return;
+        if(state.policy().rules()!=null || !"AUTO_LIMITED".equals(state.policy().mode()) || state.holdReason()!=null)return;
         var facts = gateway.facts(p);
         if(state.baseline()==null)journal.baseline(state,facts);
         else if(!state.baseline().equals(facts) && !journal.unresolved(state.tenant(),p.accountId().value()))hold(p,"检测到千川后台或人工变更，已暂停自动调控，请核查并重新授权");
@@ -45,7 +45,7 @@ public class OptimizationExecutionService {
             p=gateway.plan(event.tenant(),event.planId());gateway.writable(p);
             var state=policies.get(p.tenantId(),p.id()).orElseThrow(()->new BizException(1802,"盯盘授权不存在"));
             if(journal.unresolved(event.tenant(),event.accountId()))throw new BizException(1803,"账户存在待核查的自动操作");
-            var facts=gateway.facts(p);validate(state,event,facts,Instant.now(),journal.actionsToday(event.tenant(),event.planId()));
+            var facts=actionFacts(gateway,p,event);validate(state,event,facts,Instant.now(),journal.actionsToday(event.tenant(),event.planId()));
             if("ROI".equals(event.kind()) && !"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI".equals(facts.path("deepExternalAction").asText()))throw new BizException(1803,"平台优化目标不属于净成交ROI，不执行自动ROI调整");
             var products=new HashSet<String>();facts.path("productIds").forEach(n->products.add(n.asText()));var economics=policies.economics(p).stream().filter(e->products.contains(e.productId())).toList();state.policy().withEconomics(economics).validate(products);
             String cause=event.proposal().path("cause").asText();if(!Set.of("DAILY_LIMIT","NEXT_DAY","TRIAL_LOSS").contains(cause)){
@@ -54,7 +54,7 @@ public class OptimizationExecutionService {
                 if(!"NEW_MATERIAL_TRIAL".equals(cause)&&spend.compareTo(state.policy().minSpend())<0 || computed.subtract(decimal(event.report(),"estimated_contribution_profit")).abs().compareTo(new BigDecimal("0.02"))>0)throw new BizException(1803,"最新利润资料或样本与执行依据不一致");
                 if("ROI".equals(event.kind()) && "PROFITABLE_LOW_DELIVERY".equals(cause) && (factor.signum()<=0 || decimal(event.proposal(),"target").multiply(factor).compareTo(new BigDecimal("1.1"))<0))throw new BizException(1803,"调整后ROI低于商品保本保护线");
             }
-            if(state.baseline()==null || !state.baseline().equals(facts)){hold(p,"平台状态与自动授权基准不同，请核查后恢复自动调控");throw new BizException(1803,"平台设置已变化");}
+            if(state.policy().rules()==null && (state.baseline()==null || !state.baseline().equals(facts))){hold(p,"平台状态与自动授权基准不同，请核查后恢复自动调控");throw new BizException(1803,"平台设置已变化");}
             BigDecimal daily=currentSpend(p,state.policy().rules()!=null);String kind=event.kind();
             if("PAUSE".equals(kind) && "DAILY_LIMIT".equals(event.proposal().path("cause").asText()) && daily.compareTo(state.policy().dailySpendLimit())<0)throw new BizException(1803,"最新消耗尚未达到每日限额");
             if(!"PAUSE".equals(kind) && daily.compareTo(state.policy().dailySpendLimit())>=0)throw new BizException(1803,"已达到每日限额，不执行扩量或调价");
@@ -80,7 +80,7 @@ public class OptimizationExecutionService {
             journal.rememberBefore(event,facts);
             if(!journal.dispatch(event,owner))throw new BizException(1803,"授权或执行租约已变化");
             dispatched=true;
-            if(prepared!=null){journal.intent(event,intent);gateway.tactics().write(p,event.proposal(),prepared);}else gateway.write(p,event.proposal());var actual=gateway.facts(p);
+            if(prepared!=null){journal.intent(event,intent);gateway.tactics().write(p,event.proposal(),prepared);}else gateway.write(p,event.proposal());var actual=actionFacts(gateway,p,event);
             if(intent!=null){((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}
             if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());}
             else journal.finish(event,"VERIFY_PENDING","平台暂未返回目标值，继续只读核查",actual);
@@ -89,14 +89,14 @@ public class OptimizationExecutionService {
             else {journal.finish(event,"SKIPPED",reason,null);if(p!=null)gateway.unlock(p,event.id());}
         }finally{journal.releaseAccount(event.tenant(),event.accountId(),owner);}
     }
-    private BigDecimal currentSpend(AdPlan p,boolean rules){var today=LocalDate.now(ZONE);var data=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);if(data.fetchedAt()==null || data.fetchedAt().plusSeconds(rules?120:600).isBefore(Instant.now()) || data.fetchedAt().isAfter(Instant.now().plusSeconds(30)) || !today.equals(LocalDate.now(ZONE)) || data.summary().get("cost")==null || data.summary().get("cost").signum()<0)throw new BizException(1803,"当日风险报表不完整或已过期");return data.summary().get("cost");}
+    private BigDecimal currentSpend(AdPlan p,boolean rules){var today=LocalDate.now(ZONE);var data=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);if(data.fetchedAt()==null || data.fetchedAt().plusSeconds(rules?120:600).isBefore(Instant.now()) || data.fetchedAt().isAfter(Instant.now().plusSeconds(30)) || !today.equals(LocalDate.now(ZONE)) || (rules && !today.equals(data.fetchedAt().atZone(ZONE).toLocalDate())) || data.summary().get("cost")==null || data.summary().get("cost").signum()<0)throw new BizException(1803,"当日风险报表不完整或已过期");return data.summary().get("cost");}
     private void processConfirmed(Event original,String owner){
         var approval=confirmations.find(original.tenant(),original.id()).orElseThrow();boolean dispatched=false;AdPlan p=null;
         try{
             var event=journal.event(original.tenant(),original.id()).orElseThrow();
             if(!event.status().equals("READY")){if(Set.of("EXECUTING","VERIFY_PENDING").contains(event.status()))verify(event,false);return;}
             p=gateway.plan(event.tenant(),event.planId());gateway.writable(p);
-            var state=policies.get(p.tenantId(),p.id()).orElseThrow();var facts=gateway.facts(p);var now=Instant.now();
+            var state=policies.get(p.tenantId(),p.id()).orElseThrow();var facts=actionFacts(gateway,p,event);var now=Instant.now();
             if(approval.expiresAt().isBefore(now)||!approval.day().equals(now.atZone(ZONE).toLocalDate().toString())||!approval.facts().equals(facts)||!approval.action().equals(event.proposal()))throw new BizException(1804,"本次确认已过期或平台事实已变化");
             if(journal.unresolved(event.tenant(),event.accountId()))throw new BizException(1803,"账户已有操作待核实");
             OptimizationDecisionService.validate(state,event,facts,now);var spend=currentSpend(p,true);
@@ -107,8 +107,8 @@ public class OptimizationExecutionService {
             }
             gateway.lock(p,event.id());
             journal.rememberBefore(event,facts);
-            if(!facts.equals(gateway.facts(p))||policies.deliveryChangedSinceReport(state)||!journal.dispatch(event,owner))throw new BizException(1803,"发出前平台事实或规则已变化");
-            dispatched=true;confirmations.dispatched(approval);gateway.write(p,event.proposal());var actual=gateway.facts(p);
+            if(!facts.equals(actionFacts(gateway,p,event))||policies.deliveryChangedSinceReport(state)||!journal.dispatch(event,owner))throw new BizException(1803,"发出前平台事实或规则已变化");
+            dispatched=true;confirmations.dispatched(approval);gateway.write(p,event.proposal());var actual=actionFacts(gateway,p,event);
             if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());}
             else journal.finish(event,"VERIFY_PENDING","操作已提交，继续核实平台结果",actual);
         }catch(RuntimeException e){
@@ -121,12 +121,18 @@ public class OptimizationExecutionService {
     public static BigDecimal decimal(JsonNode node,String key){try{var field=node.get(key);if(field==null || !field.isTextual())throw new IllegalArgumentException();return new BigDecimal(field.asText());}catch(RuntimeException ex){throw new BizException(1802,"自动调控数值格式不正确");}}
     public static void validate(OptimizationStore.State s,Event e,JsonNode facts,Instant now,int count){
         var policy=s.policy();var a=policy.automation();
+        if(policy.rules()!=null){
+            if(!"PAUSE".equals(e.kind()) || !"DAILY_LIMIT".equals(e.proposal().path("cause").asText())
+                || !OptimizationRules.AUTO_PAUSE.equals(policy.rules().protectionAction()))
+                throw new BizException(1802,"当前规则仅授权达到消耗保护金额后暂停本计划");
+            OptimizationDecisionService.validate(s,e,facts,now);
+            return;
+        }
         if(!s.enabled() || !"AUTO_LIMITED".equals(policy.mode()) || s.holdReason()!=null || s.version()!=e.version())throw new BizException(1803,"自动执行授权已失效");
         if(!"PAUSE".equals(e.kind()) && (count>=a.maxActionsPerDay() || s.lastAction()!=null && s.lastAction().plusSeconds(a.cooldownMinutes()*60L).isAfter(now)))throw new BizException(1803,"已达每日动作次数或仍在冷却期");
         var observed=OffsetDateTime.parse(e.report().path("observed_at").asText()).toInstant();if(observed.isAfter(now.plusSeconds(30)) || observed.plusSeconds(600).isBefore(now) || !observed.atZone(ZONE).toLocalDate().equals(now.atZone(ZONE).toLocalDate()))throw new BizException(1803,"执行依据已过期，等待下一轮数据");
         if(!facts.path("qcId").asText().equals(e.report().path("plan_id").asText()) || !e.tenant().equals(e.report().path("store_id").asText()) || !e.accountId().equals(e.report().path("account_id").asText()))throw new BizException(1802,"执行依据计划或账户不匹配");
         String kind=e.kind(),cause=e.proposal().path("cause").asText(),status=facts.path("status").asText();
-        if(policy.rules()!=null && (!"PAUSE".equals(kind) || !"DAILY_LIMIT".equals(cause) || !OptimizationRules.AUTO_PAUSE.equals(policy.rules().protectionAction())))throw new BizException(1802,"新盯盘规则仅授权本计划达到消耗保护金额后暂停");
         if(!Set.of("BUDGET","ROI","PAUSE","ENABLE").contains(kind==null?"":kind)&&!OptimizationTacticsGateway.KINDS.contains(kind==null?"":kind))throw new BizException(1802,"不支持该自动动作");
         if(!kind.equals(e.proposal().path("kind").asText()))throw new BizException(1802,"自动动作记录不一致");
         if(!("ENABLE".equals(kind)?"PAUSED":"DELIVERING").equals(status))throw new BizException(1803,"平台启停状态不满足执行条件");
@@ -156,15 +162,24 @@ public class OptimizationExecutionService {
             if("ROI".equals(kind) && "PROFITABLE_LOW_DELIVERY".equals(cause) && decimal(e.proposal(),"target").compareTo(decimal(e.report(),"break_even_net_roi").multiply(new BigDecimal("1.1")))<0)throw new BizException(1803,"调整后ROI低于保本保护线");
         }
     }
+    static boolean merchantPause(Event event) {
+        return "PAUSE".equals(event.kind()) && "merchant-rules-v2".equals(event.report().path("rule_version").asText());
+    }
+
+    static JsonNode actionFacts(OptimizationExecutionGateway gateway,AdPlan plan,Event event) {
+        return merchantPause(event)?gateway.readPlanFacts(plan,false).facts():gateway.facts(plan);
+    }
+
     public void verify(Event event,boolean requested){
         var p=gateway.plan(event.tenant(),event.planId());JsonNode actual=null;
-        try{actual=gateway.facts(p);if(OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&event.actual()!=null){var intent=event.actual().path("operation");((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());return;}}catch(RuntimeException ex){if(requested)throw ex;}
+        try{actual=actionFacts(gateway,p,event);if(OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&event.actual()!=null){var intent=event.actual().path("operation");((com.fasterxml.jackson.databind.node.ObjectNode)actual).set("operation",intent);((com.fasterxml.jackson.databind.node.ObjectNode)actual).put("actionConfirmed",gateway.tactics().matches(p,event.proposal(),intent));}if(matches(event,actual)){gateway.sync(p,actual);journal.succeeded(event,actual);reviewApplied(event,actual);gateway.unlock(p,event.id());return;}}catch(RuntimeException ex){if(requested)throw ex;}
         if(event.dispatchedAt()!=null && event.dispatchedAt().plusSeconds(180).isBefore(Instant.now())){journal.finish(event,"UNKNOWN","提交结果无法确认，已停止账户后续自动执行，请人工核查",actual==null?event.actual():actual);hold(p,"自动操作结果不明确，请到盯盘中心核查后重新授权");}
     }
     public static boolean matches(Event event,JsonNode actual){if(!event.report().path("plan_id").asText().equals(actual.path("qcId").asText()))return false;return switch(event.kind()){
         case "BUDGET"->decimal(actual,"budget").compareTo(decimal(event.proposal(),"target"))==0;
         case "ROI"->actual.hasNonNull("roi") && decimal(actual,"roi").compareTo(decimal(event.proposal(),"target"))==0;
-        case "PAUSE","ENABLE"->event.proposal().path("target").asText().equals(actual.path("status").asText());default->OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&actual.path("actionConfirmed").asBoolean(false);};}
+        case "PAUSE","ENABLE"->event.proposal().path("target").asText().equals(actual.path("status").asText())
+            && (!merchantPause(event) || "DISABLE".equals(actual.path("qcStatus").asText()));default->OptimizationTacticsGateway.READBACK_KINDS.contains(event.kind())&&actual.path("actionConfirmed").asBoolean(false);};}
     public void recheck(String tenant,String id,boolean acknowledge){var event=journal.event(tenant,id).orElseThrow(()->new BizException(1405,"调控记录不存在"));if("MATERIAL_GENERATE".equals(event.kind()))throw new BizException(1802,"请在素材生成与试投记录中查看原生成任务");if(!Set.of("UNKNOWN","VERIFY_PENDING","EXECUTING").contains(event.status()))throw new BizException(1802,"仅核查结果不明确的操作");String owner="verify:"+UUID.randomUUID();if(!journal.claimAccount(tenant,event.accountId(),owner))throw new BizException(1803,"账户操作处理中，请稍后核查");try{if(acknowledge){if(event.dispatchedAt()==null || event.dispatchedAt().plusSeconds(180).isAfter(Instant.now()))throw new BizException(1803,"等待提交完成后再确认人工核查");var p=gateway.plan(tenant,event.planId());var facts=gateway.facts(p);journal.finish(event,"ACKNOWLEDGED","用户已核查并接受平台当前状态；不代表原操作成功",facts);gateway.unlock(p,id);hold(p,"已人工核查结果，需重新授权自动调控");}else verify(event,true);}finally{journal.releaseAccount(tenant,event.accountId(),owner);}}
-    public void resume(String tenant,String id,long version){var p=gateway.plan(tenant,id);gateway.writable(p);String owner="resume:"+UUID.randomUUID();if(!journal.claimAccount(tenant,p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中");try{if(journal.unresolved(tenant,p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");var s=policies.get(p.tenantId(),p.id()).orElseThrow(()->new BizException(1802,"未配置盯盘"));if(!s.enabled() || !"AUTO_LIMITED".equals(s.policy().mode()))throw new BizException(1802,"请先开启并保存自动调控模式");var facts=gateway.facts(p);var products=new HashSet<String>();facts.path("productIds").forEach(n->products.add(n.asText()));s.policy().withEconomics(policies.economics(p).stream().filter(e->products.contains(e.productId())).toList()).validate(products);journal.resume(tenant,id,version,facts);}finally{release(p,owner);}}
+    public void resume(String tenant,String id,long version){var p=gateway.plan(tenant,id);gateway.writable(p);String owner="resume:"+UUID.randomUUID();if(!journal.claimAccount(tenant,p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中");try{if(journal.unresolved(tenant,p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");var s=policies.get(p.tenantId(),p.id()).orElseThrow(()->new BizException(1802,"未配置盯盘"));if(s.policy().rules()!=null)throw new BizException(1802,"请在盯盘详情核对并恢复规则");if(!s.enabled() || !"AUTO_LIMITED".equals(s.policy().mode()))throw new BizException(1802,"请先开启并保存自动调控模式");var facts=gateway.facts(p);var products=new HashSet<String>();facts.path("productIds").forEach(n->products.add(n.asText()));s.policy().withEconomics(policies.economics(p).stream().filter(e->products.contains(e.productId())).toList()).validate(products);journal.resume(tenant,id,version,facts);}finally{release(p,owner);}}
 }

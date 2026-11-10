@@ -158,7 +158,7 @@
         <el-button v-if="!planEnded" :type="paused ? 'default' : 'primary'" :disabled="closing || resuming || recoveryChecking" @click="emit('edit')">
           {{ data.view.policy.enabled || paused ? '修改规则' : '设置并开启' }}
         </el-button>
-        <el-button v-if="paused && !planEnded" type="primary" :disabled="closing || recoveryBlocked" @click="openResumeConfirmation">恢复盯盘优化</el-button>
+        <el-button v-if="canResume" type="primary" :disabled="closing || recoveryBlocked" @click="openResumeConfirmation">{{ paused ? '恢复盯盘优化' : '核对并生效' }}</el-button>
       </div>
     </footer>
   </div>
@@ -198,10 +198,12 @@ const latestEffect = computed(() => data.value?.reviews?.find(r => r.status === 
 let revision = 0, disposed = false, timer: ReturnType<typeof setTimeout> | undefined;
 const localPlanDisplay = computed(() => planStatusDisplay(data.value?.view.planStatus || props.plan?.status, data.value?.view.qcStatus ?? props.plan?.qcStatus));
 const planEnded = computed(() => isOptimizationPlanEnded(localPlanDisplay.value.group)
-  || data.value?.view.planStatus === 'FINISHED' || props.plan?.status === 'FINISHED');
+  || data.value?.view.holdReason === 'PLAN_ENDED' || data.value?.view.planStatus === 'FINISHED' || props.plan?.status === 'FINISHED');
 const paused = computed(() => !!data.value?.view.policy.rules && !data.value.view.policy.enabled);
+const canResume = computed(() => !planEnded.value && (paused.value || !!data.value?.view.pendingRules ||
+  ['AUTHORIZATION_REQUIRED', 'SERVICE_EXPIRED', 'REVISION_REQUIRED'].includes(data.value?.view.holdReason || '')));
 const accountStatus = computed(() => data.value?.accountStatus || props.account?.status);
-const recoveryBlocked = computed(() => paused.value && !planEnded.value && !!authorizationRecovery.value);
+const recoveryBlocked = computed(() => canResume.value && !!authorizationRecovery.value);
 const canCheckRecovery = computed(() => accountStatus.value === 'ACTIVE' && authorizationRecovery.value !== 'reauthorize');
 const verifiedDelivery = computed(() => {
   const view = data.value?.view;
@@ -322,7 +324,7 @@ async function load() {
   finally { if (!disposed && current === revision) { loading.value = false; refreshing.value = false; } }
 }
 function requireAuthorizationRecovery(rejected = false) {
-  if (disposed || !paused.value || planEnded.value) return;
+  if (disposed || !canResume.value) return;
   if (!authorizationRecovery.value || rejected) tab.value = 'current';
   if (rejected) authorizationRecovery.value = 'reauthorize';
   else authorizationRecovery.value ??= 'recheck';
@@ -331,7 +333,7 @@ function requireAuthorizationRecovery(rejected = false) {
 }
 function handleAuthorizationFailure(cause: unknown) {
   const failure = requestFailure(cause);
-  if (!paused.value || planEnded.value || (failure.kind !== 'AUTHORIZATION' && ![1201, 1205].includes(failure.code ?? 0))) return false;
+  if (!canResume.value || (failure.kind !== 'AUTHORIZATION' && ![1201, 1205].includes(failure.code ?? 0))) return false;
   requireAuthorizationRecovery(true);
   return true;
 }
@@ -408,7 +410,7 @@ async function pauseOptimization() {
   }
 }
 function openResumeConfirmation() {
-  if (!paused.value || planEnded.value || recoveryBlocked.value || resumeOpen.value) return;
+  if (!canResume.value || recoveryBlocked.value || resumeOpen.value) return;
   resumeOpen.value = true;
   void loadResumePreview();
   void loadTasks();
@@ -430,7 +432,7 @@ async function loadResumePreview() {
 }
 async function resumeOptimization() {
   const preview = resumePreview.value;
-  if (!preview || !paused.value || planEnded.value || recoveryBlocked.value || resuming.value || resumeError.value) return;
+  if (!preview || !canResume.value || recoveryBlocked.value || resuming.value || resumeError.value) return;
   resuming.value = true;
   try {
     const result = await confirmOptimizationResume(props.planId, preview);
@@ -447,7 +449,7 @@ async function resumeOptimization() {
     if (disposed) return;
     if (!handleAuthorizationFailure(cause)) resumeError.value = requestFailure(cause, { method: 'POST' }).message;
     await load();
-    if (!paused.value) resumeOpen.value = false;
+    if (!canResume.value) resumeOpen.value = false;
   } finally {
     resuming.value = false;
   }
@@ -462,8 +464,8 @@ watch(tab, (value, previous) => {
   scrollArea.value?.scrollTo({ top: 0 });
   if (value === 'history' || previous === 'history') void load();
 });
-watch([paused, planEnded, accountStatus], ([isPaused, ended, status]) => {
-  if (isPaused && !ended && status && status !== 'ACTIVE') requireAuthorizationRecovery();
+watch([canResume, accountStatus], ([recoverable, status]) => {
+  if (recoverable && status && status !== 'ACTIVE') requireAuthorizationRecovery();
 }, { flush: 'sync' });
 watch(recoveryBlocked, blocked => { if (blocked) tab.value = 'current'; });
 let shownRestart: string | undefined;

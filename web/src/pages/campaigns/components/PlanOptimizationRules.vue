@@ -45,7 +45,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { CircleCheckFilled } from '@element-plus/icons-vue';
-import { getOptimizationRules, saveOptimizationRules, type OptimizationRules, type OptimizationView } from '@/features/delivery/optimizationApi';
+import { requestFailure } from '@/api/apiErrors';
+import { getOptimizationRules, previewOptimizationRules, saveOptimizationRules, type OptimizationRules, type OptimizationView } from '@/features/delivery/optimizationApi';
 import { defaultOptimizationRules, numericOptimizationRules, validateOptimizationRules } from '@/features/delivery/optimizationRules';
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import type { PlanListVo } from '@/features/delivery/deliveryApi';
@@ -68,13 +69,48 @@ async function save() {
   if (!form.value || !view.value?.available || saving.value) return;
   errors.value = validateOptimizationRules(form.value);
   if (Object.keys(errors.value).length) { const key = Object.keys(errors.value)[0]; jump(key === 'roiFloor' ? 0 : ['maxAddition', 'dailyAddition'].includes(key!) ? 2 : 1); return; }
-  if (!paused.value && form.value.protectionAction === 'AUTO_PAUSE') { try { await ElMessageBox.confirm(`当天消耗达到 ¥${format(form.value.spendProtection)} 时，允许自动暂停本计划。独立调控任务不在此次授权内，恢复投放需再次确认。`, '确认消耗保护授权', { confirmButtonText: '确认并保存', cancelButtonText: '取消' }); } catch { return; } }
   saving.value = true; error.value = '';
-  try { const value = await saveOptimizationRules(props.planId, numericOptimizationRules(form.value), !paused.value, view.value.version); if (!disposed) { view.value = value; saved = JSON.stringify(form.value); ElMessage.success({ message: '盯盘规则已保存', duration: 3000 }); emit('saved'); } }
-  catch (err: any) { if (!disposed) error.value = err?.response?.data?.message || err?.message || '保存失败，请重试'; }
+  const rules = numericOptimizationRules(form.value);
+  const expectedVersion = view.value.version;
+  try {
+    if (!paused.value && rules.protectionAction === 'AUTO_PAUSE') {
+      try {
+        await ElMessageBox.confirm(
+          `当天消耗达到 ¥${format(rules.spendProtection)} 时，允许自动暂停本计划。独立调控任务不在此次授权内，恢复投放需再次确认。`,
+          '确认消耗保护授权', { confirmButtonText: '确认并保存', cancelButtonText: '取消' },
+        );
+      } catch { return; }
+    }
+    if (disposed) return;
+    let value: OptimizationView;
+    try {
+      value = await saveOptimizationRules(props.planId, rules, !paused.value, expectedVersion);
+    } catch (cause) {
+      if (requestFailure(cause).code !== 1815) throw cause;
+      const { version, day, planStatus, outcome, spend } = await previewOptimizationRules(props.planId, rules, expectedVersion);
+      if (disposed) return;
+      if (outcome === 'LIMIT_PAUSE') {
+        try {
+          await ElMessageBox.confirm(
+            `当天已消耗 ¥${format(spend)}，达到保护金额 ¥${format(rules.spendProtection)}。确认后将提交暂停本广告计划的请求。`,
+            '确认暂停广告计划', { confirmButtonText: '保存并暂停广告计划', cancelButtonText: '取消' },
+          );
+        } catch { return; }
+      }
+      if (disposed) return;
+      value = await saveOptimizationRules(props.planId, rules, true, expectedVersion, { version, day, planStatus, outcome });
+    }
+    if (disposed) return;
+    view.value = value;
+    saved = JSON.stringify(form.value);
+    ElMessage.success({ message: value.pendingRules ? '规则已保存，待核对生效' : '盯盘规则已保存', duration: 3000 });
+    emit('saved');
+  } catch (cause) {
+    if (!disposed) error.value = requestFailure(cause, { method: 'PUT' }).message;
+  }
   finally { saving.value = false; }
 }
-onMounted(async () => { try { const value = await getOptimizationRules(props.planId); if (!disposed) { view.value = value; form.value = { ...(value.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget)) }; saved = JSON.stringify(form.value); } } catch (err: any) { if (!disposed) error.value = err?.response?.data?.message || err?.message || '暂时无法加载规则，请重试'; } finally { if (!disposed) loading.value = false; } });
+onMounted(async () => { try { const value = await getOptimizationRules(props.planId); if (!disposed) { view.value = value; form.value = { ...(value.pendingRules || value.policy.rules || defaultOptimizationRules(props.plan?.roi2Goal, props.plan?.budget)) }; saved = JSON.stringify(form.value); } } catch (err: any) { if (!disposed) error.value = err?.response?.data?.message || err?.message || '暂时无法加载规则，请重试'; } finally { if (!disposed) loading.value = false; } });
 watch(form, () => { if (form.value && Object.keys(errors.value).length) errors.value = validateOptimizationRules(form.value); }, { deep: true });
 onBeforeUnmount(() => { disposed = true; });
 </script>

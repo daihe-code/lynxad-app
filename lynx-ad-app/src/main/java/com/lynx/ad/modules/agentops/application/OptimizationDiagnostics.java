@@ -29,7 +29,7 @@ public final class OptimizationDiagnostics {
             var a = aggregate(days.subList(days.size()-2, days.size()), strategy, true);
             var b = aggregate(days.subList(days.size()-4, days.size()-2), strategy, true);
             if (a == null || b == null || !report.path("state").asText().equals("READY")) continue;
-            if(strategy.approved()&&report.path("state").asText().equals("READY")&&report.path("diagnostic_context").path("complete").asBoolean()
+            if(strategy.approved()&&report.path("complete").asBoolean()&&report.path("state").asText().equals("READY")&&report.path("diagnostic_context").path("complete").asBoolean()
                     &&"MATERIAL".equals(entity.path("kind").asText())&&a.cost.compareTo(strategy.minSpend())>=0&&b.cost.compareTo(strategy.minSpend())>=0
                     &&divide(a.net,a.cost).compareTo(rules.roiFloor())>=0&&divide(b.net,b.cost).compareTo(rules.roiFloor())>=0){
                 var n=((ArrayNode)report.path("recommendations")).addObject().put("type","GROWTH_CREATIVE").put("title","保留已验证素材，测试单一新变化")
@@ -53,7 +53,7 @@ public final class OptimizationDiagnostics {
         boolean sampleReady=recent!=null&&recent.cost.compareTo(strategy.minSpend())>=0;
         boolean contextReady=report.path("diagnostic_context").path("complete").asBoolean();
         boolean diagnosticsReady=strategy.approved() && sampleReady && report.path("state").asText().equals("READY");
-        boolean growthReady=diagnosticsReady && contextReady && strategy.riskModelApproved() && report.path("diagnostic_context").path("ledger_verified").asBoolean();
+        boolean growthReady=diagnosticsReady && report.path("complete").asBoolean() && contextReady && strategy.riskModelApproved() && report.path("diagnostic_context").path("ledger_verified").asBoolean();
         report.put("diagnostics_ready",diagnosticsReady).put("growth_ready",growthReady).put("business_ready",diagnosticsReady&&growthReady);
         if(!growthReady)coverage.add("新增投入账本、独立任务风险或预算瓶颈尚未完整核实");
         var allAdvice=(ArrayNode)report.path("recommendations");
@@ -143,10 +143,14 @@ public final class OptimizationDiagnostics {
     private static ObjectNode metrics(Metrics m){var n=JsonNodeFactory.instance.objectNode();n.put("spend",m.cost.toPlainString()).put("net_revenue",m.net.toPlainString());if(m.impressions!=null)n.put("impressions",m.impressions.toPlainString());if(m.clicks!=null)n.put("clicks",m.clicks.toPlainString());if(m.orders!=null)n.put("paid_orders",m.orders.toPlainString());return n;}
     private static void growth(ObjectNode report,OptimizationRules r,MonitoringStrategy.Parameters s){
         var advice=(ArrayNode)report.path("recommendations");
-        boolean risk=false;for(var item:advice)if(!item.path("type").asText().startsWith("GROWTH"))risk=true;
+        boolean risk=false;
+        for(var item:advice){
+            String type=item.path("type").asText();
+            if(!type.startsWith("GROWTH") && !"BUDGET_CONSTRAINT".equals(type))risk=true;
+        }
         if(risk||!report.path("diagnostics").isEmpty())for(int i=advice.size()-1;i>=0;i--)if(advice.get(i).path("type").asText().startsWith("GROWTH"))advice.remove(i);
         if(!s.approved()||!s.riskModelApproved()||!report.path("business_ready").asBoolean()||!report.path("diagnostic_context").path("complete").asBoolean())return;
-        if(!report.path("recommendations").isEmpty()||!report.path("diagnostics").isEmpty()||report.path("execution_pending").asBoolean())return;
+        if(risk || !report.path("diagnostics").isEmpty() || report.path("execution_pending").asBoolean())return;
         var roi=decimal(report,"actual_net_roi");if(roi==null||roi.compareTo(r.roiFloor())<0)return;
         var context=report.path("diagnostic_context");
         if(!context.path("budget_constrained").asBoolean()||!context.path("ledger_verified").asBoolean())return;
@@ -154,7 +158,8 @@ public final class OptimizationDiagnostics {
         if(budget==null||headroom==null||used==null)return;
         var amount=r.maxAddition().min(r.dailyAddition().subtract(used)).min(headroom).setScale(2,RoundingMode.DOWN);
         if(amount.signum()<=0)return;
-        var n=((ArrayNode)report.path("recommendations")).addObject().put("type","GROWTH_BUDGET").put("title","预算限制健康交付，可确认小额调整")
+        for(int i=advice.size()-1;i>=0;i--)if("BUDGET_CONSTRAINT".equals(advice.get(i).path("type").asText()))advice.remove(i);
+        var n=advice.addObject().put("type","GROWTH_BUDGET").put("title","预算限制健康交付，可确认小额调整")
                 .put("evidence","平台已返回预算限制，成熟净成交ROI达到本计划要求。预算 "+budget+" → "+budget.add(amount)+"，新增承诺 ¥"+amount+"。").put("requires_confirmation",true).put("execution_allowed",false);
         n.putObject("action").put("kind","BUDGET").put("expected",budget.toPlainString()).put("target",budget.add(amount).toPlainString()).put("cause","MERCHANT_GROWTH");
     }

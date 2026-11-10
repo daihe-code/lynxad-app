@@ -23,10 +23,18 @@ public class OptimizationController {
     public record Change(long expectedVersion,OptimizationPolicy policy) {}
     public OptimizationController(OptimizationMonitoringService service,UserRepository users) {this.service=service;this.users=users;}
     @GetMapping public ApiResponse<OptimizationMonitoringService.View> view(@PathVariable String id) {return ApiResponse.ok(service.view(TenantContext.requireTenantId(),new PlanId(id)));}
-    public record RulesChange(long expectedVersion,boolean enabled,OptimizationRules rules) {}
+    public record RulesChange(long expectedVersion,boolean enabled,OptimizationRules rules,OptimizationRuleResumeService.Confirmation confirmation) {}
+    @PostMapping("/rules/preview") public ApiResponse<OptimizationRuleResumeService.Preview> rulesPreview(@PathVariable String id,@RequestBody RulesChange body) {
+        return ApiResponse.ok(resume.configurationPreview(TenantContext.requireTenantId(),new PlanId(id),body.rules(),body.expectedVersion()));
+    }
     @GetMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id) {return ApiResponse.ok(service.rulesView(TenantContext.requireTenantId(),new PlanId(id)));}
     @GetMapping("/details") public ApiResponse<OptimizationRuleDetailsService.Details> details(@PathVariable String id,@RequestParam(defaultValue="false") boolean today,@RequestParam(defaultValue="ALL") String category,@RequestParam(defaultValue="7") int days,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize){return ApiResponse.ok(details.details(TenantContext.requireTenantId(),new PlanId(id),today,category,days,pageNum,pageSize));}
-    @PutMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id,@RequestBody RulesChange body) {return ApiResponse.ok(service.saveRules(TenantContext.requireTenantId(),new PlanId(id),body.rules(),body.enabled(),body.expectedVersion(),operatorName()));}
+    @PutMapping("/rules") public ApiResponse<OptimizationMonitoringService.View> rules(@PathVariable String id,@RequestBody RulesChange body) {
+        var tenant=TenantContext.requireTenantId();
+        var plan=new PlanId(id);
+        resume.configure(tenant,plan,body.rules(),body.enabled(),body.expectedVersion(),body.confirmation(),operatorName());
+        return ApiResponse.ok(service.rulesView(tenant,plan));
+    }
     @GetMapping("/rules/resume-preview") public ApiResponse<OptimizationRuleResumeService.Preview> resumePreview(@PathVariable String id){
         return ApiResponse.ok(resume.preview(TenantContext.requireTenantId(),new PlanId(id)));
     }

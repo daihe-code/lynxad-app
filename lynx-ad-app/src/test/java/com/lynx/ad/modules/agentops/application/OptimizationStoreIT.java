@@ -35,7 +35,7 @@ class OptimizationStoreIT {
         try(var c=DriverManager.getConnection(server,user,password);var s=c.createStatement()) {s.execute("CREATE DATABASE "+database);created=true;}
         var ds=new DriverManagerDataSource(url,user,password);jdbc=new JdbcTemplate(ds);store=new OptimizationStore(jdbc,json,new DataSourceTransactionManager(ds));
         jdbc.execute("CREATE TABLE sys_tenant(id VARCHAR(64) PRIMARY KEY)");jdbc.update("INSERT INTO sys_tenant VALUES('tenant-a'),('tenant-b')");
-        try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V28__optimization_monitor.sql"));ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V29__optimization_execution.sql"));ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V30__optimization_creative.sql"));}
+        try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V28__optimization_monitor.sql"));ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V29__optimization_execution.sql"));ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V30__optimization_creative.sql"));ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V55__optimization_rule_lifecycle.sql"));}
         jdbc.execute("CREATE TABLE notification(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(64),channel VARCHAR(20),title VARCHAR(128),body TEXT,biz_type VARCHAR(32),biz_id VARCHAR(64),result_json TEXT,read_at TIMESTAMP NULL,sent_at TIMESTAMP NULL)");
     }
     @AfterAll static void cleanup() throws Exception {if(created && database.matches("lynxad_optimization_verify_[a-zA-Z0-9_]+"))try(var c=DriverManager.getConnection(server,user,password);var s=c.createStatement()){s.execute("DROP DATABASE "+database);}}
@@ -53,7 +53,7 @@ class OptimizationStoreIT {
     @Test void outboxSurvivesFailedDeliveryAndCompletionIsAtomic() throws Exception {
         store.save(plan(a,p.value()),policy(true));var state=store.get(a,p).orElseThrow();assertTrue(store.claim(state,"worker",Instant.now()));
         var pending=store.enqueue(state,"worker",Map.of("request_id","request-1","store_id",a.value()));store.release(state,"worker","network timeout");
-        assertEquals(pending.id(),store.pending(state).orElseThrow().id());assertEquals("network timeout",store.get(a,p).orElseThrow().error());
+        assertEquals(pending.id(),store.pending(state).orElseThrow().id());assertEquals(OptimizationCollectionError.UNAVAILABLE,store.get(a,p).orElseThrow().error());
         assertTrue(store.claim(state,"worker-2",Instant.now()));store.complete(state,"worker-2",pending,json.readTree("{\"state\":\"WAITING_DATA\"}"));store.release(state,"worker-2",null);
         assertTrue(store.pending(state).isEmpty());var saved=store.get(a,p).orElseThrow();assertNotNull(saved.lastSuccess());assertNull(saved.error());assertEquals("WAITING_DATA",saved.result().path("state").asText());
     }

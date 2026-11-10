@@ -59,6 +59,9 @@ public class PlanManagementService {
     }
     /** Read the physical plan without submitting an operation or deriving membership from a draft. */
     public MonitoringFacts monitoringFacts(TenantId tenant,PlanId id) {
+        return monitoringFacts(tenant,id,true);
+    }
+    public MonitoringFacts monitoringFacts(TenantId tenant,PlanId id,boolean requireProductBindings) {
         var p=require(tenant,id);String qc=p.qcPlanId().orElseThrow(()->new BizException(1403,"草稿尚未发布")).value();
         var row=port.detail(credentials.getUsableCredential(tenant,p.accountId()),qc);
         if(!qc.equals(row.path("ad_id").asText()) || !row.hasNonNull("status") || !row.has("delivery_setting"))throw new BizException(1406,"平台计划信息不完整，暂无法盯盘");
@@ -67,8 +70,15 @@ public class PlanManagementService {
         String qcStatus=row.path("status").asText();
         var status=PlanEditVersion.platformStatus(row);
         if(status==PlanStatus.PAUSED && "DISABLE".equals(row.path("opt_status").asText()))qcStatus="DISABLE";
+        List<String> productIds;
+        try {
+            productIds=List.copyOf(PlanProductsService.boundProducts(row,qc).keySet());
+        } catch(BizException ex) {
+            if(requireProductBindings || ex.code()!=1406)throw ex;
+            productIds=List.of();
+        }
         return new MonitoringFacts(qc,status.name(),SmartBidType.fromOcean(setting.path("smart_bid_type").asText()).name(),
-            budget,QianchuanPlanMapping.number(setting,"roi2_goal"),List.copyOf(PlanProductsService.boundProducts(row,qc).keySet()),
+            budget,QianchuanPlanMapping.number(setting,"roi2_goal"),productIds,
             QianchuanPlanMapping.text(setting,"deep_external_action"),qcStatus);
     }
     private void editable(AdPlan plan) {

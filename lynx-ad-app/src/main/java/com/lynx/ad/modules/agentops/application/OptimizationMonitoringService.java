@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.exception.DomainException;
 import com.lynx.ad.modules.agentops.infrastructure.*;
 import com.lynx.ad.modules.delivery.application.*;
 import com.lynx.ad.modules.delivery.domain.model.*;
@@ -38,7 +39,7 @@ public class OptimizationMonitoringService {
     @org.springframework.beans.factory.annotation.Autowired public void creativeContexts(com.lynx.ad.modules.creative.application.MaterialCreativeContextService value){creativeContexts=value;}
     @org.springframework.beans.factory.annotation.Autowired public void execution(OptimizationExecutionService execution,OptimizationExecutionGateway gateway,OptimizationAutomationStore journal){this.execution=execution;this.gateway=gateway;this.journal=journal;}
     public record View(OptimizationPolicy policy,long version,List<String> productIds,boolean available,String unavailableReason,
-                       Instant lastCheck,Instant lastSuccess,String error,boolean stale,JsonNode result,String holdReason,Instant lastAction,String bidType,String planName,String accountId,String planStatus,String qcStatus) {}
+                       Instant lastCheck,Instant lastSuccess,String error,boolean stale,JsonNode result,String holdReason,Instant lastAction,String bidType,String planName,String accountId,String planStatus,String qcStatus,OptimizationRules pendingRules) {}
     public OptimizationMonitoringService(AdPlanRepository plans,OptimizationStore store,MonitoringEngineClient engine,
             PlanInsightsService insights,PlanManagementService management,PlanTransferStore transfers,LynxAdProperties properties) {
         this.plans=plans;this.store=store;this.engine=engine;this.insights=insights;this.management=management;this.transfers=transfers;this.properties=properties;
@@ -60,7 +61,7 @@ public class OptimizationMonitoringService {
         return properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
     }
     static boolean rulePlanEnded(AdPlan plan) {
-        return plan.status()==PlanStatus.FINISHED || PlanStatusPolicy.matches(plan.status().name(),plan.qcStatus(),"FINISHED");
+        return plan.status()==PlanStatus.FINISHED || plan.status()==PlanStatus.DELETED || PlanStatusPolicy.matches(plan.status().name(),plan.qcStatus(),"FINISHED");
     }
     private List<OptimizationPolicy.Economics> economics(AdPlan p,Set<String> ids) {return store.economics(p).stream().filter(e->ids.contains(e.productId())).toList();}
     public View view(TenantId tenant,PlanId id) {
@@ -81,9 +82,10 @@ public class OptimizationMonitoringService {
         if(result!=null)try {stale=stale || OffsetDateTime.parse(result.path("observed_at").asText()).toInstant().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
         if(!stale && state!=null && state.enabled() && !fetchPlatformIds)stale=store.deliveryChangedSinceReport(state);
         return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p,config)==null,unavailable(p,config),
-            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus());
+            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus(),state==null?null:state.pendingRules());
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
+        if(policy!=null && policy.rules()!=null)throw new BizException(1803,"请通过盯盘规则入口修改该计划");
         return save(tenant,id,policy,expectedVersion,null);
     }
     private View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion,String operator) {
@@ -100,16 +102,10 @@ public class OptimizationMonitoringService {
         if(journal!=null && !journal.claimAccount(tenant.value(),p.accountId().value(),owner))throw new BizException(1803,"账户操作处理中，请稍后保存授权");
         try{if(journal!=null && policy.enabled() && journal.unresolved(tenant.value(),p.accountId().value()))throw new BizException(1803,"请先核查账户中结果不明确的操作");store.save(p,policy,expectedVersion,operator);}finally{if(journal!=null)journal.releaseAccount(tenant.value(),p.accountId().value(),owner);}return policy.rules()==null?view(tenant,id):rulesView(tenant,id);
     }
-    public View saveRules(TenantId tenant,PlanId id,OptimizationRules rules,boolean enabled,long expectedVersion,String operator) {
-        if(rules==null)throw new BizException(1802,"请填写盯盘规则");rules.validate();
-        var defaults=OptimizationPolicy.defaults();
-        var policy=new OptimizationPolicy(enabled,"OBSERVE",rules.spendProtection(),defaults.maxLoss(),defaults.minSpend(),defaults.minOrders(),defaults.persistenceWindows(),defaults.conversionDelayMinutes(),List.of(),null,null,null,rules);
-        return save(tenant,id,policy,expectedVersion,operator);
-    }
     public View rulesView(TenantId tenant,PlanId id) {
         var value=view(tenant,id,false);var p=plan(tenant,id);
         String reason=rulesUnavailable(p);
-        return new View(value.policy(),value.version(),value.productIds(),reason==null,reason,value.lastCheck(),value.lastSuccess(),value.error(),value.stale(),value.result(),value.holdReason(),value.lastAction(),value.bidType(),value.planName(),value.accountId(),value.planStatus(),value.qcStatus());
+        return new View(value.policy(),value.version(),value.productIds(),reason==null,reason,value.lastCheck(),value.lastSuccess(),value.error(),value.stale(),value.result(),value.holdReason(),value.lastAction(),value.bidType(),value.planName(),value.accountId(),value.planStatus(),value.qcStatus(),value.pendingRules());
     }
     public View run(TenantId tenant,PlanId id) {
         var p=plan(tenant,id);
@@ -120,18 +116,39 @@ public class OptimizationMonitoringService {
     public void cycle(OptimizationStore.State state) {
         String owner=UUID.randomUUID().toString();if(!store.claim(state,owner,Instant.now()))return;
         String failure=null;
+        AdPlan p=null;
         try {
-            var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());var p=plan(tenant,id);
+            var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());p=plan(tenant,id);
+            if(state.policy().rules()!=null) {
+                if(rulePlanEnded(p)){store.suspend(p,state,OptimizationStore.TERMINAL_HOLD);return;}
+                if(gateway!=null)gateway.writable(p);
+            }
             if(unavailable(p,state.policy())!=null)throw new BizException(1801,unavailable(p,state.policy()));
             var pending=store.pending(state).orElse(null);
             // Merchant rules are evaluated locally and must re-read delivery status after a retry.
             if(pending!=null && (state.policy().rules()!=null || pending.version()!=state.version()
                     || pending.created().plusSeconds(600).isBefore(Instant.now()))) {store.discard(state,pending.id());pending=null;}
-            if(pending==null)pending=store.enqueue(state,owner,state.policy().rules()==null?collect(p,state):collectRules(p,state));
+            if(pending==null) {
+                var input=state.policy().rules()==null?collect(p,state):collectRules(p,state);
+                if(state.policy().rules()!=null && Set.of("FINISHED","DELETED").contains(input.get("plan_status"))) {
+                    store.suspend(p,state,OptimizationStore.TERMINAL_HOLD);
+                    return;
+                }
+                pending=store.enqueue(state,owner,input);
+            }
             var result=state.policy().rules()==null?engine.submit(state.tenant(),pending.payload()):OptimizationRulesEvaluator.evaluate(pending.payload(),state.result(),state.policy(),strategy==null?MonitoringStrategy.Parameters.shadow():strategy.parameters());
             if(creativeContexts!=null)creativeContexts.saveAssessments(state.tenant(),p.accountId().value(),result);
             store.complete(state,owner,pending,result);
         }catch(RuntimeException ex) {
+            int code=ex instanceof BizException biz?biz.code():ex instanceof DomainException domain?domain.code():0;
+            if(p!=null && state.policy().rules()!=null) {
+                String hold=switch(code) {
+                    case 403,1201,1205,1211 -> OptimizationStore.AUTHORIZATION_HOLD;
+                    case 1102,1904 -> OptimizationStore.SERVICE_HOLD;
+                    default -> null;
+                };
+                if(hold!=null){store.suspend(p,state,hold);return;}
+            }
             if (ex instanceof BizException biz) {
                 if (biz.code() == 1405) store.disableMissing(state,owner);
                 failure = biz.code() == 1211 ? OptimizationCollectionError.AUTHORIZATION
@@ -145,15 +162,16 @@ public class OptimizationMonitoringService {
     }
     Map<String,Object> collectRules(AdPlan p,OptimizationStore.State state) {
         var checkedAt=Instant.now();
-        var facts=management.monitoringFacts(p.tenantId(),p.id());
+        var facts=management.monitoringFacts(p.tenantId(),p.id(),false);
         if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()))throw new BizException(1802,"平台计划绑定不一致");
         if (execution != null) execution.observe(p,state);
         var today=LocalDate.now(ZONE);var current=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);
         var observed=Instant.now().atZone(ZONE);
-        if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()))throw new BizException(1803,"等待当天最新报表");
+        if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()) || !today.equals(current.fetchedAt().atZone(ZONE).toLocalDate()))throw new BizException(1803,"等待当天最新报表");
         var data=new LinkedHashMap<String,Object>();data.put("request_id",UUID.randomUUID().toString());data.put("store_id",p.tenantId().value());data.put("account_id",p.accountId().value());data.put("plan_id",facts.qcId());data.put("product_ids",facts.productIds());
         data.put("observed_at",observed.toOffsetDateTime().toString());data.put("plan_status",facts.status());data.put("daily_spend_date",today.toString());
         data.put("plan_checked_at",checkedAt.toString());
+        data.put("platform_status",facts.qcStatus());
         var previousReport=state.result();
         if(previousReport!=null && previousReport.hasNonNull("observed_at") && facts.qcId().equals(previousReport.path("plan_id").asText())) {
             var priorCheck=OffsetDateTime.parse(previousReport.path("plan_checked_at").asText(previousReport.path("observed_at").asText())).toInstant();
@@ -186,7 +204,11 @@ public class OptimizationMonitoringService {
                 data.put("delivery_check", deliveryCheck(p, observed, current, facts, previousReport,
                     Objects.toString(data.get("optimization_restarted_at"), "")));
             }
-            data.put("diagnostic_context",gateway.tactics().merchantContext(p,observed));
+            var context=gateway.tactics().merchantContext(p,observed);
+            if(context!=null) {
+                context.put("budget_constrained",OptimizationRulesEvaluator.planBudgetConstrained(facts.qcStatus()));
+                data.put("diagnostic_context",context);
+            }
         }
         data.put("execution_pending",journal!=null && !journal.rulePending(p.tenantId().value(),p.id().value()).isEmpty());
         return data;

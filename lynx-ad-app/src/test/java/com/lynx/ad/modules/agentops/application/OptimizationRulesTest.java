@@ -58,6 +58,24 @@ class OptimizationRulesTest {
         var d=data("120","100");assertTrue(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).path("recommendations").isEmpty());mature(d,"100");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM"));assertEquals("READY",r.path("state").asText());assertEquals("2.50000000",r.path("actual_net_roi").asText());assertEquals("ROI_PROTECTION",r.path("recommendations").get(0).path("type").asText());assertFalse(r.path("recommendations").get(0).has("action"));
         ((ObjectNode)d.path("observations").get(1)).put("window_start","2026-11-05T10:00:00+08:00");assertFalse(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).has("actual_net_roi"));
     }
+    @Test void reliableMatureRoiCanBeDiagnosedWithoutTheDailySpendTotal(){
+        var input=data(null,null).put("complete",false);
+        mature(input,"100");
+        var report=OptimizationRulesEvaluator.evaluate(input,null,policy("AUTO_PAUSE"));
+        assertEquals("2.50000000",report.path("actual_net_roi").asText());
+        assertEquals(1,report.path("recommendations").size());
+        assertEquals("ROI_PROTECTION",report.path("recommendations").get(0).path("type").asText());
+        assertTrue(report.path("rule_samples").isEmpty());
+    }
+    @Test void platformBudgetBottleneckIsAnAdvisoryAndDoesNotConfuseAccountBudgetWithPlanBudget(){
+        var input=data("480",null).put("plan_status","PAUSED").put("platform_status","OFFLINE_BUDGET");
+        var report=OptimizationRulesEvaluator.evaluate(input,null,policy("AUTO_PAUSE"));
+        assertEquals(1,report.path("recommendations").size());
+        var notice=report.path("recommendations").get(0);
+        assertEquals("BUDGET_CONSTRAINT",notice.path("type").asText());
+        assertFalse(notice.has("action"));
+        assertTrue(OptimizationRulesEvaluator.evaluate(input.put("platform_status","ADVERTISER_OFFLINE_BUDGET"),null,policy("AUTO_PAUSE")).path("recommendations").isEmpty());
+    }
     @Test void restartedMonitoringUsesNewWindowsButKeepsDailySpendProtection() {
         var prior=data("320","900");
         prior.putArray("rule_samples").addObject().put("at",now.minusMinutes(5).toString()).put("spend","320");
@@ -81,7 +99,7 @@ class OptimizationRulesTest {
     }
     @Test void growthAdviceIsBoundedAndAlwaysRequiresConfirmation(){var d=data("150","900");mature(d,"200");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("AUTO_PAUSE"));var recommendation=r.path("recommendations").get(0);assertEquals("GROWTH_REVIEW",recommendation.path("type").asText());assertTrue(recommendation.path("requires_confirmation").asBoolean());assertFalse(recommendation.path("execution_allowed").asBoolean());assertEquals("100",recommendation.path("max_addition").asText());}
     @Test void executionRejectsEverythingExceptAuthorizedDailyPause(){
-        var p=policy("AUTO_PAUSE");var at=now.toInstant();var facts=json.createObjectNode().put("qcId","123").put("status","DELIVERING");var report=data("480",null);var state=new OptimizationStore.State("t","p",1,true,p,null,at,null,report);
+        var p=policy("AUTO_PAUSE");var at=now.toInstant();var facts=json.createObjectNode().put("qcId","123").put("status","DELIVERING");var report=OptimizationRulesEvaluator.evaluate(data("480",null),null,p);var state=new OptimizationStore.State("t","p",1,true,p,null,at,null,report);
         for(var kind:List.of("BUDGET","ROI","ENABLE","BOOST","MATERIAL_FOLLOW","MATERIAL_GENERATE","MATERIAL_REMOVE","PRODUCT_REMOVE")){var proposal=json.createObjectNode().put("kind",kind).put("cause","DAILY_LIMIT");var event=new OptimizationAutomationStore.Event("e","t","p","a","plan",1,kind,"title","evidence",proposal,report,"READY",null,null,at,null,null);assertThrows(BizException.class,()->OptimizationExecutionService.validate(state,event,facts,at,0));}
         var proposal=json.createObjectNode().put("kind","PAUSE").put("cause","DAILY_LIMIT").put("expected","DELIVERING").put("target","PAUSED");var event=new OptimizationAutomationStore.Event("e","t","p","a","plan",1,"PAUSE","title","evidence",proposal,report,"READY",null,null,at,null,null);assertDoesNotThrow(()->OptimizationExecutionService.validate(state,event,facts,at,0));
     }

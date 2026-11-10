@@ -61,7 +61,9 @@ public class OptimizationAutomationStore {
                 continue;
             }
             String id=UUID.randomUUID().toString(),kind=item.hasNonNull("action")?item.path("action").path("kind").asText():"RULE_"+(family.equals("EFFECT")?"EFFECT":family);
-            boolean auto=item.path("execution_allowed").asBoolean()&&state.enabled()&&state.holdReason()==null&&state.policy().mode().equals("AUTO_LIMITED");
+            boolean auto=item.path("execution_allowed").asBoolean()&&state.enabled()&&state.holdReason()==null
+                && "PAUSE".equals(kind) && "DAILY_LIMIT".equals(item.path("action").path("cause").asText())
+                && com.lynx.ad.modules.agentops.application.OptimizationRules.AUTO_PAUSE.equals(state.policy().rules().protectionAction());
             jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,proposal_json,report_json,status,created_at,scope_key,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,state.tenant(),state.plan(),plan.accountId().value(),plan.name().text(),id,state.version(),kind,item.path("title").asText(),item.path("evidence").asText(),item.hasNonNull("action")?encode(item.path("action")):null,encode(report),auto?"READY":"RECOMMENDED",now,scope,now);
             notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE","新的盯盘建议",plan.name().text()+"："+item.path("title").asText());
         }
@@ -81,7 +83,9 @@ public class OptimizationAutomationStore {
     void ruleChanged(AdPlan p,OptimizationPolicy policy,OptimizationStore.State previous,PauseSnapshot snapshot,
                      int expired,JsonNode resumeReport,String operator,Instant at){
         long version=previous==null?1:previous.version()+1;
-        boolean previouslyEnabled=previous!=null && previous.enabled(), resumed=resumeReport!=null;
+        boolean previouslyEnabled=previous!=null && previous.enabled();
+        boolean resumed=resumeReport!=null && previous!=null && previous.policy().rules()!=null
+            && (!previous.enabled() || OptimizationStore.lifecycleHold(previous.holdReason()));
         String activity=resumed?"RESUME":snapshot!=null?"PAUSE":previous==null || previous.policy().rules()==null?"ENABLE":"EDIT";
         var report=json.createObjectNode().put("rule_version","merchant-rules-v1").put("activity",activity)
             .put("operator",operator).put("enabled",policy.enabled());
@@ -108,16 +112,45 @@ public class OptimizationAutomationStore {
             lastRulePause(p.tenantId().value(),p.id().value(),previous.version())
                 .ifPresent(pause->report.put("paused_at",pause.pausedAt().toString()));
         }
-        String title=resumed?"盯盘优化已恢复":policy.enabled()?(previouslyEnabled?"盯盘规则已更新":RULES_ENABLED_TITLE):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
+        String title=resumed?"盯盘优化已恢复":policy.enabled()?("ENABLE".equals(activity)?RULES_ENABLED_TITLE:"盯盘规则已更新"):(previouslyEnabled?"盯盘优化已暂停":"盯盘规则已保存");
         String body=policy.enabled()?"净成交ROI要求不低于 "+policy.rules().roiFloor().stripTrailingZeros().toPlainString()+"；当天消耗 ¥"+policy.rules().spendReminder().stripTrailingZeros().toPlainString()+" 时提醒，达到 ¥"+policy.rules().spendProtection().stripTrailingZeros().toPlainString()+" 时"+(policy.rules().protectionAction().equals("AUTO_PAUSE")?"按授权自动暂停本计划。":"提醒你确认暂停。")
                 :previouslyEnabled?"盯盘优化已暂停，已提交操作继续核对。":"规则已保存，盯盘优化仍为暂停状态。";
         ruleEntry(p,version,title,body,report,at);
         if(expired>0){
             var invalidated=json.createObjectNode().put("activity","ADVICE_EXPIRED").put("operator","系统").put("expired_count",expired);
-            ruleEntry(p,version,"旧建议失效",expired+" 项未执行建议因暂停盯盘优化而失效。",invalidated,at.plus(1,java.time.temporal.ChronoUnit.MICROS));
+            ruleEntry(p,version,"旧建议失效",expired+(snapshot!=null?" 项未执行建议因暂停盯盘优化而失效。":" 项未执行建议因规则更新而失效。"),invalidated,at.plus(1,java.time.temporal.ChronoUnit.MICROS));
         }
         if(policy.enabled()||previouslyEnabled)notice(p.tenantId().value(),p.id().value(),"OPTIMIZATION_RULES",title,p.name().text()+"："+body);
     }
+    void ruleDeferred(AdPlan plan,long version,com.lynx.ad.modules.agentops.application.OptimizationRules rules,String operator,Instant at) {
+        var report=json.createObjectNode().put("activity","EDIT_PENDING").put("operator",operator);
+        report.set("rules",json.valueToTree(rules));
+        ruleEntry(plan,version,"已保存待生效规则","完成核对后可确认生效。",report,at);
+    }
+
+    void ruleSuspended(AdPlan plan,long version,String reason,Instant at) {
+        String body=switch(reason) {
+            case OptimizationStore.AUTHORIZATION_HOLD -> "广告账户授权不可用，恢复后请重新核对盯盘规则。";
+            case OptimizationStore.SERVICE_HOLD -> "盯盘服务已到期，续订后请重新核对盯盘规则。";
+            default -> "广告计划已结束，历史记录仍可查看。";
+        };
+        var report=json.createObjectNode().put("activity","SUSPENDED").put("operator","系统").put("reason",reason);
+        ruleEntry(plan,version,"盯盘优化已停止",body,report,at);
+        boolean accountIssue=OptimizationStore.AUTHORIZATION_HOLD.equals(reason);
+        if(!accountIssue && !OptimizationStore.SERVICE_HOLD.equals(reason))return;
+        String tenant=plan.tenantId().value();
+        String scope=accountIssue?plan.accountId().value():tenant;
+        String date=at.atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate().toString();
+        String noticeId=UUID.nameUUIDFromBytes(encode(List.of("optimization-suspension",tenant,scope,reason,date))
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        // The caller holds the tenant row lock across plans, so repeated detections share one inbox item.
+        if(!jdbc.queryForList("SELECT id FROM notification WHERE id=?",noticeId).isEmpty())return;
+        String type=accountIssue?"OPTIMIZATION_ACCOUNT_HOLD":"OPTIMIZATION_SERVICE_HOLD";
+        String title=accountIssue?"盯盘优化受限：广告账户授权":"盯盘优化受限：服务到期";
+        jdbc.update("INSERT INTO notification(id,tenant_id,channel,title,body,biz_type,biz_id,sent_at) VALUES(?,?,'INBOX',?,?,?,?,?)",
+            noticeId,tenant,title,body,type,accountIssue?plan.id().value():null,Timestamp.from(at));
+    }
+
     private void ruleEntry(AdPlan p,long version,String title,String evidence,JsonNode report,Instant at){
         String id=UUID.randomUUID().toString();
         var timestamp=Timestamp.from(at);
@@ -187,7 +220,7 @@ public class OptimizationAutomationStore {
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
         String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));
-        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW','RULE_GROWTH')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK','RULE_RUNAWAY_CHECK','RULE_EFFECT','RULE_DELIVERY_NO_ACTIVITY'))";default->"";};
+        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW','RULE_GROWTH','RULE_BUDGET_CONSTRAINT')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK','RULE_RUNAWAY_CHECK','RULE_EFFECT','RULE_DELIVERY_NO_ACTIVITY'))";default->"";};
         long count=jdbc.queryForObject("SELECT COUNT(*)"+sql,Long.class,args.toArray());args.add(size);args.add((long)(page-1)*size);
         return new Page(jdbc.query("SELECT *"+sql+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",this::row,args.toArray()),count,page,size);
     }

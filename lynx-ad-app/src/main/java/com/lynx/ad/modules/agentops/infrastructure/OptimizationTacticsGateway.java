@@ -77,8 +77,8 @@ public class OptimizationTacticsGateway {
             }
             n.put("task_risk_known",known).put("supply_ready",supply).put("complete",supply&&known);
             if(!known)issues.add("独立任务尚有未花承诺风险，暂缓新增投入");if(!supply)issues.add("部分商品的库存或可投性未确认");
-            // Existing platform data does not certify external daily budget additions or a budget bottleneck.
-            issues.add("当日外部新增投入与预算瓶颈仍待核实");
+            // External operations and independent tasks are not fully covered by the local ledger.
+            issues.add("当日外部新增投入仍待核实");
         }catch(RuntimeException e){issues.add("商品、计划内素材或独立任务数据暂不可用");}
         if(merchantCache.size()>256)merchantCache.clear();merchantCache.put(key,new MerchantCache(now.toInstant(),n));return n.deepCopy();
     }

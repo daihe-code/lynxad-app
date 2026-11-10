@@ -38,7 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class MysqlSchemaSmokeIT {
 
-    private static final String LATEST_VERSION = "54";
+    private static final String LATEST_VERSION = "55";
 
     @SuppressWarnings("resource")
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")

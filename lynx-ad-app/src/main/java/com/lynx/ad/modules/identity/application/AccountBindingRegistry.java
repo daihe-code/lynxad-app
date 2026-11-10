@@ -90,6 +90,13 @@ public class AccountBindingRegistry {
             return new ExecutionScope(tenant,null,0,user,r.getString("membership_id"),r.getLong("permission_version"));
         },tenant,user).stream().findFirst().orElseThrow(()->new BizException(403,"工作空间成员身份已失效"));
     }
+    /** Local rule changes may revoke authorization even when the provider cannot be reached. */
+    public void requireRuleOperator(String tenant,String account,String actor) {
+        var binding=find(tenant,account).orElseThrow(()->new BizException(403,"账户绑定不可用"));
+        if(!Objects.equals(actor,binding.boundUserId()))throw new BizException(403,"仅账户绑定责任人可操作");
+        requireMember(tenant,actor);
+    }
+
     public ExecutionScope executionScope(String tenant,String account,String actor) {
         Binding b=find(tenant,account).filter(v->"ACTIVE".equals(v.status())).orElseThrow(()->new BizException(403,"账户绑定不可用"));
         if(actor==null)actor=b.boundUserId(); // Scheduled tasks execute under the binding responsibility, never a tenant owner bypass.

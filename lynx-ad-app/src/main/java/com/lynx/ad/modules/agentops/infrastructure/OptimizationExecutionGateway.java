@@ -5,6 +5,8 @@ import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.TenantContext;
+import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
 import com.lynx.ad.modules.billing.domain.model.WriteAction;
 import com.lynx.ad.modules.delivery.application.PlanManagementService;
@@ -28,6 +30,12 @@ public class OptimizationExecutionGateway {
     private final PlanTransferStore transfers;private final BillingTrialService billing;private final LynxAdProperties properties;
     private final ObjectMapper json;private final TransactionTemplate tx;
     private OptimizationTacticsGateway tactics;
+    private AccountBindingRegistry bindings;
+    @org.springframework.beans.factory.annotation.Autowired public void bindings(AccountBindingRegistry value){bindings=value;}
+    public void requireRuleOperator(AdPlan plan){
+        if(TenantContext.current().isPresent())
+            bindings.requireRuleOperator(plan.tenantId().value(),plan.accountId().value(),TenantContext.userId().value());
+    }
     @org.springframework.beans.factory.annotation.Autowired public void tactics(OptimizationTacticsGateway value){tactics=value;}
     public OptimizationTacticsGateway tactics(){return tactics;}
     public OptimizationExecutionGateway(AdPlanRepository plans,PlanManagementService management,AdManagementPort ads,AdStatusPort statuses,AdListPort listing,
@@ -36,16 +44,17 @@ public class OptimizationExecutionGateway {
     }
     public AdPlan plan(String tenant,String id){return plans.findById(new TenantId(tenant),new PlanId(id)).filter(p->p.status()!=PlanStatus.DELETED && p.qcPlanId().isPresent()).orElseThrow(()->new BizException(1405,"已发布计划不存在"));}
     public record PlanFacts(JsonNode facts,String qcStatus) {}
-    public JsonNode facts(AdPlan p){return readPlanFacts(p).facts();}
-    public PlanFacts readPlanFacts(AdPlan p){
-        var value=management.monitoringFacts(p.tenantId(),p.id());
+    public JsonNode facts(AdPlan p){return readPlanFacts(p,true).facts();}
+    public PlanFacts readPlanFacts(AdPlan p,boolean includeBindings){
+        var value=includeBindings?management.monitoringFacts(p.tenantId(),p.id()):management.monitoringFacts(p.tenantId(),p.id(),false);
         var node=json.createObjectNode().put("qcId",value.qcId()).put("status",value.status())
             .put("bidType",value.bidType()).put("budget",value.budget().stripTrailingZeros().toPlainString())
             .put("roi",value.roi()==null?null:value.roi().stripTrailingZeros().toPlainString())
             .put("deepExternalAction",value.deepExternalAction());
+        if(!includeBindings)node.put("qcStatus",value.qcStatus());
         var products=node.putArray("productIds");
         value.productIds().stream().sorted().forEach(products::add);
-        if(tactics!=null){
+        if(includeBindings && tactics!=null){
             var bindings=tactics.bindingFacts(p);
             if(bindings!=null)node.set("bindings",bindings);
         }
@@ -68,12 +77,12 @@ public class OptimizationExecutionGateway {
         if(!Set.of("PROCESSING","DISABLE","OFFLINE_BALANCE","ROI2_DISABLE","LIVE_ROOM_OFF").contains(status)||!task.hasNonNull("budget"))throw new BizException(1803,"账户调控任务预算或状态不明确，暂不追加预算");
         total=total.add(new BigDecimal(task.path("budget").asText()));
     }return total;}
-    public void write(AdPlan p,JsonNode action){var c=credentials.getUsableCredential(p.tenantId(),p.accountId());String id=p.qcPlanId().orElseThrow().value();switch(action.path("kind").asText()){
+    public void write(AdPlan p,JsonNode action){writable(p);var c=credentials.getUsableCredential(p.tenantId(),p.accountId());String id=p.qcPlanId().orElseThrow().value();switch(action.path("kind").asText()){
         case "BUDGET"->ads.settings(c,id,null,new BigDecimal(action.path("target").asText()),null);
         case "ROI"->{var detail=ads.detail(c,id);if(!id.equals(detail.path("ad_id").asText()))throw new BizException(1803,"平台计划绑定变化");String deep=QianchuanPlanMapping.text(detail.path("delivery_setting"),"deep_external_action");if(!"AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI".equals(deep))throw new BizException(1803,"自动ROI仅支持净成交ROI优化目标");ads.settings(c,id,null,null,new BigDecimal(action.path("target").asText()),deep);}
         case "PAUSE"->statuses.updateStatus(c,p.qcPlanId().orElseThrow(),PlanAction.DISABLE);
         case "ENABLE"->statuses.updateStatus(c,p.qcPlanId().orElseThrow(),PlanAction.ENABLE);
         default->throw new BizException(1802,"调控动作未列入自动执行范围");
     }}
-    public void sync(AdPlan p,JsonNode facts){var old=p.setting();p.updateSetting(new DeliverySetting(SmartBidType.valueOf(facts.path("bidType").asText()),Money.ofYuan(new BigDecimal(facts.path("budget").asText())),facts.hasNonNull("roi")?Optional.of(new RoiGoal(new BigDecimal(facts.path("roi").asText()))):Optional.empty(),old.schedule(),old.audience()));p.apply(PlanStatus.valueOf(facts.path("status").asText()));p.syncPlatformStatus(facts.path("status").asText());plans.save(p);if(tactics!=null&&facts.path("actionConfirmed").asBoolean()&&facts.path("operation").path("members").size()>0){tactics.sync(p);tactics.confirmedRemoval(p,facts.path("operation"));}}
+    public void sync(AdPlan p,JsonNode facts){var old=p.setting();p.updateSetting(new DeliverySetting(SmartBidType.valueOf(facts.path("bidType").asText()),Money.ofYuan(new BigDecimal(facts.path("budget").asText())),facts.hasNonNull("roi")?Optional.of(new RoiGoal(new BigDecimal(facts.path("roi").asText()))):Optional.empty(),old.schedule(),old.audience()));p.apply(PlanStatus.valueOf(facts.path("status").asText()));p.syncPlatformStatus(facts.path("qcStatus").asText(facts.path("status").asText()));plans.save(p);if(tactics!=null&&facts.path("actionConfirmed").asBoolean()&&facts.path("operation").path("members").size()>0){tactics.sync(p);tactics.confirmedRemoval(p,facts.path("operation"));}}
 }

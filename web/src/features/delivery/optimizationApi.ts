@@ -89,14 +89,21 @@ export interface OptimizationView {
   stale: boolean;
   result?: MonitoringReport;
   holdReason?: string;
+  pendingRules?: OptimizationRules;
   lastAction?: string;
   bidType?: string;
 }
 const path = (id: string) => `/api/v1/delivery/plans/${encodeURIComponent(id)}/optimization`;
 export const getOptimization = (id: string) => apiGet<OptimizationView>(path(id), { headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationRules = (id: string) => apiGet<OptimizationView>(`${path(id)}/rules`, { headers: { 'X-Quiet-Request': 'true' } });
-export async function saveOptimizationRules(id: string, rules: OptimizationRules, enabled: boolean, expectedVersion: number) {
-  const view = await apiPut<OptimizationView>(`${path(id)}/rules`, { rules, enabled, expectedVersion }, { headers: { 'X-Quiet-Request': 'true' } });
+export const previewOptimizationRules = (id: string, rules: OptimizationRules, expectedVersion: number) => apiPost<OptimizationResumePreview>(
+  `${path(id)}/rules/preview`, { rules, expectedVersion }, { timeout: 60000, headers: { 'X-Quiet-Request': 'true' } },
+);
+export async function saveOptimizationRules(id: string, rules: OptimizationRules, enabled: boolean, expectedVersion: number,
+  confirmation?: Pick<OptimizationResumePreview, 'version' | 'day' | 'planStatus' | 'outcome'>) {
+  const view = await apiPut<OptimizationView>(`${path(id)}/rules`,
+    { rules, enabled, expectedVersion, ...(confirmation ? { confirmation } : {}) },
+    { timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
   requestInboxRefresh();
   return view;
 }
