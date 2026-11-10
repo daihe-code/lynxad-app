@@ -207,7 +207,7 @@ const verifiedDelivery = computed(() => {
 });
 const planDisplay = computed(() => verifiedDelivery.value && verifiedDelivery.value !== localPlanDisplay.value.group
   ? planStatusDisplay(verifiedDelivery.value) : localPlanDisplay.value);
-const restartAt = computed(() => verifiedDelivery.value === 'DELIVERING' && !data.value?.view.holdReason
+const restartAt = computed(() => verifiedDelivery.value === 'DELIVERING' && !data.value?.view.holdReason && data.value?.view.result?.state !== 'NO_DELIVERY'
   ? data.value?.view.result?.optimization_restarted_at : undefined);
 const runningTasks = computed(() => tasks.value.filter(task => task.task_status === 'PROCESSING'));
 const followingReviews = computed(() => data.value?.reviews?.some(review => followingReviewStatuses.includes(review.status)));
@@ -301,6 +301,7 @@ async function confirmDecision() {
 }
 async function handoff(item: MonitoringRecommendation) {
   if (deciding.value) return;
+  if (item.type === 'DELIVERY_NO_ACTIVITY') { emit('data', 'data'); return; }
   const event = eventFor(item), workflow = item.workflow || 'data';
   if (!event || data.value?.view.result?.strategy_approved !== true) { emit('data', workflow === 'materials' ? 'materials' : 'data'); return; }
   deciding.value = event.id;

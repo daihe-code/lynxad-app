@@ -71,6 +71,8 @@ public class OptimizationAutomationStore {
             if(keys.isEmpty()||active.contains(keys.getFirst()))continue;
             boolean business=keys.getFirst().contains(":EFFECT:")||keys.getFirst().contains(":GROWTH:");
             if(business&&!report.path("diagnostics_ready").asBoolean())continue;
+            if("RULE_DELIVERY_NO_ACTIVITY".equals(existing.kind())
+                && !"ACTIVE".equals(report.path("delivery_check").path("activity").asText()))continue;
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
     }
@@ -164,7 +166,7 @@ public class OptimizationAutomationStore {
     public Page ruleHistory(String tenant,String plan,String category,int days,int page,int size){
         if(page<1 || size<1 || size>50 || days<1 || days>180 || !Set.of("ALL","RISK","GROWTH","RULES").contains(category))throw new BizException(1802,"工作记录筛选范围不正确");
         String sql=" FROM optimization_event WHERE tenant_id=? AND plan_id=? AND created_at>=?";var args=new ArrayList<Object>(List.of(tenant,plan,Timestamp.from(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days-1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())));
-        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW','RULE_GROWTH')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK','RULE_RUNAWAY_CHECK','RULE_EFFECT'))";default->"";};
+        sql+=switch(category){case "RULES"->" AND kind='RULES_CHANGE'";case "GROWTH"->" AND kind IN ('BUDGET','ROI','BOOST','MATERIAL_FOLLOW','MATERIAL_GENERATE','MATERIAL_ADD','RULE_GROWTH_REVIEW','RULE_GROWTH')";case "RISK"->" AND (kind IS NULL OR kind IN ('PAUSE','MATERIAL_REMOVE','PRODUCT_REMOVE','RULE_SPEND_REMINDER','RULE_ROI_PROTECTION','RULE_RUNAWAY_RISK','RULE_RUNAWAY_CHECK','RULE_EFFECT','RULE_DELIVERY_NO_ACTIVITY'))";default->"";};
         long count=jdbc.queryForObject("SELECT COUNT(*)"+sql,Long.class,args.toArray());args.add(size);args.add((long)(page-1)*size);
         return new Page(jdbc.query("SELECT *"+sql+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",this::row,args.toArray()),count,page,size);
     }

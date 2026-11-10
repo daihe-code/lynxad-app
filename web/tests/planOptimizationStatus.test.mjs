@@ -26,6 +26,12 @@ test('loading and failed requests never appear as unconfigured or healthy', () =
   assert.equal(present(plan, { ...state, failed: true }).label, '检测受限');
   assert.equal(present(plan, { ...state, holdReason: 'manual' }).label, '需核对配置');
 });
+test('verified zero delivery is distinct from waiting for data', () => {
+  const zeroDelivery = { ...state, state: 'NO_DELIVERY' };
+  assert.equal(present(plan, zeroDelivery).label, '持续无曝光');
+  assert.equal(present(plan, { ...zeroDelivery, stale: true }).label, '等待数据');
+  assert.equal(present({ ...plan, status: 'PAUSED' }, zeroDelivery).label, '观察暂停');
+});
 test('plan lifecycle and platform restrictions override historical ready results', () => {
   assert.equal(present({ ...plan, status: 'PAUSED' }, state).label, '观察暂停');
   for (const qcStatus of ['AUDIT', 'REAUDIT', 'TIME_NO_REACH', 'PRE_ONLINE']) assert.equal(present({ ...plan, qcStatus }, state).label, '待投放生效');

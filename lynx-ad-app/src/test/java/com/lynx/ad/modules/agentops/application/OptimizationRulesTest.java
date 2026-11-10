@@ -29,6 +29,31 @@ class OptimizationRulesTest {
         var invalid=data("500","0").put("complete",false);assertTrue(OptimizationRulesEvaluator.evaluate(invalid,null,policy("AUTO_PAUSE")).path("recommendations").isEmpty());
         var paused=data("500","0").put("plan_status","PAUSED");assertEquals("PAUSED",OptimizationRulesEvaluator.evaluate(paused,null,policy("AUTO_PAUSE")).path("state").asText());assertTrue(OptimizationRulesEvaluator.evaluate(paused,null,policy("AUTO_PAUSE")).path("recommendations").isEmpty());
     }
+    ObjectNode deliveryData(int minute, int lastCheckMinute, String activity) {
+        var d = data("0", null).put("observed_at", now.plusMinutes(minute).toString());
+        d.putArray("product_ids").add("111");
+        d.putObject("delivery_check").put("activity", activity).put("checked_at", now.plusMinutes(lastCheckMinute).toString());
+        return d;
+    }
+    @Test void confirmedZeroDeliveryBecomesAnAdvisoryWithoutAnExecutableAction() {
+        var p = policy("AUTO_PAUSE");
+        JsonNode previous = null;
+        for (int minute = 0; minute <= 60; minute++) {
+            previous = OptimizationRulesEvaluator.evaluate(deliveryData(minute, minute / 10 * 10, "ZERO"), previous, p);
+            assertEquals(minute < 60 ? "WAITING_DATA" : "NO_DELIVERY", previous.path("state").asText());
+        }
+        var item = previous.path("recommendations").get(0);
+        assertEquals("DELIVERY_NO_ACTIVITY", item.path("type").asText());
+        assertFalse(item.has("action"));
+        assertFalse(item.path("execution_allowed").asBoolean());
+        assertFalse(previous.has("actual_net_roi"));
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(deliveryData(61, 61, "ACTIVE"), previous, p).path("state").asText());
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(deliveryData(61, 61, "UNKNOWN"), previous, p).path("state").asText());
+        var changed = deliveryData(61, 61, "ZERO");
+        changed.putArray("product_ids").add("222");
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(changed, previous, p).path("state").asText());
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(deliveryData(66, 66, "ZERO"), previous, p).path("state").asText());
+    }
     @Test void roiRequiresThreeContinuousMatureHoursAndNeverWritesPlatformRoi(){
         var d=data("120","100");assertTrue(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).path("recommendations").isEmpty());mature(d,"100");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM"));assertEquals("READY",r.path("state").asText());assertEquals("2.50000000",r.path("actual_net_roi").asText());assertEquals("ROI_PROTECTION",r.path("recommendations").get(0).path("type").asText());assertFalse(r.path("recommendations").get(0).has("action"));
         ((ObjectNode)d.path("observations").get(1)).put("window_start","2026-11-05T10:00:00+08:00");assertFalse(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).has("actual_net_roi"));

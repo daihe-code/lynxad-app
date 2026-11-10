@@ -56,7 +56,7 @@ export interface MonitoringReport {
   plan_id?: string;
   plan_status?: string;
   optimization_restarted_at?: string;
-  state: 'READY' | 'WAITING_DATA' | 'PAUSED';
+  state: 'READY' | 'WAITING_DATA' | 'PAUSED' | 'NO_DELIVERY';
   observed_at: string;
   source: string;
   rule_version: string;

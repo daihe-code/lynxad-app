@@ -40,6 +40,18 @@ public final class OptimizationRulesEvaluator {
         boolean complete=data.path("complete").asBoolean();
         BigDecimal spend=decimal(data,"daily_spend"),revenue=decimal(data,"daily_net_revenue");
         if(!"DELIVERING".equals(data.path("plan_status").asText())){result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;}
+        if(!data.path("execution_pending").asBoolean() && (spend==null || spend.signum()==0)) {
+            var since = zeroDeliverySince(data, previous, observed, restarted);
+            if (since != null) {
+                result.put("zero_delivery_since", since.toString());
+                var checkedAt = OffsetDateTime.parse(data.path("delivery_check").path("checked_at").asText());
+                if (!checkedAt.isBefore(since.plusHours(1))) {
+                    result.put("state", "NO_DELIVERY");
+                    advice(advice, "DELIVERY_NO_ACTIVITY", "持续无曝光", "计划处于投放中，持续至少 1 小时无曝光、无消耗。请核对投放诊断。")
+                        .put("requires_confirmation", false);
+                }
+            }
+        }
         if(!complete || spend==null || spend.signum()<0){reasons.add("等待完整的当天消耗数据");return result;}
         if(previous!=null)for(var sample:previous.path("rule_samples")){
             try{var time=OffsetDateTime.parse(sample.path("at").asText());
@@ -115,6 +127,26 @@ public final class OptimizationRulesEvaluator {
         }
         return result;
     }
+
+    private static OffsetDateTime zeroDeliverySince(JsonNode data, JsonNode previous, OffsetDateTime observed, Instant restarted) {
+        var check = data.path("delivery_check");
+        if (!"ZERO".equals(check.path("activity").asText())) return null;
+        var checkedAt = OffsetDateTime.parse(check.path("checked_at").asText());
+        if (checkedAt.isAfter(observed) || checkedAt.isBefore(observed.minusMinutes(10))
+            || !checkedAt.toLocalDate().equals(observed.toLocalDate())
+            || restarted != null && checkedAt.toInstant().isBefore(restarted)) return null;
+        if (previous != null && previous.hasNonNull("zero_delivery_since")
+            && data.path("plan_id").equals(previous.path("plan_id"))
+            && data.path("product_ids").equals(previous.path("product_ids"))) {
+            var previousObserved = OffsetDateTime.parse(previous.path("observed_at").asText());
+            var since = OffsetDateTime.parse(previous.path("zero_delivery_since").asText());
+            if (since.toLocalDate().equals(observed.toLocalDate()) && !since.isAfter(checkedAt)
+                && !previousObserved.isAfter(observed) && !previousObserved.isBefore(observed.minusMinutes(5))
+                && (restarted == null || !since.toInstant().isBefore(restarted))) return since;
+        }
+        return checkedAt;
+    }
+
     private static ObjectNode advice(ArrayNode list,String type,String title,String evidence){var item=list.addObject();item.put("type",type).put("title",title).put("evidence",evidence).put("requires_confirmation",true).put("execution_allowed",false);return item;}
     private static BigDecimal decimal(JsonNode n,String key){try{return n.hasNonNull(key)?new BigDecimal(n.get(key).asText()):null;}catch(RuntimeException e){return null;}}
 }

@@ -31,6 +31,34 @@ public class OptimizationTacticsGateway {
     private final ObjectMapper json;
     private record MerchantCache(Instant fetched,ObjectNode body){}
     private final Map<String,MerchantCache> merchantCache=new java.util.concurrent.ConcurrentHashMap<>();
+    public enum DeliveryActivity { ZERO, ACTIVE, UNKNOWN }
+
+    public DeliveryActivity productDeliveryActivity(AdPlan plan, LocalDate day, List<String> productIds) {
+        if (productIds.isEmpty()) return DeliveryActivity.UNKNOWN;
+        try {
+            var missing = new HashSet<>(productIds);
+            boolean active = false;
+            for (var row : ads.products(credential(plan), plan.qcPlanId().orElseThrow().value(), day, day)) {
+                if (row.path("is_del").asBoolean()) continue;
+                var nestedId = row.path("product_info").path("product_id").asText(null);
+                var id = row.path("product_id").asText(nestedId);
+                if (nestedId != null && !nestedId.equals(id)) return DeliveryActivity.UNKNOWN;
+                if (!productIds.contains(id)) continue;
+                if (!missing.remove(id)) return DeliveryActivity.UNKNOWN;
+                var stats = row.path("stats_info");
+                var impressions = QianchuanPlanMapping.number(stats, "product_show_count_for_roi2");
+                var spend = QianchuanPlanMapping.number(stats, "stat_cost_for_roi2");
+                if (impressions == null || impressions.signum() < 0 || spend == null || spend.signum() < 0)
+                    return DeliveryActivity.UNKNOWN;
+                active |= impressions.signum() > 0 || spend.signum() > 0;
+            }
+            if (missing.isEmpty()) return active ? DeliveryActivity.ACTIVE : DeliveryActivity.ZERO;
+        } catch (RuntimeException ignored) {
+            // Supplemental product data can fail independently of spend protection.
+        }
+        return DeliveryActivity.UNKNOWN;
+    }
+
     /** Slow object reports are independently cached; no write permission or generation is enabled by this read. */
     public ObjectNode merchantContext(AdPlan p,ZonedDateTime now){
         String key=p.tenantId().value()+":"+p.accountId().value()+":"+p.qcPlanId().orElseThrow().value()+":"+now.toLocalDate();

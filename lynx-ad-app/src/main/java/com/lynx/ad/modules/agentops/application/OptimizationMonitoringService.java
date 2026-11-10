@@ -181,10 +181,47 @@ public class OptimizationMonitoringService {
             if(current.metricFields().equals(previous.metricFields()) && previous.fetchedAt()!=null && previous.fetchedAt().plusSeconds(600).isAfter(observed.toInstant()))rows.addAll(hourly(previous,observed));
         }catch(RuntimeException ignored){/* History loss cannot stop independent reliable spend protection. */}
         data.put("observations",rows);
-        if(gateway!=null && gateway.tactics()!=null) data.put("diagnostic_context",gateway.tactics().merchantContext(p,observed));
+        if(gateway!=null && gateway.tactics()!=null) {
+            if ("DELIVERING".equals(facts.status())) {
+                data.put("delivery_check", deliveryCheck(p, observed, current, facts, previousReport,
+                    Objects.toString(data.get("optimization_restarted_at"), "")));
+            }
+            data.put("diagnostic_context",gateway.tactics().merchantContext(p,observed));
+        }
         data.put("execution_pending",journal!=null && !journal.rulePending(p.tenantId().value(),p.id().value()).isEmpty());
         return data;
     }
+
+    private Map<String,String> deliveryCheck(AdPlan plan, ZonedDateTime observed, PlanInsightsService.Statistics current,
+                                             PlanManagementService.MonitoringFacts facts, JsonNode previous, String restartedAt) {
+        var today = observed.toLocalDate();
+        if (hasDeliveryActivity(current.summary()) || current.trend().stream().anyMatch(point -> hasDeliveryActivity(point.metrics()))) {
+            return Map.of("activity", "ACTIVE", "checked_at", observed.toOffsetDateTime().toString());
+        }
+        var priorProducts = new ArrayList<String>();
+        if (previous != null) previous.path("product_ids").forEach(id -> priorProducts.add(id.asText()));
+        if (previous != null && facts.qcId().equals(previous.path("plan_id").asText())
+            && "DELIVERING".equals(previous.path("plan_status").asText())
+            && today.toString().equals(previous.path("daily_spend_date").asText())
+            && restartedAt.equals(previous.path("optimization_restarted_at").asText())
+            && facts.productIds().equals(priorProducts)) {
+            var check = previous.path("delivery_check");
+            var checkedAt = check.path("checked_at").asText();
+            if (!checkedAt.isEmpty()) {
+                var at = OffsetDateTime.parse(checkedAt);
+                if (!at.isAfter(observed.toOffsetDateTime()) && at.plusMinutes(10).isAfter(observed.toOffsetDateTime()))
+                    return Map.of("activity", check.path("activity").asText(), "checked_at", checkedAt);
+            }
+        }
+        var activity = gateway.tactics().productDeliveryActivity(plan, today, facts.productIds());
+        return Map.of("activity", activity.name(), "checked_at", observed.toOffsetDateTime().toString());
+    }
+
+    private static boolean hasDeliveryActivity(Map<String, BigDecimal> metrics) {
+        return List.of("cost", "shows", "clicks", "orders", "netGmv").stream().map(metrics::get)
+            .anyMatch(value -> value != null && value.signum() > 0);
+    }
+
     Map<String,Object> collect(AdPlan p,OptimizationStore.State state) {
         var facts=management.monitoringFacts(p.tenantId(),p.id());
         if (execution != null) execution.observe(p,state);
