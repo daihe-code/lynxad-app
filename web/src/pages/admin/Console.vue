@@ -4,11 +4,11 @@
     <div class="admin-content">
       <div class="overview"><article v-for="card in overviewCards" :key="card.key"><span>{{ card.label }}</span><strong>{{ overview?.[card.key] ?? '—' }}</strong></article></div>
       <section class="admin-panel">
-        <el-tabs v-model="tab"><el-tab-pane label="注册用户" name="users" /><el-tab-pane label="手机号黑名单" name="blacklist" /><el-tab-pane label="用户登录日志" name="logins" /><el-tab-pane label="套餐延期记录" name="adjustments" /><el-tab-pane label="管理员操作记录" name="audit" /><el-tab-pane label="企业资质审核" name="qualifications" /></el-tabs>
+        <el-tabs v-model="tab"><el-tab-pane label="注册用户" name="users" /><el-tab-pane label="手机号黑名单" name="blacklist" /><el-tab-pane label="用户登录日志" name="logins" /><el-tab-pane label="套餐调整记录" name="adjustments" /><el-tab-pane label="管理员操作记录" name="audit" /><el-tab-pane label="企业资质审核" name="qualifications" /></el-tabs>
         <QualificationQueue v-if="tab === 'qualifications'" />
         <PhoneBlacklist v-else-if="tab === 'blacklist'" />
         <div v-else class="filters"><template v-if="['users','logins'].includes(tab)"><el-input v-model="q" clearable :placeholder="tab === 'users' ? '搜索手机号、昵称、公司或账户名称' : '搜索手机号或昵称'" aria-label="搜索用户" @keyup.enter="search" @clear="search" /><el-select v-if="tab === 'users'" v-model="status" clearable placeholder="全部套餐状态" @change="search"><el-option v-for="(label,key) in packageStates" :key="key" :label="label" :value="key" /></el-select><el-select v-else v-model="result" clearable placeholder="全部登录结果" @change="search"><el-option label="登录成功" value="SUCCESS" /><el-option label="登录失败" value="FAILURE" /></el-select><el-date-picker v-if="tab === 'logins'" v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="search" /><el-button type="primary" @click="search">搜索</el-button></template><el-button :loading="loading" @click="load">刷新</el-button></div>
-        <p v-if="filterUser" class="filter-hint">当前只查看用户 {{ filterName || filterUser }} 的{{ tab === 'logins' ? '登录记录' : '套餐延期记录' }} <el-button link type="primary" @click="clearUserFilter">查看全部用户</el-button></p>
+        <p v-if="filterUser" class="filter-hint">当前只查看用户 {{ filterName || filterUser }} 的{{ tab === 'logins' ? '登录记录' : '套餐调整记录' }} <el-button link type="primary" @click="clearUserFilter">查看全部用户</el-button></p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
         <el-table v-if="tab === 'users'" :data="users.records" v-loading="loading" empty-text="暂无符合条件的注册用户">
           <el-table-column label="用户" min-width="200"><template #default="{row}"><strong>{{ row.nickname || '未填写昵称' }}</strong> <el-tag v-if="row.status === 'BLOCKED'" size="small" type="danger">已拉黑</el-tag><small>{{ row.phone }}</small><small>ID：{{ row.id }}</small></template></el-table-column>
@@ -16,9 +16,10 @@
           <el-table-column label="套餐与到期时间" min-width="230"><template #default="{row}"><el-tag :type="row.packageStatus === 'ACTIVE' ? 'success' : row.packageStatus === 'TRIAL' ? 'primary' : 'info'">{{ packageStates[row.packageStatus] || row.packageStatus }}</el-tag><span class="plan-name">{{ row.planCode ? plans[row.planCode] : '' }}</span><small>{{ time(row.expiresAt) }}</small></template></el-table-column>
           <el-table-column label="注册时间" min-width="185"><template #default="{row}">{{ time(row.registeredAt) }}</template></el-table-column>
           <el-table-column label="最近成功登录" min-width="185"><template #default="{row}">{{ time(row.lastLoginAt) }}<small>成功登录 {{ row.loginCount }} 次</small></template></el-table-column>
-          <el-table-column label="操作" min-width="250" fixed="right">
+          <el-table-column label="操作" min-width="310" fixed="right">
             <template #default="{row}">
               <el-button link type="primary" @click="openUser(row.id)">查看资料</el-button>
+              <el-button link type="primary" :disabled="!row.tenantId || openingChange" @click="openPackageChange(row)">修改套餐</el-button>
               <el-button link type="primary" :disabled="!row.tenantId || openingExtension" @click="openExtend(row.id)">延长套餐</el-button>
               <el-button v-if="row.status === 'BLOCKED'" link type="primary" @click="tab = 'blacklist'">管理黑名单</el-button>
               <el-button v-else link type="danger" :disabled="moderating" @click="moderateUser(row, false)">拉黑</el-button>
@@ -27,20 +28,58 @@
           </el-table-column>
         </el-table>
         <el-table v-else-if="tab === 'logins'" :data="logins.records" v-loading="loading" empty-text="暂无登录记录"><el-table-column label="用户" min-width="180"><template #default="{row}">{{ row.nickname || '—' }}<small>{{ row.phone || '未识别手机号' }}</small></template></el-table-column><el-table-column label="登录时间（北京时间）" min-width="205"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column label="登录方式" min-width="110"><template #default="{row}">{{ loginMethods[row.method] || row.method }}</template></el-table-column><el-table-column label="结果" min-width="110"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="ip" label="来源 IP" min-width="150" /><el-table-column prop="userAgent" label="浏览器 / 设备信息" min-width="260" show-overflow-tooltip /><el-table-column prop="failureReason" label="说明" min-width="220" /></el-table>
-        <el-table v-else-if="tab === 'adjustments'" :data="adjustments.records" v-loading="loading" empty-text="暂无人工延期记录"><el-table-column label="操作时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="操作管理员" min-width="145" /><el-table-column label="影响用户 / 账户" min-width="260"><template #default="{row}">{{ row.userId }}<small>灵投账户：{{ row.tenantId }}</small></template></el-table-column><el-table-column label="套餐 / 延长天数" min-width="170"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }}<small>延长 {{ row.days }} 天</small></template></el-table-column><el-table-column label="延期前 → 延期后" min-width="250"><template #default="{row}">{{ time(row.beforeEnd) }}<small>→ {{ time(row.afterEnd) }}</small></template></el-table-column><el-table-column prop="reason" label="操作原因" min-width="240" /></el-table>
+        <el-table v-else-if="tab === 'adjustments'" :data="adjustments.records" v-loading="loading" empty-text="暂无套餐调整记录"><el-table-column label="操作时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="操作管理员" min-width="145" /><el-table-column label="影响用户 / 账户" min-width="260"><template #default="{row}">{{ row.userId }}<small>灵投账户：{{ row.tenantId }}</small></template></el-table-column><el-table-column label="套餐 / 操作" min-width="170"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }}<small>{{ adjustmentAction(row) }}</small></template></el-table-column><el-table-column label="原到期 → 新到期" min-width="250"><template #default="{row}">{{ time(row.beforeEnd) }}<small>→ {{ time(row.afterEnd) }}</small></template></el-table-column><el-table-column prop="reason" label="操作原因" min-width="240" /></el-table>
         <el-table v-else-if="tab === 'audit'" :data="audit.records" v-loading="loading" empty-text="暂无管理员操作记录"><el-table-column label="时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="管理员" min-width="145" /><el-table-column label="操作" min-width="160"><template #default="{row}">{{ actions[row.action] || row.action }}</template></el-table-column><el-table-column label="结果" min-width="100"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="description" label="说明" min-width="320" /><el-table-column prop="ip" label="来源 IP" min-width="150" /></el-table>
         <el-pagination v-if="tab !== 'qualifications' && tab !== 'blacklist'" class="admin-pagination" background layout="total, prev, pager, next" :total="total" :page-size="20" v-model:current-page="page" :disabled="loading" @current-change="load" />
       </section>
     </div>
     <el-drawer :model-value="!!selectedId" title="用户账户资料" size="min(980px, 95vw)" @close="closeUser">
       <div v-loading="detailLoading" class="user-detail"><el-alert v-if="detailError" :title="detailError" type="error" :closable="false" /><template v-if="detail">
-        <div class="detail-heading"><div><h2>{{ detail.user.nickname || detail.user.phone }}</h2><p>{{ detail.user.phone }} · {{ detail.user.email || '未填写邮箱' }}</p></div><el-button type="primary" :disabled="!detail.user.tenantId || openingExtension" @click="openExtend(detail.user.id)">延长套餐</el-button></div>
+        <div class="detail-heading">
+          <div><h2>{{ detail.user.nickname || detail.user.phone }}</h2><p>{{ detail.user.phone }} · {{ detail.user.email || '未填写邮箱' }}</p></div>
+          <div>
+            <el-button :disabled="!detail.user.tenantId || openingExtension" @click="openExtend(detail.user.id)">延长套餐</el-button>
+            <el-button type="primary" :disabled="!detail.user.tenantId || openingChange" @click="openPackageChange(detail.user)">修改套餐</el-button>
+          </div>
+        </div>
         <h3>基础信息</h3><el-descriptions :column="2" border><el-descriptions-item label="用户 ID">{{ detail.user.id }}</el-descriptions-item><el-descriptions-item label="注册时间">{{ time(detail.user.registeredAt) }}</el-descriptions-item><el-descriptions-item label="公司名称">{{ detail.user.companyName || '—' }}</el-descriptions-item><el-descriptions-item label="行业">{{ detail.user.industry || '—' }}</el-descriptions-item><el-descriptions-item label="公司规模">{{ detail.profile?.companyScale || '—' }}</el-descriptions-item><el-descriptions-item label="职位">{{ detail.profile?.position || '—' }}</el-descriptions-item><el-descriptions-item label="月投放预算">{{ detail.profile?.monthlyBudget || '—' }}</el-descriptions-item><el-descriptions-item label="投放经验">{{ detail.profile?.adExperience || '—' }}</el-descriptions-item><el-descriptions-item label="主要需求">{{ detail.profile?.coreDemand || '—' }}</el-descriptions-item><el-descriptions-item label="资料完成时间">{{ time(detail.profile?.completedAt) }}</el-descriptions-item><el-descriptions-item label="账户状态">{{ detail.user.status === 'ACTIVE' ? '正常' : detail.user.status }}</el-descriptions-item><el-descriptions-item label="密码是否已设置">{{ detail.user.hasPassword ? '已设置' : '未设置' }}</el-descriptions-item></el-descriptions>
-        <h3>灵投账户与套餐</h3><p class="note">套餐由灵投账户内成员共用。人工延期会影响该账户下所有成员。</p><el-descriptions :column="2" border><el-descriptions-item label="灵投账户">{{ detail.user.tenantName || '尚未创建' }}</el-descriptions-item><el-descriptions-item label="账户成员">{{ detail.memberCount }} 人</el-descriptions-item><el-descriptions-item label="广告账户">{{ detail.adAccounts }} 个</el-descriptions-item><el-descriptions-item label="投放计划">{{ detail.adPlans }} 条</el-descriptions-item><el-descriptions-item label="当前套餐">{{ packageStates[detail.user.packageStatus] }} · {{ detail.user.planCode ? plans[detail.user.planCode] : '—' }}</el-descriptions-item><el-descriptions-item label="当前到期时间">{{ time(detail.user.expiresAt) }}</el-descriptions-item><el-descriptions-item label="付费 / 人工开通套餐">{{ detail.subscription ? plans[detail.subscription.planCode] : '尚未开通' }}</el-descriptions-item><el-descriptions-item label="套餐原到期时间">{{ time(detail.subscription?.expiresAt) }}</el-descriptions-item><el-descriptions-item label="自动续费">{{ detail.subscription ? detail.subscription.autoRenew ? '开启' : '关闭' : '—' }}</el-descriptions-item><el-descriptions-item label="开通来源">{{ payMethods[detail.subscription?.payMethod || ''] || detail.subscription?.payMethod || '—' }}</el-descriptions-item><el-descriptions-item label="试用期开始">{{ time(detail.trial?.startedAt) }}</el-descriptions-item><el-descriptions-item label="试用期到期">{{ time(detail.trial?.expiresAt) }}</el-descriptions-item></el-descriptions>
+        <h3>灵投账户与套餐</h3><p class="note">套餐由灵投账户内成员共用。</p><el-descriptions :column="2" border><el-descriptions-item label="灵投账户">{{ detail.user.tenantName || '尚未创建' }}</el-descriptions-item><el-descriptions-item label="账户成员">{{ detail.memberCount }} 人</el-descriptions-item><el-descriptions-item label="广告账户">{{ detail.adAccounts }} 个</el-descriptions-item><el-descriptions-item label="投放计划">{{ detail.adPlans }} 条</el-descriptions-item><el-descriptions-item label="当前套餐">{{ packageStates[detail.user.packageStatus] }} · {{ detail.user.planCode ? plans[detail.user.planCode] : '—' }}</el-descriptions-item><el-descriptions-item label="当前到期时间">{{ time(detail.user.expiresAt) }}</el-descriptions-item><el-descriptions-item label="付费 / 人工开通套餐">{{ detail.subscription ? plans[detail.subscription.planCode] : '尚未开通' }}</el-descriptions-item><el-descriptions-item label="套餐原到期时间">{{ time(detail.subscription?.expiresAt) }}</el-descriptions-item><el-descriptions-item label="自动续费">{{ detail.subscription ? detail.subscription.autoRenew ? '开启' : '关闭' : '—' }}</el-descriptions-item><el-descriptions-item label="开通来源">{{ payMethods[detail.subscription?.payMethod || ''] || detail.subscription?.payMethod || '—' }}</el-descriptions-item><el-descriptions-item label="试用期开始">{{ time(detail.trial?.startedAt) }}</el-descriptions-item><el-descriptions-item label="试用期到期">{{ time(detail.trial?.expiresAt) }}</el-descriptions-item></el-descriptions>
         <h3>最近登录记录 <el-button link type="primary" @click="showUserRecords('logins', detail.user)">查看全部登录记录</el-button></h3><el-table :data="detailLogins.records" empty-text="该用户暂无登录记录"><el-table-column label="时间" min-width="190"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column label="方式" min-width="105"><template #default="{row}">{{ loginMethods[row.method] }}</template></el-table-column><el-table-column label="结果" min-width="90"><template #default="{row}">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</template></el-table-column><el-table-column prop="ip" label="来源 IP" min-width="130" /><el-table-column prop="userAgent" label="浏览器 / 设备" min-width="230" show-overflow-tooltip /></el-table>
-        <h3>账户人工延期记录 <el-button link type="primary" @click="showUserRecords('adjustments', detail.user)">查看全部延期记录</el-button></h3><el-table :data="detailAdjustments.records" empty-text="该账户暂无人工延期记录"><el-table-column prop="actorName" label="管理员" min-width="120" /><el-table-column label="延长" min-width="120"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }} {{ row.days }} 天</template></el-table-column><el-table-column label="延期后到期" min-width="185"><template #default="{row}">{{ time(row.afterEnd) }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="210" /></el-table>
+        <h3>账户套餐调整记录 <el-button link type="primary" @click="showUserRecords('adjustments', detail.user)">查看全部调整记录</el-button></h3><el-table :data="detailAdjustments.records" empty-text="该账户暂无套餐调整记录"><el-table-column prop="actorName" label="管理员" min-width="120" /><el-table-column label="套餐 / 操作" min-width="160"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }} <small>{{ adjustmentAction(row) }}</small></template></el-table-column><el-table-column label="调整后到期" min-width="185"><template #default="{row}">{{ time(row.afterEnd) }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="210" /></el-table>
       </template></div>
     </el-drawer>
+    <el-dialog v-model="packageChangeOpen" title="修改套餐" width="min(520px, 95vw)" append-to-body
+      :close-on-click-modal="false" :close-on-press-escape="!changingPackage" :show-close="!changingPackage">
+      <template v-if="packageTarget">
+        <p>{{ packageTarget.user.tenantName || packageTarget.user.tenantId }} · {{ packageTarget.user.phone }}</p>
+        <p class="note">同一灵投账户下的成员共享该套餐。</p>
+        <el-form label-position="top" @submit.prevent="savePackageChange">
+          <el-form-item label="当前套餐">
+            {{ packageStates[packageTarget.user.packageStatus] }} {{ plans[packageTarget.user.planCode || ''] || '' }}
+          </el-form-item>
+          <el-form-item label="目标套餐" required>
+            <el-select v-model="targetPlan" placeholder="请选择套餐" :disabled="changingPackage">
+              <el-option v-for="(label, key) in plans" :key="key" :label="label" :value="key"
+                :disabled="hasActivePackage && key === packageTarget.subscription?.planCode" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="hasActivePackage" label="到期时间">
+            {{ time(packageTarget.subscription?.expiresAt) }}
+          </el-form-item>
+          <el-form-item v-else label="有效天数" required>
+            <el-input-number v-model="targetDays" :min="1" :max="3650" :precision="0" :disabled="changingPackage" />
+          </el-form-item>
+          <el-form-item label="操作原因" required>
+            <el-input v-model="changeReason" type="textarea" :rows="2" maxlength="300" :disabled="changingPackage" />
+          </el-form-item>
+        </el-form>
+        <el-alert v-if="changeError" :title="changeError" type="error" :closable="false" />
+      </template>
+      <template #footer>
+        <el-button :disabled="changingPackage" @click="packageChangeOpen = false">取消</el-button>
+        <el-button type="primary" :loading="changingPackage" :disabled="!canChangePackage" @click="savePackageChange">保存套餐</el-button>
+      </template>
+    </el-dialog>
     <el-dialog v-model="extensionOpen" title="手动延长用户套餐" width="min(600px, 95vw)" :close-on-click-modal="false" :close-on-press-escape="!extending" :show-close="!extending">
       <template v-if="extensionTarget"><p><strong>{{ extensionTarget.user.nickname || extensionTarget.user.phone }}</strong> · {{ extensionTarget.user.phone }}</p><el-alert :title="`影响灵投账户：${extensionTarget.user.tenantName}，${extensionTarget.memberCount}名成员共用`" type="info" :closable="false" />
         <el-form class="extension-form" label-position="top"><el-form-item label="延期对象"><el-radio-group v-model="extensionType" :disabled="extending"><el-radio-button value="SUBSCRIPTION">套餐</el-radio-button><el-radio-button value="TRIAL" :disabled="extensionTarget.user.packageStatus === 'ACTIVE'">试用期</el-radio-button></el-radio-group></el-form-item><el-form-item v-if="extensionType === 'SUBSCRIPTION'" label="套餐类型"><el-select v-model="planCode" :disabled="extending || !!extensionTarget.subscription"><el-option v-for="(label,key) in plans" :key="key" :label="label" :value="key" /></el-select><p class="note">{{ extensionTarget.subscription ? '延期沿用现有套餐类型。' : '用户尚未开通套餐，本次将人工开通所选套餐。' }}</p></el-form-item><el-form-item label="延长天数"><el-input-number v-model="days" :min="1" :max="3650" :precision="0" :disabled="extending" /><div class="day-presets"><el-button v-for="value in [7,30,90,365]" :key="value" size="small" :disabled="extending" @click="days=value">{{ value }} 天</el-button></div></el-form-item><el-form-item label="操作原因（必填）"><el-input v-model="reason" type="textarea" rows="3" maxlength="300" show-word-limit :disabled="extending" placeholder="例如：测试延期、客户补偿、线下续期" /></el-form-item></el-form>
@@ -54,7 +93,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { blockPhone, deleteAdminUser } from '@/features/admin/adminApi';
+import { blockPhone, changePackage, deleteAdminUser } from '@/features/admin/adminApi';
 import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { adminSession, adminLogout, changeAdminPassword, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
@@ -64,7 +103,7 @@ const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FL
 const packageStates:Record<string,string>={ACTIVE:'套餐生效中',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
 const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员人工开通'};
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
-const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
+const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',PACKAGE_CHANGE:'修改套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
 const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label:'注册用户'},{key:'accounts',label:'灵投账户'},{key:'activePackages',label:'生效套餐'},{key:'activeTrials',label:'试用中账户'},{key:'todayLogins',label:'今日成功登录'}];
 const blank=<T,>():AdminPage<T>=>({records:[],total:0,pageNum:1,pageSize:20});
 const overview=ref<AdminOverview>(),users=ref(blank<AdminUser>()),logins=ref(blank<AdminLoginLog>()),adjustments=ref(blank<PackageAdjustment>()),audit=ref(blank<AdminAudit>());
@@ -116,6 +155,57 @@ async function moderateUser(user: AdminUser, deleting: boolean) {
   }
 }
 function showUserRecords(target:string,user:AdminUser){filterUser.value=user.id;filterName.value=user.phone;closeUser();if(tab.value!==target)tab.value=target;else search();}
+function adjustmentAction(row: PackageAdjustment) {
+  if (row.type === 'PLAN_CHANGE') return row.days ? `人工开通 ${row.days} 天` : '切换套餐';
+  return `延长 ${row.days} 天`;
+}
+const packageChangeOpen = ref(false), openingChange = ref(false), changingPackage = ref(false);
+const packageTarget = ref<AdminUserDetail>(), targetPlan = ref(''), targetDays = ref<number | undefined>(30);
+const changeReason = ref(''), changeError = ref(''), changeRequestId = ref('');
+const hasActivePackage = computed(() => packageTarget.value?.user.packageStatus === 'ACTIVE');
+const canChangePackage = computed(() => !!packageTarget.value?.user.tenantId && !!targetPlan.value
+  && (hasActivePackage.value ? targetPlan.value !== packageTarget.value.subscription?.planCode : !!targetDays.value)
+  && changeReason.value.trim().length >= 2);
+watch([targetPlan, targetDays, changeReason], () => {
+  changeRequestId.value = crypto.randomUUID();
+  changeError.value = '';
+});
+async function openPackageChange(user: AdminUser) {
+  if (!user.tenantId || openingChange.value || changingPackage.value) return;
+  openingChange.value = true;
+  try {
+    const target = await getAdminUser(user.id, user.tenantId);
+    packageTarget.value = target;
+    targetPlan.value = '';
+    targetDays.value = 30;
+    changeReason.value = '';
+    changeError.value = '';
+    changeRequestId.value = crypto.randomUUID();
+    packageChangeOpen.value = true;
+  } catch (error) { ElMessage.error(msg(error)); }
+  finally { openingChange.value = false; }
+}
+async function savePackageChange() {
+  const target = packageTarget.value;
+  if (changingPackage.value || !canChangePackage.value || !target?.user.tenantId) return;
+  changingPackage.value = true;
+  changeError.value = '';
+  try {
+    await changePackage(target.user.id, {
+      requestId: changeRequestId.value,
+      tenantId: target.user.tenantId,
+      planCode: targetPlan.value,
+      days: hasActivePackage.value ? null : (targetDays.value ?? null),
+      expectedUpdatedAt: target.subscription?.updatedAt ?? null,
+      reason: changeReason.value.trim(),
+    });
+    packageChangeOpen.value = false;
+    ElMessage.success('套餐已更新');
+    await load();
+    if (selectedId.value === target.user.id) await loadDetail(target.user.id);
+  } catch (error) { changeError.value = msg(error); }
+  finally { changingPackage.value = false; }
+}
 const extensionOpen=ref(false),extensionTarget=ref<AdminUserDetail>(),openingExtension=ref(false),extensionType=ref<'TRIAL'|'SUBSCRIPTION'>('TRIAL'),planCode=ref('PROFESSIONAL'),days=ref(30),reason=ref(''),requestId=ref(''),extending=ref(false),extendError=ref('');
 const expectedEnd=computed(()=>extensionType.value==='TRIAL'?extensionTarget.value?.trial?.expiresAt||null:extensionTarget.value?.subscription?.expiresAt||null);
 const previewEnd=computed(()=>extensionTarget.value?new Date(Math.max(Date.now(),expectedEnd.value?Date.parse(expectedEnd.value):0)+(days.value||0)*86400000).toISOString():null);

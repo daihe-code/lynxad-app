@@ -77,7 +77,7 @@ class PlatformAdminTest {
                 new UserId("customer"), new com.lynx.ad.common.domain.PhoneNumber("13900009801"), null, null)));
         String customer=jwt.issue(new UserId("customer"),Optional.of(new TenantId("tenant")),MemberRole.OWNER,SysRole.USER);
         for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
-        for (String path : List.of("/users/one/package/extend", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock")) {
+        for (String path : List.of("/users/one/package/extend", "/users/one/package/change", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock")) {
             assertTrue(mvc.perform(post("/api/v1/admin" + path).header("Authorization","Bearer " + customer)
                     .contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
         }
@@ -89,6 +89,11 @@ class PlatformAdminTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"phone\":\"13900009801\",\"reason\":\"test\"}"))
                 .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
         verify(moderation).block("13900009801", null, "test");
+        assertTrue(mvc.perform(post("/api/v1/admin/users/one/package/change").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestId\":\"id\",\"tenantId\":\"tenant\",\"planCode\":\"BASIC\",\"days\":30,\"reason\":\"测试\"}"))
+                .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
+        verify(packages).change("one", new AdminPackageService.ChangeRequest("id", "tenant", "BASIC", 30, null, "测试"));
     }
     @Test void failedUserLoginsAreRecordedAfterAuthFailureAndSuccessRemainsCompatible() {
         var commands=mock(AuthCommandService.class);var journal=mock(UserLoginJournal.class);var controller=new TenantAuthController(commands,journal);

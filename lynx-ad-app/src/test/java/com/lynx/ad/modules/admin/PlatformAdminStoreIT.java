@@ -10,7 +10,12 @@ import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.*;
 import com.lynx.ad.modules.admin.application.*;
 import com.lynx.ad.modules.admin.infrastructure.*;
+import com.lynx.ad.modules.billing.application.*;
+import com.lynx.ad.modules.billing.domain.port.OrderRepository;
+import com.lynx.ad.modules.billing.domain.port.PlanRepository;
+import com.lynx.ad.modules.billing.infrastructure.persistence.SubscriptionPersistenceFixture;
 import com.lynx.ad.modules.tenant.application.UserLoginJournal;
+import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import com.lynx.ad.modules.tenant.domain.model.User;
 import com.lynx.ad.modules.tenant.domain.port.UserRepository;
 import java.sql.DriverManager;
@@ -33,6 +38,7 @@ class PlatformAdminStoreIT {
     static String database,server,user,password;static boolean created;static JdbcTemplate jdbc;static TransactionTemplate tx;static javax.sql.DataSource dataSource;
     static long backfilled;static String legacyMethod;static final ObjectMapper json=new ObjectMapper();
     AdminAccountStore admins;AdminAuthService auth;AdminAccountStore.Account admin;AdminPackageService packages;AdminUserQuery queries;Instant end;
+    EntitlementQueryService entitlements;
     @BeforeAll static void setup()throws Exception {
         String url=System.getenv("LYNXAD_ADMIN_TEST_URL");database=url.substring(url.indexOf("/lynxad_")+1,url.indexOf('?'));if(!database.matches("lynxad_admin_verify_[a-zA-Z0-9_]+"))throw new IllegalArgumentException("Unsafe verification schema");
         server=url.replace("/"+database+"?","/?");user=System.getenv("LYNXAD_ADMIN_TEST_USER");password=System.getenv("LYNXAD_ADMIN_TEST_PASSWORD");
@@ -41,13 +47,18 @@ class PlatformAdminStoreIT {
         try(var c=ds.getConnection()) {for(String script:List.of("V1__init.sql","V3__v02_account_audit_notify.sql","V5__v04_subscription.sql"))ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/"+script));}
         jdbc.update("INSERT INTO sys_user(id,phone,status,created_at) VALUES('legacy-user','13900000999','ACTIVE',?)",ts(Instant.now()));
         jdbc.update("INSERT INTO audit_record(id,user_id,actor_name,action_type,result,created_at) VALUES('legacy-login','legacy-user','旧用户','LOGIN','SUCCESS',?)",ts(Instant.now()));
-        try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new ClassPathResource("db/migration-mysql/V32__platform_admin.sql"));}
+        try (var c=ds.getConnection()) {
+            for (String script : List.of("V7__api_oauth_operator_audit.sql", "V16__live_qianchuan_oauth.sql",
+                    "V32__platform_admin.sql", "V52__workspace_account_system.sql")) {
+                ScriptUtils.executeSqlScript(c, new ClassPathResource("db/migration-mysql/" + script));
+            }
+        }
         backfilled=jdbc.queryForObject("SELECT COUNT(*) FROM user_login_record",Long.class);legacyMethod=jdbc.queryForObject("SELECT login_method FROM user_login_record WHERE id='legacy-login'",String.class);
     }
     @AfterAll static void cleanup()throws Exception {if(created&&database.matches("lynxad_admin_verify_[a-zA-Z0-9_]+"))try(var c=DriverManager.getConnection(server,user,password);var s=c.createStatement()){s.execute("DROP DATABASE "+database);}}
-    @BeforeEach void seed() {
+    @BeforeEach void seed() throws Exception {
         TenantContext.clear();RequestMeta.clear();
-        for(String table:List.of("platform_admin_session","platform_admin_audit","platform_package_adjustment","user_login_record","audit_record","billing_order","billing_subscription","billing_trial","tenant_member","user_profile","sys_user","sys_tenant","platform_admin_account"))jdbc.update("DELETE FROM "+table);
+        for(String table:List.of("platform_admin_session","platform_admin_audit","platform_package_adjustment","user_login_record","audit_record","billing_payment","billing_order","billing_subscription","billing_trial","point_ledger","point_wallet","client_space","tenant_member","user_profile","sys_user","sys_tenant","platform_admin_account"))jdbc.update("DELETE FROM "+table);
         var now=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);end=now.plusSeconds(10*86400L);
         for(String id:List.of("t1","t2"))jdbc.update("INSERT INTO sys_tenant(id,name,status,created_at) VALUES(?,?,'ACTIVE',?)",id,"账户"+id,ts(now));
         for(int i=1;i<=2;i++){jdbc.update("INSERT INTO sys_user(id,phone,status,created_at) VALUES(?,?,'ACTIVE',?)","u"+i,"1390000100"+i,ts(now));jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,created_at) VALUES(?,?,'OWNER',?)","t"+i,"u"+i,ts(now));}
@@ -55,7 +66,17 @@ class PlatformAdminStoreIT {
         jdbc.update("INSERT INTO billing_trial(tenant_id,started_at,expires_at) VALUES('t1',?,?)",ts(now),ts(end));
         jdbc.update("INSERT INTO billing_trial(tenant_id,started_at,expires_at) VALUES('t2',?,?)",ts(now),ts(end));
         admins=new AdminAccountStore(jdbc);admins.create("integration-admin",new BCryptPasswordEncoder().encode("FixtureAdmin2026!"));admin=admins.username("integration-admin").orElseThrow();
-        auth=mock(AdminAuthService.class);when(auth.require()).thenReturn(admin);packages=new AdminPackageService(auth,admins,jdbc,json);queries=new AdminUserQuery(jdbc);
+        auth=mock(AdminAuthService.class);when(auth.require()).thenReturn(admin);queries=new AdminUserQuery(jdbc);
+        var pricing = new WorkspacePricing();
+        pricing.setEnabled(true);
+        var foundation = new WorkspaceFoundation(jdbc);
+        var subscriptions = new SubscriptionSupport(SubscriptionPersistenceFixture.create(dataSource));
+        var trials = mock(BillingTrialService.class);
+        entitlements = new EntitlementQueryService(subscriptions, trials, mock(PlanRepository.class));
+        entitlements.workspacePricing(pricing);
+        var points = new WorkspacePointOrders(pricing, null, foundation, mock(OrderRepository.class),
+                new PointWalletService(jdbc, foundation), jdbc, subscriptions, trials);
+        packages = new AdminPackageService(auth, admins, jdbc, json, points);
     }
     @AfterEach void clearContext(){TenantContext.clear();RequestMeta.clear();}
     AdminPackageService.ExtendRequest request(String type,int days,Instant before){return new AdminPackageService.ExtendRequest(UUID.randomUUID().toString(),type,"PROFESSIONAL",days,before,"测试客户补偿");}
@@ -87,6 +108,85 @@ class PlatformAdminStoreIT {
         jdbc.update("INSERT INTO sys_user(id,phone,status,created_at) VALUES('u3','13900001003','ACTIVE',?)",ts(Instant.now()));jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,created_at) VALUES('t1','u3','MEMBER',?)",ts(Instant.now()));
         var grant=extend("u1",request("SUBSCRIPTION",90,null));var detail=queries.detail("u3");assertEquals(grant.afterEnd(),detail.subscription().expiresAt());assertEquals("ADMIN",detail.subscription().payMethod());assertFalse(detail.subscription().autoRenew());assertEquals(2,detail.memberCount());assertEquals(1,queries.adjustments("u3",1,20).total());assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM billing_order",Integer.class));
     }
+    @Test void opensAndSwitchesSharedPackageWithoutPaymentAndCreditsEachPeriodOnlyOnce() {
+        jdbc.update("INSERT INTO sys_user(id,phone,status,created_at) VALUES('u3','13900001003','ACTIVE',?)", ts(Instant.now()));
+        jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,created_at) VALUES('t1','u3','VIEWER',?)", ts(Instant.now()));
+        pendingPackageOrder();
+        jdbc.update("""
+                INSERT INTO billing_order(id,tenant_id,plan_code,type,status,list_price_fen,payable_fen)
+                VALUES('points-order','t1','BASIC','POINT_RECHARGE','PENDING_PAY',9900,9900)
+                """);
+        var open = changeRequest("BASIC", 30, null);
+        var opened = change("u1", open);
+        assertEquals(opened, change("u1", open));
+        var basic = queries.detail("u3").subscription();
+        assertEquals("BASIC", basic.planCode());
+        assertEquals("ADMIN", basic.payMethod());
+        assertFalse(basic.autoRenew());
+        assertEquals(opened.afterEnd(), basic.expiresAt());
+        assertEquals("CLOSED", jdbc.queryForObject("SELECT status FROM billing_order WHERE id='pending-order'", String.class));
+        assertEquals("PENDING_PAY", jdbc.queryForObject("SELECT status FROM billing_order WHERE id='points-order'", String.class));
+        assertEquals(3000, availablePoints());
+        assertEquals(2, entitlements.childAccountLimit(new TenantId("t1")));
+
+        var updated = change("u3", changeRequest("FLAGSHIP", null, basic.updatedAt()));
+        assertEquals("PLAN_CHANGE", updated.type());
+        assertEquals(opened.afterEnd(), updated.afterEnd());
+        assertEquals("FLAGSHIP", queries.detail("u1").subscription().planCode());
+        assertEquals(30000, availablePoints());
+        assertEquals(10, entitlements.childAccountLimit(new TenantId("t1")));
+        assertEquals(409, assertThrows(BizException.class, () -> change("u1", changeRequest("BASIC", null, basic.updatedAt()))).code());
+        var flagship = queries.detail("u1").subscription();
+        change("u1", changeRequest("BASIC", null, flagship.updatedAt()));
+        change("u1", changeRequest("FLAGSHIP", null, queries.detail("u1").subscription().updatedAt()));
+        assertEquals(30000, availablePoints());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM billing_order WHERE status='PAID'", Integer.class));
+        assertEquals(4, queries.adjustments("u1", 1, 20).total());
+        assertEquals(4, queries.audit(1, 20).total());
+        assertNull(queries.detail("u2").subscription());
+    }
+
+    @Test void changesOnlyTheSelectedWorkspaceForAUserWithMultipleMemberships() {
+        jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role) VALUES('t1','u2','VIEWER')");
+        assertEquals("t2", queries.detail("u2").user().tenantId());
+        assertEquals("t1", queries.detail("u2", "t1").user().tenantId());
+        assertThrows(BizException.class, () -> queries.detail("u1", "t2"));
+        var request = changeRequest("BASIC", 30, null);
+        assertEquals("t1", change("u2", request).tenantId());
+        assertEquals("BASIC", queries.detail("u2", "t1").subscription().planCode());
+        assertNull(queries.detail("u2", "t2").subscription());
+    }
+
+    @Test void verifiesAnInFlightCheckoutBeforeChangingThePackage() {
+        pendingPackageOrder();
+        jdbc.update("""
+                INSERT INTO billing_payment(id,tenant_id,order_id,channel,status,amount_fen)
+                VALUES('started-payment','t1','pending-order','WECHAT','CREATED',79900)
+                """);
+        var open = changeRequest("BASIC", 30, null);
+        assertEquals(1904, assertThrows(BizException.class, () -> change("u1", open)).code());
+        assertNull(queries.detail("u1").subscription());
+        assertEquals(0, queries.adjustments("u1", 1, 20).total());
+    }
+
+    private void pendingPackageOrder() {
+        jdbc.update("""
+                INSERT INTO billing_order(id,tenant_id,plan_code,type,status,list_price_fen,payable_fen)
+                VALUES('pending-order','t1','PROFESSIONAL','FIRST_SUBSCRIBE','PENDING_PAY',79900,79900)
+                """);
+    }
+
+    private AdminPackageService.ChangeRequest changeRequest(String plan, Integer days, Instant version) {
+        return new AdminPackageService.ChangeRequest(UUID.randomUUID().toString(), "t1", plan, days, version, "测试套餐调整");
+    }
+
+    private AdminUserQuery.Adjustment change(String user, AdminPackageService.ChangeRequest request) {
+        return tx.execute(status -> packages.change(user, request));
+    }
+
+    private int availablePoints() {
+        return jdbc.queryForObject("SELECT available FROM point_wallet WHERE tenant_id='t1'", Integer.class);
+    }
     @Test void invalidDaysMissingReasonAndUnonboardedUserCannotBeGranted() {
         assertThrows(BizException.class,()->extend("u1",request("TRIAL",0,end)));assertThrows(BizException.class,()->extend("u1",request("TRIAL",3651,end)));
         var r=new AdminPackageService.ExtendRequest(UUID.randomUUID().toString(),"TRIAL",null,30,end,"");assertThrows(BizException.class,()->extend("u1",r));
@@ -98,7 +198,7 @@ class PlatformAdminStoreIT {
     }
     @Test void auditFailureRollsBackExpiryAndReceiptTogether() {
         var failing=spy(admins);doThrow(new IllegalStateException("audit unavailable")).when(failing).audit(any(AdminAccountStore.Account.class),eq("PACKAGE_EXTEND"),anyString(),anyString(),anyString(),anyString());
-        var service=new AdminPackageService(auth,failing,jdbc,json);assertThrows(IllegalStateException.class,()->tx.execute(status->service.extend("u1",request("TRIAL",30,end))));
+        var service=new AdminPackageService(auth,failing,jdbc,json,mock(WorkspacePointOrders.class));assertThrows(IllegalStateException.class,()->tx.execute(status->service.extend("u1",request("TRIAL",30,end))));
         assertEquals(end,queries.detail("u1").trial().expiresAt());assertEquals(0,queries.adjustments(null,1,20).total());
     }
     @Test void simultaneousReplayCommitsOnlyOneGrant()throws Exception {

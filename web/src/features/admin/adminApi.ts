@@ -36,7 +36,7 @@ export async function adminLogout() { try { await post('/auth/logout', {}); } fi
 export async function changeAdminPassword(oldPassword: string, password: string) { await post('/auth/password', { oldPassword, password }); clearAdminSession(); }
 export interface AdminPage<T> { records: T[]; total: number; pageNum: number; pageSize: number }
 export interface AdminUser { id: string; phone: string; nickname?: string; email?: string; status: string; registeredAt: string; hasPassword: boolean; companyName?: string; industry?: string; tenantId?: string; tenantName?: string; memberRole?: string; packageType: string; packageStatus: string; planCode?: string; expiresAt?: string; lastLoginAt?: string; loginCount: number }
-export interface AdminPackage { planCode: string; status: string; startedAt: string; expiresAt: string; autoRenew?: boolean; payMethod?: string; nextPlanCode?: string }
+export interface AdminPackage { planCode: string; status: string; startedAt: string; expiresAt: string; autoRenew?: boolean; payMethod?: string; nextPlanCode?: string; updatedAt?: string }
 export interface AdminUserDetail { user: AdminUser; profile?: { avatarUrl?: string; companyScale?: string; position?: string; monthlyBudget?: string; adExperience?: string; coreDemand?: string; completedAt?: string }; subscription?: AdminPackage; trial?: AdminPackage; memberCount: number; adAccounts: number; adPlans: number }
 export interface AdminLoginLog { id: string; userId?: string; phone?: string; nickname?: string; method: string; result: string; failureReason?: string; ip?: string; userAgent?: string; createdAt: string }
 export interface PackageAdjustment { requestId: string; actorName: string; userId: string; tenantId: string; type: string; planCode?: string; days: number; beforeEnd?: string; afterEnd: string; reason: string; createdAt: string }
@@ -45,11 +45,20 @@ export interface AdminOverview { users: number; accounts: number; activePackages
 export interface ExtendPackage { requestId: string; type: 'TRIAL' | 'SUBSCRIPTION'; planCode?: string; days: number; expectedEnd: string | null; reason: string }
 export const getAdminOverview = () => get<AdminOverview>('/overview');
 export const getAdminUsers = (params: Record<string, unknown>) => get<AdminPage<AdminUser>>('/users', params);
-export const getAdminUser = (id: string) => get<AdminUserDetail>(`/users/${encodeURIComponent(id)}`);
+export const getAdminUser = (id: string, tenantId?: string) => get<AdminUserDetail>(`/users/${encodeURIComponent(id)}`, { tenantId });
 export const getAdminLogins = (params: Record<string, unknown>) => get<AdminPage<AdminLoginLog>>('/login-logs', params);
 export const getPackageAdjustments = (params: Record<string, unknown>) => get<AdminPage<PackageAdjustment>>('/package-adjustments', params);
 export const getAdminAudit = (params: Record<string, unknown>) => get<AdminPage<AdminAudit>>('/audit-logs', params);
 export const extendPackage = (id: string, body: ExtendPackage) => post<PackageAdjustment>(`/users/${encodeURIComponent(id)}/package/extend`, body);
+export interface ChangePackage {
+  requestId: string;
+  tenantId: string;
+  planCode: string;
+  days: number | null;
+  expectedUpdatedAt: string | null;
+  reason: string;
+}
+export const changePackage = (id: string, body: ChangePackage) => post<PackageAdjustment>(`/users/${encodeURIComponent(id)}/package/change`, body);
 export interface PhoneBlacklistEntry { phone: string; reason: string; updatedAt: string }
 export const getPhoneBlacklist = (q: string, pageNum: number) => get<AdminPage<PhoneBlacklistEntry>>('/phone-blacklist', { q, pageNum });
 export const blockPhone = (phone: string, reason: string, userId?: string) => post<void>('/phone-blacklist', { phone, reason, userId });

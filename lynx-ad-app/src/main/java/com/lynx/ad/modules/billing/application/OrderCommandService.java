@@ -146,6 +146,7 @@ public class OrderCommandService {
 
     @Transactional
     public OrderView close(TenantId tenantId, String orderId) {
+        workspace.ensure(tenantId.value());
         BillingOrder order = orderRepository
                 .findById(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));

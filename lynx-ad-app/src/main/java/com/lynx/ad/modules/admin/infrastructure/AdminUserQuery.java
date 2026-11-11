@@ -19,13 +19,13 @@ public class AdminUserQuery {
             String companyName,String industry,String tenantId,String tenantName,String memberRole,String packageType,String packageStatus,
             String planCode,Instant expiresAt,Instant lastLoginAt,long loginCount) {}
     public record Profile(String avatarUrl,String companyScale,String position,String monthlyBudget,String adExperience,String coreDemand,Instant completedAt) {}
-    public record Package(String planCode,String status,Instant startedAt,Instant expiresAt,Boolean autoRenew,String payMethod,String nextPlanCode) {}
+    public record Package(String planCode,String status,Instant startedAt,Instant expiresAt,Boolean autoRenew,String payMethod,String nextPlanCode,Instant updatedAt) {}
     public record Detail(UserRow user,Profile profile,Package subscription,Package trial,long memberCount,long adAccounts,long adPlans) {}
     public record LoginRow(String id,String userId,String phone,String nickname,String method,String result,String failureReason,String ip,String userAgent,Instant createdAt) {}
     public record Adjustment(String requestId,String actorName,String userId,String tenantId,String type,String planCode,int days,Instant beforeEnd,Instant afterEnd,String reason,Instant createdAt) {}
     public record AdminAudit(String id,String actorName,String action,String result,String userId,String tenantId,String description,String ip,String userAgent,Instant createdAt) {}
     public record Overview(long users,long accounts,long activePackages,long activeTrials,long todayLogins) {}
-    private static final String JOIN=" FROM sys_user u LEFT JOIN user_profile p ON p.user_id=u.id LEFT JOIN tenant_member m ON m.user_id=u.id LEFT JOIN sys_tenant t ON t.id=m.tenant_id LEFT JOIN billing_subscription s ON s.tenant_id=t.id LEFT JOIN billing_trial b ON b.tenant_id=t.id";
+    private static final String JOIN=" FROM sys_user u LEFT JOIN user_profile p ON p.user_id=u.id LEFT JOIN tenant_member m ON m.user_id=u.id AND m.status<>'REMOVED' LEFT JOIN sys_tenant t ON t.id=m.tenant_id AND t.status='ACTIVE' LEFT JOIN billing_subscription s ON s.tenant_id=t.id LEFT JOIN billing_trial b ON b.tenant_id=t.id";
     private static final String STATUS="CASE WHEN s.status IN ('ACTIVE','PENDING_DOWNGRADE') AND s.period_end>? THEN 'ACTIVE' WHEN b.expires_at>? THEN 'TRIAL' WHEN s.tenant_id IS NOT NULL OR b.tenant_id IS NOT NULL THEN 'EXPIRED' ELSE 'NONE' END";
     private static final String SELECT="SELECT u.id,u.phone,u.status,u.created_at AS registered_at,CASE WHEN u.password_hash IS NOT NULL AND u.password_hash<>'' THEN 1 ELSE 0 END AS has_password,p.nickname,p.email,p.company_name,p.industry,t.id AS tenant_id,t.name AS tenant_name,m.member_role,s.plan_code,s.status AS sub_status,s.period_end,b.expires_at AS trial_end,(SELECT MAX(l.created_at) FROM user_login_record l WHERE l.user_id=u.id AND l.result='SUCCESS') AS last_login,(SELECT COUNT(*) FROM user_login_record l WHERE l.user_id=u.id AND l.result='SUCCESS') AS login_count";
     private UserRow row(ResultSet r)throws SQLException {
@@ -42,16 +42,22 @@ public class AdminUserQuery {
         if(q!=null&&!q.isBlank()){String term="%"+q.trim()+"%";where.append(" AND (u.phone LIKE ? OR p.nickname LIKE ? OR p.company_name LIKE ? OR t.name LIKE ? OR u.id=?)");Collections.addAll(args,term,term,term,term,q.trim());}
         if(state!=null&&!state.isBlank()){if(!List.of("ACTIVE","TRIAL","EXPIRED","NONE").contains(state))throw new BizException(1904,"套餐状态不正确");where.append(" AND (").append(STATUS).append(")=?");args.add(ts(Instant.now()));args.add(ts(Instant.now()));args.add(state);}
         long total=jdbc.queryForObject("SELECT COUNT(*)"+JOIN+where,Long.class,args.toArray());args.add(size);args.add((page-1)*size);
-        return new Page<>(jdbc.query(SELECT+JOIN+where+" ORDER BY u.created_at DESC,u.id LIMIT ? OFFSET ?",(r,n)->row(r),args.toArray()),total,page,size);
+        return new Page<>(jdbc.query(SELECT+JOIN+where+" ORDER BY u.created_at DESC,u.id,t.id LIMIT ? OFFSET ?",(r,n)->row(r),args.toArray()),total,page,size);
     }
     public Detail detail(String id) {
-        var user=jdbc.query(SELECT+JOIN+" WHERE u.id=? ORDER BY CASE WHEN m.member_role='OWNER' THEN 0 ELSE 1 END,t.id",
-                (r,n)->row(r),id).stream().findFirst().orElseThrow(()->new BizException(1904,"用户不存在"));
+        return detail(id, null);
+    }
+    public Detail detail(String id, String tenantId) {
+        var rows = tenantId == null
+                ? jdbc.query(SELECT+JOIN+" WHERE u.id=? ORDER BY CASE WHEN m.member_role='OWNER' THEN 0 ELSE 1 END,t.id", (r,n)->row(r), id)
+                : jdbc.query(SELECT+JOIN+" WHERE u.id=? AND t.id=? AND u.status<>'DELETED'", (r,n)->row(r), id, tenantId);
+        var user = rows.stream().findFirst().orElseThrow(() -> new BizException(1904,
+                tenantId == null ? "用户不存在" : "该用户不属于所选灵投账户"));
         var profile=jdbc.query("SELECT * FROM user_profile WHERE user_id=?",(r,n)->new Profile(r.getString("avatar_url"),r.getString("company_scale"),r.getString("position"),r.getString("monthly_budget"),r.getString("ad_experience"),r.getString("core_demand"),instant(r,"completed_at")),id).stream().findFirst().orElse(null);
         String tenant=user.tenantId();Package subscription=null,trial=null;long members=0,ads=0,plans=0;
         if(tenant!=null){
-            subscription=jdbc.query("SELECT * FROM billing_subscription WHERE tenant_id=?",(r,n)->new Package(r.getString("plan_code"),r.getString("status"),instant(r,"period_start"),instant(r,"period_end"),r.getBoolean("auto_renew"),r.getString("pay_method"),r.getString("next_plan_code")),tenant).stream().findFirst().orElse(null);
-            trial=jdbc.query("SELECT * FROM billing_trial WHERE tenant_id=?",(r,n)->new Package("PROFESSIONAL",r.getTimestamp("expires_at").toInstant().isAfter(Instant.now())?"TRIAL":"EXPIRED",instant(r,"started_at"),instant(r,"expires_at"),null,null,null),tenant).stream().findFirst().orElse(null);
+            subscription=jdbc.query("SELECT * FROM billing_subscription WHERE tenant_id=?",(r,n)->new Package(r.getString("plan_code"),r.getString("status"),instant(r,"period_start"),instant(r,"period_end"),r.getBoolean("auto_renew"),r.getString("pay_method"),r.getString("next_plan_code"),instant(r,"updated_at")),tenant).stream().findFirst().orElse(null);
+            trial=jdbc.query("SELECT * FROM billing_trial WHERE tenant_id=?",(r,n)->new Package("PROFESSIONAL",r.getTimestamp("expires_at").toInstant().isAfter(Instant.now())?"TRIAL":"EXPIRED",instant(r,"started_at"),instant(r,"expires_at"),null,null,null,null),tenant).stream().findFirst().orElse(null);
             members=count("tenant_member",tenant);ads=count("oauth_account",tenant);plans=count("ad_plan",tenant);
         }
         return new Detail(user,profile,subscription,trial,members,ads,plans);

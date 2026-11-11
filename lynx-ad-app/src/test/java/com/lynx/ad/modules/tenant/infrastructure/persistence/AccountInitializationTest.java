@@ -388,6 +388,18 @@ class AccountInitializationTest {
         assertEquals(jwt.parse(ownerToken).tenantId(), jwt.parse(child.token()).tenantId());
         var me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
         assertEquals(json.valueToTree(List.of("OPERATOR", "VIEWER", "FINANCE")), me.path("memberRoles"));
+        String teamPath = "/api/v1/tenant/workspaces/current/team";
+        var team = call("GET", teamPath, null, ownerToken).path("data");
+        assertEquals(team.path("limit"), team.path("used"));
+        String memberPath = teamPath + "/members/" + team.path("members").get(0).path("id").asText();
+        assertEquals(403, call("PUT", memberPath, "{\"roles\":[\"FINANCE\"]}", child.token()).path("code").asInt());
+        assertEquals(0, call("PUT", memberPath, "{\"roles\":[\"VIEWER\"]}", ownerToken).path("code").asInt());
+        me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
+        assertEquals(json.valueToTree(List.of("VIEWER")), me.path("memberRoles"));
+        assertEquals(0, call("PUT", memberPath, "{\"roles\":[\"VIEWER\",\"FINANCE\"]}", ownerToken).path("code").asInt());
+        me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
+        assertEquals(json.valueToTree(List.of("VIEWER", "FINANCE")), me.path("memberRoles"));
+        assertEquals(1910, call("POST", path, "{\"phone\":\"13900008809\",\"role\":\"VIEWER\"}", ownerToken).path("code").asInt());
         assertEquals(1, count("sys_tenant"));
         assertEquals(1, count("billing_trial"));
     }

@@ -19,9 +19,13 @@ public class PlatformAdminController {
     @PostMapping("/auth/password") public ApiResponse<Void> password(@RequestBody PasswordRequest body) { auth.changePassword(body.oldPassword(),body.password());return ApiResponse.ok(null); }
     @GetMapping("/overview") public ApiResponse<AdminUserQuery.Overview> overview() { return ApiResponse.ok(users.overview()); }
     @GetMapping("/users") public ApiResponse<AdminUserQuery.Page<AdminUserQuery.UserRow>> list(@RequestParam(required=false) String q,@RequestParam(required=false) String status,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize) { return ApiResponse.ok(users.users(q,status,pageNum,pageSize)); }
-    @GetMapping("/users/{id}") public ApiResponse<AdminUserQuery.Detail> detail(@PathVariable String id) { return ApiResponse.ok(users.detail(id)); }
+    @GetMapping("/users/{id}") public ApiResponse<AdminUserQuery.Detail> detail(@PathVariable String id, @RequestParam(required=false) String tenantId) { return ApiResponse.ok(users.detail(id, tenantId)); }
     @GetMapping("/login-logs") public ApiResponse<AdminUserQuery.Page<AdminUserQuery.LoginRow>> logins(@RequestParam(required=false) String userId,@RequestParam(required=false) String q,@RequestParam(required=false) String result,@RequestParam(required=false) LocalDate from,@RequestParam(required=false) LocalDate to,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize) { return ApiResponse.ok(users.logins(userId,q,result,from,to,pageNum,pageSize)); }
     @PostMapping("/users/{id}/package/extend") public ApiResponse<AdminUserQuery.Adjustment> extend(@PathVariable String id,@RequestBody AdminPackageService.ExtendRequest body) { return ApiResponse.ok(packages.extend(id,body)); }
+    @PostMapping("/users/{id}/package/change")
+    public ApiResponse<AdminUserQuery.Adjustment> changePackage(@PathVariable String id, @RequestBody AdminPackageService.ChangeRequest body) {
+        return ApiResponse.ok(packages.change(id, body));
+    }
     @GetMapping("/package-adjustments") public ApiResponse<AdminUserQuery.Page<AdminUserQuery.Adjustment>> adjustments(@RequestParam(required=false) String userId,@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize) { return ApiResponse.ok(users.adjustments(userId,pageNum,pageSize)); }
     @GetMapping("/audit-logs") public ApiResponse<AdminUserQuery.Page<AdminUserQuery.AdminAudit>> audit(@RequestParam(defaultValue="1") int pageNum,@RequestParam(defaultValue="20") int pageSize) { return ApiResponse.ok(users.audit(pageNum,pageSize)); }
 }
