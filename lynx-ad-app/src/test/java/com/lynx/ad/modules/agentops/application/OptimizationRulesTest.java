@@ -58,6 +58,22 @@ class OptimizationRulesTest {
         var d=data("120","100");assertTrue(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).path("recommendations").isEmpty());mature(d,"100");var r=OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM"));assertEquals("READY",r.path("state").asText());assertEquals("2.50000000",r.path("actual_net_roi").asText());assertEquals("ROI_PROTECTION",r.path("recommendations").get(0).path("type").asText());assertFalse(r.path("recommendations").get(0).has("action"));
         ((ObjectNode)d.path("observations").get(1)).put("window_start","2026-11-05T10:00:00+08:00");assertFalse(OptimizationRulesEvaluator.evaluate(d,null,policy("CONFIRM")).has("actual_net_roi"));
     }
+    @Test void verifiedHistoryBackfillsZeroDeliveryAcrossDaysAndCollectionGaps() {
+        var input = deliveryData(0, 0, "ZERO");
+        var started = now.minusDays(3);
+        input.put("delivery_baseline", started.toString());
+        var history = input.putObject("delivery_history").put("activity", "ZERO")
+            .put("baseline", started.toString()).put("through", now.toLocalDate().minusDays(1).toString());
+        var report = OptimizationRulesEvaluator.evaluate(input, null, policy("CONFIRM"));
+        assertEquals(started.toString(), report.path("zero_delivery_since").asText());
+        assertEquals("NO_DELIVERY", report.path("state").asText());
+        assertEquals("materials", report.path("recommendations").get(0).path("workflow").asText());
+
+        history.put("activity", "UNKNOWN");
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(input, null, policy("CONFIRM")).path("state").asText());
+        history.put("activity", "ACTIVE");
+        assertEquals("WAITING_DATA", OptimizationRulesEvaluator.evaluate(input, null, policy("CONFIRM")).path("state").asText());
+    }
     @Test void reliableMatureRoiCanBeDiagnosedWithoutTheDailySpendTotal(){
         var input=data(null,null).put("complete",false);
         mature(input,"100");

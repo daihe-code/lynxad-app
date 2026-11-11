@@ -7,11 +7,12 @@ export const accountNavigation = [
   {key:'logs',label:'操作日志',description:'查看账户操作记录，保障投放安全与可追溯',to:'/accounts?tab=logs',icon:'clock'},
 ];
 
-export function accountNavigationForRole(role?: string) {
+export function accountNavigationForRole(role?: string, roles?: string[]) {
   return accountNavigation.filter(item => {
     if (item.key === 'team') return role === 'OWNER';
+    if (item.key === 'billing') return !role || role === 'OWNER' || role === 'FINANCE' || roles?.includes('FINANCE');
     if (role === 'FINANCE') return ['workspace','billing','info'].includes(item.key);
     if (role === 'VIEWER') return ['workspace','info'].includes(item.key);
-    return item.key !== 'billing' || !role || role === 'OWNER';
+    return true;
   });
 }

@@ -35,7 +35,7 @@ const subtitle = computed(() => {
   const role = workspaceAccountLabel(user.me?.memberRole);
   return [user.me?.displayPlanName || user.me?.subscriptionPlanName, role].filter(Boolean).join(' · ') || '账户信息';
 });
-const entries = computed(() => accountNavigationForRole(user.me?.memberRole));
+const entries = computed(() => accountNavigationForRole(user.me?.memberRole, user.me?.memberRoles));
 watch(() => route.fullPath, () => { open.value = false; });
 function close() { open.value = false; trigger.value?.focus(); }
 async function triggerKey(event: KeyboardEvent) {

@@ -25,7 +25,7 @@ const props = defineProps<{
     active: string;
 }>();
 const user = useUserStore();
-const menus = computed(() => accountNavigationForRole(user.me?.memberRole));
+const menus = computed(() => accountNavigationForRole(user.me?.memberRole, user.me?.memberRoles));
 const current = computed(() => menus.value.find(item => item.key === props.active));
 </script>
 <style src="./account.css"></style>

@@ -50,7 +50,8 @@ public class AccountSystemPersistenceTest {
         String migration=new String(new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V52__workspace_account_system.sql").getInputStream().readAllBytes(),StandardCharsets.UTF_8).replace("md5(","HASH_MD5(");
         try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new org.springframework.core.io.ByteArrayResource(migration.getBytes(StandardCharsets.UTF_8)));}
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V53__workspace_team_and_points.sql")).execute(ds);
+                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V53__workspace_team_and_points.sql"),
+                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V56__workspace_child_roles.sql")).execute(ds);
         var foundation=new WorkspaceFoundation(jdbc);var quotas=mock(EntitlementQueryService.class);when(quotas.adAccountLimit(any())).thenReturn(2);
         return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),new PointWalletService(jdbc,foundation));
     }

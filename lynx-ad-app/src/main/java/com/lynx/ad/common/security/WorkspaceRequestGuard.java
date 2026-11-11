@@ -26,8 +26,8 @@ public class WorkspaceRequestGuard implements HandlerInterceptor,WebMvcConfigure
         var member=access.current();
         TenantContext.set(new TenantPrincipal(principal.userId(),principal.tenantId(),java.util.Optional.of(member.role()),principal.sysRole(),principal.sessionId()));
         if(path.startsWith("/api/v1/billing")) {
-            if(member.role()!=MemberRole.OWNER&&member.role()!=MemberRole.FINANCE)throw new BizException(403,"没有财务权限");
-            if(member.role()==MemberRole.FINANCE&&!"GET".equals(request.getMethod()))throw new BizException(403,"财务成员只能查看账务");
+            if(!member.roles().contains(MemberRole.OWNER)&&!member.roles().contains(MemberRole.FINANCE))throw new BizException(403,"没有财务权限");
+            if(member.role()!=MemberRole.OWNER&&!"GET".equals(request.getMethod()))throw new BizException(403,"财务成员只能查看账务");
         } else if(path.startsWith("/api/v1/tenant/members")) {
             if(member.role()!=MemberRole.OWNER&&member.role()!=MemberRole.ADMIN)throw new BizException(403,"没有成员管理权限");
         } else if(!path.startsWith("/api/v1/tenant/")&&member.role()!=MemberRole.OWNER) {
@@ -37,7 +37,10 @@ public class WorkspaceRequestGuard implements HandlerInterceptor,WebMvcConfigure
                     ||path.equals("/api/v1/delivery/plans/statistics/trend")
                     ||path.matches("/api/v1/delivery/creation/[^/]+")
                     ||path.equals("/api/v1/identity/oauth/accounts")||path.equals("/oauth/accounts"));
-            if(member.role()==MemberRole.VIEWER && planRead)return true;
+            if(member.roles().contains(MemberRole.VIEWER) && planRead) {
+                TenantContext.set(new TenantPrincipal(principal.userId(),principal.tenantId(),java.util.Optional.of(MemberRole.VIEWER),principal.sysRole(),principal.sessionId()));
+                return true;
+            }
             if(member.role()!=MemberRole.MEMBER&&member.role()!=MemberRole.OPERATOR)throw new BizException(403,"当前成员没有业务资源权限");
             if(path.startsWith("/api/v1/identity/accounts/")) {
                 String bindingId=path.substring("/api/v1/identity/accounts/".length()).split("/",2)[0];

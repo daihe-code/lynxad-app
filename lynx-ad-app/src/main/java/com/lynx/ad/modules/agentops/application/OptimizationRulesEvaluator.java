@@ -60,8 +60,13 @@ public final class OptimizationRulesEvaluator {
                 var checkedAt = OffsetDateTime.parse(data.path("delivery_check").path("checked_at").asText());
                 if (!checkedAt.isBefore(since.plusHours(1))) {
                     result.put("state", "NO_DELIVERY");
-                    advice(advice, "DELIVERY_NO_ACTIVITY", "持续无曝光", "计划处于投放中，持续至少 1 小时无曝光、无消耗。请核对投放诊断。")
-                        .put("requires_confirmation", false);
+                    boolean fromBaseline = since.toString().equals(data.path("delivery_history").path("baseline").asText());
+                    String period = fromBaseline
+                        ? "自本轮盯盘观察起，已核实无曝光、无消耗。"
+                        : "已核实持续至少 1 小时无曝光、无消耗。";
+                    advice(advice, "DELIVERY_NO_ACTIVITY", "持续无曝光",
+                        period+"请先核对商品可投性和素材审核状态。符合投放条件时，可补充一条不同卖点的素材测试。")
+                        .put("requires_confirmation", false).put("workflow", "materials");
                 }
             }
         }
@@ -151,6 +156,12 @@ public final class OptimizationRulesEvaluator {
         if (checkedAt.isAfter(observed) || checkedAt.isBefore(observed.minusMinutes(10))
             || !checkedAt.toLocalDate().equals(observed.toLocalDate())
             || restarted != null && checkedAt.toInstant().isBefore(restarted)) return null;
+        var history = data.path("delivery_history");
+        if ("ZERO".equals(history.path("activity").asText())
+            && observed.toLocalDate().minusDays(1).toString().equals(history.path("through").asText())) {
+            var baseline = OffsetDateTime.parse(history.path("baseline").asText());
+            if (!baseline.isAfter(checkedAt)) return baseline;
+        }
         if (previous != null && previous.hasNonNull("zero_delivery_since")
             && data.path("plan_id").equals(previous.path("plan_id"))
             && data.path("product_ids").equals(previous.path("product_ids"))) {
@@ -158,6 +169,8 @@ public final class OptimizationRulesEvaluator {
             var since = OffsetDateTime.parse(previous.path("zero_delivery_since").asText());
             if (since.toLocalDate().equals(observed.toLocalDate()) && !since.isAfter(checkedAt)
                 && !previousObserved.isAfter(observed) && !previousObserved.isBefore(observed.minusMinutes(5))
+                && (!data.hasNonNull("delivery_baseline")
+                    || !since.isBefore(OffsetDateTime.parse(data.path("delivery_baseline").asText())))
                 && (restarted == null || !since.toInstant().isBefore(restarted))) return since;
         }
         return checkedAt;

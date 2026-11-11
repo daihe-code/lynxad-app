@@ -74,6 +74,24 @@ class OptimizationDecisionPersistenceTest {
         assertEquals(first, journal.firstRuleEnabledAt("tenant", "plan"));
     }
 
+    @Test void zeroDeliveryAdviceFitsTheEventSchemaAndNotifiesOnce() {
+        var report = json.createObjectNode().put("rule_version","merchant-rules-v2").put("complete",true);
+        report.putObject("delivery_check").put("activity","ZERO");
+        report.putArray("recommendations").addObject().put("type","DELIVERY_NO_ACTIVITY").put("title","持续无曝光")
+            .put("evidence","可补充不同卖点的素材");
+        journal.recordAdvice(state,report);
+        journal.recordAdvice(state,report);
+        assertEquals(1,journal.ruleHistory("tenant","plan","RISK",7,1,20).total());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE body LIKE '%可补充不同卖点的素材%'",Integer.class));
+        report.putArray("recommendations");
+        ((ObjectNode)report.path("delivery_check")).put("activity","UNKNOWN");
+        journal.recordAdvice(state,report);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE status='RECOMMENDED'",Integer.class));
+        ((ObjectNode)report.path("delivery_check")).put("activity","ACTIVE");
+        journal.recordAdvice(state,report);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE status='RESOLVED'",Integer.class));
+    }
+
     @Test void pausedEditsAndLaterVerificationDoNotChangeTheSnapshot(){
         store.automationStore(journal);
         store.ruleMetrics(new OptimizationRuleMetricsStore(jdbc));

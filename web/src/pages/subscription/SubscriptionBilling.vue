@@ -31,7 +31,7 @@ import { csvDownload, date } from '@/pages/accounts/accountFormat';
 const user = useUserStore(), route = useRoute(), router = useRouter();
 const sub = ref<SubscriptionView | null>(null), plans = ref<PlanItem[]>([]), bills = ref<BillItem[]>([]), plansRef = ref<HTMLElement>();
 const payOpen = ref(false), busy = ref(false), renewing = ref(false), loading = ref(true), loadError = ref(''), error = ref(''), pendingYuan = ref(0), payment = ref<PaymentView>();
-const canManage = computed(() => user.me?.memberRole !== 'FINANCE');
+const canManage = computed(() => user.me?.memberRole === 'OWNER');
 const paymentQr = ref('');
 const pendingOrder = ref<OrderView | null>(null), cancelOpen = ref(false);
 const aliases: Record<string, string> = { basic: 'BASIC', pro: 'PROFESSIONAL', flagship: 'FLAGSHIP' };

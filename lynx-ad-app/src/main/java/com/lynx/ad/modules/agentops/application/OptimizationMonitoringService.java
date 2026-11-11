@@ -201,8 +201,16 @@ public class OptimizationMonitoringService {
         data.put("observations",rows);
         if(gateway!=null && gateway.tactics()!=null) {
             if ("DELIVERING".equals(facts.status())) {
-                data.put("delivery_check", deliveryCheck(p, observed, current, facts, previousReport,
-                    Objects.toString(data.get("optimization_restarted_at"), "")));
+                var restartedAt = Objects.toString(data.get("optimization_restarted_at"), "");
+                var check = deliveryCheck(p, observed, current, facts, previousReport, restartedAt);
+                data.put("delivery_check", check);
+                var baseline = deliveryBaseline(state, observed, facts, previousReport, restartedAt);
+                if (baseline != null) {
+                    data.put("delivery_baseline", baseline.toString());
+                    if ("ZERO".equals(check.get("activity"))) {
+                        data.put("delivery_history", deliveryHistory(p, facts.productIds(), baseline, observed, previousReport));
+                    }
+                }
             }
             var context=gateway.tactics().merchantContext(p,observed);
             if(context!=null) {
@@ -237,6 +245,53 @@ public class OptimizationMonitoringService {
         }
         var activity = gateway.tactics().productDeliveryActivity(plan, today, facts.productIds());
         return Map.of("activity", activity.name(), "checked_at", observed.toOffsetDateTime().toString());
+    }
+
+    private OffsetDateTime deliveryBaseline(OptimizationStore.State state, ZonedDateTime observed,
+                                               PlanManagementService.MonitoringFacts facts, JsonNode previous,
+                                               String restartedAt) {
+        Instant baseline = journal == null ? null : journal.latestRuleStartedAt(state.tenant(), state.plan());
+        if (!restartedAt.isEmpty()) {
+            var restarted = Instant.parse(restartedAt);
+            if (baseline == null || restarted.isAfter(baseline)) baseline = restarted;
+        }
+        if (previous != null && previous.hasNonNull("observed_at") && previous.path("product_ids").isArray()) {
+            var previousProducts = new HashSet<String>();
+            previous.path("product_ids").forEach(id -> previousProducts.add(id.asText()));
+            if (!facts.qcId().equals(previous.path("plan_id").asText()) || !previousProducts.equals(new HashSet<>(facts.productIds()))) {
+                return observed.toOffsetDateTime();
+            }
+            if (previous.hasNonNull("delivery_baseline")) {
+                var prior = OffsetDateTime.parse(previous.path("delivery_baseline").asText()).toInstant();
+                if (baseline == null || prior.isAfter(baseline)) baseline = prior;
+            }
+        }
+        return baseline == null ? null : baseline.atZone(ZONE).toOffsetDateTime();
+    }
+
+    private Map<String,String> deliveryHistory(AdPlan plan, List<String> products, OffsetDateTime baseline,
+                                                ZonedDateTime observed, JsonNode previous) {
+        var start = baseline.toLocalDate();
+        var end = observed.toLocalDate().minusDays(1);
+        var history = previous == null ? null : previous.path("delivery_history");
+        if (history != null && baseline.toString().equals(history.path("baseline").asText())
+            && end.toString().equals(history.path("through").asText())
+            && history.hasNonNull("checked_at")
+            && OffsetDateTime.parse(history.path("checked_at").asText()).plusMinutes(10).isAfter(observed.toOffsetDateTime())) {
+            return Map.of("activity", history.path("activity").asText(), "baseline", baseline.toString(),
+                "through", end.toString(), "checked_at", history.path("checked_at").asText());
+        }
+        var activity = OptimizationTacticsGateway.DeliveryActivity.ZERO;
+        for (var day = start; !day.isAfter(end); day = day.plusDays(30)) {
+            var last = day.plusDays(29);
+            var part = gateway.tactics().productDeliveryActivity(plan, day, last.isBefore(end) ? last : end, products);
+            if (part != OptimizationTacticsGateway.DeliveryActivity.ZERO) {
+                activity = part;
+                break;
+            }
+        }
+        return Map.of("activity", activity.name(), "baseline", baseline.toString(), "through", end.toString(),
+            "checked_at", observed.toOffsetDateTime().toString());
     }
 
     private static boolean hasDeliveryActivity(Map<String, BigDecimal> metrics) {

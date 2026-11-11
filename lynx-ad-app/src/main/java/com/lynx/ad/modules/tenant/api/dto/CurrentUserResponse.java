@@ -1,6 +1,7 @@
 package com.lynx.ad.modules.tenant.api.dto;
 
 import java.time.Instant;
+import java.util.List;
 
 public record CurrentUserResponse(
         String userId,
@@ -31,4 +32,5 @@ public record CurrentUserResponse(
         Instant periodEnd,
         Boolean autoRenew,
         String payMethod,
-        String subscriptionStatus) {}
+        String subscriptionStatus,
+        List<String> memberRoles) {}

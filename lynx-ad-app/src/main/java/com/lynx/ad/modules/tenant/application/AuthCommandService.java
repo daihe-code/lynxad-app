@@ -81,6 +81,14 @@ public class AuthCommandService {
     }
 
     public SendSmsResponse sendSms(PhoneNumber phone) {
+        return sendSms(phone, null);
+    }
+
+    public SendSmsResponse sendChildActivationSms(String invitationId) {
+        return sendSms(team.activationPhone(invitationId), invitationId);
+    }
+
+    private SendSmsResponse sendSms(PhoneNumber phone, String invitationId) {
         phoneAccess.requireAllowed(phone);
         var sms = properties.getSms();
         if (sms.isOff()) {
@@ -94,7 +102,10 @@ public class AuthCommandService {
         }
         String code = sms.isLive() ? randomCode() : sms.getDevCode();
         smsGateway.send(phone, code);
-        otpStore.save(phone, passwordHasher.hash(code), Duration.ofSeconds(sms.getTtlSec()));
+        var hash = passwordHasher.hash(code);
+        var ttl = Duration.ofSeconds(sms.getTtlSec());
+        if (invitationId == null) otpStore.save(phone, hash, ttl);
+        else otpStore.saveChildActivation(invitationId, phone, hash, ttl);
         if (sms.getCooldownSec() > 0) {
             otpStore.markCooldown(phone, Duration.ofSeconds(sms.getCooldownSec()));
         }
@@ -104,6 +115,18 @@ public class AuthCommandService {
     public PeekSmsResponse peekSms(PhoneNumber phone, String code) {
         phoneAccess.requireAllowed(phone);
         return new PeekSmsResponse(otpStore.peek(phone, code));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public boolean activateChild(String invitationId, String code, String password) {
+        var phone = team.activationPhone(invitationId);
+        phoneAccess.requireAllowed(phone);
+        com.lynx.ad.modules.tenant.domain.service.PasswordRules.require(password);
+        if (code == null || !code.matches("[0-9]{6}") || !otpStore.verifyAndConsumeChildActivation(invitationId, phone, code)) {
+            throw new BizException(1101, "验证码不正确或已过期");
+        }
+        phoneAccess.lockAllowed(phone);
+        return team.activateFromWorkspace(invitationId, phone, password, passwordHasher);
     }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)

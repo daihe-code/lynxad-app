@@ -85,7 +85,8 @@ class AccountInitializationTest {
         jdbc.execute("CREATE TABLE billing_subscription(tenant_id VARCHAR(36),status VARCHAR(24),period_end TIMESTAMP)");
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
                 new org.springframework.core.io.ClassPathResource("db/migration/V53__workspace_team_and_points.sql"),
-                new org.springframework.core.io.ClassPathResource("db/" + ("MySQL".equals(mode) ? "migration-mysql" : "migration") + "/V54__platform_account_moderation.sql")).execute(ds);
+                new org.springframework.core.io.ClassPathResource("db/" + ("MySQL".equals(mode) ? "migration-mysql" : "migration") + "/V54__platform_account_moderation.sql"),
+                new org.springframework.core.io.ClassPathResource("db/migration/V56__workspace_child_roles.sql")).execute(ds);
         var config = new MybatisConfiguration();
         config.setMapUnderscoreToCamelCase(true);
         for (Class<?> mapper : List.of(UserMapper.class, UserProfileMapper.class, TenantMapper.class, TenantMemberMapper.class)) config.addMapper(mapper);
@@ -151,7 +152,7 @@ class AccountInitializationTest {
                 new TenantUserController(queries, mock(OnboardingCommandService.class), context.getBean(AccountCommandService.class), auth),
                 new AccountLegalController(new AccountLegalService(jdbc, queries, mock(AdminAuthService.class), mock(AdminAccountStore.class), mock(AuditRecorder.class))),
                 new WorkspaceController(mock(WorkspaceQueryService.class), context.getBean(WorkspaceAccess.class),
-                        mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class)),
+                        mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class), auth),
                 new WelcomeController(jdbc, context.getBean(PlatformTransactionManager.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).build();
     }
@@ -363,6 +364,32 @@ class AccountInitializationTest {
         } finally { TenantContext.clear(); }
         assertThrows(BizException.class, () -> auth.smsLogin(invited,"123456"));
         assertEquals(1,count("sys_tenant"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})
+    void ownerActivatesChildWithMultiplePermissionsAndPassword(String mode) throws Exception {
+        database(mode);
+        String ownerToken = login("13900008803").path("token").asText();
+        String path = "/api/v1/tenant/workspaces/current/team/invitations";
+        String phone = "13900008804";
+        var invitation = call("POST", path,
+            json.writeValueAsString(Map.of("phone", phone, "roles", List.of("FINANCE", "VIEWER", "OPERATOR"))), ownerToken);
+        assertEquals(0, invitation.path("code").asInt(), invitation.toString());
+        assertFalse(invitation.path("data").has("token"));
+        String id = invitation.path("data").path("id").asText();
+        String body = json.writeValueAsString(Map.of("code", "123456", "password", "TestChild789"));
+        assertEquals(1101, call("POST", path+"/"+id+"/activate", body, ownerToken).path("code").asInt());
+        when(otp.verifyAndConsumeChildActivation(id, new PhoneNumber(phone), "123456")).thenReturn(true);
+        var activated = call("POST", path+"/"+id+"/activate", body, ownerToken);
+        assertEquals(0, activated.path("code").asInt(), activated.toString());
+        assertTrue(activated.path("data").path("initialPasswordSet").asBoolean());
+        assertEquals(1911, call("POST", path+"/"+id+"/activate", body, ownerToken).path("code").asInt());
+        var child = auth.passwordLogin(new PhoneNumber(phone), "TestChild789");
+        assertEquals(jwt.parse(ownerToken).tenantId(), jwt.parse(child.token()).tenantId());
+        var me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
+        assertEquals(json.valueToTree(List.of("OPERATOR", "VIEWER", "FINANCE")), me.path("memberRoles"));
+        assertEquals(1, count("sys_tenant"));
+        assertEquals(1, count("billing_trial"));
     }
 
     @ParameterizedTest @ValueSource(strings = {"PostgreSQL", "MySQL"})

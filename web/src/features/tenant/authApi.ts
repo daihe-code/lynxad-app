@@ -19,6 +19,7 @@ export interface CurrentUser {
   tenantId?: string;
   tenantName?: string;
   memberRole?: string;
+  memberRoles?: string[];
   trialExpiresAt?: string;
   trialActive: boolean;
   needOnboarding: boolean;

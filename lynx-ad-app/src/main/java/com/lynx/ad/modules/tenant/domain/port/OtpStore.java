@@ -9,6 +9,10 @@ public interface OtpStore {
 
     boolean verifyAndConsume(PhoneNumber phone, String code);
 
+    void saveChildActivation(String invitationId, PhoneNumber phone, String codeHash, Duration ttl);
+
+    boolean verifyAndConsumeChildActivation(String invitationId, PhoneNumber phone, String code);
+
     boolean peek(PhoneNumber phone, String code);
 
     boolean inCooldown(PhoneNumber phone);

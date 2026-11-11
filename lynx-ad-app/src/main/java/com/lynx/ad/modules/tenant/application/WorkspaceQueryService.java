@@ -39,7 +39,7 @@ public class WorkspaceQueryService {
         result.put("accountLimit",entitlements.adAccountLimit(new TenantId(tenant)));
         result.put("accountsUsed",jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_binding WHERE tenant_id=? AND status IN ('ACTIVE','REVIEW_REQUIRED')",Integer.class,tenant));
         result.put("clientSpaces",jdbc.queryForList("SELECT id,name,is_default FROM client_space WHERE tenant_id=? ORDER BY is_default DESC,name",tenant));
-        if(member.role()==MemberRole.OWNER||member.role()==MemberRole.FINANCE) {
+        if(member.role()==MemberRole.OWNER||member.roles().contains(MemberRole.FINANCE)) {
             if (pointOrders != null) pointOrders.ensureCurrentGrant(tenant);
             result.put("wallet",points.balance(tenant));
         }

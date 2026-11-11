@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "lynx.ad.workspace-pricing")
 public class WorkspacePricing {
     private boolean enabled;
-    private Map<String, Integer> childSeats = new LinkedHashMap<>(Map.of("trial", 1, "basic", 1, "professional", 3, "flagship", 10));
+    private Map<String, Integer> childSeats = new LinkedHashMap<>(Map.of("trial", 2, "basic", 2, "professional", 3, "flagship", 10));
     private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("trial", 600L, "basic", 3000L, "professional", 9000L, "flagship", 30000L));
     private Map<String, Long> generationPoints = new LinkedHashMap<>(Map.of("video", 240L, "image", 15L, "native_image_text", 60L, "title", 1L));
     private Map<String, Recharge> recharge = new LinkedHashMap<>(Map.of(

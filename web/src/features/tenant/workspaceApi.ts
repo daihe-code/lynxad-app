@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from '@/api/http';
+import type { SendSmsResult } from './authApi';
 
 export interface Workspace { tenantId: string; name: string; membershipId: string; role: string }
 export interface ClientSpace { id: string; name: string; is_default: boolean }
@@ -27,12 +28,16 @@ export const childRoleDescriptions = {
   VIEWER: '查看投放计划与数据',
 };
 export type ChildRole = keyof typeof childRoleDescriptions;
-export interface WorkspaceChild { id: string; phone: string; role: string; status: string; expiresAt?: string }
+export interface WorkspaceChild { id: string; phone: string; role: string; roles?: ChildRole[]; status: string; expiresAt?: string }
 export interface WorkspaceTeam { used: number; limit: number; members: WorkspaceChild[]; invites: WorkspaceChild[] }
 const quietTeamRequest = { headers: { 'X-Quiet-Request': 'true' } };
 export const workspaceTeam = () => apiGet<WorkspaceTeam>(teamPath, quietTeamRequest);
-export const inviteChild = (phone: string, role: ChildRole) => apiPost<{ token: string; expiresAt: string }>(`${teamPath}/invitations`, { phone, role }, quietTeamRequest);
-export const changeChild = (id: string, change: { role: ChildRole } | { active: boolean }) =>
+export const inviteChild = (phone: string, roles: ChildRole[]) => apiPost<{ id: string }>(`${teamPath}/invitations`, { phone, roles }, quietTeamRequest);
+export const changeChild = (id: string, change: { roles: ChildRole[] } | { active: boolean }) =>
   apiPut(`${teamPath}/members/${encodeURIComponent(id)}`, change, quietTeamRequest);
-export const changeChildInviteRole = (id: string, role: ChildRole) => apiPut(`${teamPath}/invitations/${encodeURIComponent(id)}`, { role }, quietTeamRequest);
+export const changeChildInviteRole = (id: string, roles: ChildRole[]) => apiPut(`${teamPath}/invitations/${encodeURIComponent(id)}`, { roles }, quietTeamRequest);
 export const revokeChildInvite = (id: string) => apiDelete(`${teamPath}/invitations/${encodeURIComponent(id)}`, quietTeamRequest);
+export const sendChildActivationSms = (id: string) =>
+  apiPost<SendSmsResult>(`${teamPath}/invitations/${encodeURIComponent(id)}/sms`, {}, quietTeamRequest);
+export const activateChild = (id: string, code: string, password: string) =>
+  apiPost<{ initialPasswordSet: boolean }>(`${teamPath}/invitations/${encodeURIComponent(id)}/activate`, { code, password }, quietTeamRequest);

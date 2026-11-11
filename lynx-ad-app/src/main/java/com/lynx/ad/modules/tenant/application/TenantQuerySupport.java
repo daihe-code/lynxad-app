@@ -28,6 +28,7 @@ public class TenantQuerySupport {
     private final BillingTrialService billingTrialService;
     private final SubscriptionQueryService subscriptionQueryService;
     private final LynxAdProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired private WorkspaceAccess workspaceAccess;
 
     public TenantQuerySupport(
             UserRepository userRepository,
@@ -98,6 +99,8 @@ public class TenantQuerySupport {
                 sub == null ? null : sub.periodEnd(),
                 sub == null ? null : sub.autoRenew(),
                 sub == null ? null : sub.payMethod(),
-                sub == null ? null : sub.status().name());
+                sub == null ? null : sub.status().name(),
+                tenant == null || workspaceAccess == null ? List.of()
+                    : workspaceAccess.member(tenant.id().value(), userId.value()).roles().stream().map(Enum::name).toList());
     }
 }

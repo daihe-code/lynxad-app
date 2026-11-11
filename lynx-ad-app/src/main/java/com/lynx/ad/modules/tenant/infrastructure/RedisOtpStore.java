@@ -14,6 +14,12 @@ public class RedisOtpStore implements OtpStore {
 
     private static final DefaultRedisScript<Long> CONSUME = new DefaultRedisScript<>(
             "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
+    private static final DefaultRedisScript<Long> SAVE_ACTIVATION = new DefaultRedisScript<>(
+            "redis.call('HSET', KEYS[1], 'code', ARGV[1], 'attempts', 0); return redis.call('PEXPIRE', KEYS[1], ARGV[2])", Long.class);
+    private static final DefaultRedisScript<String> TRY_ACTIVATION = new DefaultRedisScript<>(
+            "local code=redis.call('HGET', KEYS[1], 'code'); if code and redis.call('HINCRBY', KEYS[1], 'attempts', 1)<=5 then return code end", String.class);
+    private static final DefaultRedisScript<Long> CONSUME_ACTIVATION = new DefaultRedisScript<>(
+            "if redis.call('HGET', KEYS[1], 'code') == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
 
     private final StringRedisTemplate redis;
     private final PasswordEncoder encoder;
@@ -30,12 +36,28 @@ public class RedisOtpStore implements OtpStore {
 
     @Override
     public boolean verifyAndConsume(PhoneNumber phone, String code) {
-        String stored = redis.opsForValue().get(key(phone));
+        return consume(key(phone), code);
+    }
+
+    @Override
+    public void saveChildActivation(String invitationId, PhoneNumber phone, String codeHash, Duration ttl) {
+        redis.execute(SAVE_ACTIVATION, List.of(activationKey(invitationId, phone)), codeHash, Long.toString(ttl.toMillis()));
+    }
+
+    @Override
+    public boolean verifyAndConsumeChildActivation(String invitationId, PhoneNumber phone, String code) {
+        var keys = List.of(activationKey(invitationId, phone));
+        String stored = redis.execute(TRY_ACTIVATION, keys);
+        return matches(stored, code) && Long.valueOf(1).equals(redis.execute(CONSUME_ACTIVATION, keys, stored));
+    }
+
+    private boolean consume(String key, String code) {
+        String stored = redis.opsForValue().get(key);
         if (!matches(stored, code)) {
             return false;
         }
         // Verification may take time (BCrypt); consume only the exact value we verified.
-        return Long.valueOf(1).equals(redis.execute(CONSUME, List.of(key(phone)), stored));
+        return Long.valueOf(1).equals(redis.execute(CONSUME, List.of(key), stored));
     }
 
     @Override
@@ -72,5 +94,9 @@ public class RedisOtpStore implements OtpStore {
 
     public static String cooldownKey(PhoneNumber phone) {
         return "otp:cd:" + phone.value();
+    }
+
+    private static String activationKey(String invitationId, PhoneNumber phone) {
+        return "otp:child:" + invitationId + ":" + phone.value();
     }
 }

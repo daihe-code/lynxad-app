@@ -308,7 +308,7 @@ async function confirmDecision() {
 }
 async function handoff(item: MonitoringRecommendation) {
   if (deciding.value) return;
-  if (item.type === 'DELIVERY_NO_ACTIVITY') { emit('data', 'data'); return; }
+  if (item.type === 'DELIVERY_NO_ACTIVITY') { emit('data', 'materials'); return; }
   const event = eventFor(item), workflow = item.workflow || 'data';
   if (!event || data.value?.view.result?.strategy_approved !== true) { emit('data', workflow === 'materials' ? 'materials' : 'data'); return; }
   deciding.value = event.id;

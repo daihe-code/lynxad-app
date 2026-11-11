@@ -34,11 +34,15 @@ public class OptimizationTacticsGateway {
     public enum DeliveryActivity { ZERO, ACTIVE, UNKNOWN }
 
     public DeliveryActivity productDeliveryActivity(AdPlan plan, LocalDate day, List<String> productIds) {
+        return productDeliveryActivity(plan, day, day, productIds);
+    }
+
+    public DeliveryActivity productDeliveryActivity(AdPlan plan, LocalDate start, LocalDate end, List<String> productIds) {
         if (productIds.isEmpty()) return DeliveryActivity.UNKNOWN;
         try {
             var missing = new HashSet<>(productIds);
             boolean active = false;
-            for (var row : ads.products(credential(plan), plan.qcPlanId().orElseThrow().value(), day, day)) {
+            for (var row : ads.products(credential(plan), plan.qcPlanId().orElseThrow().value(), start, end)) {
                 if (row.path("is_del").asBoolean()) continue;
                 var nestedId = row.path("product_info").path("product_id").asText(null);
                 var id = row.path("product_id").asText(nestedId);
