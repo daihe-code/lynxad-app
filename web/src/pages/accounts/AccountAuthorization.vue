@@ -25,7 +25,7 @@
         <dd><strong v-if="row.emphasis">{{ row.emphasis }}</strong>{{ row.description }}</dd>
       </div>
     </dl>
-    <p class="authorization-boundaries__note"><AccountIcon name="info-line" /><span>你可以随时取消授权。取消后，灵投将停止该账户的投放管理；平台上的广告仍可能继续运行并产生费用，需要你自行查看和管理。</span></p>
+    <p class="authorization-boundaries__note"><AccountIcon name="info-line" /><span>你可以随时取消授权。取消后，坤境将停止该账户的投放管理；平台上的广告仍可能继续运行并产生费用，需要你自行查看和管理。</span></p>
   </section>
   <AuthorizationAddDialog v-if="route.query.modal === 'add'" :busy="authorizing" :error="error" :can-demo="user.me?.mockQianchuan && user.trialActive" @close="close" @authorize="authorize" />
   <AccountModal v-else-if="detail" title="授权详情" expanded :busy="!!busyId" @close="close">
@@ -164,7 +164,7 @@ async function confirm() { const account = target.value; if (!account || busyId.
     await load();
     busyId.value = '';
     close();
-    ElMessage.success(cancel ? '已解除灵投平台绑定' : '已删除授权记录');
+    ElMessage.success(cancel ? '已解除坤境平台绑定' : '已删除授权记录');
 }
 catch {
     error.value = '操作未完成，请重试';

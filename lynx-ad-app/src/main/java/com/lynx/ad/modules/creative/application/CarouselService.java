@@ -53,7 +53,7 @@ public class CarouselService {
         AssetFilePolicy.size(AssetFilePolicy.spec(audio.filename()),audio.sizeBytes());
         for(String target:targets) {
             if(target==null || target.isBlank()) throw new BizException(1201,"授权账户标识不合法");
-            var account=accounts.findById(tenant,new AccountId(target)).orElseThrow(()->new BizException(1201,"账户不存在或不属于当前灵投账户"));
+            var account=accounts.findById(tenant,new AccountId(target)).orElseThrow(()->new BizException(1201,"账户不存在或不属于当前坤境账户"));
             if(account.platform()!=Platform.QIANCHUAN || "DELETED".equals(account.status())) throw new BizException(1201,"请选择有效千川授权账户");
         }
         var existing=bundles.request(tenant.value(),request.requestId());

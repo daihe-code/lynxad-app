@@ -37,10 +37,10 @@
         <el-empty v-else description="放量投放不支持调控任务" />
       </template>
       <template v-else-if="activeTab === 'logs'">
-        <div class="section-title"><h3>操作日志</h3><el-radio-group v-model="logSource" @change="logPage = 1; loadSection()"><el-radio-button value="PLATFORM">千川日志</el-radio-button><el-radio-button value="LINGTOU">灵投日志</el-radio-button></el-radio-group></div>
+        <div class="section-title"><h3>操作日志</h3><el-radio-group v-model="logSource" @change="logPage = 1; loadSection()"><el-radio-button value="PLATFORM">千川日志</el-radio-button><el-radio-button value="LINGTOU">坤境日志</el-radio-button></el-radio-group></div>
         <el-table v-if="!sectionError" :data="logs?.records || []" empty-text="所选区间没有该计划的操作记录"><el-table-column label="操作时间" width="170"><template #default="{ row }">{{ timeText(row.time) }}</template></el-table-column><el-table-column prop="actor" label="操作人" width="120" /><el-table-column label="操作内容" min-width="300"><template #default="{ row }"><strong>{{ row.detail || row.operation }}</strong><p v-for="(line, i) in row.details || []" :key="i" class="log-detail">{{ line }}</p></template></el-table-column><el-table-column v-if="logSource === 'LINGTOU'" label="结果" width="100"><template #default="{ row }">{{ row.result === 'SUCCESS' ? '成功' : row.result === 'FAILED' ? '失败' : row.result }}</template></el-table-column></el-table>
         <el-pagination v-if="logs && logs.total > 20 && !sectionError" v-model:current-page="logPage" :total="logs.total" :page-size="20" layout="total, prev, pager, next" @current-change="loadSection()" />
-        <p class="insights-note">仅展示当前计划的操作；{{ logSource === 'PLATFORM' ? '千川日志包含平台后台操作，查询依赖广告账户权限。' : '灵投日志记录在灵投中完成的操作。' }}</p>
+        <p class="insights-note">仅展示当前计划的操作；{{ logSource === 'PLATFORM' ? '千川日志包含平台后台操作，查询依赖广告账户权限。' : '坤境日志记录在坤境中完成的操作。' }}</p>
       </template>
       <PlanGuarantee v-else-if="activeTab === 'guarantee' && !sectionError" :plan-id="planId" :range="range" :guarantee="guarantee" :page="guaranteePage" @page="guaranteePage = $event; loadSection()" />
     </section>

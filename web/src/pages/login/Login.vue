@@ -50,14 +50,14 @@
 
     <main class="auth">
 
-      <aside class="auth__brand" aria-label="灵投智营 产品介绍">
+      <aside class="auth__brand" aria-label="坤境智营 产品介绍">
         <div class="auth__brand-inner">
 
           <div class="auth-brand">
             <span class="auth-brand__mark">
               <svg class="h-[26px] w-[26px]" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
             </span>
-            <span class="auth-brand__name">灵投智营</span>
+            <span class="auth-brand__name">坤境智营</span>
             <p class="auth-brand__slogan">让每一位商家都能获得专家级投放效果</p>
           </div>
 
@@ -68,7 +68,7 @@
               </span>
               <div>
                 <h3 class="auth-feature__title">素材制作，投放管理更省心</h3>
-                <p class="auth-feature__desc">灵投智能生成投放素材，协助完成投放设置与计划管理，减少重复操作。</p>
+                <p class="auth-feature__desc">坤境智能生成投放素材，协助完成投放设置与计划管理，减少重复操作。</p>
               </div>
             </li>
             <li class="auth-feature">
@@ -102,7 +102,7 @@
 
         </div>
 
-        <p class="auth__copyright">© 2026 灵投 LynxAd. All rights reserved.</p>
+        <p class="auth__copyright">© 2026 坤境 LynxAd. All rights reserved.</p>
       </aside>
 
       <div class="auth__panel">
@@ -291,7 +291,7 @@ let disposed = false;
 
 onMounted(() => {
   previousTitle = document.title;
-  document.title = "登录灵投智营 · 让每一位商家都能获得专家级投放效果";
+  document.title = "登录坤境智营 · 让每一位商家都能获得专家级投放效果";
 });
 onUnmounted(() => {
   disposed = true;

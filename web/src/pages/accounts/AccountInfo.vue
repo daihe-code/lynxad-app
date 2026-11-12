@@ -4,7 +4,7 @@
     <div class="acct-card__hd"><h2 class="acct-card__t">订阅信息</h2><router-link class="acct-card__a" to="/subscription">变更套餐 <AccountIcon name="arrow-right" /></router-link></div>
     <div class="acct-card__b subbar">
       <span class="subbar__badge">{{ user.me?.displayPlanName || '—' }}</span>
-      <div class="min-w-0"><p class="subbar__n">灵投 LynxAd {{ user.me?.displayPlanName || '—' }}</p><p class="subbar__m">{{ user.me?.subscriptionPlanCode ? `计费周期：${date(user.me.periodStart)} ~ ${date(user.me.periodEnd)}` : `${user.me?.trialStatusLabel || '试用'} · 到期时间：${date(user.me?.trialExpiresAt)}` }}</p></div>
+      <div class="min-w-0"><p class="subbar__n">坤境 LynxAd {{ user.me?.displayPlanName || '—' }}</p><p class="subbar__m">{{ user.me?.subscriptionPlanCode ? `计费周期：${date(user.me.periodStart)} ~ ${date(user.me.periodEnd)}` : `${user.me?.trialStatusLabel || '试用'} · 到期时间：${date(user.me?.trialExpiresAt)}` }}</p></div>
       <div class="subbar__r"><div><p class="subbar__v">{{ user.me?.subscriptionPlanCode ? remainingDays : user.me?.remainingTrialDays ?? 0 }}</p><p class="subbar__k">剩余天数</p></div><div><p class="subbar__v subbar__v--ok">{{ user.me?.subscriptionPlanCode ? user.me.autoRenew ? '自动续费' : '已关闭' : user.me?.trialStatusLabel || '—' }}</p><p class="subbar__k">{{ user.me?.subscriptionPlanCode ? '续费状态' : '试用状态' }}</p></div></div><router-link class="btn-modal-primary account-upgrade" :to="{ path: '/subscription', query: user.me?.displayPlanCode === 'FLAGSHIP' ? {} : { plan: 'flagship' } }">{{ user.me?.displayPlanCode === 'FLAGSHIP' ? '查看套餐' : '升级到旗舰版' }}</router-link>
     </div>
   </section>

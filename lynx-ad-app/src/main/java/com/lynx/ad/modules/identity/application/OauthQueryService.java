@@ -41,7 +41,7 @@ public class OauthQueryService {
     }
     public com.lynx.ad.modules.identity.api.dto.AccountAuthorizationDetailVo detail(TenantId tenantId,com.lynx.ad.common.domain.Ids.AccountId id) {
         OauthAccount account=repository.findById(tenantId,id).filter(a->!"DELETED".equals(a.status())&&visible(tenantId,a))
-            .orElseThrow(()->new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+            .orElseThrow(()->new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前坤境账户"));
         var metadata=authorizationStore.identityMetadata(tenantId.value(),id.value());
         String role=null,parent=null;
         if(metadata.catalogJson()!=null) {

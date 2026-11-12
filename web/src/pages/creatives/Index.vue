@@ -30,7 +30,7 @@
                 <div v-for="n in 8" :key="n" class="asset-card-skeleton" aria-hidden="true"><div></div><span></span><span></span><span></span></div>
               </template>
               <template v-else>
-              <div v-if="!data.items.length" class="nodata" style="grid-column: 1 / -1" role="status"><span class="nodata__ic"><AssetIcon name="search" /></span><p class="nodata__t">{{ loading ? '正在加载素材' : failMsg ? '素材加载失败' : '没有匹配的素材' }}</p><p class="nodata__d">{{ loading ? '请稍候…' : '试着换个关键词或放宽筛选条件；也可以在新建计划时让灵投按商品信息智能生成素材。' }}</p></div>
+              <div v-if="!data.items.length" class="nodata" style="grid-column: 1 / -1" role="status"><span class="nodata__ic"><AssetIcon name="search" /></span><p class="nodata__t">{{ loading ? '正在加载素材' : failMsg ? '素材加载失败' : '没有匹配的素材' }}</p><p class="nodata__d">{{ loading ? '请稍候…' : '试着换个关键词或放宽筛选条件；也可以在新建计划时让坤境按商品信息智能生成素材。' }}</p></div>
               <AssetCard v-for="(item, index) in data.items" :key="item.id" :item="item" :tone="index % 8" :picked="picked.has(item.id)" :busy="loading" @pick="pickOne(item.id)" @preview="openModal('preview', item)" @detail="openModal('detail', item)" />
               </template>
             </div>
@@ -39,7 +39,7 @@
         </section>
       </div>
     </div>
-    <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 灵投智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
+    <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 坤境智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
     <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" :account-id="accountId || undefined" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
     <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
   </div>

@@ -52,7 +52,7 @@ public class AdminUserQuery {
                 ? jdbc.query(SELECT+JOIN+" WHERE u.id=? ORDER BY CASE WHEN m.member_role='OWNER' THEN 0 ELSE 1 END,t.id", (r,n)->row(r), id)
                 : jdbc.query(SELECT+JOIN+" WHERE u.id=? AND t.id=? AND u.status<>'DELETED'", (r,n)->row(r), id, tenantId);
         var user = rows.stream().findFirst().orElseThrow(() -> new BizException(1904,
-                tenantId == null ? "用户不存在" : "该用户不属于所选灵投账户"));
+                tenantId == null ? "用户不存在" : "该用户不属于所选坤境账户"));
         var profile=jdbc.query("SELECT * FROM user_profile WHERE user_id=?",(r,n)->new Profile(r.getString("avatar_url"),r.getString("company_scale"),r.getString("position"),r.getString("monthly_budget"),r.getString("ad_experience"),r.getString("core_demand"),instant(r,"completed_at")),id).stream().findFirst().orElse(null);
         String tenant=user.tenantId();Package subscription=null,trial=null;long members=0,ads=0,plans=0;
         if(tenant!=null){

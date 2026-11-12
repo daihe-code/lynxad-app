@@ -21,7 +21,7 @@ public class AssetSyncReconciliationService {
     public Result reconcile(TenantId tenant,String id,String account) {
         var asset=repository.require(tenant.value(),id);if(asset.canonicalId()!=null)asset=repository.require(tenant.value(),asset.canonicalId());
         if(account==null||account.isBlank())throw new BizException(1520,"请明确选择要核查的千川授权账户");
-        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前坤境账户"));
         if(bound.platform()!=Platform.QIANCHUAN||"DELETED".equals(bound.status()))throw new BizException(1201,"请选择已有千川授权账户");
         var sync=repository.syncs(tenant.value(),asset.id()).stream().filter(s->account.equals(s.accountId())).findFirst().orElseThrow(()->new BizException(1522,"该素材没有所选账户的上传记录"));
         if(!"UNCERTAIN".equals(sync.status()))return new Result("UPLOADED".equals(sync.status())?"CONFIRMED":"NOT_REQUIRED","当前上传记录未处于待确认状态，本次没有发起上传或生成请求",files.detail(tenant,asset.id()));

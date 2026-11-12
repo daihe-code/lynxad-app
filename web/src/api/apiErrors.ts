@@ -57,7 +57,7 @@ export function requestFailure(error: unknown, context: RequestContext = {}): Ap
       response: source.response ? {...source.response,data:{...body,message:fallback}} : undefined,
       retryAfterMs: retryAfter(source.response?.headers) });
   if (source.code === 'ERR_CANCELED' || source.name === 'AbortError') return make('CANCELLED','NONE','请求已取消');
-  if (code === 401 || (!business && status === 401)) return make('LOGIN','LOGIN','灵投登录已失效，请重新登录。');
+  if (code === 401 || (!business && status === 401)) return make('LOGIN','LOGIN','坤境登录已失效，请重新登录。');
   if ([1211,40102,40105].includes(code!)) return make('AUTHORIZATION','ACCOUNTS','千川授权已失效，请在账户管理中重新授权；当前填写内容已保留。');
   if (code === 403 || status === 403 || [1201,1205].includes(code!)) return make('PERMISSION','ACCOUNTS',detail || '当前账户没有此操作权限，请检查授权账户或联系管理员。');
   if (code === 1404 || code === 409 || status === 409) return make('CONFLICT','REFRESH',detail || '内容已在其他位置更新，请重新读取后核对，当前输入已保留。');

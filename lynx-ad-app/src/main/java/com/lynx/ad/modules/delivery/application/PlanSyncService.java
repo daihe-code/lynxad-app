@@ -48,7 +48,7 @@ public class PlanSyncService {
     }
     private SyncResult syncLocked(TenantId tenant,String selectedAccount) {
         if (selectedAccount != null && accounts.findById(tenant, new AccountId(selectedAccount)).isEmpty())
-            throw new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前灵投账户");
+            throw new com.lynx.ad.common.exception.BizException(1201,"授权账户不存在或不属于当前坤境账户");
         List<SyncAccount> results=new ArrayList<>();
         var allowed=workspace==null?java.util.Optional.<java.util.Set<String>>empty():workspace.readableBindings(tenant.value());
         for(var account:accounts.findByTenant(tenant)) {

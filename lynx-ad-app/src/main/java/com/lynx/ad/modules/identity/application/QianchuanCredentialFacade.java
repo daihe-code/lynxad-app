@@ -30,7 +30,7 @@ public class QianchuanCredentialFacade {
 
     public Credential get(AccountId accountId) {
         if (TenantContext.tenantId().isPresent()) return getUsableCredential(TenantContext.requireTenantId(), accountId);
-        if (liveAuthorization != null && liveAuthorization.enabled()) throw new BizException(403, "读取授权凭证必须指定灵投账户");
+        if (liveAuthorization != null && liveAuthorization.enabled()) throw new BizException(403, "读取授权凭证必须指定坤境账户");
         return credential(repository.findByIdOnly(accountId).orElseThrow(() -> new BizException(1201, "授权账户不存在")));
     }
 
@@ -38,7 +38,7 @@ public class QianchuanCredentialFacade {
     public Credential getUsableCredential(TenantId tenantId, AccountId accountId) {
         if(bindings!=null)bindings.executionScope(tenantId.value(),accountId.value(),TenantContext.tenantId().isPresent()?TenantContext.userId().value():null);
         OauthAccount account = repository.findById(tenantId, accountId)
-                .orElseThrow(() -> new BizException(1201, "授权账户不存在或不属于当前灵投账户"));
+                .orElseThrow(() -> new BizException(1201, "授权账户不存在或不属于当前坤境账户"));
         if (liveAuthorization != null && liveAuthorization.enabled()) {
             if(!"ACTIVE".equals(account.status())&&grantSelector!=null&&grantSelector.activateAlternative(tenantId.value(),accountId.value(),account.grantId()))
                 account=repository.findById(tenantId,accountId).orElseThrow();

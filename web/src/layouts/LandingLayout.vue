@@ -2,11 +2,11 @@
   <div class="landing">
     <header class="header">
       <div class="bar">
-        <router-link class="brand" to="/#top" aria-label="灵投智营 · 返回首页">
+        <router-link class="brand" to="/#top" aria-label="坤境智营 · 返回首页">
           <svg viewBox="0 0 1300 935" width="24" height="17" aria-hidden="true">
             <use href="#lynx-mark" />
           </svg>
-          <span>灵投智营</span>
+          <span>坤境智营</span>
         </router-link>
         <nav class="nav" aria-label="主导航">
           <router-link to="/#features">产品功能</router-link>

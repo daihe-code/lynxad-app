@@ -1,7 +1,7 @@
 <template>
   <main class="admin-login">
     <section class="login-card">
-      <span class="admin-brand">灵投智营 · 平台管理</span><h1>管理员登录</h1><p>仅限平台管理员访问用户资料与套餐管理。</p>
+      <span class="admin-brand">坤境智营 · 平台管理</span><h1>管理员登录</h1><p>仅限平台管理员访问用户资料与套餐管理。</p>
       <el-alert v-if="route.query.expired" title="管理员会话已失效，请重新登录" type="info" :closable="false" />
       <el-form label-position="top" @submit.prevent="login">
         <el-form-item label="管理员手机号" :error="phoneError">

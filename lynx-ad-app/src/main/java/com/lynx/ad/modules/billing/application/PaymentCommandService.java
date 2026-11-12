@@ -94,7 +94,7 @@ public class PaymentCommandService {
                 order.id(),
                 paymentId,
                 order.payableFen(),
-                order.type() == OrderType.POINT_RECHARGE ? "灵投积分充值" : order.planCode().displayName(),
+                order.type() == OrderType.POINT_RECHARGE ? "坤境积分充值" : order.planCode().displayName(),
                 properties.getPayment().getWechat().getNotifyUrl()));
         Instant now = Instant.now();
         BillingPayment payment = new BillingPayment(

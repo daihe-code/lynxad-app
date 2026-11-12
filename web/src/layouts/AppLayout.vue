@@ -13,7 +13,7 @@
             <circle cx="440" cy="559" r="82.5" fill="currentColor" />
             <circle cx="860" cy="559" r="82.5" fill="currentColor" />
           </svg>
-          {{ usesReferenceHeader ? '灵投智营' : '灵投' }}
+          {{ usesReferenceHeader ? '坤境智营' : '坤境' }}
         </router-link>
         <el-menu id="app-navigation" mode="horizontal" :ellipsis="false" :default-active="active" @select="navOpen = false" :class="{ 'mobile-menu-open': usesReferenceHeader && navOpen }" router>
           <el-menu-item v-if="user.me?.memberRole !== 'FINANCE'" index="/campaigns">广告投放</el-menu-item>
@@ -43,7 +43,7 @@
     </main>
     <div v-if="route.path === '/campaigns'" class="campaign-reference reference-footer-only"><ReferenceFooter /></div>
     <footer v-if="!isReference && route.path !== '/campaigns'" class="foot">
-      <span>© 2026 灵投 LynxAd · 智能投放平台</span>
+      <span>© 2026 坤境 LynxAd · 智能投放平台</span>
       <span>
         <a href="#" @click.prevent="onHelp">帮助中心</a>
         ·

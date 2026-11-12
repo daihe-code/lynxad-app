@@ -40,7 +40,7 @@ public class CreationQianchuanGateway {
         this.client=client;this.ocean=ocean;this.json=json;this.properties=properties;this.credentials=credentials;this.accounts=accounts;
     }
     public Credential credential(TenantId tenant,String account,String aweme) {
-        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前灵投账户"));
+        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前坤境账户"));
         if(bound.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(bound.status())) throw new BizException(1201,"请选择有效千川授权账户");
         if(aweme!=null && bound.awemes().stream().noneMatch(a->a.awemeId().value().equals(aweme))) throw new BizException(1201,"抖音号不属于所选授权账户");
         if(properties.getMock().isQianchuan()) throw new BizException(1524,"创建投放需要真实千川授权，模拟模式不可发布");

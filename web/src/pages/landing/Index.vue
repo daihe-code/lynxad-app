@@ -38,9 +38,9 @@
 
     <header class="sticky top-0 z-40 h-header border-b border-line/70 bg-white/90 backdrop-blur-md">
       <div class="container-page relative flex h-full items-center">
-        <router-link to="/#top" class="flex shrink-0 items-center gap-2" aria-label="灵投智营 · 返回首页" @click="menuOpen = false">
+        <router-link to="/#top" class="flex shrink-0 items-center gap-2" aria-label="坤境智营 · 返回首页" @click="menuOpen = false">
           <svg class="h-[17px] w-[23.6px] shrink-0 text-primary" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
-          <span class="text-[18px] font-semibold tracking-tight text-ink">灵投智营</span>
+          <span class="text-[18px] font-semibold tracking-tight text-ink">坤境智营</span>
         </router-link>
 
         <nav class="absolute left-1/2 hidden -translate-x-1/2 items-center gap-7 lg:flex" aria-label="主导航">
@@ -88,11 +88,11 @@
             </span>
 
             <h1 class="mt-5 text-[34px] font-bold leading-[1.24] tracking-tight text-ink sm:text-[44px] xl:text-[52px]">
-              灵投，让每一位商家<br><span class="text-primary">获得专家级投放效果</span>
+              坤境，让每一位商家<br><span class="text-primary">获得专家级投放效果</span>
             </h1>
 
             <p class="mt-5 text-[16px] leading-[1.75] text-ink-2">
-              灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。<br class="hidden sm:block">
+              坤境智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。<br class="hidden sm:block">
               让日常投放更高效，让商家更专注收益增长。
             </p>
 
@@ -226,7 +226,7 @@
       <div class="container-page">
         <div class="text-center">
           <span class="badge-pill bg-[rgb(var(--a-mint-bg))] text-[rgb(var(--a-mint))]">全流程托管</span>
-          <h2 class="sec-title mt-4">灵投接管投放全流程<br>你只需专注生意</h2>
+          <h2 class="sec-title mt-4">坤境接管投放全流程<br>你只需专注生意</h2>
           <p class="sec-sub mt-3">从选品到复盘，六个环节都由 AI 自动跑，你只需要看结果</p>
         </div>
 
@@ -438,7 +438,7 @@
     <section class="bg-deep pt-[86px] pb-[100px]">
       <div class="container-page">
         <div class="text-center">
-          <h2 class="text-[30px] font-bold leading-[1.22] tracking-tight text-white sm:text-[38px]">为什么选择灵投？</h2>
+          <h2 class="text-[30px] font-bold leading-[1.22] tracking-tight text-white sm:text-[38px]">为什么选择坤境？</h2>
           <p class="mt-3 text-[16px] leading-[1.75] text-white/60">无需承诺，试试就知道值不值</p>
         </div>
 
@@ -470,37 +470,37 @@
       <div class="container-page">
         <div class="text-center">
           <h2 class="sec-title">常见问题</h2>
-          <p class="sec-sub mt-3">关于灵投智营，你可能想先了解这些</p>
+          <p class="sec-sub mt-3">关于坤境智营，你可能想先了解这些</p>
         </div>
 
         <div class="mx-auto mt-10 max-w-[1160px] space-y-3">
           <details class="faq-item" open>
             <summary class="flex items-center gap-4 px-7 py-5">
-              <span class="flex-1 text-[16px] font-medium text-ink">灵投和巨量千川官方后台是什么关系？</span>
+              <span class="flex-1 text-[16px] font-medium text-ink">坤境和巨量千川官方后台是什么关系？</span>
               <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
             </summary>
             <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
-              灵投智营是基于巨量千川官方开放接口构建的智能投放工具，通过官方授权访问你的广告账户。它不是后台的替代品，而是帮你把选品、素材、出价、盯盘这些重复动作自动化，你在千川后台里看到的数据和灵投保持一致。
+              坤境智营是基于巨量千川官方开放接口构建的智能投放工具，通过官方授权访问你的广告账户。它不是后台的替代品，而是帮你把选品、素材、出价、盯盘这些重复动作自动化，你在千川后台里看到的数据和坤境保持一致。
             </div>
           </details>
 
           <details class="faq-item">
             <summary class="flex items-center gap-4 px-7 py-5">
-              <span class="flex-1 text-[16px] font-medium text-ink">用灵投需要自己有投放经验吗？</span>
+              <span class="flex-1 text-[16px] font-medium text-ink">用坤境需要自己有投放经验吗？</span>
               <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
             </summary>
             <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
-              不需要。灵投会自动完成选品、生成素材、搭建计划并持续优化，你只需要确认预算和商品，剩下的交给系统。后台也提供每一步的说明，方便你随时了解系统在做什么。
+              不需要。坤境会自动完成选品、生成素材、搭建计划并持续优化，你只需要确认预算和商品，剩下的交给系统。后台也提供每一步的说明，方便你随时了解系统在做什么。
             </div>
           </details>
 
           <details class="faq-item">
             <summary class="flex items-center gap-4 px-7 py-5">
-              <span class="flex-1 text-[16px] font-medium text-ink">我可以随时取消使用灵投服务吗？</span>
+              <span class="flex-1 text-[16px] font-medium text-ink">我可以随时取消使用坤境服务吗？</span>
               <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
             </summary>
             <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
-              可以。灵投按月订阅，随时可以在账户设置里取消，取消后服务持续到当前周期结束，不会自动续费，也不影响你在千川后台的投放。
+              可以。坤境按月订阅，随时可以在账户设置里取消，取消后服务持续到当前周期结束，不会自动续费，也不影响你在千川后台的投放。
             </div>
           </details>
 
@@ -510,17 +510,17 @@
               <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
             </summary>
             <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
-              授权走巨量引擎官方 OAuth 流程，灵投不会接触你的账号密码。所有凭证加密存储，且可以随时在灵投或巨量引擎后台收回授权。
+              授权走巨量引擎官方 OAuth 流程，坤境不会接触你的账号密码。所有凭证加密存储，且可以随时在坤境或巨量引擎后台收回授权。
             </div>
           </details>
 
           <details class="faq-item">
             <summary class="flex items-center gap-4 px-7 py-5">
-              <span class="flex-1 text-[16px] font-medium text-ink">灵投生成的素材会有版权风险吗？</span>
+              <span class="flex-1 text-[16px] font-medium text-ink">坤境生成的素材会有版权风险吗？</span>
               <span class="relative h-5 w-5 shrink-0 text-primary-ink" aria-hidden="true"><span class="faq-icon absolute inset-0"></span></span>
             </summary>
             <div class="px-7 pb-6 pr-16 text-[15px] leading-[1.75] text-ink-2">
-              灵投生成的素材均为原创产出，并会在生成侧做原创度比对与合规校验，投放前再过一遍违规词与风险画面检查，降低限流风险。
+              坤境生成的素材均为原创产出，并会在生成侧做原创度比对与合规校验，投放前再过一遍违规词与风险画面检查，降低限流风险。
             </div>
           </details>
 
@@ -546,7 +546,7 @@
 
       <div class="container-page text-center">
         <h2 class="mx-auto max-w-[860px] text-[30px] font-bold leading-[1.24] tracking-tight text-white sm:text-[37px] lg:text-[50px]">
-          准备好让灵投<br>接管你的广告投放了吗？
+          准备好让坤境<br>接管你的广告投放了吗？
         </h2>
         <p class="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.7] text-white/75 sm:text-[16px]">
           7 天免费试用，不满意随时退；先看看效果，再决定要不要继续
@@ -569,7 +569,7 @@
               <span class="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-white text-primary-ink">
                 <svg class="h-4 w-4" viewBox="0 0 1300 935" aria-hidden="true"><use href="#lynx-mark"/></svg>
               </span>
-              <span class="text-[19px] font-semibold tracking-tight text-white">灵投智营</span>
+              <span class="text-[19px] font-semibold tracking-tight text-white">坤境智营</span>
             </div>
             <p class="mt-3 text-[14px] text-white/85">让中小微企业也能获得专家级广告投放效果</p>
           </div>
@@ -587,7 +587,7 @@
           <span class="footer-company">北京坤境科技有限公司 <span aria-hidden="true">｜</span> 营业执照</span>
           <a href="https://beian.mps.gov.cn/#/query/webSearch?code=11010802050988" target="_blank" rel="noopener noreferrer"><img src="/images/police-beian.png" alt="" width="18" height="20" />京公网安备11010802050988号</a>
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">京ICP备2026062306号-2</a>
-          <span>© 2026 灵投智营（lynxad.cn）版权所有</span>
+          <span>© 2026 坤境智营（lynxad.cn）版权所有</span>
         </div>
       </div>
     </footer>
@@ -749,7 +749,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   previousTitle = document.title;
-  document.title = "灵投智营 · 让广告投出效果｜智能广告投放专家";
+  document.title = "坤境智营 · 让广告投出效果｜智能广告投放专家";
   description = document.querySelector('meta[name="description"]');
   if (!description) {
     description = document.createElement("meta");
@@ -758,7 +758,7 @@ onMounted(async () => {
     ownsDescription = true;
   }
   previousDescription = description.getAttribute("content");
-  description.content = "灵投智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。让日常投放更高效，让商家更专注收益增长。";
+  description.content = "坤境智能完成选品推荐、素材生成与投放管理，持续盯盘、优化策略。让日常投放更高效，让商家更专注收益增长。";
   document.addEventListener("keydown", handleKeydown);
   if (user.isLoggedIn && !user.me) {
     try {

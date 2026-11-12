@@ -2,9 +2,9 @@
   <div class="welcome-page">
     <header class="welcome-header">
       <div class="welcome-header__inner">
-        <router-link to="/" class="welcome-brand" aria-label="灵投智营 · 返回首页">
+        <router-link to="/" class="welcome-brand" aria-label="坤境智营 · 返回首页">
           <img src="/lynxad-favicon.svg" alt="" width="28" height="22">
-          <span>灵投智营</span>
+          <span>坤境智营</span>
         </router-link>
         <UserMenu fallback-name="新用户" />
       </div>
@@ -12,7 +12,7 @@
 
     <main class="welcome-content" aria-labelledby="welcome-title">
       <section class="welcome-introduction">
-        <p class="welcome-eyebrow">注册成功 · 欢迎加入灵投智营</p>
+        <p class="welcome-eyebrow">注册成功 · 欢迎加入坤境智营</p>
         <div class="welcome-mark" aria-hidden="true"><img src="/lynxad-favicon.svg" alt="" width="48" height="36"></div>
         <h1 id="welcome-title">你好，我是小灵<span>你的智能广告投放专家</span></h1>
         <p class="welcome-intro">我会帮你推荐投放商品、生成广告素材，持续关注投放表现，发现异常及时提醒，<br class="desktop-break">让日常投放更省心。</p>
@@ -60,7 +60,7 @@
         </div>
       </details>
     </main>
-    <footer class="welcome-footer">© 2026 灵投智营</footer>
+    <footer class="welcome-footer">© 2026 坤境智营</footer>
   </div>
 </template>
 <script setup lang="ts">
@@ -77,7 +77,7 @@ const steps = [
   { title: '查看投放与提醒', icon: Histogram, description: '计划上线后，我会持续盯盘、提供优化建议，需要你决定时及时提醒。' },
 ];
 let previousTitle = '';
-onMounted(() => { previousTitle = document.title; document.title = '欢迎加入灵投智营'; });
+onMounted(() => { previousTitle = document.title; document.title = '欢迎加入坤境智营'; });
 onUnmounted(() => { document.title = previousTitle; });
 
 async function continueTo(path: '/authorization' | '/campaigns') {

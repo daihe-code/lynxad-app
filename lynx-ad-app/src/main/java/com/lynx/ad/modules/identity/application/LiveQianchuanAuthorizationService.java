@@ -76,8 +76,8 @@ public class LiveQianchuanAuthorizationService {
         return new OauthUrlResponse(url);
     }
     private void requireMember(TenantId tenant,UserId user) {
-        var company=tenants.findById(tenant).orElseThrow(()->new BizException(403,"灵投账户不存在"));
-        if(company.memberOf(user).isEmpty()) throw new BizException(403,"当前用户不是该灵投账户成员");
+        var company=tenants.findById(tenant).orElseThrow(()->new BizException(403,"坤境账户不存在"));
+        if(company.memberOf(user).isEmpty()) throw new BizException(403,"当前用户不是该坤境账户成员");
     }
     public CallbackOutcome callback(String code,String state) {
         Session session=null;

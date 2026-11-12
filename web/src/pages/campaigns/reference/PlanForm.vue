@@ -62,7 +62,7 @@
                     class="finput w-full max-w-[420px]"
                     maxlength="30"
                     :disabled="busy || !writable"
-                    placeholder="留空自动生成，如 20261005_灵投_投放计划"
+                    placeholder="留空自动生成，如 20261005_坤境_投放计划"
                   />
                   <p v-if="errors.name" class="merr">{{ errors.name }}</p>
                 </div>
@@ -167,7 +167,7 @@
                       <p class="fempty__t">尚未选择推广商品</p>
                       <p class="fempty__d">
                         从抖音号商品库中选择 1–10
-                        款商品，灵投将结合商品历史表现给出建议
+                        款商品，坤境将结合商品历史表现给出建议
                       </p>
                     </div>
                     <button
@@ -555,7 +555,7 @@ async function save(draftOnly: boolean) {
     const account = currentAccount.value!;
     if (!form.name.trim())
       form.name =
-        `${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}_灵投_投放计划_${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`.slice(
+        `${new Date().toLocaleDateString("sv-SE").replace(/-/g, "")}_坤境_投放计划_${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`.slice(
           0,
           30,
         );

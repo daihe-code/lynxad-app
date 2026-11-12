@@ -35,7 +35,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              授权后，灵投即可为你管理广告投放。
+              授权后，坤境即可为你管理广告投放。
             </p>
             <p class="hero__check">
               <svg
@@ -323,11 +323,11 @@
           <div class="accordion__panel" id="safe-panel" v-show="expanded">
             <ul class="accordion__list">
               <li>
-                本次授权完全基于抖音官方授权规范，灵投不会获取你的账号密码等非授权范围内的信息。
+                本次授权完全基于抖音官方授权规范，坤境不会获取你的账号密码等非授权范围内的信息。
               </li>
               <li>授权全程约 10 秒完成，无需手动填写任何账号信息。</li>
               <li>
-                你可以随时在「账户管理」中取消授权，取消后灵投将立即停止对该账号的投放管理。
+                你可以随时在「账户管理」中取消授权，取消后坤境将立即停止对该账号的投放管理。
               </li>
             </ul>
           </div>
@@ -388,7 +388,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              授权后，灵投即可为你管理广告投放。
+              授权后，坤境即可为你管理广告投放。
             </p>
             <p class="hero__check">
               <svg
@@ -611,7 +611,7 @@
                   </svg>
                 </li>
                 <li class="steps__item">
-                  <span class="steps__num">4</span>返回灵投
+                  <span class="steps__num">4</span>返回坤境
                 </li>
               </ol>
             </div>
@@ -674,11 +674,11 @@
           <div class="accordion__panel" id="safe-panel" v-show="expanded">
             <ul class="accordion__list">
               <li>
-                本次授权完全基于抖音官方授权规范，灵投不会获取你的账号密码等非授权范围内的信息。
+                本次授权完全基于抖音官方授权规范，坤境不会获取你的账号密码等非授权范围内的信息。
               </li>
               <li>授权全程约 10 秒完成，无需手动填写任何账号信息。</li>
               <li>
-                你可以随时在「账户管理」中取消授权，取消后灵投将立即停止对该账号的投放管理。
+                你可以随时在「账户管理」中取消授权，取消后坤境将立即停止对该账号的投放管理。
               </li>
             </ul>
           </div>
@@ -746,7 +746,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              授权后，灵投即可为你管理广告投放。
+              授权后，坤境即可为你管理广告投放。
             </p>
             <p class="hero__check">
               <svg
@@ -1092,7 +1092,7 @@
                   stroke-linejoin="round"
                 />
               </svg>
-              授权后，灵投即可为你管理广告投放。
+              授权后，坤境即可为你管理广告投放。
             </p>
             <p class="hero__check">
               <svg
@@ -1433,7 +1433,7 @@
     </main>
     <footer class="app-footer">
       <div class="app-footer__inner">
-        <p class="app-footer__copy">© 2026 灵投智营 · 广告智能投放平台</p>
+        <p class="app-footer__copy">© 2026 坤境智营 · 广告智能投放平台</p>
         <nav class="app-footer__links">
           <router-link class="app-footer__link" to="/#faq">帮助中心</router-link
           ><router-link class="app-footer__link" to="/legal/terms"

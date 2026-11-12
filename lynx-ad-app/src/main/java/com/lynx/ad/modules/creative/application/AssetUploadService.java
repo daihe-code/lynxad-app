@@ -52,7 +52,7 @@ public class AssetUploadService {
         try { size=Files.size(file); } catch(IOException e) { throw new BizException(1521,"引擎产物读取失败"); }
         var spec=AssetFilePolicy.spec(filename); AssetFilePolicy.size(spec,size);
         if(account!=null) {
-            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前灵投账户"));
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前坤境账户"));
             if(bound.platform()!=Platform.QIANCHUAN) throw new BizException(1201,"请选择千川账户");
             AssetFilePolicy.target(filename,true);
         }
@@ -117,7 +117,7 @@ public class AssetUploadService {
     public void ensureTarget(TenantId tenant,String id,String account) {
         var a=repository.require(tenant.value(),id);
         if(a.canonicalId()!=null)a=repository.require(tenant.value(),a.canonicalId());
-        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前灵投账户"));
+        var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不属于当前坤境账户"));
         if(bound.platform()!=Platform.QIANCHUAN) throw new BizException(1201,"请选择千川账户");
         AssetFilePolicy.target(a.filename(),true);
         if("TEXT".equals(a.kind()))return;
@@ -140,7 +140,7 @@ public class AssetUploadService {
         // A canceled/expired account can retain the file; the worker will explicitly wait for authorization.
         for (String account:targets) {
             if (account==null || account.isBlank()) throw new BizException(1201,"授权账户标识不合法");
-            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前坤境账户"));
             if (bound.platform()!=Platform.QIANCHUAN || "DELETED".equals(bound.status())) throw new BizException(1201,"请选择有效的千川授权记录");
         }
         Asset a=repository.request(tenant.value(),request.requestId()).orElse(null);
@@ -272,7 +272,7 @@ public class AssetUploadService {
         if (!repository.approved(tenant.value(),id)) throw new BizException(1525,"AI 审核尚未通过，不能同步千川，请先查看审核结果");
         AssetFilePolicy.target(asset.filename(),true);
         if (account!=null && !account.isBlank()) {
-            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+            var bound=accounts.findById(tenant,new AccountId(account)).orElseThrow(() -> new BizException(1201,"授权账户不存在或不属于当前坤境账户"));
             if(bound.platform()!=Platform.QIANCHUAN||"DELETED".equals(bound.status()))throw new BizException(1201,"请选择千川授权账户");
             repository.addSync(asset,account);repository.activate(tenant.value(),asset.id());
         }

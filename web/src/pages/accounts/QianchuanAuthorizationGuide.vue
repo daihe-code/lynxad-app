@@ -8,7 +8,7 @@
           <li>
             <span class="guide-timeline__number" aria-hidden="true">1</span>
             <h4>选择账户，完整勾选相关维度</h4>
-            <p>选择「当前用户部分账户」，依次检查工作台、方舟、抖店、抖音号等栏目，完整勾选本次交给灵投管理的相关账户。</p>
+            <p>选择「当前用户部分账户」，依次检查工作台、方舟、抖店、抖音号等栏目，完整勾选本次交给坤境管理的相关账户。</p>
             <p class="guide-timeline__emphasis">同一维度内的账户均需接入时，可使用“全选”，避免遗漏。</p>
             <aside class="guide-timeline__safety">
               <AccountIcon name="shield" />
@@ -24,7 +24,7 @@
           <li>
             <span class="guide-timeline__number" aria-hidden="true">3</span>
             <h4>点击「确认授权」</h4>
-            <p>核对账户和授权内容后确认。返回灵投后，账户信息和授权有效期将自动同步。</p>
+            <p>核对账户和授权内容后确认。返回坤境后，账户信息和授权有效期将自动同步。</p>
           </li>
         </ol>
       </section>
@@ -49,7 +49,7 @@
               <text x="22" y="70" class="example-small example-bold">以下应用申请您的授权</text>
               <rect x="23" y="89" width="33" height="33" rx="10" fill="#4387ff" />
               <g fill="white"><rect x="29" y="95" width="9" height="9" rx="2" /><rect x="41" y="95" width="9" height="9" rx="2" /><rect x="29" y="107" width="9" height="9" rx="2" /><rect x="41" y="107" width="9" height="9" rx="2" /></g>
-              <text x="65" y="102" class="example-small example-bold">灵投智营-v1</text><text x="65" y="118" class="example-muted example-tiny">示例应用 · 账户授权</text>
+              <text x="65" y="102" class="example-small example-bold">坤境智营-v1</text><text x="65" y="118" class="example-muted example-tiny">示例应用 · 账户授权</text>
               <text x="22" y="147" class="example-small example-bold">授权后，该应用将获得以下权限</text>
               <g v-for="(permission, index) in permissions" :key="permission" :transform="`translate(29 ${172 + index * 21})`">
                 <circle r="1.7" fill="#9297ac" /><text x="12" y="3" class="example-muted example-small">{{ permission }}</text>

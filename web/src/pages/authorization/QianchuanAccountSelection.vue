@@ -1,6 +1,6 @@
 <template>
   <section class="qc-binding" :aria-busy="busy">
-    <div class="qc-binding__head"><span class="qc-binding__badge">巨量千川</span><h1>选择要绑定的广告账户</h1><p>授权凭证已安全保存。请选择本灵投账户需要管理的千川广告账户。</p></div>
+    <div class="qc-binding__head"><span class="qc-binding__badge">巨量千川</span><h1>选择要绑定的广告账户</h1><p>授权凭证已安全保存。请选择本坤境账户需要管理的千川广告账户。</p></div>
     <p class="qc-binding__hint">当前套餐最多绑定 {{ data.accountLimit }} 个广告账户。重新授权会更新原绑定，保留历史投放计划。</p>
     <p v-if="error || data.message" class="qc-binding__error" role="alert">{{ error || data.message }}</p>
     <div v-if="data.status === 'DISCOVERY_FAILED'" class="qc-binding__empty"><p>账户信息暂未同步完成，点击重试即可继续，无需重复授权。</p><button class="qc-primary" :disabled="busy" @click="retry">{{ busy ? '同步中…' : '重新同步账户' }}</button></div>

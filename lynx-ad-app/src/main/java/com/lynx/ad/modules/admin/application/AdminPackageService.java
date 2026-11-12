@@ -36,12 +36,12 @@ public class AdminPackageService {
     public AdminUserQuery.Adjustment extend(String user,ExtendRequest request) {
         var admin=auth.require();validate(request);
         var tenant=jdbc.query("SELECT tenant_id FROM tenant_member WHERE user_id=?",(r,n)->r.getString(1),user);
-        if(tenant.size()!=1)throw new BizException(1904,"用户尚未创建灵投账户或账户归属不明确，暂不可延期");
+        if(tenant.size()!=1)throw new BizException(1904,"用户尚未创建坤境账户或账户归属不明确，暂不可延期");
         String id=tenant.getFirst();String hash=hash(user,request);
         // Serialize this account's manual grants; repeat submissions are re-read under the lock.
         jdbc.queryForObject("SELECT id FROM sys_tenant WHERE id=? FOR UPDATE",String.class,id);
         var currentMembership=jdbc.query("SELECT tenant_id FROM tenant_member WHERE user_id=? AND status<>'REMOVED' FOR UPDATE",(r,n)->r.getString(1),user);
-        if(currentMembership.size()!=1||!id.equals(currentMembership.getFirst()))throw new BizException(409,"用户的灵投账户归属已更新，请刷新后重新操作");
+        if(currentMembership.size()!=1||!id.equals(currentMembership.getFirst()))throw new BizException(409,"用户的坤境账户归属已更新，请刷新后重新操作");
         var existing = receipt(request.requestId(), admin.id(), hash);
         if (existing != null) return existing;
         if(jdbc.queryForObject("SELECT COUNT(*) FROM billing_order WHERE tenant_id=? AND status='PENDING_PAY'",Integer.class,id)>0)throw new BizException(1904,"用户有未完成的套餐支付订单，请处理订单后再延期");
@@ -74,12 +74,12 @@ public class AdminPackageService {
                 Objects.toString(request.expectedUpdatedAt(), ""), reason));
 
         if (jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? AND status='ACTIVE' FOR UPDATE",
-                String.class, tenant).isEmpty()) throw new BizException(1904, "该灵投账户不可用");
+                String.class, tenant).isEmpty()) throw new BizException(1904, "该坤境账户不可用");
         var membership = jdbc.queryForList("""
                 SELECT m.tenant_id FROM tenant_member m JOIN sys_user u ON u.id=m.user_id
                 WHERE m.user_id=? AND m.tenant_id=? AND m.status<>'REMOVED' AND u.status<>'DELETED'
                 """, String.class, user, tenant);
-        if (membership.isEmpty()) throw new BizException(409, "用户的灵投账户归属已更新，请刷新后重试");
+        if (membership.isEmpty()) throw new BizException(409, "用户的坤境账户归属已更新，请刷新后重试");
 
         var existing = receipt(request.requestId(), admin.id(), hash);
         if (existing != null) return existing;

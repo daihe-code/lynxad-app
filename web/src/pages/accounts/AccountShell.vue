@@ -12,7 +12,7 @@
         <slot />
       </div></section>
     </div>
-    <footer class="mg-foot"><div class="container-page mg-foot__in"><span class="mg-foot__c">© 2026 灵投智营 · 广告智能投放平台</span><div class="mg-foot__l"><button class="mg-foot__a" type="button" @click="ElMessage.info('帮助中心即将上线')">帮助中心</button><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></div></div></footer>
+    <footer class="mg-foot"><div class="container-page mg-foot__in"><span class="mg-foot__c">© 2026 坤境智营 · 广告智能投放平台</span><div class="mg-foot__l"><button class="mg-foot__a" type="button" @click="ElMessage.info('帮助中心即将上线')">帮助中心</button><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></div></div></footer>
   </div>
 </template>
 <script setup lang="ts">

@@ -82,7 +82,7 @@ public class PlanStatisticsService {
     }
     private com.lynx.ad.modules.identity.domain.model.Credential credential(TenantId tenant,String accountId) {
         var id=new AccountId(accountId);
-        var account=accounts.findById(tenant,id).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前灵投账户"));
+        var account=accounts.findById(tenant,id).orElseThrow(()->new BizException(1201,"授权账户不存在或不属于当前坤境账户"));
         if(account.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(account.status())) throw new BizException(1201,"该广告账户授权已失效，无法查询区间统计");
         return credentials.getUsableCredential(tenant,id);
     }

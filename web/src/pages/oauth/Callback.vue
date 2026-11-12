@@ -2,7 +2,7 @@
   <div class="cb page-card">
     <template v-if="ok">
       <h1>授权成功</h1>
-      <p>灵投已获得广告投放授权。浏览器不会保存千川访问令牌。</p>
+      <p>坤境已获得广告投放授权。浏览器不会保存千川访问令牌。</p>
       <el-button type="primary" @click="$router.push('/accounts?tab=oauth')">返回广告投放授权</el-button>
       <el-button @click="$router.push('/campaigns/create')">立即开始投放</el-button>
     </template>

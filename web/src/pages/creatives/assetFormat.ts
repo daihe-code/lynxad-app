@@ -18,7 +18,7 @@ export function fileSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 export function sourceLabel(item: LibraryItemVo) {
-  return item.source === "UPLOAD" ? "本地上传" : item.source === "LYNX" ? "灵投原创" : "千川素材";
+  return item.source === "UPLOAD" ? "本地上传" : item.source === "LYNX" ? "坤境原创" : "千川素材";
 }
 export function assetStatus(item: LibraryItemVo) {
   if (item.carouselId) {

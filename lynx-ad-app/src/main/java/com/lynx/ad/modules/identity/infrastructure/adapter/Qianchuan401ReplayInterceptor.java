@@ -24,7 +24,7 @@ public class Qianchuan401ReplayInterceptor {
     public String currentAccessToken(AccountId id) {
         OauthAccount account = repository.findByIdOnly(id).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
         if (com.lynx.ad.common.security.TenantContext.tenantId().isPresent()
-                && !com.lynx.ad.common.security.TenantContext.requireTenantId().equals(account.tenantId())) throw new BizException(403, "授权账户不属于当前灵投账户");
+                && !com.lynx.ad.common.security.TenantContext.requireTenantId().equals(account.tenantId())) throw new BizException(403, "授权账户不属于当前坤境账户");
         return credentials == null ? null : credentials.getUsableCredential(account.tenantId(), id).accessToken();
     }
 
@@ -37,7 +37,7 @@ public class Qianchuan401ReplayInterceptor {
     public void refreshOnce(AccountId accountId) {
         OauthAccount account = repository.findByIdOnly(accountId).orElseThrow(() -> new BizException(1201, "授权账户不存在"));
         if (com.lynx.ad.common.security.TenantContext.tenantId().isPresent()
-                && !com.lynx.ad.common.security.TenantContext.requireTenantId().equals(account.tenantId())) throw new BizException(403, "授权账户不属于当前灵投账户");
+                && !com.lynx.ad.common.security.TenantContext.requireTenantId().equals(account.tenantId())) throw new BizException(403, "授权账户不属于当前坤境账户");
         if (account.grantId() != null) { commandService.getObject().refreshStoredTokens(account, true); return; }
         try {
             commandService.getObject().applyPortRefresh(account);

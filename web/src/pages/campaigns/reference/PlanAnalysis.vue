@@ -206,7 +206,7 @@
             </section>
             <section class="mg-panel">
               <div class="mg-panel__pad">
-                <h2 class="mg-panel__t">灵投优化动作记录</h2>
+                <h2 class="mg-panel__t">坤境优化动作记录</h2>
                 <div v-if="actions.length" class="vtl">
                   <div
                     v-for="a in actions"

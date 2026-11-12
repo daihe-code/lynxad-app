@@ -13,7 +13,7 @@
     <el-collapse class="guarantee-observations"><el-collapse-item title="保障状态同步记录" name="observations">
       <el-table :data="guarantee?.history.records || []" empty-text="所选区间暂无保障状态同步记录"><el-table-column label="同步时间" width="180"><template #default="{ row }">{{ timeText(row.time) }}</template></el-table-column><el-table-column label="保障状态" min-width="160"><template #default="{ row }">{{ guaranteeLabel(row.status) }}</template></el-table-column><el-table-column prop="reason" label="平台说明" min-width="200" /></el-table>
       <el-pagination v-if="guarantee && guarantee.history.total > 20" :current-page="page" :total="guarantee.history.total" :page-size="20" layout="total, prev, pager, next" @current-change="emit('page', $event)" />
-      <p class="guarantee-note">记录灵投实际同步到的保障状态变化，从功能启用后积累。</p>
+      <p class="guarantee-note">记录坤境实际同步到的保障状态变化，从功能启用后积累。</p>
     </el-collapse-item></el-collapse>
     <el-dialog v-model="calendarOpen" title="日消耗日历" width="min(800px, calc(100vw - 24px))" class="guarantee-calendar-dialog" append-to-body @closed="closeCalendar">
       <div class="spending-calendar" v-loading="loading">

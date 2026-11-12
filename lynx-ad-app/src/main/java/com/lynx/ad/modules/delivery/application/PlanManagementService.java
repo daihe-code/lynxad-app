@@ -234,7 +234,7 @@ public class PlanManagementService {
     public ControlResult control(TenantId tenant,PlanId id,ControlTaskRequest request) {
         if(transfers!=null)transfers.assertIdle(tenant,id);
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
-        if("搜索抢首屏".equals(request.kind())) throw new BizException(1403,"搜索抢首屏暂不支持在灵投提交，请在千川后台操作");
+        if("搜索抢首屏".equals(request.kind())) throw new BizException(1403,"搜索抢首屏暂不支持在坤境提交，请在千川后台操作");
         String scene=switch(request.kind()==null?"":request.kind()) { case "一键起量"->"SMART_BOOST";case "素材追投"->"MATERIAL_ADD_BUDGET";default->throw new BizException(1402,"调控类型不正确"); };
         AdPlan plan=require(tenant,id); editable(plan);
         if(plan.status()!=PlanStatus.DELIVERING) throw new BizException(1403,"调控工具仅支持投放中的计划");

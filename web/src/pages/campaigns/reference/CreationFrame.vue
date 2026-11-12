@@ -3,7 +3,7 @@
     <div class="container-page ad-banner__inner">
       <div class="mt-[4px] min-w-0">
         <div class="ad-banner__head">
-          <h1 class="ad-banner__title">灵投广告投放</h1>
+          <h1 class="ad-banner__title">坤境广告投放</h1>
           <span class="ad-banner__tag"
             ><ReferenceIcon name="mountain" />抖音巨量千川 · 商品全域投放</span
           >

@@ -8,7 +8,7 @@ const network=()=>({code:'ERR_NETWORK',message:'Network Error',config:query});
 const response=(status,code,message)=>({response:{status,data:code===undefined?{message}:{code,message}},config:query});
 function runtime(extra={}) { return {now:()=>0,random:()=>0,online:()=>true,wait:async()=>{},...extra}; }
 
-test('灵投登录、千川授权和权限分开恢复，平台问题不归类为登录失效',()=>{
+test('坤境登录、千川授权和权限分开恢复，平台问题不归类为登录失效',()=>{
   assert.equal(requestFailure({code:401,message:'未登录'}).action,'LOGIN');
   assert.equal(requestFailure(response(401,undefined,'expired')).kind,'LOGIN');
   for(const code of [1211,40102,40105]) {

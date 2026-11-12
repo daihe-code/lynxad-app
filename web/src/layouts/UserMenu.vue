@@ -1,5 +1,5 @@
 <template>
-  <el-tooltip content="灵投账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom" :disabled="open">
+  <el-tooltip content="坤境账户" :trigger="['hover', 'focus']" :show-after="200" placement="bottom" :disabled="open">
     <span class="user-menu-hint">
   <el-popover v-model:visible="open" placement="bottom-end" :width="236" :offset="24" trigger="click" popper-class="lynx-user-popover" :show-arrow="false">
     <template #reference>
