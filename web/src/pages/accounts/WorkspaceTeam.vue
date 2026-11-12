@@ -78,10 +78,10 @@
             <h3 id="team-activation-heading">验证与激活</h3>
             <div class="team-activation-fields">
               <el-form-item label="短信验证码" required :error="codeError">
-                <div class="team-input-row">
+                <div class="team-input-row team-sms-row">
                   <el-input ref="codeInput" v-model="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
                     placeholder="输入 6 位验证码" :disabled="dialogBusy" @input="codeError = ''" />
-                  <el-button class="team-secondary" type="primary" plain :loading="sending" :disabled="dialogBusy || remaining > 0 || (mode === 'create' && !selectedRoles.length)"
+                  <el-button class="team-sms-button" type="primary" :loading="sending" :disabled="dialogBusy || remaining > 0 || (mode === 'create' && !selectedRoles.length)"
                     @click="sendCode">{{ remaining > 0 ? `${remaining} 秒后重发` : '获取验证码' }}</el-button>
                 </div>
                 <span v-if="remaining > 0 && !codeError" class="team-code-status" role="status"><el-icon><CircleCheck /></el-icon>验证码已发送</span>
@@ -344,11 +344,22 @@ onBeforeUnmount(clearForm);
 .team-dialog-section :deep(.el-form-item.is-error) { margin-bottom: 16px; }
 .team-dialog-section :deep(.el-form-item__error) { line-height: 1.3; }
 .team-dialog-section :deep(.el-form-item__label) { margin-bottom: 6px; color: #373b56; font-size: 13px; }
-.team-dialog-section :deep(.el-input__wrapper) { min-height: 38px; border-radius: 8px; }
-.team-dialog-section :deep(.el-input__inner:focus-visible) { box-shadow: none; }
+.team-dialog-section :deep(.el-input__wrapper) { box-sizing: border-box; min-height: 38px; border-radius: 8px; }
+.team-dialog-section :deep(.el-input__inner:focus) { outline: none; box-shadow: none; }
 .team-input-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .team-input-row .el-input { min-width: 0; }
 .team-input-row .team-secondary { flex: none; height: 38px; padding-inline: 12px; border-radius: 8px; }
+.team-sms-row { gap: 10px; max-width: 300px; }
+.team-sms-row .el-input { flex: 1; width: auto; }
+.el-button.team-sms-button {
+  --el-button-border-color: var(--color-primary-dark);
+  flex: none;
+  min-width: 104px;
+  height: 38px;
+  padding-inline: 10px;
+  border: 1px solid var(--el-button-border-color);
+  border-radius: 8px;
+}
 .team-dialing-code { padding-right: 8px; border-right: 1px solid #e2e4f1; color: #565d79; font-size: 13px; line-height: 16px; }
 .team-account-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
 .team-account-summary > div { display: grid; gap: 4px; }
