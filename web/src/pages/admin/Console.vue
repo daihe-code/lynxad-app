@@ -1,6 +1,6 @@
 <template>
   <main class="admin-console">
-    <header class="admin-header"><div><span class="brand">灵投智营</span><h1>灵投账户管理后台</h1><span class="admin-only">仅平台管理员</span></div><div class="header-actions"><span>{{ adminSession.me?.displayName }} · {{ adminSession.me?.username }}</span><el-button @click="passwordOpen = true">修改密码</el-button><el-button :loading="loggingOut" @click="logout">退出登录</el-button></div></header>
+    <header class="admin-header"><div><span class="brand">灵投智营</span><h1>灵投账户管理后台</h1><span class="admin-only">仅平台管理员</span></div><div class="header-actions"><span>{{ adminSession.me?.displayName }} · {{ adminSession.me?.phone }}</span><el-button v-if="adminSession.me?.canManageAdmins" @click="adminPhonesOpen = true">管理员权限</el-button><el-button :loading="loggingOut" @click="logout">退出登录</el-button></div></header>
     <div class="admin-content">
       <div class="overview"><article v-for="card in overviewCards" :key="card.key"><span>{{ card.label }}</span><strong>{{ overview?.[card.key] ?? '—' }}</strong></article></div>
       <section class="admin-panel">
@@ -86,16 +86,34 @@
         <div class="expiry-review"><p>原到期时间：<strong>{{ time(expectedEnd) }}</strong></p><p>预计延期后：<strong>{{ time(previewEnd) }}</strong></p><span>未到期从原到期时间延长；已到期或新开通从提交时开始。服务端会核对最新到期时间。</span></div><el-alert v-if="extendError" :title="extendError" type="error" :closable="false" />
       </template><template #footer><el-button :disabled="extending" @click="extensionOpen=false">取消</el-button><el-button type="primary" :loading="extending" :disabled="reason.trim().length<2 || !days" @click="confirmExtension">确认延长并记录</el-button></template>
     </el-dialog>
-    <el-dialog v-model="passwordOpen" title="修改管理员密码" width="min(450px, 95vw)" :close-on-click-modal="false" :show-close="!changingPassword" :close-on-press-escape="!changingPassword"><el-form label-position="top"><el-form-item label="原密码"><el-input v-model="oldPassword" type="password" autocomplete="current-password" show-password :disabled="changingPassword" /></el-form-item><el-form-item label="新密码"><el-input v-model="newPassword" type="password" autocomplete="new-password" show-password :disabled="changingPassword" /><p class="note">至少12字符，包含字母和数字，最多72字节。修改后需重新登录。</p></el-form-item><el-form-item label="确认新密码"><el-input v-model="confirmPassword" type="password" autocomplete="new-password" show-password :disabled="changingPassword" /></el-form-item></el-form><el-alert v-if="passwordError" :title="passwordError" type="error" :closable="false" /><template #footer><el-button :disabled="changingPassword" @click="passwordOpen=false">取消</el-button><el-button type="primary" :loading="changingPassword" @click="updatePassword">保存密码</el-button></template></el-dialog>
+    <el-dialog v-model="adminPhonesOpen" title="管理员权限" width="min(520px, 95vw)"
+      :close-on-click-modal="false" :show-close="!grantingPhone" :close-on-press-escape="!grantingPhone" @open="loadAdminPhones">
+      <el-alert v-if="adminPhonesError" :title="adminPhonesError" type="error" :closable="false" />
+      <el-table :data="adminPhones" v-loading="loadingAdminPhones" max-height="300" empty-text="暂无管理员">
+        <el-table-column prop="phone" label="手机号" min-width="125" />
+        <el-table-column label="权限" min-width="125">
+          <template #default="{ row }">{{ row.canManageAdmins ? '可添加管理员' : '平台管理员' }}</template>
+        </el-table-column>
+      </el-table>
+      <el-form class="admin-phone-form" label-position="top" @submit.prevent="authorizePhone">
+        <el-form-item label="新增管理员手机号" :error="grantPhoneError">
+          <div class="admin-phone-row">
+            <el-input v-model="newAdminPhone" type="tel" inputmode="numeric" maxlength="11" placeholder="输入手机号" :disabled="grantingPhone" />
+            <el-button type="primary" native-type="submit" :loading="grantingPhone"
+              :disabled="loadingAdminPhones || !/^1[3-9]\d{9}$/.test(newAdminPhone.trim())">添加权限</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
   </main>
 </template>
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { blockPhone, changePackage, deleteAdminUser } from '@/features/admin/adminApi';
+import { blockPhone, changePackage, deleteAdminUser, getAdminPhones, grantAdminPhone, type AdminMe } from '@/features/admin/adminApi';
 import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
-import { adminSession, adminLogout, changeAdminPassword, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
+import { adminSession, adminLogout, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
 import PhoneBlacklist from './PhoneBlacklist.vue';
 const router=useRouter();
@@ -104,6 +122,7 @@ const packageStates:Record<string,string>={ACTIVE:'套餐生效中',TRIAL:'试�
 const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员人工开通'};
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
 const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',PACKAGE_CHANGE:'修改套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
+actions.ADMIN_PHONE_GRANT = '添加管理员权限';
 const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label:'注册用户'},{key:'accounts',label:'灵投账户'},{key:'activePackages',label:'生效套餐'},{key:'activeTrials',label:'试用中账户'},{key:'todayLogins',label:'今日成功登录'}];
 const blank=<T,>():AdminPage<T>=>({records:[],total:0,pageNum:1,pageSize:20});
 const overview=ref<AdminOverview>(),users=ref(blank<AdminUser>()),logins=ref(blank<AdminLoginLog>()),adjustments=ref(blank<PackageAdjustment>()),audit=ref(blank<AdminAudit>());
@@ -212,12 +231,37 @@ const previewEnd=computed(()=>extensionTarget.value?new Date(Math.max(Date.now()
 watch([extensionType,planCode,days,reason],()=>{requestId.value=crypto.randomUUID();});
 async function openExtend(id:string){if(openingExtension.value||extending.value)return;openingExtension.value=true;try{const value=await getAdminUser(id);if(!value.user.tenantId){ElMessage.warning('该用户尚未创建灵投账户');return;}extensionTarget.value=value;extensionType.value=value.user.packageType==='TRIAL'?'TRIAL':'SUBSCRIPTION';planCode.value=value.subscription?.planCode||'PROFESSIONAL';days.value=30;reason.value='';extendError.value='';requestId.value=crypto.randomUUID();extensionOpen.value=true;}catch(e){ElMessage.error(msg(e));}finally{openingExtension.value=false;}}
 async function confirmExtension(){if(extending.value||!extensionTarget.value||reason.value.trim().length<2||!days.value)return;const id=extensionTarget.value.user.id;extending.value=true;extendError.value='';try{await extendPackage(id,{requestId:requestId.value,type:extensionType.value,planCode:extensionType.value==='SUBSCRIPTION'?planCode.value:undefined,days:days.value,expectedEnd:expectedEnd.value,reason:reason.value.trim()});extensionOpen.value=false;ElMessage.success('套餐已延长，操作记录已保存');await load();if(selectedId.value===id)await loadDetail(id);}catch(e){extendError.value=msg(e);}finally{extending.value=false;}}
-const loggingOut=ref(false),passwordOpen=ref(false),oldPassword=ref(''),newPassword=ref(''),confirmPassword=ref(''),changingPassword=ref(false),passwordError=ref('');
+const loggingOut=ref(false);
 async function logout(){loggingOut.value=true;try{await adminLogout();}catch{}finally{loggingOut.value=false;await router.replace('/admin/login');}}
-watch(passwordOpen,()=>{oldPassword.value='';newPassword.value='';confirmPassword.value='';passwordError.value='';});
-async function updatePassword(){if(changingPassword.value)return;passwordError.value='';if(!oldPassword.value||newPassword.value!==confirmPassword.value||newPassword.value.length<12||new TextEncoder().encode(newPassword.value).length>72||!/[a-zA-Z]/.test(newPassword.value)||!/[0-9]/.test(newPassword.value)){passwordError.value='请填写原密码，并确认两次新密码一致且包含字母和数字，长度为12至72字节';return;}changingPassword.value=true;try{await changeAdminPassword(oldPassword.value,newPassword.value);ElMessage.success('密码已修改，请重新登录');await router.replace('/admin/login');}catch(e){passwordError.value=msg(e);}finally{changingPassword.value=false;}}
+const adminPhonesOpen = ref(false), adminPhones = ref<AdminMe[]>([]);
+const newAdminPhone = ref(''), adminPhonesError = ref(''), grantPhoneError = ref('');
+const loadingAdminPhones = ref(false), grantingPhone = ref(false);
+watch(newAdminPhone, () => { grantPhoneError.value = ''; });
+async function loadAdminPhones() {
+  if (loadingAdminPhones.value) return;
+  newAdminPhone.value = '';
+  adminPhonesError.value = '';
+  grantPhoneError.value = '';
+  loadingAdminPhones.value = true;
+  try { adminPhones.value = await getAdminPhones(); }
+  catch (err) { adminPhonesError.value = msg(err); }
+  finally { loadingAdminPhones.value = false; }
+}
+async function authorizePhone() {
+  const phone = newAdminPhone.value.trim();
+  if (grantingPhone.value || loadingAdminPhones.value || !/^1[3-9]\d{9}$/.test(phone)) return;
+  grantingPhone.value = true;
+  grantPhoneError.value = '';
+  try {
+    adminPhones.value.push(await grantAdminPhone(phone));
+    newAdminPhone.value = '';
+    ElMessage.success('管理员权限已添加');
+  } catch (err) { grantPhoneError.value = msg(err); }
+  finally { grantingPhone.value = false; }
+}
 onMounted(load);
 </script>
 <style scoped>
+.admin-phone-form{margin-top:20px}.admin-phone-row{display:flex;gap:10px;width:100%}.admin-phone-row .el-input{min-width:0}
 .admin-console{min-height:100dvh;background:#f6f7fb;color:#222943}.admin-header{display:flex;justify-content:space-between;align-items:center;gap:20px;background:#fff;border-bottom:1px solid #e6e8f1;padding:22px 36px}.admin-header>div:first-child{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.brand{font-weight:750;color:#5b55ef;font-size:22px}.admin-header h1{font-size:20px;margin:0}.admin-only{font-size:12px;padding:5px 8px;background:#eeedff;color:#625dea;border-radius:5px}.header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.header-actions>span{font-size:13px;color:#667088;margin-right:10px}.admin-content{max-width:1680px;margin:auto;padding:28px 36px}.overview{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px}.overview article{border:1px solid #e6e8f1;background:#fff;border-radius:12px;padding:22px}.overview span{display:block;font-size:13px;color:#768096}.overview strong{display:block;font-size:27px;margin-top:12px}.admin-panel{padding:24px;border-radius:12px;border:1px solid #e6e8f1;background:#fff}.filters{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:6px 0 20px}.filters>.el-input{width:min(340px,100%)}.filters>.el-select{width:190px}.filter-hint,.note{font-size:12px;color:#758096;line-height:1.8}.admin-console :deep(.el-table small){display:block;font-size:12px;color:#8590a2;line-height:1.7;overflow-wrap:anywhere}.admin-console :deep(.el-table strong){font-weight:600}.admin-pagination{justify-content:flex-end;overflow:auto;margin-top:24px}.plan-name{margin-left:8px;font-size:13px}.user-detail{min-height:160px}.detail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}.detail-heading h2{font-size:22px;margin:0}.detail-heading p{font-size:13px;color:#758096}.user-detail h3{font-size:15px;margin:26px 0 14px}.user-detail h3>.el-button{margin-left:14px}.user-detail :deep(.el-descriptions__content){overflow-wrap:anywhere}.extension-form{margin-top:22px}.extension-form .note{width:100%;margin:6px 0 0}.day-presets{display:flex;gap:8px;margin-left:15px;flex-wrap:wrap}.day-presets .el-button+.el-button{margin-left:0}.expiry-review{padding:12px 16px;background:#f6f6fc;border-radius:8px;margin:15px 0}.expiry-review p{font-size:13px;margin:5px 0}.expiry-review span{display:block;font-size:12px;color:#758096;line-height:1.8;margin-top:10px}@media(max-width:900px){.admin-header{padding:20px;align-items:flex-start;flex-direction:column}.admin-content{padding:20px}.overview{grid-template-columns:repeat(3,1fr)}}@media(max-width:540px){.admin-header,.admin-content{padding:16px}.admin-header h1{font-size:17px}.admin-panel{padding:16px}.overview{grid-template-columns:repeat(2,1fr);gap:10px}.overview article{padding:16px}.filters{align-items:stretch}.filters>.el-input,.filters>.el-select{width:100%}.header-actions>span{width:100%;margin:0}.detail-heading{align-items:flex-start;flex-direction:column}.day-presets{width:100%;margin:12px 0 0}.admin-pagination{justify-content:flex-start}.user-detail :deep(.el-descriptions__label){white-space:normal}}
 </style>

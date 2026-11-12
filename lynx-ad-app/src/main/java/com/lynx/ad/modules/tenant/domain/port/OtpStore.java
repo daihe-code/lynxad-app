@@ -13,6 +13,12 @@ public interface OtpStore {
 
     boolean verifyAndConsumeChildActivation(String invitationId, PhoneNumber phone, String code);
 
+    boolean reserveAdminSms(PhoneNumber phone, Duration cooldown);
+
+    void saveAdminLogin(PhoneNumber phone, String codeHash, Duration ttl);
+
+    boolean verifyAndConsumeAdminLogin(PhoneNumber phone, String code);
+
     boolean peek(PhoneNumber phone, String code);
 
     boolean inCooldown(PhoneNumber phone);

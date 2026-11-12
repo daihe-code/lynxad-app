@@ -5,10 +5,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lynx.ad.modules.admin.infrastructure.AdminAccountStore;
+import com.lynx.ad.common.domain.PhoneNumber;
+import com.lynx.ad.modules.tenant.domain.port.OtpStore;
 import com.lynx.ad.starter.LynxAdApplication;
 import com.lynx.ad.support.AbstractContainerIT;
 import com.lynx.ad.support.TenantAuthSupport;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -23,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class AccountLegalProfileIT extends AbstractContainerIT {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
-    @Autowired AdminAccountStore admins;
+    @Autowired OtpStore otpStore;
     @Autowired PasswordEncoder passwords;
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     static final String ROOT="/api/v1/tenant/account";
@@ -36,9 +38,11 @@ class AccountLegalProfileIT extends AbstractContainerIT {
         return json.readTree(mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
     String reviewer() throws Exception {
-        String name="legal-review-test";
-        if(admins.username(name).isEmpty())admins.create(name,passwords.encode("LegalReview123!"));
-        return call("POST","/api/v1/admin/auth/login","{\"username\":\""+name+"\",\"password\":\"LegalReview123!\"}",null).path("data").path("token").asText();
+        String phone = "13810900372";
+        String code = "485231";
+        otpStore.saveAdminLogin(new PhoneNumber(phone), passwords.encode(code), Duration.ofMinutes(5));
+        return call("POST", "/api/v1/admin/auth/login", json.writeValueAsString(java.util.Map.of("phone", phone, "code", code)), null)
+                .path("data").path("token").asText();
     }
     String company(String name,String credit){return "{\"companyName\":\""+name+"\",\"creditCode\":\""+credit+"\",\"nickname\":\"测试联系人\",\"industry\":\"电子商务\",\"email\":\"qa@example.invalid\"}";}
     String invoice(String title,String tax){return "{\"title\":\""+title+"\",\"type\":\"增值税专用发票\",\"taxNo\":\""+tax+"\",\"bank\":\"测试银行 1234567890\"}";}

@@ -14,11 +14,11 @@ public class RedisOtpStore implements OtpStore {
 
     private static final DefaultRedisScript<Long> CONSUME = new DefaultRedisScript<>(
             "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
-    private static final DefaultRedisScript<Long> SAVE_ACTIVATION = new DefaultRedisScript<>(
+    private static final DefaultRedisScript<Long> SAVE_LIMITED = new DefaultRedisScript<>(
             "redis.call('HSET', KEYS[1], 'code', ARGV[1], 'attempts', 0); return redis.call('PEXPIRE', KEYS[1], ARGV[2])", Long.class);
-    private static final DefaultRedisScript<String> TRY_ACTIVATION = new DefaultRedisScript<>(
+    private static final DefaultRedisScript<String> TRY_LIMITED = new DefaultRedisScript<>(
             "local code=redis.call('HGET', KEYS[1], 'code'); if code and redis.call('HINCRBY', KEYS[1], 'attempts', 1)<=5 then return code end", String.class);
-    private static final DefaultRedisScript<Long> CONSUME_ACTIVATION = new DefaultRedisScript<>(
+    private static final DefaultRedisScript<Long> CONSUME_LIMITED = new DefaultRedisScript<>(
             "if redis.call('HGET', KEYS[1], 'code') == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
 
     private final StringRedisTemplate redis;
@@ -41,14 +41,37 @@ public class RedisOtpStore implements OtpStore {
 
     @Override
     public void saveChildActivation(String invitationId, PhoneNumber phone, String codeHash, Duration ttl) {
-        redis.execute(SAVE_ACTIVATION, List.of(activationKey(invitationId, phone)), codeHash, Long.toString(ttl.toMillis()));
+        saveLimited(activationKey(invitationId, phone), codeHash, ttl);
     }
 
     @Override
     public boolean verifyAndConsumeChildActivation(String invitationId, PhoneNumber phone, String code) {
-        var keys = List.of(activationKey(invitationId, phone));
-        String stored = redis.execute(TRY_ACTIVATION, keys);
-        return matches(stored, code) && Long.valueOf(1).equals(redis.execute(CONSUME_ACTIVATION, keys, stored));
+        return consumeLimited(activationKey(invitationId, phone), code);
+    }
+
+    @Override
+    public boolean reserveAdminSms(PhoneNumber phone, Duration cooldown) {
+        return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent("otp:admin:cd:" + phone.value(), "1", cooldown));
+    }
+
+    @Override
+    public void saveAdminLogin(PhoneNumber phone, String codeHash, Duration ttl) {
+        saveLimited("otp:admin:login:" + phone.value(), codeHash, ttl);
+    }
+
+    @Override
+    public boolean verifyAndConsumeAdminLogin(PhoneNumber phone, String code) {
+        return consumeLimited("otp:admin:login:" + phone.value(), code);
+    }
+
+    private void saveLimited(String key, String codeHash, Duration ttl) {
+        redis.execute(SAVE_LIMITED, List.of(key), codeHash, Long.toString(ttl.toMillis()));
+    }
+
+    private boolean consumeLimited(String key, String code) {
+        var keys = List.of(key);
+        String stored = redis.execute(TRY_LIMITED, keys);
+        return matches(stored, code) && Long.valueOf(1).equals(redis.execute(CONSUME_LIMITED, keys, stored));
     }
 
     private boolean consume(String key, String code) {

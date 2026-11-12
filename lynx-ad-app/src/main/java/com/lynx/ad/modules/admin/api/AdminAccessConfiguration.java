@@ -14,6 +14,6 @@ public class AdminAccessConfiguration implements WebMvcConfigurer {
     @Override public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new HandlerInterceptor() {
             @Override public boolean preHandle(HttpServletRequest request,HttpServletResponse response,Object handler) { auth.require();return true; }
-        }).addPathPatterns("/api/v1/admin/**").excludePathPatterns("/api/v1/admin/auth/login");
+        }).addPathPatterns("/api/v1/admin/**").excludePathPatterns("/api/v1/admin/auth/login", "/api/v1/admin/auth/sms");
     }
 }

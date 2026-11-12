@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { reactive } from 'vue';
-export interface AdminMe { id: string; username: string; displayName: string; lastLoginAt?: string }
+export interface AdminMe { id: string; phone: string; displayName: string; canManageAdmins: boolean; lastLoginAt?: string }
 export const adminSession = reactive<{ me?: AdminMe }>({});
 const tokenKey = 'lynx.admin.token';
 export function hasAdminToken() { return !!sessionStorage.getItem(tokenKey); }
@@ -8,7 +8,7 @@ export function clearAdminSession() { sessionStorage.removeItem(tokenKey); admin
 const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/lynx-ad', timeout: 20000 });
 http.interceptors.request.use(config => {
   const token = sessionStorage.getItem(tokenKey);
-  if (token && !config.url?.endsWith('/auth/login')) config.headers.Authorization = `Bearer ${token}`;
+  if (token && !/\/auth\/(login|sms)$/.test(config.url || '')) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 http.interceptors.response.use(response => {
@@ -27,13 +27,15 @@ function expired() {
 }
 const get = async <T>(path: string, params?: Record<string, unknown>) => (await http.get<{ data: T }>(`/api/v1/admin${path}`, { params })).data.data;
 const post = async <T>(path: string, data: unknown) => (await http.post<{ data: T }>(`/api/v1/admin${path}`, data)).data.data;
-export async function adminLogin(username: string, password: string) {
-  const result = await post<{ token: string; expiresIn: number; admin: AdminMe }>('/auth/login', { username, password });
+export const sendAdminSms = (phone: string) => post<{ ttlSec: number; cooldownSec: number }>('/auth/sms', { phone });
+export async function adminLogin(phone: string, code: string) {
+  const result = await post<{ token: string; expiresIn: number; admin: AdminMe }>('/auth/login', { phone, code });
   sessionStorage.setItem(tokenKey, result.token); adminSession.me = result.admin;
 }
 export async function loadAdminMe() { const me = await get<AdminMe>('/auth/me'); adminSession.me = me; return me; }
 export async function adminLogout() { try { await post('/auth/logout', {}); } finally { clearAdminSession(); } }
-export async function changeAdminPassword(oldPassword: string, password: string) { await post('/auth/password', { oldPassword, password }); clearAdminSession(); }
+export const getAdminPhones = () => get<AdminMe[]>('/admin-phones');
+export const grantAdminPhone = (phone: string) => post<AdminMe>('/admin-phones', { phone });
 export interface AdminPage<T> { records: T[]; total: number; pageNum: number; pageSize: number }
 export interface AdminUser { id: string; phone: string; nickname?: string; email?: string; status: string; registeredAt: string; hasPassword: boolean; companyName?: string; industry?: string; tenantId?: string; tenantName?: string; memberRole?: string; packageType: string; packageStatus: string; planCode?: string; expiresAt?: string; lastLoginAt?: string; loginCount: number }
 export interface AdminPackage { planCode: string; status: string; startedAt: string; expiresAt: string; autoRenew?: boolean; payMethod?: string; nextPlanCode?: string; updatedAt?: string }

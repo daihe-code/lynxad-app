@@ -28,7 +28,6 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.transaction.support.TransactionTemplate;
 import static com.lynx.ad.modules.admin.infrastructure.AdminAccountStore.*;
 
@@ -53,6 +52,14 @@ class PlatformAdminStoreIT {
                 ScriptUtils.executeSqlScript(c, new ClassPathResource("db/migration-mysql/" + script));
             }
         }
+        jdbc.update("INSERT INTO platform_admin_account (id, username, display_name, password_hash, status, created_at, updated_at) VALUES ('legacy-admin', 'legacy-admin', '旧管理员', 'legacy-hash', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO platform_admin_session (id, admin_id, created_at, expires_at) VALUES ('legacy-session', 'legacy-admin', CURRENT_TIMESTAMP, ?)", ts(Instant.now().plusSeconds(3600)));
+        try (var c = ds.getConnection()) {
+            ScriptUtils.executeSqlScript(c, new ClassPathResource("db/migration-mysql/V57__platform_admin_sms.sql"));
+        }
+        assertEquals(List.of("13810900372", "18801061264"), jdbc.queryForList(
+                "SELECT phone FROM platform_admin_account WHERE can_manage_admins = TRUE ORDER BY phone", String.class));
+        assertFalse(new AdminAccountStore(jdbc).validSession("legacy-admin", "legacy-session", Instant.now()));
         backfilled=jdbc.queryForObject("SELECT COUNT(*) FROM user_login_record",Long.class);legacyMethod=jdbc.queryForObject("SELECT login_method FROM user_login_record WHERE id='legacy-login'",String.class);
     }
     @AfterAll static void cleanup()throws Exception {if(created&&database.matches("lynxad_admin_verify_[a-zA-Z0-9_]+"))try(var c=DriverManager.getConnection(server,user,password);var s=c.createStatement()){s.execute("DROP DATABASE "+database);}}
@@ -65,7 +72,9 @@ class PlatformAdminStoreIT {
         jdbc.update("INSERT INTO user_profile(user_id,nickname,company_name,email,completed_at) VALUES('u1','测试用户','测试公司','test@example.com',?)",ts(now));
         jdbc.update("INSERT INTO billing_trial(tenant_id,started_at,expires_at) VALUES('t1',?,?)",ts(now),ts(end));
         jdbc.update("INSERT INTO billing_trial(tenant_id,started_at,expires_at) VALUES('t2',?,?)",ts(now),ts(end));
-        admins=new AdminAccountStore(jdbc);admins.create("integration-admin",new BCryptPasswordEncoder().encode("FixtureAdmin2026!"));admin=admins.username("integration-admin").orElseThrow();
+        admins=new AdminAccountStore(jdbc);
+        jdbc.update("INSERT INTO platform_admin_account (id, username, display_name, status, phone, can_manage_admins, created_at, updated_at) VALUES ('integration-admin', 'integration-admin', '测试管理员', 'ACTIVE', '13900001009', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+        admin=admins.activePhone(new PhoneNumber("13900001009")).orElseThrow();
         auth=mock(AdminAuthService.class);when(auth.require()).thenReturn(admin);queries=new AdminUserQuery(jdbc);
         var pricing = new WorkspacePricing();
         pricing.setEnabled(true);
@@ -229,7 +238,11 @@ class PlatformAdminStoreIT {
     @Test void passwordChangeAndLogoutActuallyRevokeStoredSessions() {
         var now=Instant.now();admins.login(admin,"session-one",now.plusSeconds(7200),now);admins.login(admin,"session-two",now.plusSeconds(7200),now);assertTrue(admins.validSession(admin.id(),"session-one",now));
         admins.logout(admin,"session-one");assertFalse(admins.validSession(admin.id(),"session-one",now));assertTrue(admins.validSession(admin.id(),"session-two",now));
-        admins.password(admin,new BCryptPasswordEncoder().encode("ChangedFixture2026!"));assertFalse(admins.validSession(admin.id(),"session-two",now));assertEquals(4,queries.audit(1,20).total());
+        var delegated = tx.execute(status -> admins.grantPhone(admin, new PhoneNumber("13900001008")));
+        assertEquals(delegated, admins.activePhone(new PhoneNumber("13900001008")).orElseThrow());
+        assertFalse(delegated.canManageAdmins());
+        assertTrue(admins.validSession(admin.id(),"session-two",now));
+        assertEquals(4,queries.audit(1,20).total());
     }
     @Test void failedAndSuccessfulUserLoginsCaptureMetadataWithoutSecrets() {
         var repo=mock(UserRepository.class);var fixtureUser=new User(new UserId("u1"),new PhoneNumber("13900001001"),null,null);
