@@ -32,7 +32,7 @@
       width="min(440px, 92vw)" :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy" @closed="clearForm">
       <el-form v-if="!activationId" label-position="top" @submit.prevent="save">
         <el-form-item v-if="!editing" label="登录手机号" :error="phoneError">
-          <el-input v-model="phone" type="tel" maxlength="11" autocomplete="off" :disabled="busy" @input="phoneError = ''" />
+          <el-input v-model="phone" class="team-phone-input" type="tel" maxlength="11" autocomplete="off" :disabled="busy" @input="phoneError = ''" />
         </el-form-item>
         <p v-else class="role-description">{{ phone }}</p>
         <el-form-item label="权限" :error="formError">
@@ -213,6 +213,7 @@ onBeforeUnmount(clearForm);
 .el-button.team-primary:disabled { background: #bfc0f6; border-color: #bfc0f6; color: white; }
 .el-button.team-action { color: #575cf6; }
 .el-button.team-action:disabled { opacity: 0.55; }
+.team-phone-input :deep(.el-input__inner:focus-visible) { box-shadow: none; }
 .team-permissions :deep(:where(.el-checkbox__inner)) { border: 1px solid var(--el-color-primary-light-3); }
 .team-permissions :deep(.el-checkbox__inner::after) { border-width: 0 1px 1px 0; }
 .code-row { display: flex; align-items: center; gap: 8px; width: 100%; }
