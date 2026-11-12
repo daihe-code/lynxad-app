@@ -5,7 +5,6 @@ import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.domain.Ids.UserId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.RequestMeta;
-import com.lynx.ad.modules.agentops.application.OptimizationCollectionError;
 import com.lynx.ad.modules.audit.application.AuditRecorder;
 import com.lynx.ad.modules.audit.application.SuccessAuditCommand;
 import com.lynx.ad.modules.audit.domain.model.AuditActionType;
@@ -56,17 +55,25 @@ public class InboxCommandService {
     public List<InboxMessageVo> list(TenantId tenantId) {
         if(deliveries!=null)deliveries.recover(tenantId);
         return repository.listByTenant(tenantId).stream()
+                .filter(m -> !isCollectionNotice(m))
                 .map(m -> new InboxMessageVo(
                         m.id().value(),
                         m.title(),
-                        m.ref() != null && "OPTIMIZATION_ERROR".equals(m.ref().bizType())
-                                ? OptimizationCollectionError.publicMessage(m.body()) : m.body(),
+                        m.body(),
                         m.ref() == null ? null : m.ref().bizType(),
                         m.ref() == null ? null : m.ref().bizId(),
                         m.unread(),
                         m.sentAt(),
                         m.ref() == null ? null : m.ref().result()))
                 .toList();
+    }
+
+    private static boolean isCollectionNotice(InboxMessage message) {
+        if (message.ref() == null) return false;
+        String type = message.ref().bizType();
+        // Historical collection and authorization recovery messages share this type.
+        return "OPTIMIZATION_ERROR".equals(type)
+                || ("OPTIMIZATION_RECOVERED".equals(type) && "盯盘采集已恢复".equals(message.title()));
     }
 
     public int markAllRead(TenantId tenantId, Instant before) {

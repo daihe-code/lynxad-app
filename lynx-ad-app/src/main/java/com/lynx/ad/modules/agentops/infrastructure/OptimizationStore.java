@@ -269,7 +269,7 @@ public class OptimizationStore {
                 if(automationStore!=null)automationStore.expireDeliveryAdvice(state);
             }
             if(ruleMetrics!=null)ruleMetrics.observed(state,result);
-            if(automationStore!=null){automationStore.recordAdvice(state,result);if(state.error()!=null)automationStore.notice(state.tenant(),state.plan(),"OPTIMIZATION_RECOVERED","盯盘采集已恢复","已重新获取最新平台数据。");}
+            if(automationStore!=null)automationStore.recordAdvice(state,result);
         });
     }
     public void discard(State s,String id) {jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE id=? AND tenant_id=? AND plan_id=?",Timestamp.from(Instant.now()),id,s.tenant(),s.plan());}
@@ -281,11 +281,10 @@ public class OptimizationStore {
     }
     public void release(State s,String owner,String error) {
         tx.executeWithoutResult(txStatus->{
-        var now=Instant.now();String safe=error==null?null:error.substring(0,Math.min(500,error.length()));
-        int changed=jdbc.update("UPDATE optimization_policy SET lease_owner=NULL,lease_until=NULL,next_check_at=CASE WHEN policy_version=? THEN ? ELSE next_check_at END,last_error=CASE WHEN policy_version=? THEN ? ELSE last_error END WHERE tenant_id=? AND plan_id=? AND lease_owner=?",
-            s.version(),Timestamp.from(now.plusSeconds(s.policy().rules()!=null?60:error==null || s.error()!=null?300:60)),s.version(),safe,s.tenant(),s.plan(),owner);
-        if(error!=null)jdbc.update("UPDATE optimization_outbox SET attempts=attempts+1,updated_at=? WHERE tenant_id=? AND plan_id=? AND status='PENDING'",Timestamp.from(now),s.tenant(),s.plan());
-        if(changed==1 && error!=null && !Objects.equals(s.error(),safe) && automationStore!=null && get(new TenantId(s.tenant()),new PlanId(s.plan())).map(v->v.version()==s.version()).orElse(false))automationStore.notice(s.tenant(),s.plan(),"OPTIMIZATION_ERROR","盯盘采集异常",safe);
+            var now=Instant.now();String safe=error==null?null:error.substring(0,Math.min(500,error.length()));
+            jdbc.update("UPDATE optimization_policy SET lease_owner=NULL,lease_until=NULL,next_check_at=CASE WHEN policy_version=? THEN ? ELSE next_check_at END,last_error=CASE WHEN policy_version=? THEN ? ELSE last_error END WHERE tenant_id=? AND plan_id=? AND lease_owner=?",
+                s.version(),Timestamp.from(now.plusSeconds(s.policy().rules()!=null?60:error==null || s.error()!=null?300:60)),s.version(),safe,s.tenant(),s.plan(),owner);
+            if(error!=null)jdbc.update("UPDATE optimization_outbox SET attempts=attempts+1,updated_at=? WHERE tenant_id=? AND plan_id=? AND status='PENDING'",Timestamp.from(now),s.tenant(),s.plan());
         });
     }
     public void prune() {jdbc.update("DELETE FROM optimization_outbox WHERE status<>'PENDING' AND updated_at<?",Timestamp.from(Instant.now().minus(Duration.ofDays(7))));}

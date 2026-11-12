@@ -48,16 +48,20 @@ class InboxReadTest {
         service.list(tenant);verify(delivery).recover(tenant);verify(repository).listByTenant(tenant);
     }
 
-    @Test void historicalCollectionErrorsDoNotExposeProviderDiagnostics() {
+    @Test void inboxHidesHistoricalCollectionNoticesAndKeepsActionableMessages() {
         var error = InboxMessage.post(tenant, "盯盘采集异常",
                 "RPCError{PSM:[ad.site.lego] ErrType:[RPC_FAILED] reason=request timeout}",
                 new BizRef("OPTIMIZATION_ERROR", "plan"));
         var recovered = InboxMessage.post(tenant, "盯盘采集已恢复", "已重新获取最新平台数据。",
                 new BizRef("OPTIMIZATION_RECOVERED", "plan"));
-        when(repository.listByTenant(tenant)).thenReturn(List.of(error, recovered));
+        var authorization = InboxMessage.post(tenant, "自动调控授权已恢复", "后续使用最新平台状态重新判断。",
+                new BizRef("OPTIMIZATION_RECOVERED", "plan"));
+        var advice = InboxMessage.post(tenant, "新的盯盘建议", "持续无曝光，可调整对应素材。",
+                new BizRef("OPTIMIZATION_ADVICE", "plan"));
+        when(repository.listByTenant(tenant)).thenReturn(List.of(error, recovered, authorization, advice));
 
         var messages = service.list(tenant);
-        assertEquals("平台响应超时，系统会自动重试。", messages.getFirst().body());
-        assertEquals("已重新获取最新平台数据。", messages.getLast().body());
+        assertEquals(List.of("自动调控授权已恢复", "新的盯盘建议"),
+                messages.stream().map(message -> message.title()).toList());
     }
 }

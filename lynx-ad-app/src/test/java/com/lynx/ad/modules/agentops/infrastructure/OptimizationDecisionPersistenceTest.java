@@ -37,6 +37,28 @@ class OptimizationDecisionPersistenceTest {
     OptimizationAutomationStore.Event create(String object){journal.recordAdvice(state,report(object));return journal.ruleActions("tenant","plan",state.version()).stream().filter(e->e.report().path("recommendations").get(0).path("object_id").asText().equals(object)).findFirst().orElseThrow();}
     void approve(OptimizationAutomationStore.Event e,BigDecimal amount){confirmations.approve(e,"user",json.createObjectNode(),e.proposal(),e.report(),amount,new BigDecimal("200"),"owner");}
     OptimizationPolicy policy(boolean enabled){var p=state.policy();return new OptimizationPolicy(enabled,p.mode(),p.dailySpendLimit(),p.maxLoss(),p.minSpend(),p.minOrders(),p.persistenceWindows(),p.conversionDelayMinutes(),p.economics(),p.automation(),p.tactics(),p.creativeGeneration(),p.rules());}
+
+    @Test void collectionRetryKeepsItsStatusAndOnlyNotifiesForAdvice() {
+        store.automationStore(journal);
+        assertTrue(store.claim(state, "worker", Instant.now()));
+        var pending = store.enqueue(state, "worker", Map.of("request_id", "collection"));
+        String collectionError = OptimizationCollectionError.publicMessage("千川报表请求失败");
+        store.release(state, "worker", collectionError);
+
+        var retry = store.get(plan.tenantId(), plan.id()).orElseThrow();
+        assertEquals(collectionError, retry.error());
+        assertEquals(1, jdbc.queryForObject("SELECT attempts FROM optimization_outbox WHERE id=?", Integer.class, pending.id()));
+        assertTrue(jdbc.queryForList("SELECT biz_type FROM notification", String.class).isEmpty());
+
+        assertTrue(store.claim(retry, "retry-worker", Instant.now()));
+        store.complete(retry, "retry-worker", pending, report("plan"));
+
+        var recovered = store.get(plan.tenantId(), plan.id()).orElseThrow();
+        assertNull(recovered.error());
+        assertNotNull(recovered.lastSuccess());
+        assertEquals(List.of("OPTIMIZATION_ADVICE"), jdbc.queryForList("SELECT biz_type FROM notification", String.class));
+    }
+
     @Test void ruleLifecyclePersistsOneInboxMessageWithTheSavedVersion(){
         store.automationStore(journal);store.save(plan,policy(false),1);
         assertEquals("盯盘优化已暂停",jdbc.queryForObject("SELECT title FROM notification",String.class));
