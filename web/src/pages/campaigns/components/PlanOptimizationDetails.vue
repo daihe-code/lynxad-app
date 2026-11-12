@@ -308,11 +308,20 @@ async function confirmDecision() {
 }
 async function handoff(item: MonitoringRecommendation) {
   if (deciding.value) return;
-  if (item.type === 'DELIVERY_NO_ACTIVITY') { emit('data', 'materials'); return; }
-  const event = eventFor(item), workflow = item.workflow || 'data';
-  if (!event || data.value?.view.result?.strategy_approved !== true) { emit('data', workflow === 'materials' ? 'materials' : 'data'); return; }
-  deciding.value = event.id;
-  try { const review = await startOptimizationReview(props.planId, event.id, workflow); await router.push({ path: `/campaigns/${props.planId}/edit`, query: { step: workflow === 'materials' ? '3' : workflow === 'budget' ? '2' : '1', monitoringReview: review.id } }); emit('close'); }
+  const workflow = item.workflow || 'data';
+  const event = item.type !== 'DELIVERY_NO_ACTIVITY' && data.value?.view.result?.strategy_approved === true ? eventFor(item) : undefined;
+  if (!event && workflow !== 'materials') { emit('data', 'data'); return; }
+  deciding.value = event?.id || workflow;
+  try {
+    const review = event ? await startOptimizationReview(props.planId, event.id, workflow) : undefined;
+    await router.push({
+      path: `/campaigns/${props.planId}/edit`,
+      query: {
+        step: workflow === 'materials' ? '3' : workflow === 'budget' ? '2' : '1',
+        monitoringReview: review?.id,
+      },
+    });
+  }
   catch (err: any) { error.value = err?.message || '建议已变化，请刷新后核对'; }
   finally { deciding.value = ''; }
 }
