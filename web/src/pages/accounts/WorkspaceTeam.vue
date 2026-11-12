@@ -36,7 +36,7 @@
         </el-form-item>
         <p v-else class="role-description">{{ phone }}</p>
         <el-form-item label="权限" :error="formError">
-          <el-checkbox-group v-model="selectedRoles" :disabled="busy" @change="formError = ''">
+          <el-checkbox-group v-model="selectedRoles" class="team-permissions" :disabled="busy" @change="formError = ''">
             <el-checkbox v-for="option in roles" :key="option" :value="option">{{ workspaceRoles[option] }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
@@ -213,6 +213,8 @@ onBeforeUnmount(clearForm);
 .el-button.team-primary:disabled { background: #bfc0f6; border-color: #bfc0f6; color: white; }
 .el-button.team-action { color: #575cf6; }
 .el-button.team-action:disabled { opacity: 0.55; }
+.team-permissions :deep(:where(.el-checkbox__inner)) { border: 1px solid var(--el-color-primary-light-3); }
+.team-permissions :deep(.el-checkbox__inner::after) { border-width: 0 1px 1px 0; }
 .code-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .quota, .role-description { color: #676b84; font-size: 14px; }
 .role-description { margin: 0 0 12px; }
