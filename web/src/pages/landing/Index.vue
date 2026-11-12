@@ -97,7 +97,7 @@
             </p>
 
             <div class="mt-9 flex justify-center">
-              <a class="btn btn--primary btn--lg px-10" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 7 天</a>
+              <a class="btn btn--primary btn--lg px-10" href="#cta" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 3 天</a>
             </div>
 
             <p class="mt-3 text-[12px] text-ink-3">平台服务免费体验，广告费仍由各媒体平台收取</p>
@@ -444,8 +444,8 @@
 
         <div class="mt-[60px] grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <article class="rounded-card bg-deep-card p-8">
-            <h3 class="text-gradient-1 text-[18px] font-semibold">{{ verifiedLogin ? '继续投放' : '7 天免费试用' }}</h3>
-            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">{{ verifiedLogin ? '进入工作台，继续查看投放计划、素材与投放效果。' : '注册即可开通全部功能，免费试用 7 天，期间不限制功能，也不需要先付费。' }}</p>
+            <h3 class="text-gradient-1 text-[18px] font-semibold">{{ verifiedLogin ? '继续投放' : '3 天免费试用' }}</h3>
+            <p class="mt-3 text-[14px] leading-[1.7] text-white/60">{{ verifiedLogin ? '进入工作台，继续查看投放计划、素材与投放效果。' : '注册可免费试用 3 天，体验盯盘优化、本地上传和素材库。' }}</p>
             <router-link v-if="verifiedLogin" class="mt-3 inline-block text-[14px] text-white" to="/campaigns">进入工作台</router-link>
           </article>
           <article class="rounded-card bg-deep-card p-8">
@@ -549,10 +549,10 @@
           准备好让坤境<br>接管你的广告投放了吗？
         </h2>
         <p class="mx-auto mt-5 max-w-[560px] text-[15px] leading-[1.7] text-white/75 sm:text-[16px]">
-          7 天免费试用，不满意随时退；先看看效果，再决定要不要继续
+          免费体验 3 天，试用后可自主选择是否订阅
         </p>
         <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
-          <a class="btn btn--light btn--lg px-9" href="#" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 7 天</a>
+          <a class="btn btn--light btn--lg px-9" href="#" :aria-busy="checkingTrial" @click.prevent="goTrial">免费试用 3 天</a>
           <a class="btn btn--glass btn--lg px-9" href="#" @click.prevent="openContact">联系客服咨询</a>
         </div>
       </div>

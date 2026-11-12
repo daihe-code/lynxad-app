@@ -5,7 +5,7 @@
       <h2 class="panel__title">{{ batchRunning ? '生成投放素材' : published ? '已投放素材' : '确定投放素材' }}</h2><p class="panel__sub">{{ batchRunning ? `我正在为你选中的 ${state.generationProductIds.length || state.products.length} 款商品准备素材，生成后由你预览确认` : published ? '当前计划使用的素材，点击素材或标题可查看投放效果预览' : '我已整理好素材，请预览并确认用于本次投放的内容' }}</p>
       <GenerationNoticeResult :state="state" @focus="focusNotice" />
       <template v-if="batchRunning">
-      <MaterialGenerationProgress ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" @retry="type => emit('retryGeneration', type)" />
+      <MaterialGenerationProgress ref="generationProgress" :state="state" :reconnecting="reconnecting" :busy="busy || running" :can-retry="canGenerate" @retry="type => emit('retryGeneration', type)" />
       </template>
       <template v-else>
       <div v-if="showStatusNotice" class="tip" role="status"><ReferenceIcon class="tip__icon" name="tipmark" /><p class="tip__text">{{ statusMessage }}<span v-if="typographyPendingCount"> 有 {{ typographyPendingCount }} 条素材的文字待完善，现有画面已保留。</span></p></div>
@@ -22,11 +22,12 @@
       <p v-if="state.materialOutcome?.failed && !state.materialOutcome.recovering" class="material-outcome" role="status">{{ state.materialOutcome.generatedFailure ? `因特殊情况，暂只成功生成 ${state.materialOutcome.ready} 条素材` : `部分素材暂不可用，当前可用 ${state.materialOutcome.ready} 条素材` }}</p>
       <div class="mblock">
         <div class="mblock__head"><p class="mblock__label">素材和标题</p><p class="mblock__count">{{ published ? '已投放' : '已添加' }}：素材 <b>{{ materials.length }}</b>/100，标题 <b>{{ titleCount }}</b>/30</p></div>
-        <p v-if="!readOnly && regenerationWaitSeconds" class="material-processing-message" role="status">本计划重新生成操作间隔为30秒，{{ regenerationWaitSeconds }} 秒后可再次操作。</p>
-        <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' }}</p>
+        <el-alert v-if="pointsWarning" class="material-points-alert" :title="pointsWarning" type="warning" show-icon :closable="false" />
+        <p v-if="!readOnly && canGenerate && regenerationWaitSeconds" class="material-processing-message" role="status">本计划重新生成操作间隔为30秒，{{ regenerationWaitSeconds }} 秒后可再次操作。</p>
+        <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : canGenerate ? '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' : '每条素材均可独立编辑，页面右侧可预览投放效果' }}</p>
         <div class="tabs" role="tablist" aria-label="素材类型"><button v-for="(label, key) in tabs" :key="key" class="tabs__item" type="button" role="tab" :aria-selected="tab === key" @click="tab = key">{{ label }}<span class="tabs__count">{{ key === 'TITLE' ? titleCount : materials.filter(m => m.type === key).length }}</span><span v-if="productHasFailure(state, productId, key)" class="material-failure-badge" role="img" :aria-label="`${label}有失败项`" :title="`${label}有生成失败项`">!</span></button></div>
         <div class="work" :class="{'work--titles':tab==='TITLE'}"><div class="work__main">
-          <MaterialTitleList :key="productId" v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" @add="(kind,source,text,receipt) => emit('addTitle',{productId,kind,source,text},receipt)" />
+          <MaterialTitleList :key="productId" v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :generation-allowed="canGenerate" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" @add="(kind,source,text,receipt) => emit('addTitle',{productId,kind,source,text},receipt)" />
           <template v-else>
             <div class="matlist" role="list">
               <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
@@ -42,30 +43,30 @@
                   <button v-if="materialIsReady(m) && !materialHasPreview(m)" class="sync-retry" type="button" :disabled="busy" @click="emit('refreshStatus')">刷新预览</button>
                   <button v-if="!systemSyncIssue(m) && m.status === 'FAILED' && !m.processing?.canRetrySync && !['UNCERTAIN','WAITING_AUTH'].includes(m.processing?.syncStatus || '')" class="iconbtn" type="button" :disabled="busy || running" title="重新检查素材" aria-label="重新检查素材" @click="emit('recheck', m.id)"><ReferenceIcon name="check-circle" /></button>
                   </template>
-                  <el-tooltip content="重新生成" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending || !m.engineMaterialId || regenerationWaitSeconds > 0" aria-label="重新生成素材" @click="pendingVersion(m.id) ? reviewSourceId = m.id : emit('action', 'regenerate', m.id)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
+                  <el-tooltip v-if="canGenerate" content="重新生成" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending || !m.engineMaterialId || regenerationWaitSeconds > 0" aria-label="重新生成素材" @click="pendingVersion(m.id) ? reviewSourceId = m.id : emit('action', 'regenerate', m.id)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
                   <el-tooltip :content="pendingVersion(m.id) ? '请先处理新版本' : '删除'" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action material-action--delete" type="button" :disabled="busy || running || materialEditPending || !!pendingVersion(m.id)" aria-label="删除素材" @click="emit('action', 'delete', m.id)"><ReferenceIcon name="trash" /></button></span></el-tooltip>
                 </span>
                 </div>
               </div>
             </div>
-            <p v-if="!visible.length && !failureRows.length" class="empty">当前商品暂无{{ tabs[tab] }}素材{{ readOnly ? '。' : '，可智能生成或从素材库选择。' }}</p>
+            <p v-if="!visible.length && !failureRows.length" class="empty">当前商品暂无{{ tabs[tab] }}素材{{ readOnly && !additionActions ? '。' : canGenerate ? '，可智能生成或从素材库选择。' : '，可本地上传或从素材库选择。' }}</p>
           </template>
           <div v-if="failureRows.length" class="material-failure-list">
             <article v-for="(issue, index) in failureRows" :key="issue.slotId || issue.materialId || index" class="material-generation-failure" :aria-label="`${tabs[tab]}生成失败`">
               <div class="material-failure-heading"><span class="material-failure-badge" aria-hidden="true">!</span><div class="material-failure-body"><strong>{{ issue.title || `${tabs[tab]}生成失败` }}</strong><span class="material-failure-status">生成失败</span></div></div>
               <span v-if="!readOnly && issue.slotId" class="matrow__ops">
-                <el-tooltip content="重试" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending" aria-label="重试生成素材" @click="emit('retryFailure', issue)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
+                <el-tooltip v-if="canGenerate" content="重试" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action" type="button" :disabled="busy || running || materialEditPending" aria-label="重试生成素材" @click="emit('retryFailure', issue)"><ReferenceIcon name="refresh" /></button></span></el-tooltip>
                 <el-tooltip content="删除" placement="top" :show-after="150" :trigger="['hover', 'focus']"><span class="material-action-tooltip"><button class="iconbtn material-action material-action--delete" type="button" :disabled="busy || running || materialEditPending" aria-label="删除失败素材" @click="emit('deleteFailure', issue)"><ReferenceIcon name="trash" /></button></span></el-tooltip>
               </span>
             </article>
           </div>
-          <button v-if="(!readOnly || additionActions) && tab !== 'TITLE'" class="addrow" :disabled="busy || materialEditPending || titlePending" @click="openAddition()"><ReferenceIcon name="plus" />新增素材（智能生成或上传）</button>
+          <button v-if="(!readOnly || additionActions) && tab !== 'TITLE'" class="addrow" :disabled="busy || materialEditPending || titlePending" @click="openAddition()"><ReferenceIcon name="plus" />{{ canGenerate ? '新增素材（智能生成或上传）' : '新增素材' }}</button>
         </div><aside v-if="tab!=='TITLE'" class="work__side" aria-label="投放效果预览"><MaterialPreview :material="active" :product="previewProduct" :account="account"  @metadata="(id, data) => mediaMetadata[id] = data" /></aside></div>
       </div>
       </template>
     </div></section><section v-if="!embedded && !batchRunning" class="panel plan"><div class="plan__pad"><div class="plan__row"><p class="plan__label"><label for="material-plan-name">投放计划名称</label></p><div class="plan__body"><input id="material-plan-name" v-model="planName" class="plan__input" maxlength="30" :disabled="readOnly || contentEditing || busy || running" /><p class="plan__hint">{{ contentEditing ? '本次调整商品与素材，沿用原计划名称和投放目标；保存修改后更新原计划。' : '自动生成，用于后续跟踪查看，可修改。发布前会核对当前商品、标题与素材版本。' }}</p></div></div></div></section></div></main>
     <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded && !readOnly" :plan-name="planName" :busy="busy" :save-disabled="draftSaveDisabled" @back="emit('cancel')" @save="emit('saveDraft')"><template #previous><button v-if="!batchRunning" class="btn-prev" :disabled="busy" @click="emit('prev')">上一步</button></template><button v-if="!batchRunning" class="btn-next-primary" :disabled="busy || running || !ready" @click="emit('publish')">{{ contentEditing ? '保存修改' : '发布投放' }}</button></CreationFooter>
-    <ReferenceModal v-if="!readOnly && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="deferGeneration">
+    <ReferenceModal v-if="!readOnly && canGenerate && generationOpen" class="generation-dialog" title="选择需要生成素材的商品" :width="1104" :busy="busy || generationSubmitting" @close="deferGeneration">
       <p class="generation-intro">我会为勾选的商品生成投放素材。不需智能生成的商品，可取消勾选后从素材库选择或本地上传。</p>
       <div class="generation-products" role="group" aria-label="选择需要智能生成素材的商品">
         <button v-for="p in generationProducts" :key="p.qcProductId" class="generation-product" type="button" role="checkbox" :aria-checked="generationIds.includes(p.qcProductId)" :disabled="busy || generationSubmitting" @click="toggleGeneration(p.qcProductId)">
@@ -78,11 +79,12 @@
       <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
     </ReferenceModal>
     <MaterialVersionDialog v-if="reviewSource && (!readOnly || materialActions)" :key="reviewSource.id" :source="reviewSource" :version="pendingVersion(reviewSource.id)" :busy="busy" :material-count="state.materials.length" :failed="pendingVersion(reviewSource.id)?.material.status === 'FAILED' || state.materialRevision?.sourceId === reviewSource.id && state.materialRevision.status === 'FAILED'" :message="state.generationMessage" @close="reviewSourceId = ''" @confirm="(id, decision) => emit('resolveVersion', id, decision)" @retry="id => emit('retrySync', id)"><p v-if="versionError" class="version-error" role="alert">{{ versionError }}</p></MaterialVersionDialog>
-    <AddMaterialDialog v-if="addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" :generation-busy="running" :submission-error="versionError" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" @add-uploads="(body, receipt) => { tab = body.type; emit('addUploads', body, receipt); }" @upload-batch-finished="emit('uploadBatchFinished')" />
+    <AddMaterialDialog v-if="addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" :generation-busy="running" :generation-allowed="canGenerate" :submission-error="versionError" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" @add-uploads="(body, receipt) => { tab = body.type; emit('addUploads', body, receipt); }" @upload-batch-finished="emit('uploadBatchFinished')" />
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { getGenerationAccess, pointsBalanceWarning, type GenerationAccess } from '@/features/billing/billingApi';
 import CreationFrame from '../reference/CreationFrame.vue';
 import CreationFooter from './CreationFooter.vue';
 import ReferenceModal from '../reference/ReferenceModal.vue';
@@ -184,6 +186,36 @@ const visibilityLocked = computed(() => props.readOnly || (props.visibilityDisab
 function selectVisibility(hideInAweme: boolean) {
   if (!visibilityLocked.value && visibilityValue.value !== hideInAweme) emit('visibility', hideInAweme);
 }
+const generationAccess = ref<GenerationAccess>();
+const canGenerate = computed(() => generationAccess.value?.enabled === true && generationAccess.value.balanceStatus !== 'EMPTY');
+const pointsWarning = computed(() => pointsBalanceWarning(generationAccess.value));
+let accessRequest: AbortController | undefined;
+async function refreshGenerationAccess() {
+  accessRequest?.abort();
+  if (props.readOnly && !props.additionActions && !props.materialActions && !props.titleActions) {
+    generationAccess.value = undefined;
+    return;
+  }
+  const request = new AbortController();
+  accessRequest = request;
+  try {
+    const result = await getGenerationAccess(request.signal);
+    if (!request.signal.aborted) generationAccess.value = result;
+  } catch {
+    // Refresh on the next generation status change or window focus.
+  }
+}
+watch([() => props.state.planId, () => props.readOnly, () => props.additionActions, () => props.materialActions,
+  () => props.titleActions, () => props.state.generationStatus, () => props.state.titleGeneration?.status,
+  () => props.state.generationAdditions?.map(item => item.status).join(',')], (next, previous) => {
+  if (next[0] !== previous?.[0]) generationAccess.value = undefined;
+  void refreshGenerationAccess();
+}, { immediate: true });
+onMounted(() => window.addEventListener('focus', refreshGenerationAccess));
+onUnmounted(() => {
+  window.removeEventListener('focus', refreshGenerationAccess);
+  accessRequest?.abort();
+});
 const generationCandidates = computed(() => generationPromptProductIds(props.state));
 const generationProducts = computed(() => props.state.products.filter(p => generationCandidates.value.includes(p.qcProductId)));
 const generationOpen = ref(!props.readOnly && shouldPromptGeneration(props.state)), generationIds = ref(selectedGenerationProducts(props.state));
@@ -209,7 +241,7 @@ function toggleGeneration(id: string) {
   generationIds.value = generationIds.value.includes(id) ? generationIds.value.filter(value => value !== id) : [...generationIds.value, id];
 }
 function submitGeneration() {
-  if (props.readOnly || props.busy || generationSubmitting.value || running.value) return;
+  if (props.readOnly || props.busy || generationSubmitting.value || running.value || (generationIds.value.length > 0 && !canGenerate.value)) return;
   generationPromptHandled.value = true;
   generationOpen.value = false;
   generationSubmitting.value = true;
@@ -260,7 +292,7 @@ watch(productId, () => { selectedId.value = ''; const first = materials.value[0]
 .live-materials .work--titles{display:block}.work--titles .work__main{width:100%;max-width:none}
 
 .material-failure-list{display:grid;gap:12px;margin-top:12px}
-.material-processing-message{display:block;color:#8588a5;font-size:12px;line-height:1.5;overflow-wrap:anywhere;margin-top:4px}.sync-retry{font-size:12px;color:#575cf6;padding:7px 9px;border:1px solid #deddfc;border-radius:7px;white-space:nowrap}.sync-retry:disabled{opacity:.5;cursor:wait}.matrow{flex-wrap:wrap}.material-pipeline{flex:1 1 100%;min-width:0;margin-top:8px;font-size:12px;color:#737793}.material-pipeline summary{cursor:pointer}.material-pipeline ul{list-style:none;margin:8px 0 0;padding:0}.material-pipeline li{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:7px}.material-pipeline li p{flex:1 1 100%;margin:0;color:#9b692c;overflow-wrap:anywhere}
+.material-points-alert{margin-top:12px}.material-processing-message{display:block;color:#8588a5;font-size:12px;line-height:1.5;overflow-wrap:anywhere;margin-top:4px}.sync-retry{font-size:12px;color:#575cf6;padding:7px 9px;border:1px solid #deddfc;border-radius:7px;white-space:nowrap}.sync-retry:disabled{opacity:.5;cursor:wait}.matrow{flex-wrap:wrap}.material-pipeline{flex:1 1 100%;min-width:0;margin-top:8px;font-size:12px;color:#737793}.material-pipeline summary{cursor:pointer}.material-pipeline ul{list-style:none;margin:8px 0 0;padding:0}.material-pipeline li{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:7px}.material-pipeline li p{flex:1 1 100%;margin:0;color:#9b692c;overflow-wrap:anywhere}
 
 .typography-repair{border:1px solid #deddfc;border-radius:8px;padding:7px 10px;color:#5b54ff;background:#f8f7ff;white-space:nowrap;font-size:12px}.typography-repair:disabled{opacity:.5;cursor:wait}
 .material-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.matrow__ops{flex-wrap:wrap;justify-content:flex-end}@media(max-width:600px){.matrow{flex-wrap:wrap}.material-select{flex:1 1 100%}.material-actions{width:100%;justify-content:flex-end}}

@@ -26,18 +26,26 @@ public class WorkspacePointOrders {
     private final PointWalletService wallet;
     private final JdbcTemplate jdbc;
     private final SubscriptionSupport subscriptions;
-    private final BillingTrialService trials;
 
     public WorkspacePointOrders(WorkspacePricing pricing, WorkspaceAccess access, WorkspaceFoundation foundation,
-            OrderRepository orders, PointWalletService wallet, JdbcTemplate jdbc, SubscriptionSupport subscriptions,
-            BillingTrialService trials) {
+            OrderRepository orders, PointWalletService wallet, JdbcTemplate jdbc, SubscriptionSupport subscriptions) {
         this.pricing = pricing; this.access = access; this.foundation = foundation; this.orders = orders;
-        this.wallet = wallet; this.jdbc = jdbc; this.subscriptions = subscriptions; this.trials = trials;
+        this.wallet = wallet; this.jdbc = jdbc; this.subscriptions = subscriptions;
     }
 
     public List<WorkspacePricing.RechargeOption> options() {
-        access.require(MemberRole.OWNER);
-        return pricing.isEnabled() ? pricing.options() : List.of();
+        var owner = access.require(MemberRole.OWNER);
+        return pricing.isEnabled() && paidSubscription(new TenantId(owner.tenantId())).isPresent()
+                ? pricing.options() : List.of();
+    }
+
+    private java.util.Optional<Subscription> paidSubscription(TenantId tenant) {
+        return subscriptions.effective(tenant, Instant.now()).filter(sub -> sub.paidFenThisPeriod() > 0);
+    }
+
+    public Subscription requireRechargeSubscription(TenantId tenant) {
+        if (!pricing.isEnabled()) throw new BizException(1904, "积分充值尚未开放");
+        return paidSubscription(tenant).orElseThrow(() -> new BizException(1904, "购买套餐后才可充值积分"));
     }
 
     public OrderView status(String id) {
@@ -49,11 +57,11 @@ public class WorkspacePointOrders {
     @Transactional
     public OrderView create(String code, String key) {
         var owner = access.require(MemberRole.OWNER);
-        if (!pricing.isEnabled()) throw new BizException(1904,"积分充值尚未开放");
         if (key == null || !key.matches("[A-Za-z0-9_-]{8,64}")) throw new BizException(1001,"充值请求标识无效");
         var tenant = new TenantId(owner.tenantId());
         String id = UUID.nameUUIDFromBytes(("point-order:"+tenant.value()+":"+key).getBytes(StandardCharsets.UTF_8)).toString();
         foundation.ensure(tenant.value());
+        var subscription = requireRechargeSubscription(tenant);
         var existing = orders.findById(tenant,id);
         if (existing.isPresent()) {
             if (!jdbc.queryForList("SELECT sku FROM workspace_point_order WHERE order_id=? AND tenant_id=?",String.class,id,tenant.value()).contains(code))
@@ -62,8 +70,7 @@ public class WorkspacePointOrders {
         }
         var sku = pricing.options().stream().filter(option -> option.code().equals(code)).findFirst()
                 .orElseThrow(() -> new BizException(1001,"充值档位不存在"));
-        PlanCode label = subscriptions.effective(tenant,Instant.now()).map(Subscription::planCode).orElse(PlanCode.BASIC);
-        var order = new BillingOrder(id,tenant,label,null,OrderType.POINT_RECHARGE,OrderStatus.PENDING_PAY,
+        var order = new BillingOrder(id,tenant,subscription.planCode(),null,OrderType.POINT_RECHARGE,OrderStatus.PENDING_PAY,
                 sku.priceFen(),sku.priceFen(),"积分充值 · "+sku.points()+" 积分",Instant.now(),null);
         orders.save(order);
         jdbc.update("INSERT INTO workspace_point_order(order_id,tenant_id,actor_user_id,sku,points) VALUES(?,?,?,?,?)",
@@ -89,9 +96,6 @@ public class WorkspacePointOrders {
         if (sub.isPresent()) {
             var current = sub.get();
             grant(tenant,"subscription:"+current.periodStart().getEpochSecond(),current.planCode().name(),pricing.points(current.planCode().name()));
-        } else {
-            var trial = trials.current(id,now);
-            if (trial != null && trial.active()) grant(tenant,"trial:"+trial.startedAt().getEpochSecond(),"trial",pricing.points("trial"));
         }
     }
 

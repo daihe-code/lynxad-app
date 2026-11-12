@@ -54,7 +54,9 @@ public class OptimizationCreativeService {
         String owner="generation:"+UUID.randomUUID();if(!journal.claimAccount(event.tenant(),event.accountId(),owner))return;
         try{
             if(!"READY".equals(journal.event(event.tenant(),event.id()).orElseThrow().status()))return;
-            var p=gateway.plan(event.tenant(),event.planId());gateway.writable(p);var state=active(p,event.version());var facts=gateway.facts(p);
+            var p=gateway.plan(event.tenant(),event.planId());gateway.writable(p);
+            if (charges != null) charges.requireAccess(event.tenant());
+            var state=active(p,event.version());var facts=gateway.facts(p);
             if(journal.unresolved(event.tenant(),event.accountId())||state.baseline()==null||!state.baseline().equals(facts))throw new BizException(1803,"平台已变化或有操作待核查，暂不生成");
             var trialAction=json.createObjectNode().put("kind","MATERIAL_ADD").put("cause","NEW_MATERIAL_TRIAL").put("generation_id",event.id()).put("product_id",event.proposal().path("product_id").asText());
             var trialEvent=new Event(event.id(),event.tenant(),event.planId(),event.accountId(),event.planName(),event.version(),"MATERIAL_ADD",event.title(),event.evidence(),trialAction,event.report(),event.status(),null,null,event.createdAt(),null,null);

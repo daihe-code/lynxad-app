@@ -6,6 +6,7 @@ export interface PlanItem {
   listPriceFen: number;
   listPriceYuan: number;
   adAccountLimit: number;
+  periodPoints: number;
   suitableFor: string;
   benefits: string[];
   current: boolean;
@@ -94,6 +95,18 @@ export function mockComplete(paymentId: string, success: boolean, nonce: string)
 export function listBills() {
   return apiGet<{ items: BillItem[] }>("/api/v1/billing/bills");
 }
+
+export interface GenerationAccess {
+  enabled: boolean;
+  balanceStatus: 'SUFFICIENT' | 'LOW' | 'EMPTY' | null;
+}
+export function pointsBalanceWarning(access?: GenerationAccess) {
+  if (!access?.enabled) return '';
+  if (access.balanceStatus === 'LOW') return '可用积分即将用完。余额不足时，智能生成将暂停。';
+  return access.balanceStatus === 'EMPTY' ? '可用积分已用完，智能生成已暂停。' : '';
+}
+export const getGenerationAccess = (signal?: AbortSignal) =>
+  apiGet<GenerationAccess>('/api/v1/billing/points/generation-access', { signal, headers: { 'X-Quiet-Request': 'true' } });
 
 export interface RechargeOption { code: string; priceFen: number; points: number }
 export const rechargeOptions = () => apiGet<RechargeOption[]>('/api/v1/billing/points/recharge-options');

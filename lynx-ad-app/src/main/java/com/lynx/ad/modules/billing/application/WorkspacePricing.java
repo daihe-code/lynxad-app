@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 public class WorkspacePricing {
     private boolean enabled;
     private Map<String, Integer> childSeats = new LinkedHashMap<>(Map.of("trial", 2, "basic", 2, "professional", 3, "flagship", 10));
-    private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("trial", 600L, "basic", 3000L, "professional", 9000L, "flagship", 30000L));
+    private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("basic", 3000L, "professional", 9000L, "flagship", 30000L));
     private Map<String, Long> generationPoints = new LinkedHashMap<>(Map.of("video", 240L, "image", 15L, "native_image_text", 60L, "title", 1L));
     private Map<String, Recharge> recharge = new LinkedHashMap<>(Map.of(
             "r99", new Recharge(9900, 1000), "r299", new Recharge(29900, 3100), "r999", new Recharge(99900, 10800)));
@@ -34,7 +34,7 @@ public class WorkspacePricing {
     public long points(String plan) { return Math.max(0, periodPoints.getOrDefault(plan.toLowerCase(Locale.ROOT), 0L)); }
     public BigDecimal rate(String type) {
         Long rate = generationPoints.get(type);
-        if (rate == null || rate < 0) throw new IllegalStateException("Missing generation rate for " + type);
+        if (rate == null || rate <= 0) throw new IllegalStateException("Missing or invalid generation rate for " + type);
         return BigDecimal.valueOf(rate);
     }
     public List<RechargeOption> options() {

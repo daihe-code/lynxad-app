@@ -8,6 +8,7 @@ public record PlanItemView(
         int listPriceFen,
         double listPriceYuan,
         int adAccountLimit,
+        long periodPoints,
         String suitableFor,
         List<String> benefits,
         boolean current,

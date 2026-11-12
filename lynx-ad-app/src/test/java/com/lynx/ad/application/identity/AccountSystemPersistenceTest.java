@@ -15,6 +15,8 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.Duration;
+import java.sql.Timestamp;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -146,13 +148,26 @@ public class AccountSystemPersistenceTest {
         bind(f,"a","x","1001","ACTIVE","a",null);
         var pricing=new WorkspacePricing();
         pricing.setEnabled(true);
+        var subscriptions = mock(SubscriptionSupport.class);
+        var tenant = new TenantId("a");
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         var charges=new GenerationCharges(pricing,mock(WorkspacePointOrders.class),new WorkspaceFoundation(f.jdbc),f.points,
-                f.bindings,f.jdbc,new com.fasterxml.jackson.databind.ObjectMapper());
+                f.bindings,f.jdbc,new com.fasterxml.jackson.databind.ObjectMapper(),subscriptions);
+        f.tx.executeWithoutResult(s -> f.points.credit("a","test-credit",new BigDecimal("600")));
+        assertFalse(charges.access("a").enabled());
+        assertThrows(BizException.class, () -> f.tx.executeWithoutResult(s ->
+                charges.hold("a","trial-generation","x","a",Map.of("video",1))));
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
+        assertEquals(GenerationCharges.BalanceStatus.SUFFICIENT, charges.access("a").balanceStatus());
+        assertThrows(BizException.class, () -> charges.validate("a","unreserved"));
         f.tx.executeWithoutResult(s -> {
-            f.points.credit("a","trial",new BigDecimal("600"));
             assertTrue(charges.hold("a","generation","x","a",Map.of("video",2,"image",1)));
+            charges.validate("a","generation");
         });
+        assertEquals(GenerationCharges.BalanceStatus.LOW, charges.access("a").balanceStatus());
         assertEquals(0,new BigDecimal("495").compareTo(f.points.balance("a").frozen()));
+        assertThrows(BizException.class, () -> f.tx.executeWithoutResult(s ->
+                charges.hold("a","overdraw","x","a",Map.of("video",1))));
         pricing.getGenerationPoints().put("video",900L);
         f.tx.executeWithoutResult(s -> {
             assertTrue(charges.hold("a","generation","x","a",Map.of("video",2,"image",1)));
@@ -171,6 +186,66 @@ public class AccountSystemPersistenceTest {
     }
 
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void migrationShortensOnlyActiveStandardTrials(String mode) {
+        var ds = new DriverManagerDataSource("jdbc:h2:mem:trial_" + UUID.randomUUID() + ";MODE=" + mode
+                + ";DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
+        var jdbc = new JdbcTemplate(ds);
+        jdbc.execute("CREATE TABLE billing_trial(tenant_id VARCHAR(36) PRIMARY KEY, started_at TIMESTAMP, expires_at TIMESTAMP)");
+        jdbc.execute("CREATE TABLE platform_package_adjustment(tenant_id VARCHAR(36), grant_type VARCHAR(24), after_end TIMESTAMP)");
+        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        Instant start = now.minus(Duration.ofDays(1));
+        Instant previousExpiry = start.plus(Duration.ofDays(7));
+        Instant expiredStart = now.minus(Duration.ofDays(8));
+        for (String tenant : List.of("standard", "admin", "expired", "custom")) {
+            Instant trialStart = tenant.equals("expired") ? expiredStart : start;
+            int trialDays = tenant.equals("custom") ? 10 : 7;
+            jdbc.update("INSERT INTO billing_trial VALUES(?,?,?)", tenant, Timestamp.from(trialStart),
+                    Timestamp.from(trialStart.plus(Duration.ofDays(trialDays))));
+        }
+        jdbc.update("INSERT INTO platform_package_adjustment VALUES('admin','TRIAL',?)", Timestamp.from(previousExpiry));
+        String path = "db/" + (mode.equals("MySQL") ? "migration-mysql" : "migration")
+                + "/V58__standard_trial_three_days.sql";
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(new ClassPathResource(path)).execute(ds);
+        var expiries = jdbc.query("SELECT tenant_id, expires_at FROM billing_trial", rs -> {
+            Map<String, Instant> result = new HashMap<>();
+            while (rs.next()) result.put(rs.getString(1), rs.getTimestamp(2).toInstant());
+            return result;
+        });
+        assertEquals(Map.of("standard", start.plus(Duration.ofDays(3)), "admin", previousExpiry,
+                "expired", now.minus(Duration.ofDays(1)), "custom", start.plus(Duration.ofDays(10))), expiries);
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void subscriptionPointsDifferByPlanAndAreGrantedOncePerPeriod(String mode) throws Exception {
+        var f = fixture(mode);
+        var pricing = new WorkspacePricing();
+        pricing.setEnabled(true);
+        var subscriptions = mock(SubscriptionSupport.class);
+        var grants = new WorkspacePointOrders(pricing, null, new WorkspaceFoundation(f.jdbc), null, f.points,
+                f.jdbc, subscriptions);
+        var tenant = new TenantId("a");
+        Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
+        f.tx.executeWithoutResult(s -> grants.ensureCurrentGrant("a"));
+        assertEquals(0, f.points.balance("a").available().signum());
+        for (var entry : Map.of(PlanCode.BASIC, 3000, PlanCode.PROFESSIONAL, 9000, PlanCode.FLAGSHIP, 30000)
+                .entrySet().stream().sorted(Map.Entry.comparingByValue()).toList()) {
+            when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(new Subscription(tenant,
+                    entry.getKey(), SubStatus.ACTIVE, now.minusSeconds(60), now.plusSeconds(3600),
+                    false, "WECHAT", 9900, null, now)));
+            f.tx.executeWithoutResult(s -> grants.ensureCurrentGrant("a"));
+            f.tx.executeWithoutResult(s -> grants.ensureCurrentGrant("a"));
+            assertEquals(entry.getValue().intValue(), f.points.balance("a").available().intValueExact());
+        }
+    }
+
+    private Subscription activeSubscription(TenantId tenant, int paidFen) {
+        Instant now = Instant.now();
+        return new Subscription(tenant, PlanCode.BASIC, SubStatus.ACTIVE, now.minusSeconds(3600),
+                now.plusSeconds(3600), false, "WECHAT", paidFen, null, now);
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void rechargeUsesPurchasedPointsAndOnlyCreditsAValidCallbackOnce(String mode) throws Exception {
         var f=fixture(mode);
         var tenant=new TenantId("a");
@@ -183,10 +258,18 @@ public class AccountSystemPersistenceTest {
         var orders=mock(OrderRepository.class);
         var payments=mock(PaymentRepository.class);
         var subscriptions=mock(SubscriptionSupport.class);
-        var recharge=new WorkspacePointOrders(pricing,access,foundation,orders,f.points,f.jdbc,subscriptions,mock(BillingTrialService.class));
+        var recharge=new WorkspacePointOrders(pricing,access,foundation,orders,f.points,f.jdbc,subscriptions);
         var orderState=new java.util.concurrent.atomic.AtomicReference<BillingOrder>();
         when(orders.findById(eq(tenant),anyString())).thenAnswer(call -> Optional.ofNullable(orderState.get()));
         doAnswer(call -> { orderState.set(call.getArgument(0)); return null; }).when(orders).save(any());
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
+        assertTrue(recharge.options().isEmpty());
+        assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 0)));
+        assertTrue(recharge.options().isEmpty());
+        assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
+        assertFalse(recharge.options().isEmpty());
         var created=f.tx.execute(s -> recharge.create("r99","recharge-request"));
         assertNotNull(created);
         var order=orderState.get();

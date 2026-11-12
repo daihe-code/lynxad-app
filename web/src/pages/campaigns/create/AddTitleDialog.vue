@@ -1,6 +1,6 @@
 <template>
   <ReferenceModal class="add-title-dialog" :title="`新增${label}`" :width="560" :busy="locked" @close="close">
-    <div class="title-source" role="group" aria-label="标题添加方式"><button v-for="(name,key) in sources" :key="key" type="button" :aria-pressed="source===key" :disabled="locked" @click="source=key;error=''">{{ name }}</button></div>
+    <div v-if="generationAllowed !== false" class="title-source" role="group" aria-label="标题添加方式"><button v-for="(name,key) in sources" :key="key" type="button" :aria-pressed="source===key" :disabled="locked" @click="source=key;error=''">{{ name }}</button></div>
     <div v-if="source==='MANUAL'" class="title-entry"><label for="new-product-title">{{ label }}</label><div class="title-input"><textarea id="new-product-title" v-model="text" :aria-label="`新增${label}内容`" :maxlength="limit" :disabled="locked" :placeholder="`请输入${label}，最多${limit}字`" @input="error=''" /><span>{{ text.length }}/{{ limit }}</span></div><p v-if="validation" class="title-error" role="alert">{{ validation }}</p></div>
     <div v-else class="title-ai"><ReferenceIcon name="sparkle" /><span>根据当前商品信息，生成并新增 1 条{{ label }}。</span></div>
     <p v-if="error" class="title-error" role="alert">{{ error }}</p>
@@ -15,7 +15,7 @@ import ReferenceIcon from '../reference/ReferenceIcon.vue';
 import { titleLimit, type TitleKind } from '@/features/delivery/productTitles';
 import type { TitleGeneration } from '@/features/delivery/creationApi';
 import type { TitleSource, TitleAdditionReceipt } from '@/features/delivery/titleAddition';
-const props=defineProps<{kind:TitleKind;busy:boolean;generation?:TitleGeneration;validate:(text?:string)=>string}>();
+const props=defineProps<{kind:TitleKind;busy:boolean;generationAllowed?:boolean;generation?:TitleGeneration;validate:(text?:string)=>string}>();
 const emit=defineEmits<{close:[];add:[source:TitleSource,text:string,receipt:TitleAdditionReceipt]}>();
 const sources:Record<TitleSource,string>={MANUAL:'手动输入',AI:'智能生成'};
 const source=ref<TitleSource>('MANUAL'),text=ref(''),error=ref(''),submitting=ref(false),pending=ref<TitleGeneration>();
@@ -35,10 +35,12 @@ function close(){if(!locked.value)emit('close');}
 function submit(){
   if(locked.value)return;
   error.value=props.validate(source.value==='MANUAL'?text.value:undefined);if(error.value)return;
+  if (source.value === 'AI' && props.generationAllowed === false) return;
   submitting.value=true;
   if(source.value==='AI'&&(!requestId.value||pending.value?.status==='FAILED'))requestId.value=crypto.randomUUID();
   emit('add',source.value,text.value.trim(),{requestId:source.value==='AI'?requestId.value:undefined,done(message,generation){if(!alive)return;submitting.value=false;if(message){error.value=message;return;}accept(generation);}});
 }
+watch([() => props.generationAllowed, locked], ([allowed, busy]) => { if (allowed === false && !busy) source.value = 'MANUAL'; });
 watch(()=>props.generation,generation=>{if(generation?.requestId&&generation.requestId===requestId.value)accept(generation);});
 onUnmounted(()=>{alive=false;});
 </script>

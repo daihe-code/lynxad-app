@@ -401,18 +401,14 @@ import { ElMessage } from "element-plus";
 import { listAccounts, type AccountVo } from "@/features/identity/oauthApi";
 import {
   listProducts,
-  selectProducts,
   type ProductVo,
 } from "@/features/catalog/catalogApi";
 import {
-  createDraft,
-  updateDraft,
   getPlan,
   listPlans,
   type PlanListVo,
 } from "@/features/delivery/deliveryApi";
-import { generateCreatives } from "@/features/creative/creativeApi";
-import { useWizardStore } from "@/stores/wizard";
+import { creationGoal, creationSelect, type CreationState } from "@/features/delivery/creationApi";
 import { useUserStore } from "@/stores/user";
 import ReferenceIcon from "./ReferenceIcon.vue";
 import ReferenceFooter from "./ReferenceFooter.vue";
@@ -422,7 +418,6 @@ import { COST_DAILY_BUDGET_MINIMUM, COST_DAILY_BUDGET_HINT } from '@/features/de
 import "./reference.css";
 const route = useRoute(),
   router = useRouter(),
-  wizard = useWizardStore(),
   user = useUserStore(),
   editing = computed(() => !!route.params.id),
   busy = ref(false),
@@ -430,7 +425,7 @@ const route = useRoute(),
   loaded = ref(false),
   status = ref("DRAFT"),
   source = ref("LINGTOU"),
-  draftId = ref(""),
+  draft = ref<CreationState>(),
   accounts = ref<AccountVo[]>([]),
   awemeKey = ref(""),
   picked = ref<ProductVo[]>([]),
@@ -559,43 +554,28 @@ async function save(draftOnly: boolean) {
           0,
           30,
         );
-    await selectProducts(
-      account.awemeId,
-      picked.value.map((p) => p.qcProductId),
-    );
-    const body = {
+    draft.value = await creationSelect({
+      planId: draft.value?.accountId === account.accountId && draft.value.awemeId === account.awemeId ? draft.value.planId : undefined,
+      revision: draft.value?.revision,
       accountId: account.accountId,
       awemeId: account.awemeId,
+      productIds: picked.value.map((p) => p.qcProductId),
+    });
+    draft.value = await creationGoal(draft.value, {
       name: form.name.trim(),
       smartBidType: form.mode,
-      dailyBudget: Number(form.budget),
-      roi2Goal: form.mode === "SMART_BID_CUSTOM" ? Number(form.roi) : undefined,
-      productIds: picked.value.map((p) => p.qcProductId),
-    };
-    if (draftId.value) await updateDraft(draftId.value, body);
-    else draftId.value = (await createDraft(body)).plan.planId;
+      budget: Number(form.budget),
+      roi2Goal: form.mode === "SMART_BID_CUSTOM" ? Number(form.roi) : null,
+      scheduleType: "FROM_NOW",
+      startDate: null,
+      endDate: null,
+    });
     if (draftOnly) {
       ElMessage.success("草稿已保存");
-      await router.push(`/campaigns/${draftId.value}`);
-      return;
+      await router.push(`/campaigns/${draft.value.planId}`);
+    } else {
+      await router.push({ path: "/campaigns/create", query: { draftId: draft.value.planId } });
     }
-    wizard.reset();
-    Object.assign(wizard, {
-      accountId: account.accountId,
-      awemeId: account.awemeId,
-      awemeName: account.name,
-      planId: draftId.value,
-      planName: body.name,
-      smartBidType: body.smartBidType,
-      dailyBudget: body.dailyBudget,
-      roi2Goal: body.roi2Goal,
-      products: [...picked.value],
-      productIds: picked.value.map((p) => p.productId),
-    });
-    const result = await generateCreatives(draftId.value, body.productIds);
-    wizard.taskId = result.taskId;
-    wizard.step = 3;
-    await router.push("/campaigns/create");
   } catch {
     /* Keep form and draft ID so retry cannot create a duplicate draft. */
   } finally {
@@ -605,7 +585,7 @@ async function save(draftOnly: boolean) {
 async function initialize() {
   loaded.value = false;
   failed.value = false;
-  draftId.value = "";
+  draft.value = undefined;
   status.value = "DRAFT";
   source.value = "LINGTOU";
   picked.value = [];
@@ -650,7 +630,6 @@ async function initialize() {
         );
       }
       if (editing.value) {
-        draftId.value = id;
         status.value = base.status;
         source.value = base.source;
       }

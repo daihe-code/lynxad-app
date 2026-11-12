@@ -1,10 +1,13 @@
 package com.lynx.ad.modules.billing.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.common.domain.Ids.TenantId;
+import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Map;
 import java.util.TreeMap;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,21 +24,43 @@ public class GenerationCharges {
     private final AccountBindingRegistry bindings;
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
+    private final SubscriptionSupport subscriptions;
 
     public GenerationCharges(WorkspacePricing pricing, WorkspacePointOrders credits, WorkspaceFoundation foundation,
-            PointWalletService wallet, AccountBindingRegistry bindings, JdbcTemplate jdbc, ObjectMapper json) {
+            PointWalletService wallet, AccountBindingRegistry bindings, JdbcTemplate jdbc, ObjectMapper json,
+            SubscriptionSupport subscriptions) {
         this.pricing = pricing; this.credits = credits; this.foundation = foundation; this.wallet = wallet;
-        this.bindings = bindings; this.jdbc = jdbc; this.json = json;
+        this.bindings = bindings; this.jdbc = jdbc; this.json = json; this.subscriptions = subscriptions;
     }
 
     public record Quote(AccountBindingRegistry.ExecutionScope scope, Map<String,Integer> requested, Map<String,BigDecimal> rates) {}
 
-    public boolean enabled() { return pricing.isEnabled(); }
+    public enum BalanceStatus { SUFFICIENT, LOW, EMPTY }
+    public record Access(boolean enabled, BalanceStatus balanceStatus) {}
+
+    public Access access(String tenant) {
+        if (!pricing.isEnabled()) return new Access(false, null);
+        var sub = subscriptions.effective(new TenantId(tenant), Instant.now());
+        if (sub.isEmpty()) return new Access(false, null);
+        credits.ensureCurrentGrant(tenant);
+        BigDecimal available = wallet.balance(tenant).available();
+        BigDecimal threshold = BigDecimal.valueOf(pricing.points(sub.get().planCode().name()))
+                .movePointLeft(1).max(pricing.rate("video"));
+        BalanceStatus status = available.signum() <= 0 ? BalanceStatus.EMPTY
+                : available.compareTo(threshold) <= 0 ? BalanceStatus.LOW : BalanceStatus.SUFFICIENT;
+        return new Access(true, status);
+    }
+
+    public void requireAccess(String tenant) {
+        if (subscriptions.effective(new TenantId(tenant), Instant.now()).isEmpty())
+            throw new BizException(1904, "智能生成素材需先开通套餐");
+        if (!pricing.isEnabled()) throw new BizException(1904, "智能生成暂不可用");
+    }
 
     @Transactional
     public boolean hold(String tenant,String task,String binding,String fallbackActor,Map<String,Integer> requested) {
-        if (!pricing.isEnabled()) return false;
         foundation.ensure(tenant);
+        requireAccess(tenant);
         String actor = TenantContext.tenantId().filter(t -> t.value().equals(tenant))
                 .map(t -> TenantContext.userId().value()).orElse(fallbackActor);
         var scope = bindings.executionScope(tenant,binding,actor);
@@ -43,7 +68,7 @@ public class GenerationCharges {
         var previous = quote(tenant,task);
         if (previous != null) {
             if (!previous.scope().equals(scope) || !previous.requested().equals(requested))
-                throw new com.lynx.ad.common.exception.BizException(1902,"生成任务的积分预占信息已变化");
+                throw new BizException(1902,"生成任务的积分预占信息已变化");
             return true;
         }
         var rates = new TreeMap<String,BigDecimal>();
@@ -54,16 +79,18 @@ public class GenerationCharges {
         var quote = new Quote(scope,new TreeMap<>(requested),rates);
         BigDecimal value = total(quote,requested);
         credits.ensureCurrentGrant(tenant);
-        if (value.signum() > 0) wallet.reserve(tenant,task,binding,scope.actorUserId(),value);
+        wallet.reserve(tenant,task,binding,scope.actorUserId(),value);
         try { jdbc.update("INSERT INTO workspace_generation_charge(tenant_id,task_key,rates_json) VALUES(?,?,?)",tenant,task,json.writeValueAsString(quote)); }
         catch (java.io.IOException ex) { throw new IllegalStateException(ex); }
         return true;
     }
 
     public void validate(String tenant,String task) {
-        if (task == null) return;
-        var q = quote(tenant,task);
-        if (q != null) bindings.validatePaid(q.scope());
+        requireAccess(tenant);
+        var q = task == null ? null : quote(tenant,task);
+        if (q == null || wallet.reservation(tenant,task).filter(r -> "HELD".equals(r.status())).isEmpty())
+            throw new BizException(1903, "生成任务尚未预占积分，请重新提交");
+        bindings.validatePaid(q.scope());
     }
 
     @Transactional

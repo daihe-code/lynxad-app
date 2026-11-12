@@ -280,7 +280,7 @@ class AccountInitializationTest {
         assertTrue(legal.path("companyName").isNull(), "A workspace display name is not a supplied company name");
         assertEquals("UNSUBMITTED", legal.path("verificationStatus").asText());
         var trial = trials.current(principal.tenantId().orElseThrow(), Instant.now());
-        assertEquals(Duration.ofDays(7), Duration.between(trial.startedAt(), trial.expiresAt()));
+        assertEquals(Duration.ofDays(3), Duration.between(trial.startedAt(), trial.expiresAt()));
         assertFalse(call("GET", "/api/v1/tenant/users/me/welcome", null, token).path("data").path("acknowledged").asBoolean());
         assertTrue(call("PUT", "/api/v1/tenant/users/me/welcome", "{}", token).path("data").path("acknowledged").asBoolean());
         assertTrue(call("GET", "/api/v1/tenant/users/me/welcome", null, token).path("data").path("acknowledged").asBoolean());

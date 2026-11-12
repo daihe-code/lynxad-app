@@ -392,7 +392,7 @@ public class CreationWorkflowService {
     }
     public CreationState generate(TenantId tenant,String requestedId,Generate g) {
         String id=sharedId(tenant,requestedId,true);
-        writable(tenant,WriteAction.SAVE_PLAN);
+        writable(tenant,g.productIds != null && !g.productIds.isEmpty() ? WriteAction.GENERATE_CREATIVE : WriteAction.SAVE_PLAN);
         if(authorizationCapabilities!=null && g.productIds!=null && !g.productIds.isEmpty())authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         return store.mutate(tenant.value(),id,g.revision,s->{
             editable(s);refreshDraftSchedule(s);CreationPayloadBuilder.settings(s);
@@ -410,7 +410,7 @@ public class CreationWorkflowService {
     }
     public CreationState addition(TenantId tenant,String requestedId,Addition request) {
         String id=sharedId(tenant,requestedId,true);
-        writable(tenant,WriteAction.SAVE_PLAN);
+        writable(tenant,WriteAction.GENERATE_CREATIVE);
         String description=request.description==null?"":request.description.strip();
         if(request.requestId==null||!request.requestId.matches("[A-Za-z0-9_-]{1,64}")||request.type==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(request.type)
                 ||description.codePointCount(0,description.length())>50)throw new BizException(1503,"请选择素材类型，生成描述最多50字，并提供有效请求ID");
@@ -465,7 +465,7 @@ public class CreationWorkflowService {
         });
     }
     public CreationState retryGeneration(TenantId tenant,String requestedId,RetryGeneration request) {
-        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.GENERATE_CREATIVE);
         if(!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(request.type,"")))throw new BizException(1503,"请选择重试的素材类型");
         if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         var reserved=store.mutate(tenant.value(),id,request.revision,s->{
@@ -568,7 +568,7 @@ public class CreationWorkflowService {
     public record RegenerateTitle(int revision,String kind,int index,String original) {}
     public record GenerateTitle(int revision,String kind,String requestId) {}
     public CreationState generateTitle(TenantId tenant,String requestedId,String product,GenerateTitle request) {
-        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.GENERATE_CREATIVE);
         var s=store.get(tenant.value(),id);
         if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
         if(request.requestId==null||!request.requestId.matches("[A-Za-z0-9_-]{1,64}"))throw new BizException(1503,"标题请求标识不合法");
@@ -581,7 +581,7 @@ public class CreationWorkflowService {
         return titleRegeneration.add(s,product,request.kind,request.requestId);
     }
     public CreationState regenerateTitle(TenantId tenant,String requestedId,String product,RegenerateTitle request) {
-        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.GENERATE_CREATIVE);
         var s=store.get(tenant.value(),id);editable(s);
         if(s.revision!=request.revision)throw new BizException(1404,"草稿版本已变化，请刷新后修改标题");
         if(!Set.of("CUSTOM","CARD").contains(Objects.toString(request.kind,"")))throw new BizException(1503,"标题类型不合法");
@@ -721,7 +721,7 @@ public class CreationWorkflowService {
         });
     }
     public CreationState regenerate(TenantId tenant,String requestedId,String material,Feedback feedback) {
-        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.SAVE_PLAN);
+        String id=sharedId(tenant,requestedId,true);writable(tenant,WriteAction.GENERATE_CREATIVE);
         if(authorizationCapabilities!=null)authorizationCapabilities.requireMaterials(tenant,store.get(tenant.value(),id).accountId);
         String instruction=com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.instruction(feedback.reasons,feedback.description);
         var reserved=store.mutate(tenant.value(),id,feedback.revision,state->{

@@ -27,7 +27,7 @@ public class BillingTrialService {
                 .findByTenant(tenantId)
                 .map(t -> toVo(t, now))
                 .orElseGet(() -> {
-                    Trial created = Trial.start(tenantId, now, TrialWindow.sevenDays());
+                    Trial created = Trial.start(tenantId, now, TrialWindow.threeDays());
                     trialRepository.save(created);
                     return toVo(created, now);
                 });
@@ -38,7 +38,7 @@ public class BillingTrialService {
         if (trialRepository.findByTenant(tenantId).filter(trial -> trial.isActive(now)).isPresent()) {
             return;
         }
-        trialRepository.save(Trial.start(tenantId, now, TrialWindow.sevenDays()));
+        trialRepository.save(Trial.start(tenantId, now, TrialWindow.threeDays()));
     }
 
     public TrialVo current(TenantId tenantId, Instant now) {

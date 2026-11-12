@@ -75,7 +75,7 @@ public class OrderCommandService {
         BillingPlan plan = planRepository.findByCode(planCode).orElseThrow(() -> new BizException(1601, "套餐不存在"));
         Instant now = Instant.now();
         Optional<Subscription> effective = subscriptionSupport.effective(tenantId, now);
-        if (effective.isEmpty()) {
+        if (effective.isEmpty() || effective.get().paidFenThisPeriod() == 0) {
             orderRepository.findPendingPay(tenantId).ifPresent(o -> {
                 throw new BizException(1602, "已有待支付订单");
             });

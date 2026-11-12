@@ -2,7 +2,7 @@
   <ReferenceModal class="add-material-dialog" :class="{ 'video-upload-dialog': source === 'UPLOAD' && type === 'VIDEO', 'carousel-upload-dialog': localCarousel, 'compact-upload-dialog': type === 'IMAGE' && needsUploadFile || localCarousel && !carouselForm.started }" title="新增素材" :width="1020" :busy="locked" @close="close">
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
-    <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in sources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
+    <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in availableSources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
     <div v-if="source === 'AI'" class="ai-source"><ReferenceIcon name="sparkle" /><div><strong>我会结合商品信息，为当前商品新增 {{ generationUnit }}。</strong><p>已有素材会保留，生成后可预览并决定是否用于投放。</p></div></div>
     <div v-if="source === 'LIBRARY'" class="library-source">
       <form class="library-search" @submit.prevent="search"><input v-model="query" aria-label="搜索素材名称" placeholder="搜索素材名称" :disabled="locked" /><button type="submit" :disabled="locked || loading">搜索</button><select :value="scope === 'AUTO' ? 'RELATED' : scope" aria-label="商品关联范围" :disabled="locked || loading" @change="scopeChanged"><option value="RELATED">当前商品相关</option><option value="ALL">{{ allLabel }}</option></select><button type="button" :disabled="locked || loading" @click="refresh"><ReferenceIcon name="refresh" />刷新</button></form>
@@ -53,11 +53,13 @@ import { materialSelectionAccepted } from '@/features/delivery/materialSelection
 import type { LocalUploadBatch, UploadBatchReceipt, UploadBatchState } from '@/features/creative/localUploadBatch';
 type Format = CreationAdditionBody['type'];
 type Source = 'AI' | 'LIBRARY' | 'UPLOAD';
-const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean; submissionError?: string }>();
+const props = defineProps<{ state: CreationState; productId: string; initialType: Format; busy: boolean; generationBusy?: boolean; generationAllowed?: boolean; submissionError?: string }>();
 const emit = defineEmits<{ close: []; generate: [body: CreationAdditionBody]; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
 const formats: Record<Format, string> = { VIDEO: '视频', IMAGE: '商品卡图片', CAROUSEL: '图文' };
 const sources: Record<Source, string> = { AI: '智能生成', LIBRARY: '从素材库选择', UPLOAD: '本地上传' };
-const type = ref<Format>(props.initialType), source = ref<Source>(props.generationBusy ? 'UPLOAD' : 'AI');
+const availableSources = computed<Partial<Record<Source, string>>>(() => props.generationAllowed === false
+  ? { LIBRARY: sources.LIBRARY, UPLOAD: sources.UPLOAD } : sources);
+const type = ref<Format>(props.initialType), source = ref<Source>(props.generationAllowed === false ? 'LIBRARY' : props.generationBusy ? 'UPLOAD' : 'AI');
 const generationUnit = computed(() => ({ VIDEO: '1 条视频', IMAGE: '1 张商品卡图片', CAROUSEL: '1 套图文' })[type.value]);
 const generationButton = computed(() => ({ VIDEO: '生成 1 条视频', IMAGE: '生成 1 张图片', CAROUSEL: '生成 1 套图文' })[type.value]);
 const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(!!props.generationBusy);
@@ -97,7 +99,7 @@ const localCarousel = computed(() => source.value === 'UPLOAD' && type.value ===
 const carouselForm = ref<CarouselFormState>({ canCreate: false, processing: false, created: false, started: false, added: false, summary: '请填写图文名称，并添加图片和音频；本地文件选中后自动上传。' });
 const needsUploadFile = computed(() => source.value === 'UPLOAD' && type.value !== 'CAROUSEL' && localFileCount.value === 0);
 const imageSpecError = computed(() => type.value === 'IMAGE' && selected.value?.width && selected.value?.height && selected.value.width !== selected.value.height ? '商品卡图片须为 1:1 方图，请裁切后上传或选择其他图片。' : '');
-const canSubmit = computed(() => !!product.value && (source.value === 'AI' ? !props.generationBusy : !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
+const canSubmit = computed(() => !!product.value && (source.value === 'AI' ? props.generationAllowed !== false && !props.generationBusy : !!selected.value && !imageSpecError.value && (source.value !== 'LIBRARY' || !loading.value && !loadError.value)));
 const previewItem = ref<LibraryItemVo>(), previewError = ref(''), previewVersion = ref(0);
 const previewPanel = ref<HTMLElement>();
 const previewUrls = computed(() => previewItem.value ? assetPreview(previewItem.value) : undefined);
@@ -142,9 +144,12 @@ function search() { if (locked.value) return; page.value = 1; previewItem.value 
 function scopeChanged(event: Event) { scope.value = (event.target as HTMLSelectElement).value as 'RELATED' | 'ALL'; search(); }
 function showAll() { scope.value = 'ALL'; query.value = ''; search(); }
 function changePage(value: number) { if (locked.value || loading.value || value < 1 || value > totalPages.value) return; page.value = value; void loadLibrary(true); }
-function chooseSource(value: Source) { if (locked.value || source.value === value || value === 'AI' && props.generationBusy) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
+function chooseSource(value: Source) { if (locked.value || source.value === value || value === 'AI' && (props.generationBusy || props.generationAllowed === false)) return; source.value = value; previewItem.value = undefined; submitError.value = ''; if (value === 'UPLOAD') uploadMounted.value = true; }
 function chooseType(value: Format) { if (locked.value || type.value === value) return; type.value = value; librarySelected.value = undefined; localSelected.value = undefined; previewItem.value = undefined; scope.value = 'AUTO'; relatedCount.value = undefined; query.value = ''; page.value = 1; submitError.value = ''; }
-watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); });
+watch([source, type], () => { ++loadNumber; if (source.value === 'LIBRARY') void loadLibrary(); }, { immediate: true });
+watch([() => props.generationAllowed, locked], ([allowed, busy]) => {
+  if (allowed === false && source.value === 'AI' && !busy) chooseSource('LIBRARY');
+});
 watch([() => props.state, () => props.busy, () => props.submissionError], () => {
   if (awaiting.value && props.busy) submissionStarted = true;
   const accepted = submissionSource === 'AI' ? props.state.generationAdditions?.some(r => r.id === requestId.value)

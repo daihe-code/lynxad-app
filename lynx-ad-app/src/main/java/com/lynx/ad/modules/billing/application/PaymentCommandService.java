@@ -70,8 +70,10 @@ public class PaymentCommandService {
         BillingOrder order = orderRepository
                 .findById(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
-        if (order.type() == OrderType.POINT_RECHARGE)
+        if (order.type() == OrderType.POINT_RECHARGE) {
             workspaceAccess.require(com.lynx.ad.common.security.MemberRole.OWNER);
+            pointOrders.requireRechargeSubscription(tenantId);
+        }
         if (order.status() != OrderStatus.PENDING_PAY) {
             throw new BizException(1603, "订单状态不允许支付");
         }
@@ -146,6 +148,7 @@ public class PaymentCommandService {
         if (order.type() == OrderType.POINT_RECHARGE)
             workspaceAccess.require(com.lynx.ad.common.security.MemberRole.OWNER);
         if (order.status() == OrderStatus.PAID) return PaymentView.from(payment, null, null);
+        if (order.type() == OrderType.POINT_RECHARGE) pointOrders.requireRechargeSubscription(tenantId);
         Instant now = Instant.now();
         if (!success) {
             payment.fail(now);

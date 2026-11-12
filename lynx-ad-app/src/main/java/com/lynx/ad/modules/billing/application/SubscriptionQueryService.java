@@ -36,6 +36,7 @@ public class SubscriptionQueryService {
     private final SubscriptionSupport subscriptionSupport;
     private final BillingTrialService billingTrialService;
     private final LynxAdProperties properties;
+    private final WorkspacePricing workspacePricing;
     private final PricePolicy pricePolicy = new PricePolicy();
 
     public SubscriptionQueryService(
@@ -44,22 +45,25 @@ public class SubscriptionQueryService {
             SubscriptionRepository subscriptionRepository,
             SubscriptionSupport subscriptionSupport,
             BillingTrialService billingTrialService,
-            LynxAdProperties properties) {
+            LynxAdProperties properties,
+            WorkspacePricing workspacePricing) {
         this.planRepository = planRepository;
         this.orderRepository = orderRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionSupport = subscriptionSupport;
         this.billingTrialService = billingTrialService;
         this.properties = properties;
+        this.workspacePricing = workspacePricing;
     }
 
     public PlansView listPlans(TenantId tenantId) {
         Instant now = Instant.now();
         Optional<Subscription> effective = subscriptionSupport.effective(tenantId, now);
         PlanCode current = effective.map(Subscription::planCode).orElse(null);
+        boolean paid = effective.filter(sub -> sub.paidFenThisPeriod() > 0).isPresent();
         List<PlanItemView> items = planRepository.findAll().stream()
                 .sorted((a, b) -> Integer.compare(a.sortNo(), b.sortNo()))
-                .map(p -> toPlanItem(p, current, effective.isPresent()))
+                .map(p -> toPlanItem(p, current, paid))
                 .toList();
         return new PlansView(items);
     }
@@ -153,7 +157,7 @@ public class SubscriptionQueryService {
     }
 
     private PlanItemView toPlanItem(BillingPlan plan, PlanCode current, boolean paid) {
-        boolean isCurrent = paid && current == plan.code();
+        boolean isCurrent = current == plan.code();
         String action;
         if (!paid) {
             action = "SUBSCRIBE";
@@ -170,6 +174,7 @@ public class SubscriptionQueryService {
                 plan.listPriceFen(),
                 MoneyYuan.ofFen(plan.listPriceFen()),
                 plan.adAccountLimit(),
+                workspacePricing.isEnabled() ? workspacePricing.points(plan.code().name()) : 0,
                 plan.suitableFor(),
                 plan.benefits(),
                 isCurrent,

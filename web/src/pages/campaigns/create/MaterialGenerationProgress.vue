@@ -12,7 +12,7 @@
         <div class="gencard__top"><span class="gencard__icon" :class="`gencard__icon--${card.icon}`" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><template v-if="card.type === 'VIDEO'"><rect x="3" y="5" width="13" height="14" rx="3" /><path d="m16 9 5-3v12l-5-3" /></template><template v-else-if="card.type === 'IMAGE'"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m4 17 5-5 4 4 3-3 5 5" /></template><template v-else><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M8 7h8M8 11h8M8 15h5" /></template></svg></span><span><span class="gencard__name">{{ card.label }}</span><span class="gencard__count"><b>{{ card.completed }}</b><template v-if="card.total !== null">/{{ card.total }}</template> 条已生成</span></span></div>
         <div class="gencard__bar" role="progressbar" :aria-label="`${card.label}生成进度`" :aria-valuenow="card.total === null ? undefined : card.percent" aria-valuemin="0" aria-valuemax="100"><span class="gencard__fill" :class="[`gencard__fill--${card.icon}`, { 'is-indeterminate': card.total === null }]" :style="{ width: card.total === null ? '35%' : `${card.percent}%` }" /></div>
         <p class="gencard__foot"><span v-if="card.done && card.total !== 0" aria-hidden="true">✓</span><span v-else-if="card.total !== 0 && !card.failed" class="generation-spinner" aria-hidden="true" /><span>{{ card.total === 0 ? '本次未请求' : card.done ? '生成完成' : card.failed ? '已有结果已保留' : card.total === null ? '正在分析商品并生成素材…' : '正在生成素材…' }}</span></p>
-        <p v-if="card.failed" class="generation-failure">{{ card.failed }} 条{{ card.label }}生成失败，其他素材可继续使用。<button type="button" :disabled="busy" @click="emit('retry', card.type)">重试失败项</button></p>
+        <p v-if="card.failed" class="generation-failure">{{ card.failed }} 条{{ card.label }}生成失败，其他素材可继续使用。<button v-if="canRetry !== false" type="button" :disabled="busy" @click="emit('retry', card.type)">重试失败项</button></p>
       </article>
     </div>
 
@@ -22,7 +22,7 @@
 import { computed } from 'vue';
 import type { CreationState } from '@/features/delivery/creationApi';
 import { activeGenerationAddition } from '@/features/delivery/generationSelection';
-const props = defineProps<{ state: CreationState; compact?: boolean; reconnecting?: boolean; busy?: boolean }>();
+const props = defineProps<{ state: CreationState; compact?: boolean; reconnecting?: boolean; busy?: boolean; canRetry?: boolean }>();
 const emit=defineEmits<{retry:[type:'VIDEO'|'IMAGE'|'CAROUSEL']}>();
 const percent = computed(() => Math.max(0, Math.min(100, props.state.progress || 0)));
 const syncing = computed(() => props.state.generationStatus === 'IMPORTING');

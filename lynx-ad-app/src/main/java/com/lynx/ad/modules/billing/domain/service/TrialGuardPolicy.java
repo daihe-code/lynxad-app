@@ -15,6 +15,9 @@ public class TrialGuardPolicy {
     public void assertWritable(Trial trial, Subscription subscription, Instant now, WriteAction action) {
         boolean trialOk = trial != null && !trial.isExpired(now);
         boolean subOk = subscription != null && subscription.isEffective(now);
+        if (action == WriteAction.GENERATE_CREATIVE && !subOk) {
+            throw new DomainException(1904, "智能生成素材需先开通套餐");
+        }
         if (trialOk || subOk) {
             return;
         }

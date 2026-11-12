@@ -4,11 +4,11 @@ import java.time.Duration;
 
 public record TrialWindow(int days) {
 
-    public static TrialWindow sevenDays() {
-        return new TrialWindow(7);
+    public static TrialWindow threeDays() {
+        return new TrialWindow(3);
     }
 
     public Duration duration() {
-        return Duration.ofDays(days <= 0 ? 7 : days);
+        return Duration.ofDays(days <= 0 ? 3 : days);
     }
 }

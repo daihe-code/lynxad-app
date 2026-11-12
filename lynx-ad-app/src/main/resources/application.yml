@@ -46,7 +46,7 @@ management:
 lynx:
   ad:
     workspace-pricing:
-      enabled: ${LYNXAD_WORKSPACE_PRICING_ENABLED:false}
+      enabled: ${LYNXAD_WORKSPACE_PRICING_ENABLED:true}
     monitoring:
       api-key: ${LYNXAD_MONITORING_API_KEY:}
       engine-api-key: ${LYNXAD_ENGINE_API_KEY:}

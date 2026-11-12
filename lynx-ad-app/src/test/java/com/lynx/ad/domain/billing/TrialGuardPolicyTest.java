@@ -25,8 +25,9 @@ class TrialGuardPolicyTest {
     @Test
     void expiredBlocksWriteAllowsRead() {
         Instant start = Instant.parse("2026-01-01T00:00:00Z");
-        Trial trial = Trial.start(new TenantId("t1"), start, TrialWindow.sevenDays());
-        Instant expired = start.plusSeconds(8 * 24 * 3600);
+        Trial trial = Trial.start(new TenantId("t1"), start, TrialWindow.threeDays());
+        Instant expired = start.plusSeconds(3 * 24 * 3600);
+        assertTrue(trial.isActive(expired.minusSeconds(1)));
         assertTrue(trial.isExpired(expired));
         assertFalse(trial.isActive(expired));
         assertThrows(DomainException.class, () -> policy.assertWritable(trial, expired, WriteAction.PUBLISH));
@@ -36,15 +37,17 @@ class TrialGuardPolicyTest {
     @Test
     void activeAllowsWrite() {
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
-        Trial trial = Trial.start(new TenantId("t1"), now, TrialWindow.sevenDays());
+        Trial trial = Trial.start(new TenantId("t1"), now, TrialWindow.threeDays());
         assertDoesNotThrow(() -> policy.assertWritable(trial, now.plusSeconds(60), WriteAction.SAVE_PLAN));
+        assertEquals(1904, assertThrows(DomainException.class,
+                () -> policy.assertWritable(trial, now.plusSeconds(60), WriteAction.GENERATE_CREATIVE)).code());
     }
 
     @Test
     void expiredWithoutSubscriptionBlocksWithNewCopy() {
         Instant start = Instant.parse("2026-01-01T00:00:00Z");
-        Trial trial = Trial.start(new TenantId("t1"), start, TrialWindow.sevenDays());
-        Instant expired = start.plusSeconds(8 * 24 * 3600);
+        Trial trial = Trial.start(new TenantId("t1"), start, TrialWindow.threeDays());
+        Instant expired = start.plusSeconds(3 * 24 * 3600);
         DomainException ex = assertThrows(
                 DomainException.class, () -> policy.assertWritable(trial, null, expired, WriteAction.PUBLISH));
         assertEquals(1102, ex.code());
@@ -54,7 +57,7 @@ class TrialGuardPolicyTest {
     @Test
     void expiredTrialWithActiveSubscriptionAllowsWrite() {
         Instant now = Instant.parse("2026-02-01T00:00:00Z");
-        Trial trial = Trial.start(new TenantId("t1"), Instant.parse("2026-01-01T00:00:00Z"), TrialWindow.sevenDays());
+        Trial trial = Trial.start(new TenantId("t1"), Instant.parse("2026-01-01T00:00:00Z"), TrialWindow.threeDays());
         Subscription sub = new Subscription(
                 new TenantId("t1"),
                 PlanCode.PROFESSIONAL,
@@ -68,5 +71,6 @@ class TrialGuardPolicyTest {
                 now);
         assertTrue(trial.isExpired(now));
         assertDoesNotThrow(() -> policy.assertWritable(trial, sub, now, WriteAction.PUBLISH));
+        assertDoesNotThrow(() -> policy.assertWritable(trial, sub, now, WriteAction.GENERATE_CREATIVE));
     }
 }

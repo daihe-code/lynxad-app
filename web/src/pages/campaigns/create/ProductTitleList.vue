@@ -13,7 +13,7 @@
             <span class="copy-count">{{ (isEditing(group.kind,index) ? draft : text).length }}/{{ titleLimit(group.kind) }}</span>
           </div>
           <div v-if="!readOnly" class="copy-actions">
-            <button type="button" :disabled="busy" :aria-label="`重新生成${group.label} ${index+1}`" title="重新生成" @mousedown.prevent @click="regenerate(group.kind,index,text)"><ReferenceIcon name="refresh" /></button>
+            <button v-if="generationAllowed !== false" type="button" :disabled="busy" :aria-label="`重新生成${group.label} ${index+1}`" title="重新生成" @mousedown.prevent @click="regenerate(group.kind,index,text)"><ReferenceIcon name="refresh" /></button>
             <button type="button" :disabled="busy || values(group.kind).length <= 1" :aria-label="`删除${group.label} ${index+1}`" :title="values(group.kind).length <= 1 ? '当前类型至少保留一条投放标题' : '删除'" @mousedown.prevent @click="remove(group.kind,index)"><ReferenceIcon name="trash" /></button>
           </div>
         </div>
@@ -23,7 +23,7 @@
     </section>
     <p v-if="error || validationError" class="copy-error" role="alert">{{ error || validationError }}</p>
     <p v-if="!adding && generation?.message" class="copy-status" :class="{'copy-error':generation.status==='FAILED'}" role="status">{{ generation.message }}</p>
-    <AddTitleDialog v-if="adding" :kind="adding" :busy="busy" :generation="generation" :validate="text => additionError(adding!,text)" @close="adding=undefined" @add="(source,text,receipt) => emit('add',adding!,source,text,receipt)" />
+    <AddTitleDialog v-if="adding" :kind="adding" :busy="busy" :generation-allowed="generationAllowed" :generation="generation" :validate="text => additionError(adding!,text)" @close="adding=undefined" @add="(source,text,receipt) => emit('add',adding!,source,text,receipt)" />
   </div>
 </template>
 <script setup lang="ts">
@@ -34,7 +34,7 @@ import type { TitleSource, TitleAdditionReceipt } from '@/features/delivery/titl
 import AddTitleDialog from './AddTitleDialog.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 
-const props=defineProps<{materials:CreationMaterial[];pool?:ProductTitlesPool;busy:boolean;readOnly?:boolean;generation?:TitleGeneration}>();
+const props=defineProps<{materials:CreationMaterial[];pool?:ProductTitlesPool;busy:boolean;readOnly?:boolean;generationAllowed?:boolean;generation?:TitleGeneration}>();
 const emit=defineEmits<{save:[kind:TitleKind,titles:string[]];regenerate:[kind:TitleKind,index:number,original:string];add:[kind:TitleKind,source:TitleSource,text:string,receipt:TitleAdditionReceipt]}>();
 const groups: {kind:TitleKind;label:string;description:string}[]=[
   {kind:'CUSTOM',label:'标题',description:'配视频素材，在短视频信息流场景展示'},

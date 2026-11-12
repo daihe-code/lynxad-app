@@ -3,6 +3,7 @@
     <template v-if="overview">
       <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceAccountLabel(overview.role) }}</el-tag><span>千川账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
       <WorkspaceRecharge v-if="overview.role === 'OWNER'" @paid="load" />
+      <el-alert v-if="pointsWarning" class="wallet-warning" :title="pointsWarning" type="warning" show-icon :closable="false" />
       <section v-if="overview.wallet" class="wallet-grid" aria-label="工作空间积分">
         <div><span>可用积分</span><strong>{{ number(overview.wallet.available) }}</strong></div>
         <div><span>预占积分</span><strong>{{ number(overview.wallet.frozen) }}</strong></div>
@@ -30,6 +31,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/user';
 import WorkspaceRecharge from './WorkspaceRecharge.vue';
+import { getGenerationAccess, pointsBalanceWarning } from '@/features/billing/billingApi';
 import { workspaceOverview, workspaceAccounts, pointEntries, saveClientSpace, deleteClientSpace, assignClientSpace, workspaceAccountLabel, type WorkspaceOverview, type AccountBinding, type ClientSpace, type PointEntry } from '@/features/tenant/workspaceApi';
 const user = useUserStore(), overview = ref<WorkspaceOverview>(), accounts = ref<AccountBinding[]>([]), entries = ref<PointEntry[]>([]), page = ref(1), loading = ref(true);
 const canManage = computed(() => ['OWNER', 'ADMIN'].includes(overview.value?.role || ''));
@@ -37,7 +39,23 @@ const bindingStatus: Record<string, string> = { ACTIVE: '已绑定', REVIEW_REQU
 const entryTypes: Record<string, string> = { CREDIT: '入账', RESERVE: '预占', SETTLE: '结算', RELEASE: '释放', REFUND: '退回' };
 const number = (value: number) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
 async function loadEntries(next: number) { try { entries.value = await pointEntries(next); page.value = next; } catch { /* Keep current page on failure. */ } }
-async function load() { loading.value = true; try { overview.value = await workspaceOverview(); accounts.value = await workspaceAccounts(); if (overview.value.wallet) await loadEntries(1); } finally { loading.value = false; } }
+const pointsWarning = ref('');
+async function load() {
+  loading.value = true;
+  try {
+    overview.value = await workspaceOverview();
+    if (overview.value.wallet) {
+      const access = await getGenerationAccess().catch(() => undefined);
+      pointsWarning.value = pointsBalanceWarning(access);
+    } else {
+      pointsWarning.value = '';
+    }
+    accounts.value = await workspaceAccounts();
+    if (overview.value.wallet) await loadEntries(1);
+  } finally {
+    loading.value = false;
+  }
+}
 const clientDialog = ref(false), clientName = ref(''), clientError = ref(''), editing = ref<string>(), saving = ref(false);
 function editClient(client?: ClientSpace) { editing.value = client?.id; clientName.value = client?.name || ''; clientError.value = ''; clientDialog.value = true; }
 async function saveClient() { if (!clientName.value.trim()) { clientError.value = '请输入分组名称'; return; } saving.value = true; try { await saveClientSpace(clientName.value.trim(), editing.value); clientDialog.value = false; await load(); } finally { saving.value = false; } }
@@ -46,5 +64,5 @@ async function assign(account: AccountBinding, client: string) { await assignCli
 onMounted(() => { void load().catch(() => {}); });
 </script>
 <style scoped>
-.workspace-settings{color:#22243d}.workspace-heading,.section-heading{display:flex;align-items:center;gap:14px}.workspace-heading h2{font-size:20px;margin:0}.workspace-heading>span:last-child{margin-left:auto;color:#777b95;font-size:14px}.wallet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.wallet-grid>div{padding:20px;border-radius:14px;background:#f5f3ff;display:grid;gap:12px}.wallet-grid span{color:#777b95;font-size:14px}.wallet-grid strong{font-size:25px}.section-heading{justify-content:space-between}.client-groups{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}.client-groups>span{border:1px solid #e2e2f2;border-radius:10px;padding:8px 12px}.client-groups b{font-size:14px;font-weight:500}.ledger-pages{display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:16px}h3{font-size:16px;margin-top:28px}.field-error{font-size:13px;color:#f56c6c}@media(max-width:700px){.wallet-grid{grid-template-columns:1fr}.workspace-heading{flex-wrap:wrap}.workspace-heading>span:last-child{margin-left:0}}
+.wallet-warning{margin-top:16px}.workspace-settings{color:#22243d}.workspace-heading,.section-heading{display:flex;align-items:center;gap:14px}.workspace-heading h2{font-size:20px;margin:0}.workspace-heading>span:last-child{margin-left:auto;color:#777b95;font-size:14px}.wallet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.wallet-grid>div{padding:20px;border-radius:14px;background:#f5f3ff;display:grid;gap:12px}.wallet-grid span{color:#777b95;font-size:14px}.wallet-grid strong{font-size:25px}.section-heading{justify-content:space-between}.client-groups{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}.client-groups>span{border:1px solid #e2e2f2;border-radius:10px;padding:8px 12px}.client-groups b{font-size:14px;font-weight:500}.ledger-pages{display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:16px}h3{font-size:16px;margin-top:28px}.field-error{font-size:13px;color:#f56c6c}@media(max-width:700px){.wallet-grid{grid-template-columns:1fr}.workspace-heading{flex-wrap:wrap}.workspace-heading>span:last-child{margin-left:0}}
 </style>

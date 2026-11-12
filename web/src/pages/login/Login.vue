@@ -95,7 +95,7 @@
               </span>
               <div>
                 <h3 class="auth-feature__title">免费体验，满意再选订阅</h3>
-                <p class="auth-feature__desc">平台服务免费体验 7 天，体验后自主选择是否订阅。广告费仍由各媒体平台收取。</p>
+                <p class="auth-feature__desc">平台服务免费体验 3 天，体验后自主选择是否订阅。广告费仍由各媒体平台收取。</p>
               </div>
             </li>
           </ul>

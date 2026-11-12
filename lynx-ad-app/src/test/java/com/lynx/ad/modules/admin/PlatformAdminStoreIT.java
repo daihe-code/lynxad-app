@@ -84,7 +84,7 @@ class PlatformAdminStoreIT {
         entitlements = new EntitlementQueryService(subscriptions, trials, mock(PlanRepository.class));
         entitlements.workspacePricing(pricing);
         var points = new WorkspacePointOrders(pricing, null, foundation, mock(OrderRepository.class),
-                new PointWalletService(jdbc, foundation), jdbc, subscriptions, trials);
+                new PointWalletService(jdbc, foundation), jdbc, subscriptions);
         packages = new AdminPackageService(auth, admins, jdbc, json, points);
     }
     @AfterEach void clearContext(){TenantContext.clear();RequestMeta.clear();}
