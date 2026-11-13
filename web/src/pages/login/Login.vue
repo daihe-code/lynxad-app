@@ -291,7 +291,7 @@ let disposed = false;
 
 onMounted(() => {
   previousTitle = document.title;
-  document.title = "登录坤境智营 · 让每一位商家都能获得专家级投放效果";
+  document.title = "坤境智营";
 });
 onUnmounted(() => {
   disposed = true;
