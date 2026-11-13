@@ -341,6 +341,28 @@ class PlanListDisplayTest {
                 new Schedule(ScheduleType.FROM_NOW,LocalDate.of(2026,10,10),LocalDate.of(2036,10,10)),setting.audience()));
         assertNull(row().endDate());
     }
+    @Test void finishedPlanShowsThePlatformEndDateEvenIfLegacySyncSavedItAsLongRunning() throws Exception {
+        var start = LocalDate.of(2026, 11, 3);
+        var end = LocalDate.of(2026, 11, 12);
+        var setting = plan.setting();
+        plan.updateSetting(new DeliverySetting(setting.bidType(), setting.dailyBudget(), setting.roi2Goal(),
+                new Schedule(ScheduleType.FROM_NOW, start, end), setting.audience()));
+        plan.apply(PlanStatus.FINISHED);
+        plan.syncPlatformStatus("TIME_DONE");
+        var payload = json.readTree("""
+                {"ad_info":{"status":"TIME_DONE","start_time":"2026-11-03 00:00:00","end_time":"2026-11-12 23:59:59"}}
+                """);
+        when(remote.list(tenant)).thenReturn(Map.of(id.value(),
+                new PlanRemoteStore.Remote(id.value(), payload, null, null, Instant.now(), null, null, null, null)));
+        when(plans.findById(tenant, id)).thenReturn(Optional.of(plan));
+
+        var row = row();
+        assertEquals("FINISHED", row.status());
+        assertEquals(start, row.startDate());
+        assertEquals(end, row.endDate());
+        assertEquals(end, query.get(tenant, id).endDate());
+        verify(plans, never()).save(any());
+    }
     @Test void explicitCustomDatesInDetailOverrideAnOlderLongRunningListResponse() throws Exception {
         var payload=json.readTree("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_FROM_NOW\",\"end_time\":\"2036-10-10 23:59:59\"}}");
         var detail=json.readTree("{\"delivery_setting\":{\"video_schedule_type\":\"SCHEDULE_START_END\",\"start_time\":\"2026-10-23 00:00:00\",\"end_time\":\"2036-10-23 23:59:59\"}}");

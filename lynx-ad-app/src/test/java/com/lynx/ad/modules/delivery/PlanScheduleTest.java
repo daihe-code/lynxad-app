@@ -20,4 +20,17 @@ class PlanScheduleTest {
         for(String raw:new String[]{"{}","{\"video_schedule_type\":\"NEW_TYPE\"}","{\"video_schedule_type\":\"SCHEDULE_START_END\",\"end_time\":\"invalid\"}"})assertFalse(PlanSchedule.complete(json.readTree(raw)));
         assertEquals(saved,PlanSchedule.read(json.createObjectNode(),saved));
     }
+    @Test void tenYearEndWithoutTypeUsesSavedCustomDatesWhenAvailable() {
+        var start = LocalDate.of(2026, 10, 19);
+        var end = start.plusYears(10);
+        var setting = json.createObjectNode().put("start_time", start.toString()).put("end_time", end.toString());
+        var custom = new Schedule(ScheduleType.DATE_RANGE, start, end);
+        var longTerm = new Schedule(ScheduleType.FROM_NOW, start, null);
+
+        assertEquals(longTerm, PlanSchedule.read(setting, longTerm));
+        assertEquals(custom, PlanSchedule.read(setting, custom));
+        assertFalse(PlanSchedule.complete(setting));
+        setting.put("video_schedule_type", "SCHEDULE_START_END");
+        assertEquals(custom, PlanSchedule.read(setting, longTerm));
+    }
 }

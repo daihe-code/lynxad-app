@@ -14,6 +14,7 @@ import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.mockito.ArgumentCaptor;
@@ -59,6 +60,28 @@ class PlanAwemeSyncTest {
         when(management.detail(credential,"123")).thenReturn(json.readTree("{\"ad_id\":123,\"aweme_id\":4034544334551504}"));
         sync.sync(tenant,account.value());var capture=ArgumentCaptor.forClass(AdPlan.class);verify(plans).save(capture.capture());
         assertEquals("4034544334551504",capture.getValue().awemeId().value());assertEquals(account,capture.getValue().accountId());
+    }
+    @Test void listSyncPersistsFiniteDatesAndKeepsThemWhenALaterResponseOmitsThem() throws Exception {
+        var payload = json.readTree("""
+                {"ad_info":{"id":123,"aweme_id":"4034544334551504","start_time":"2026-11-03 00:00:00","end_time":"2026-11-12 23:59:59"}}
+                """);
+        var sparse = json.readTree("{\"ad_info\":{\"id\":123}}");
+        var budget = Money.ofYuan(300);
+        when(list.listIncludingDeleted(credential, null)).thenReturn(
+                List.of(new OceanPlanRow("123", "历史计划", "TIME_DONE", SmartBidType.CUSTOM, budget, null, null, payload)),
+                List.of(new OceanPlanRow("123", "历史计划", "TIME_DONE", SmartBidType.CUSTOM, budget, null, null, sparse)));
+        when(plans.findByTenant(tenant)).thenReturn(List.of());
+
+        assertEquals(1, sync.sync(tenant, account.value()).accounts().getFirst().plans());
+        var captured = ArgumentCaptor.forClass(AdPlan.class);
+        verify(plans).save(captured.capture());
+        var imported = captured.getValue();
+        var expected = new Schedule(ScheduleType.DATE_RANGE, LocalDate.of(2026, 11, 3), LocalDate.of(2026, 11, 12));
+        assertEquals(expected, imported.setting().schedule());
+        when(plans.findByTenant(tenant)).thenReturn(List.of(imported));
+
+        assertEquals(1, sync.sync(tenant, account.value()).accounts().getFirst().plans());
+        assertEquals(expected, imported.setting().schedule());
     }
     @Test void wrongPlanDetailCannotRepairBindingAndFailureDoesNotDiscardListData() throws Exception {
         when(management.detail(credential,"123")).thenReturn(json.readTree("{\"ad_id\":456,\"aweme_id\":4034544334551504}"));

@@ -5,6 +5,7 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.*;
+import com.lynx.ad.modules.delivery.domain.service.PlanSchedule;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanPlanMapping;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanRemoteStore;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
@@ -75,9 +76,9 @@ public class PlanSyncService {
                         if(sourceInAccount && row.qcPlanId().equals(attempt.qcId())) {id=attempt.target();break;}
                     }
                     final String physicalId=id;
+                    var previousSchedule = existing == null ? new Schedule(ScheduleType.FROM_NOW, null, null) : existing.setting().schedule();
                     var delivery=new DeliverySetting(row.bidType(),row.budget(),Optional.ofNullable(QianchuanPlanMapping.number(setting,"roi2_goal")).map(RoiGoal::new),
-                            com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,
-                                    new Schedule(ScheduleType.FROM_NOW,QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"start_time")),QianchuanPlanMapping.date(QianchuanPlanMapping.text(setting,"end_time")))),AudienceJson.empty());
+                            PlanSchedule.read(setting, previousSchedule),AudienceJson.empty());
                     if(existing==null) {
                         String aweme=QianchuanPlanMapping.awemeId(row.payload());
                         existing=new AdPlan(new PlanId(id),tenant,account.id(),new AwemeId(aweme==null?"unknown":aweme),
