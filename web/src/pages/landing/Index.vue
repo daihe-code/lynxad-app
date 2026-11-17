@@ -655,7 +655,7 @@ const contactInfo = reactive({ phone: "18801061264", email: CONTACT_EMAIL });
 const contactModal = ref<HTMLElement | null>(null);
 const contactPhone = ref<HTMLInputElement | null>(null);
 let lastFocus: HTMLElement | null = null;
-let previousOverflow = "", previousTitle = "";
+let previousOverflow = "";
 let description: HTMLMetaElement | null = null;
 let previousDescription: string | null = null;
 let ownsDescription = false;
@@ -748,8 +748,6 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  previousTitle = document.title;
-  document.title = "坤境智营 · 让广告投出效果｜智能广告投放专家";
   description = document.querySelector('meta[name="description"]');
   if (!description) {
     description = document.createElement("meta");
@@ -776,7 +774,6 @@ onUnmounted(() => {
   disposed = true;
   document.removeEventListener("keydown", handleKeydown);
   if (contactOpen.value) document.body.style.overflow = previousOverflow;
-  document.title = previousTitle;
   if (ownsDescription) description?.remove();
   else if (previousDescription !== null) description?.setAttribute("content", previousDescription);
   else description?.removeAttribute("content");
