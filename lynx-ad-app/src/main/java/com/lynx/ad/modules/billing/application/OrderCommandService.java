@@ -144,21 +144,6 @@ public class OrderCommandService {
         throw new BizException(1607, "升级目标不高于当前档");
     }
 
-    @Transactional
-    public OrderView close(TenantId tenantId, String orderId) {
-        workspace.ensure(tenantId.value());
-        BillingOrder order = orderRepository
-                .findById(tenantId, orderId)
-                .orElseThrow(() -> new BizException(1604, "订单不存在"));
-        if (order.type() == OrderType.POINT_RECHARGE) throw new BizException(1603,"积分充值单不支持通过套餐订单关闭");
-        if (order.status() != OrderStatus.PENDING_PAY) {
-            throw new BizException(1603, "订单状态不允许关闭");
-        }
-        order.close();
-        orderRepository.save(order);
-        return OrderView.from(order);
-    }
-
     public OrderView pending(TenantId tenantId) {
         return orderRepository.findPendingPay(tenantId).map(OrderView::from).orElse(null);
     }

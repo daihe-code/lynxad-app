@@ -54,6 +54,11 @@ public class WorkspacePointOrders {
                 .map(OrderView::from).orElseThrow(() -> new BizException(1604,"订单不存在"));
     }
 
+    public OrderView pending() {
+        var owner = access.require(MemberRole.OWNER);
+        return orders.findPendingRecharge(new TenantId(owner.tenantId())).map(OrderView::from).orElse(null);
+    }
+
     @Transactional
     public OrderView create(String code, String key) {
         var owner = access.require(MemberRole.OWNER);

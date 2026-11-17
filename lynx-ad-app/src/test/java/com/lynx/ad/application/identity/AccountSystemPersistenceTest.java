@@ -280,7 +280,7 @@ public class AccountSystemPersistenceTest {
         when(payments.findByIdOnly(payment.id())).thenReturn(Optional.of(payment));
         var paymentGateway=mock(PaymentPort.class);
         var checkout=new PaymentCommandService(orders,payments,mock(SubscriptionRepository.class),subscriptions,
-                paymentGateway,null,null,null,null);
+                paymentGateway,null,null,null,null,null);
         org.springframework.test.util.ReflectionTestUtils.setField(checkout,"pointOrders",recharge);
         org.springframework.test.util.ReflectionTestUtils.setField(checkout,"foundation",foundation);
         when(paymentGateway.parseAndVerifyNotify(eq("callback"),anyMap()))

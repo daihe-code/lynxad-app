@@ -558,6 +558,7 @@ public class LynxAdProperties {
         private String mode = "mock";
         private String timezone = "Asia/Shanghai";
         private Wechat wechat = new Wechat();
+        private Alipay alipay = new Alipay();
 
         public String getMode() {
             return mode;
@@ -583,13 +584,18 @@ public class LynxAdProperties {
             this.wechat = wechat;
         }
 
+        public Alipay getAlipay() { return alipay; }
+        public void setAlipay(Alipay alipay) { this.alipay = alipay; }
+
         public boolean isMock() {
-            return !"live".equalsIgnoreCase(mode);
+            return "mock".equalsIgnoreCase(mode);
         }
 
         public boolean isLive() {
             return "live".equalsIgnoreCase(mode);
         }
+
+        public boolean isAlipay() { return "alipay".equalsIgnoreCase(mode); }
 
         public boolean isLiveConfigured() {
             return notBlank(wechat.appId)
@@ -600,6 +606,44 @@ public class LynxAdProperties {
 
         private static boolean notBlank(String s) {
             return s != null && !s.isBlank();
+        }
+    }
+
+    public static class Alipay {
+        private String gateway = "https://openapi.alipay.com/gateway.do";
+        private String appId = "";
+        private String sellerId = "";
+        private String privateKey = "";
+        private String publicKey = "";
+        private String appCertPath = "";
+        private String alipayCertPath = "";
+        private String rootCertPath = "";
+        private String notifyUrl = "";
+        private String returnOrigin = "";
+
+        public String getGateway() { return gateway; }
+        public void setGateway(String gateway) { this.gateway = gateway; }
+        public String getAppId() { return appId; }
+        public void setAppId(String appId) { this.appId = appId; }
+        public String getSellerId() { return sellerId; }
+        public void setSellerId(String sellerId) { this.sellerId = sellerId; }
+        public String getPrivateKey() { return privateKey; }
+        public void setPrivateKey(String privateKey) { this.privateKey = privateKey; }
+        public String getPublicKey() { return publicKey; }
+        public void setPublicKey(String publicKey) { this.publicKey = publicKey; }
+        public String getAppCertPath() { return appCertPath; }
+        public void setAppCertPath(String appCertPath) { this.appCertPath = appCertPath; }
+        public String getAlipayCertPath() { return alipayCertPath; }
+        public void setAlipayCertPath(String alipayCertPath) { this.alipayCertPath = alipayCertPath; }
+        public String getRootCertPath() { return rootCertPath; }
+        public void setRootCertPath(String rootCertPath) { this.rootCertPath = rootCertPath; }
+        public String getNotifyUrl() { return notifyUrl; }
+        public void setNotifyUrl(String notifyUrl) { this.notifyUrl = notifyUrl; }
+        public String getReturnOrigin() { return returnOrigin; }
+        public void setReturnOrigin(String returnOrigin) { this.returnOrigin = returnOrigin; }
+
+        public boolean isCertificateMode() {
+            return !appCertPath.isBlank() || !alipayCertPath.isBlank() || !rootCertPath.isBlank();
         }
     }
 

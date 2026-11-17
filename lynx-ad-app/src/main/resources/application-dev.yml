@@ -51,7 +51,7 @@ lynx:
         redirect-uri: ${QIANCHUAN_REDIRECT_URI:http://localhost:8080/lynx-ad/api/v1/identity/oauth/callback}
         authorize-url: ${QIANCHUAN_AUTHORIZE_URL:https://qianchuan.jinritemai.com/openapi/qc/audit/oauth.html}
     payment:
-      mode: live
+      mode: ${LYNX_PAYMENT_MODE:live}
       timezone: Asia/Shanghai
       wechat:
         app-id: ${WECHAT_PAY_APP_ID:}

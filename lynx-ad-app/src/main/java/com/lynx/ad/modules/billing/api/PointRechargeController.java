@@ -3,6 +3,7 @@ package com.lynx.ad.modules.billing.api;
 import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.billing.application.GenerationCharges;
+import com.lynx.ad.modules.billing.application.PaymentCommandService;
 import com.lynx.ad.modules.billing.application.WorkspacePointOrders;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,9 +12,11 @@ import org.springframework.web.bind.annotation.*;
 public class PointRechargeController {
     private final WorkspacePointOrders orders;
     private final GenerationCharges generation;
-    public PointRechargeController(WorkspacePointOrders orders, GenerationCharges generation) {
+    private final PaymentCommandService payments;
+    public PointRechargeController(WorkspacePointOrders orders, GenerationCharges generation, PaymentCommandService payments) {
         this.orders = orders;
         this.generation = generation;
+        this.payments = payments;
     }
     @GetMapping("/generation-access")
     public ApiResponse<GenerationCharges.Access> generationAccess() {
@@ -28,4 +31,12 @@ public class PointRechargeController {
     }
     @GetMapping("/orders/{id}")
     public ApiResponse<?> status(@PathVariable String id) { return ApiResponse.ok(orders.status(id)); }
+
+    @GetMapping("/orders/pending")
+    public ApiResponse<?> pending() { return ApiResponse.ok(orders.pending()); }
+
+    @PostMapping("/orders/{id}/close")
+    public ApiResponse<?> close(@PathVariable String id) {
+        return ApiResponse.ok(payments.close(TenantContext.requireTenantId(), id, true));
+    }
 }

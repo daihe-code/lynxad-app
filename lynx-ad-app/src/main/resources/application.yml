@@ -45,6 +45,18 @@ management:
 # 开发、试用、正式共用这棵树。本机 dev 用字面量覆盖两枝连接。
 lynx:
   ad:
+    payment:
+      alipay:
+        gateway: ${ALIPAY_GATEWAY:https://openapi.alipay.com/gateway.do}
+        app-id: ${ALIPAY_APP_ID:}
+        seller-id: ${ALIPAY_SELLER_ID:}
+        private-key: ${ALIPAY_PRIVATE_KEY:}
+        public-key: ${ALIPAY_PUBLIC_KEY:}
+        app-cert-path: ${ALIPAY_APP_CERT_PATH:}
+        alipay-cert-path: ${ALIPAY_PUBLIC_CERT_PATH:}
+        root-cert-path: ${ALIPAY_ROOT_CERT_PATH:}
+        notify-url: ${ALIPAY_NOTIFY_URL:}
+        return-origin: ${ALIPAY_RETURN_ORIGIN:}
     workspace-pricing:
       enabled: ${LYNXAD_WORKSPACE_PRICING_ENABLED:true}
     monitoring:

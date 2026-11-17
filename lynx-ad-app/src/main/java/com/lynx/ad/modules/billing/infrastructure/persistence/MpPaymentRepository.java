@@ -3,6 +3,7 @@ package com.lynx.ad.modules.billing.infrastructure.persistence;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.modules.billing.domain.model.BillingPayment;
@@ -10,6 +11,9 @@ import com.lynx.ad.modules.billing.domain.model.PayChannel;
 import com.lynx.ad.modules.billing.domain.model.PaymentStatus;
 import com.lynx.ad.modules.billing.domain.port.PaymentRepository;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
@@ -143,6 +147,21 @@ public class MpPaymentRepository implements PaymentRepository {
     @Override
     public Optional<BillingPayment> findByIdOnly(String paymentId) {
         return Optional.ofNullable(mapper.selectById(paymentId)).map(this::toDomain);
+    }
+
+    @Override
+    public Map<String, PayChannel> findSucceededChannels(TenantId tenantId, List<String> orderIds) {
+        if (orderIds.isEmpty()) return Map.of();
+        var channels = new HashMap<String, PayChannel>();
+        for (var row : mapper.selectList(new LambdaQueryWrapper<BillingPaymentPo>()
+                .select(BillingPaymentPo::getOrderId, BillingPaymentPo::getChannel)
+                .eq(BillingPaymentPo::getTenantId, tenantId.value())
+                .in(BillingPaymentPo::getOrderId, orderIds)
+                .eq(BillingPaymentPo::getStatus, PaymentStatus.SUCCEEDED.name())
+                .orderByDesc(BillingPaymentPo::getCompletedAt))) {
+            channels.putIfAbsent(row.getOrderId(), PayChannel.valueOf(row.getChannel()));
+        }
+        return channels;
     }
 
     private static BillingPaymentPo toPo(BillingPayment payment) {

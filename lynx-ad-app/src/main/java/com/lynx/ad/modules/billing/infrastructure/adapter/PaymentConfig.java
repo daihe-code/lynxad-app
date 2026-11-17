@@ -13,9 +13,10 @@ public class PaymentConfig {
     @Primary
     public PaymentPort paymentPort(
             LynxAdProperties properties, MockPaymentAdapter mock, WechatPaymentAdapter wechat) {
-        if (properties.getPayment().isMock()) {
-            return mock;
-        }
-        return wechat;
+        return switch (properties.getPayment().getMode().toLowerCase(java.util.Locale.ROOT)) {
+            case "mock" -> mock;
+            case "live", "alipay" -> wechat;
+            default -> throw new IllegalArgumentException("Unknown payment mode");
+        };
     }
 }

@@ -88,6 +88,22 @@ export function createPayment(orderId: string) {
   return apiPost<PaymentView>("/api/v1/billing/payments", { orderId });
 }
 
+export function checkOrderPayment(orderId: string) {
+  return apiPost<OrderView>(`/api/v1/billing/orders/${encodeURIComponent(orderId)}/check-payment`, {});
+}
+
+export function alipayCheckoutUrl(payment?: PaymentView) {
+  if (payment?.channel !== 'ALIPAY' || !payment.codeUrl) return undefined;
+  try {
+    const url = new URL(payment.codeUrl);
+    const gateways = ['openapi.alipay.com', 'openapi.alipaydev.com', 'openapi-sandbox.dl.alipaydev.com'];
+    if (url.protocol === 'https:' && !url.username && !url.password
+        && gateways.includes(url.hostname) && url.pathname === '/gateway.do') return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export function mockComplete(paymentId: string, success: boolean, nonce: string) {
   return apiPost<PaymentView>(`/api/v1/billing/payments/${paymentId}/mock-complete`, { success, nonce });
 }
@@ -113,3 +129,5 @@ export const rechargeOptions = () => apiGet<RechargeOption[]>('/api/v1/billing/p
 export const createRecharge = (code: string, key: string) =>
   apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
 export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);
+export const pendingRecharge = () => apiGet<OrderView | null>('/api/v1/billing/points/orders/pending');
+export const closeRecharge = (id: string) => apiPost<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}/close`, {});

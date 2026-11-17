@@ -12,7 +12,11 @@ public interface OrderRepository {
 
     Optional<BillingOrder> findById(TenantId tenantId, String orderId);
 
+    Optional<BillingOrder> findByIdForUpdate(TenantId tenantId, String orderId);
+
     Optional<BillingOrder> findPendingPay(TenantId tenantId);
+
+    Optional<BillingOrder> findPendingRecharge(TenantId tenantId);
 
     boolean hasPaidPlan(TenantId tenantId, PlanCode planCode);
 

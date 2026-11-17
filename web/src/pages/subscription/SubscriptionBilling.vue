@@ -4,7 +4,7 @@
   <template v-else>
     <section class="acct-card">
       <div class="acct-card__hd"><h2 class="acct-card__t">当前订阅</h2><button class="acct-card__a" @click="scrollPlans">变更套餐 <AccountIcon name="arrow-right" /></button></div>
-      <div class="acct-card__b planhero"><p class="planhero__en">CURRENT PLAN</p><p class="planhero__t">{{ sub?.planName || '—' }} {{ englishName(sub?.planCode) }}</p><p class="planhero__p"><span class="planhero__num">{{ money(sub?.listPriceYuan) }}</span><span class="planhero__unit">/ 月</span><span class="planhero__off">{{ !sub?.hasPaidSubscription ? trialLabel : sub?.discountLabel }}</span></p><div class="planhero__m"><div><p class="planhero__k">{{ sub?.hasPaidSubscription ? '计费周期' : '试用到期' }}</p><p class="planhero__v">{{ sub?.hasPaidSubscription ? `${date(sub.periodStart)} ~ ${date(sub.periodEnd)}` : date(user.me?.trialExpiresAt) }}</p></div><div><p class="planhero__k">剩余天数</p><p class="planhero__v">{{ sub?.remainingDays ?? 0 }} 天</p></div><div><p class="planhero__k">自动续费</p><p class="planhero__v"><button v-if="sub?.hasPaidSubscription && canManage" class="account-renew" :disabled="renewing" @click="toggleRenew">{{ renewing ? '更新中…' : sub.autoRenew ? '已开启' : '已关闭' }} <AccountIcon name="caret" /></button><span v-else>{{ sub?.hasPaidSubscription ? (sub.autoRenew ? '已开启' : '已关闭') : '试用期不扣费' }}</span></p></div><div><p class="planhero__k">支付方式</p><p class="planhero__v">{{ payMethod(sub?.payMethod) }}</p></div></div></div>
+      <div class="acct-card__b planhero"><p class="planhero__en">CURRENT PLAN</p><p class="planhero__t">{{ sub?.planName || '—' }} {{ englishName(sub?.planCode) }}</p><p class="planhero__p"><span class="planhero__num">{{ money(sub?.listPriceYuan) }}</span><span class="planhero__unit">/ 月</span><span class="planhero__off">{{ !sub?.hasPaidSubscription ? trialLabel : sub?.discountLabel }}</span></p><div class="planhero__m"><div><p class="planhero__k">{{ sub?.hasPaidSubscription ? '计费周期' : '试用到期' }}</p><p class="planhero__v">{{ sub?.hasPaidSubscription ? `${date(sub.periodStart)} ~ ${date(sub.periodEnd)}` : date(user.me?.trialExpiresAt) }}</p></div><div><p class="planhero__k">剩余天数</p><p class="planhero__v">{{ sub?.remainingDays ?? 0 }} 天</p></div><div><p class="planhero__k">自动续费</p><p class="planhero__v"><span v-if="sub?.payMethod === 'ALIPAY'">手动续费</span><button v-else-if="sub?.hasPaidSubscription && canManage" class="account-renew" :disabled="renewing" @click="toggleRenew">{{ renewing ? '更新中…' : sub.autoRenew ? '已开启' : '已关闭' }} <AccountIcon name="caret" /></button><span v-else>{{ sub?.hasPaidSubscription ? (sub.autoRenew ? '已开启' : '已关闭') : '试用期不扣费' }}</span></p></div><div><p class="planhero__k">支付方式</p><p class="planhero__v">{{ payMethod(sub?.payMethod) }}</p></div></div></div>
       <div v-if="pendingOrder" class="account-pending-order"><p>有一笔待支付订单，应付 {{ money(pendingOrder.payableYuan) }}</p><div v-if="canManage"><button class="obtn obtn--primary" :disabled="busy" @click="resumePayment">继续支付</button><button class="obtn" :disabled="busy" @click="cancelOpen = true">取消订单</button></div></div>
     </section>
     <section ref="plansRef" class="acct-card"><h2 class="acct-card__t">套餐方案对比</h2><div class="acct-card__b plancards"><article v-for="p in plans" :key="p.code" class="plancard" :class="{ 'plancard--cur': p.current }"><span v-if="p.current" class="plancard__tag">当前套餐</span><h3 class="plancard__t">{{ p.name }}</h3><p class="plancard__p"><span class="plancard__num">{{ money(p.listPriceYuan) }}</span><span class="plancard__unit">/月</span></p><p class="plancard__d">{{ p.suitableFor }}</p><ul class="plancard__ul"><li v-if="p.periodPoints > 0" class="plancard__li"><AccountIcon name="check" /><span>每计费周期赠送 {{ p.periodPoints.toLocaleString('zh-CN') }} 积分</span></li><li v-for="benefit in p.benefits" :key="benefit" class="plancard__li"><AccountIcon name="check" /><span>{{ benefit }}</span></li></ul><button v-if="canManage || p.action === 'CURRENT'" class="planbtn" :class="p.action === 'CURRENT' ? 'planbtn--cur' : p.action === 'DOWNGRADE' ? 'planbtn--ghost' : 'planbtn--primary'" :disabled="p.action === 'CURRENT' || busy" @click="onPlan(p)">{{ actionLabel(p) }}</button></article></div><p class="acct-hint">套餐按月计费，升级差价以订单结算为准；降级于当前计费周期结束后生效。</p></section>
@@ -13,8 +13,13 @@
   <AccountModal v-if="selectedPlan && !payOpen && !cancelOpen" :title="selectedPlan.action === 'DOWNGRADE' ? `降级至${selectedPlan.name}` : `${selectedPlan.action === 'SUBSCRIBE' ? '订阅' : '升级至'}${selectedPlan.name}`" :description="selectedPlan.action === 'DOWNGRADE' ? `当前套餐可使用至 ${date(sub?.periodEnd)}，降级将在本周期结束后生效，不退还当前周期费用。请确认目标套餐的广告账户上限与权益。` : `目标套餐 ${money(selectedPlan.listPriceYuan)} / 月。提交后将生成订单，实际应付金额以订单为准；支付完成后生效。`" small :busy="busy" @close="closePlan">
     <p v-if="error" class="account-error" role="alert">{{ error }}</p><template #footer><button class="btn-modal-ghost" :disabled="busy" @click="closePlan">取消</button><button class="btn-modal-primary" :disabled="busy" @click="confirmPlan">{{ busy ? '处理中…' : selectedPlan.action === 'DOWNGRADE' ? '确认降级' : '确认并支付' }}</button></template>
   </AccountModal>
-  <AccountModal v-if="payOpen" title="确认支付" :description="payment?.mockReady ? '演示支付，不会产生真实扣款。' : '请通过订单支付渠道完成支付。'" small :busy="busy" @close="closePayment">
-    <p class="account-payment-amount">应付 {{ money(pendingYuan) }}</p><img v-if="paymentQr" :src="paymentQr" width="220" height="220" class="mx-auto" alt="微信支付二维码" /><p v-else-if="safePaymentUrl && !payment?.mockReady" class="acct-hint">请打开支付链接完成支付：<a class="link-act" :href="safePaymentUrl" target="_blank" rel="noopener noreferrer">前往支付</a></p><p v-else-if="!payment?.mockReady" class="acct-hint">当前支付通道尚未提供支付链接，请稍后重试。</p><p v-if="error" class="account-error" role="alert">{{ error }}</p>
+  <AccountModal v-if="payOpen" title="确认支付" :description="payment?.mockReady ? '演示支付，不会产生真实扣款。' : undefined" small :busy="busy" @close="closePayment">
+    <p class="account-payment-amount">应付 {{ money(pendingYuan) }}</p>
+    <a v-if="payment?.channel === 'ALIPAY' && safePaymentUrl" class="obtn obtn--primary" :href="safePaymentUrl" target="_blank" rel="noopener noreferrer">前往支付宝扫码</a>
+    <img v-else-if="paymentQr" :src="paymentQr" width="220" height="220" class="mx-auto" alt="微信支付二维码" />
+    <p v-else-if="safePaymentUrl && !payment?.mockReady" class="acct-hint"><a class="link-act" :href="safePaymentUrl" target="_blank" rel="noopener noreferrer">前往支付</a></p>
+    <p v-else-if="!payment?.mockReady" class="acct-hint">支付链接不可用，请查询订单状态。</p>
+    <p v-if="error" class="account-error" role="alert">{{ error }}</p>
     <template #footer><button class="btn-modal-ghost" :disabled="busy" @click="closePayment">关闭</button><template v-if="payment?.mockReady && payment.mockNonce"><button class="btn-modal-ghost" :disabled="busy" @click="confirmPay(false)">模拟失败</button><button class="btn-modal-primary" :disabled="busy" @click="confirmPay(true)">{{ busy ? '处理中…' : '确认演示支付' }}</button></template><button v-else class="btn-modal-primary" :disabled="busy" @click="checkPayment">刷新支付状态</button></template>
   </AccountModal>
   <AccountModal v-if="cancelOpen && pendingOrder" title="取消待支付订单" description="确定取消这笔订单？取消后可重新选择套餐，已支付的订阅不受影响。" small :busy="busy" @close="cancelOpen = false"><p v-if="error" class="account-error" role="alert">{{ error }}</p><template #footer><button class="btn-modal-ghost" :disabled="busy" @click="cancelOpen = false">返回</button><button class="btn-modal-primary" :disabled="busy" @click="cancelPending">{{ busy ? '处理中…' : '确认取消订单' }}</button></template></AccountModal>
@@ -24,7 +29,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';
-import { createOrder, createPayment, getSubscription, listBills, listPlans, mockComplete, patchAutoRenew, getPendingOrder, closeOrder, type OrderView, type BillItem, type PlanItem, type SubscriptionView, type PaymentView } from '@/features/billing/billingApi';
+import { alipayCheckoutUrl, checkOrderPayment, createOrder, createPayment, getSubscription, listBills, listPlans, mockComplete, patchAutoRenew, getPendingOrder, closeOrder, type OrderView, type BillItem, type PlanItem, type SubscriptionView, type PaymentView } from '@/features/billing/billingApi';
 import AccountIcon from '@/pages/accounts/AccountIcon.vue';
 import AccountModal from '@/pages/accounts/AccountModal.vue';
 import { csvDownload, date } from '@/pages/accounts/accountFormat';
@@ -37,7 +42,9 @@ const pendingOrder = ref<OrderView | null>(null), cancelOpen = ref(false);
 const aliases: Record<string, string> = { basic: 'BASIC', pro: 'PROFESSIONAL', flagship: 'FLAGSHIP' };
 const selectedPlan = computed(() => canManage.value ? plans.value.find(p => p.code === (aliases[String(route.query.plan)] || route.query.plan) && p.action !== 'CURRENT') : undefined);
 const trialLabel = computed(() => user.me?.trialStatusLabel || (user.trialActive ? '试用中' : '试用已结束'));
-const safePaymentUrl = computed(() => { try {
+const safePaymentUrl = computed(() => {
+    if (payment.value?.channel === 'ALIPAY') return alipayCheckoutUrl(payment.value);
+    try {
     const url = new URL(payment.value?.codeUrl || '');
     return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined;
 }
@@ -46,7 +53,10 @@ catch {
 } });
 function money(value?: number) { return value == null ? '—' : `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`; }
 function englishName(code?: string) { return ({ BASIC: 'Basic', PROFESSIONAL: 'Pro', FLAGSHIP: 'Flagship' } as Record<string, string>)[code || ''] || ''; }
-function payMethod(raw?: string | null) { return raw === 'WECHAT' || raw === 'WX' ? '微信支付' : raw || '—'; }
+function payMethod(raw?: string | null) {
+    const labels: Record<string, string> = { ALIPAY: '支付宝', WECHAT: '微信支付', WX: '微信支付', MOCK: '演示支付', ADMIN: '后台调整' };
+    return raw ? labels[raw] ?? raw : '—';
+}
 function actionLabel(p: PlanItem) { return p.action === 'CURRENT' ? '当前使用' : `${p.action === 'DOWNGRADE' ? '降级至' : p.action === 'UPGRADE' ? '升级至' : '订阅'}${p.name}`; }
 async function reload() { loading.value = true; loadError.value = ''; try {
     const [s, p, b, o] = await Promise.all([getSubscription(), listPlans(), listBills(), getPendingOrder()]);
@@ -144,25 +154,34 @@ finally {
 } }
 async function cancelPending() { if (!pendingOrder.value || busy.value)
     return; busy.value = true; error.value = ''; try {
-    await closeOrder(pendingOrder.value.orderId);
+    const result = await closeOrder(pendingOrder.value.orderId);
     cancelOpen.value = false;
     payOpen.value = false;
     await reload();
-    ElMessage.success('订单已取消');
+    ElMessage.success(result.status === 'PAID' ? '订单已支付' : '订单已取消');
 }
 catch {
-    error.value = '取消订单失败，请重试';
+    error.value = '订单未取消，请查看支付状态后重试';
 }
 finally {
     busy.value = false;
 } }
-async function checkPayment() { busy.value = true; try {
+async function checkPayment() {
+    if (!pendingOrder.value || busy.value) return;
+    busy.value = true;
+    error.value = '';
+    try {
+    const checked = await checkOrderPayment(pendingOrder.value.orderId);
     await reload();
-    if (!pendingOrder.value) {
+    if (checked.status !== 'PENDING_PAY') {
         busy.value = false;
         closePayment();
     }
-    ElMessage.info('订阅与账单状态已更新');
+    if (checked.status === 'PAID') ElMessage.success('支付成功');
+    else ElMessage.info(checked.status === 'CLOSED' ? '订单已关闭' : '尚未收到支付结果');
+}
+catch {
+    error.value = '暂时无法核对支付结果，请重试';
 }
 finally {
     busy.value = false;

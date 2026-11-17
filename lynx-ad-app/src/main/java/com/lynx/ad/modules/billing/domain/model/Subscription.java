@@ -58,7 +58,11 @@ public class Subscription {
         this.paidFenThisPeriod = paidFen;
         this.nextPlanCode = null;
         this.updatedAt = now;
-        this.payMethod = "WECHAT";
+    }
+
+    public void recordPaymentMethod(PayChannel channel) {
+        this.payMethod = channel.name();
+        if (channel == PayChannel.ALIPAY) this.autoRenew = false;
     }
 
     public void upgradeInPeriod(PlanCode code, int extraFen, Instant now) {

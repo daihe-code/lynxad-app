@@ -20,6 +20,8 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -87,7 +90,12 @@ public class BillingSubscriptionController {
     public ApiResponse<OrderView> close(
             @PathVariable String orderId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
-        return ApiResponse.ok(orderCommandService.close(TenantContext.requireTenantId(), orderId));
+        return ApiResponse.ok(paymentCommandService.close(TenantContext.requireTenantId(), orderId, false));
+    }
+
+    @PostMapping("/orders/{orderId}/check-payment")
+    public ApiResponse<OrderView> checkPayment(@PathVariable String orderId) {
+        return ApiResponse.ok(paymentCommandService.check(TenantContext.requireTenantId(), orderId));
     }
 
     @PostMapping("/payments")
@@ -119,6 +127,21 @@ public class BillingSubscriptionController {
         catch (BizException failure) {
             int status = failure.code() == 1609 ? 400 : 500;
             return org.springframework.http.ResponseEntity.status(status).body("{\"code\":\"FAIL\",\"message\":\"支付通知未确认\"}");
+        }
+    }
+
+    @PostMapping(value = "/payments/alipay/notify", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> alipayNotify(@RequestParam MultiValueMap<String, String> fields) {
+        if (fields.values().stream().anyMatch(values -> values.size() != 1)) {
+            return ResponseEntity.badRequest().body("failure");
+        }
+        try {
+            paymentCommandService.alipayNotify(fields.toSingleValueMap());
+            return ResponseEntity.ok("success");
+        } catch (BizException failure) {
+            int status = failure.code() == 1606 || failure.code() == 1609 ? 400 : 503;
+            return ResponseEntity.status(status).body("failure");
         }
     }
 }

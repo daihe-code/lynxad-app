@@ -43,7 +43,8 @@ public class SecurityConfig {
                                 "/api/v1/notify/contact/info",
                                 "/api/v1/identity/oauth/callback",
                                 "/api/v1/creative/media",
-                                "/api/v1/billing/payments/wechat/notify")
+                                "/api/v1/billing/payments/wechat/notify",
+                                "/api/v1/billing/payments/alipay/notify")
                         .permitAll()
                         .anyRequest()
                         .permitAll())

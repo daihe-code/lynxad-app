@@ -11,9 +11,11 @@ import com.lynx.ad.modules.billing.api.dto.SubscriptionView;
 import com.lynx.ad.modules.billing.domain.model.BillingOrder;
 import com.lynx.ad.modules.billing.domain.model.BillingPlan;
 import com.lynx.ad.modules.billing.domain.model.OrderType;
+import com.lynx.ad.modules.billing.domain.model.PayChannel;
 import com.lynx.ad.modules.billing.domain.model.PlanCode;
 import com.lynx.ad.modules.billing.domain.model.Subscription;
 import com.lynx.ad.modules.billing.domain.port.OrderRepository;
+import com.lynx.ad.modules.billing.domain.port.PaymentRepository;
 import com.lynx.ad.modules.billing.domain.port.PlanRepository;
 import com.lynx.ad.modules.billing.domain.port.SubscriptionRepository;
 import com.lynx.ad.modules.billing.api.dto.TrialVo;
@@ -32,6 +34,7 @@ public class SubscriptionQueryService {
 
     private final PlanRepository planRepository;
     private final OrderRepository orderRepository;
+    private final PaymentRepository paymentRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionSupport subscriptionSupport;
     private final BillingTrialService billingTrialService;
@@ -42,6 +45,7 @@ public class SubscriptionQueryService {
     public SubscriptionQueryService(
             PlanRepository planRepository,
             OrderRepository orderRepository,
+            PaymentRepository paymentRepository,
             SubscriptionRepository subscriptionRepository,
             SubscriptionSupport subscriptionSupport,
             BillingTrialService billingTrialService,
@@ -49,6 +53,7 @@ public class SubscriptionQueryService {
             WorkspacePricing workspacePricing) {
         this.planRepository = planRepository;
         this.orderRepository = orderRepository;
+        this.paymentRepository = paymentRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionSupport = subscriptionSupport;
         this.billingTrialService = billingTrialService;
@@ -118,6 +123,9 @@ public class SubscriptionQueryService {
         Subscription sub = subscriptionSupport
                 .effective(tenantId, now)
                 .orElseThrow(() -> new BizException(1604, "当前没有有效订阅"));
+        if (autoRenew && (properties.getPayment().isAlipay() || PayChannel.ALIPAY.name().equals(sub.payMethod()))) {
+            throw new BizException(1603, "支付宝扫码订阅需手动续费");
+        }
         sub.setAutoRenew(autoRenew, now);
         subscriptionRepository.save(sub);
         return current(tenantId);
@@ -126,11 +134,13 @@ public class SubscriptionQueryService {
     public BillsView listBills(TenantId tenantId) {
         Instant now = Instant.now();
         List<BillItemView> items = new ArrayList<>();
-        for (BillingOrder order : orderRepository.findPaidWithAmount(tenantId)) {
-            items.add(toBill(order));
+        List<BillingOrder> orders = orderRepository.findPaidWithAmount(tenantId);
+        var channels = paymentRepository.findSucceededChannels(tenantId, orders.stream().map(BillingOrder::id).toList());
+        for (BillingOrder order : orders) {
+            items.add(toBill(order, channels.get(order.id())));
         }
         Optional<Subscription> effective = subscriptionSupport.effective(tenantId, now);
-        if (effective.isPresent() && effective.get().autoRenew()) {
+        if (!properties.getPayment().isAlipay() && effective.isPresent() && effective.get().autoRenew()) {
             Subscription sub = effective.get();
             PlanCode next = sub.nextPlanCode() == null ? sub.planCode() : sub.nextPlanCode();
             BillingPlan plan = planRepository.findByCode(next).orElseThrow();
@@ -145,7 +155,7 @@ public class SubscriptionQueryService {
                     payable,
                     MoneyYuan.ofFen(payable),
                     null,
-                    "WECHAT",
+                    sub.payMethod(),
                     "PENDING_DEBIT",
                     false));
         }
@@ -181,7 +191,7 @@ public class SubscriptionQueryService {
                 action);
     }
 
-    private BillItemView toBill(BillingOrder order) {
+    private BillItemView toBill(BillingOrder order, PayChannel channel) {
         String title;
         if (order.type() == OrderType.POINT_RECHARGE) {
             title = "工作空间积分充值";
@@ -203,7 +213,7 @@ public class SubscriptionQueryService {
                 order.payableFen(),
                 MoneyYuan.ofFen(order.payableFen()),
                 order.discountLabel(),
-                "WECHAT",
+                channel == null ? null : channel.name(),
                 "PAID",
                 true);
     }

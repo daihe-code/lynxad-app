@@ -153,6 +153,15 @@ public class MpOrderRepository implements OrderRepository {
     }
 
     @Override
+    public Optional<BillingOrder> findByIdForUpdate(TenantId tenantId, String orderId) {
+        var row = mapper.selectOne(new LambdaQueryWrapper<BillingOrderPo>()
+                .eq(BillingOrderPo::getId, orderId)
+                .eq(BillingOrderPo::getTenantId, tenantId.value())
+                .last("FOR UPDATE"));
+        return Optional.ofNullable(row).map(MpOrderRepository::toDomain);
+    }
+
+    @Override
     public Optional<BillingOrder> findPendingPay(TenantId tenantId) {
         BillingOrderPo po = mapper.selectOne(new LambdaQueryWrapper<BillingOrderPo>()
                 .eq(BillingOrderPo::getTenantId, tenantId.value())
@@ -160,6 +169,17 @@ public class MpOrderRepository implements OrderRepository {
                 .eq(BillingOrderPo::getStatus, OrderStatus.PENDING_PAY.name())
                 .last("limit 1"));
         return Optional.ofNullable(po).map(MpOrderRepository::toDomain);
+    }
+
+    @Override
+    public Optional<BillingOrder> findPendingRecharge(TenantId tenantId) {
+        var row = mapper.selectOne(new LambdaQueryWrapper<BillingOrderPo>()
+                .eq(BillingOrderPo::getTenantId, tenantId.value())
+                .eq(BillingOrderPo::getType, OrderType.POINT_RECHARGE.name())
+                .eq(BillingOrderPo::getStatus, OrderStatus.PENDING_PAY.name())
+                .orderByDesc(BillingOrderPo::getCreatedAt)
+                .last("LIMIT 1"));
+        return Optional.ofNullable(row).map(MpOrderRepository::toDomain);
     }
 
     @Override
