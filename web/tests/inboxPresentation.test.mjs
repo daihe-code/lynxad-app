@@ -25,11 +25,13 @@ test('PRD four categories classify watcher, approval, optimization and system ev
   for (const [type, expected] of cases) assert.equal(presentation.filterCategory(message('id', type)), expected, String(type));
 });
 
-test('monitoring lifecycle messages open the matching plan detail instead of the old monitoring page', () => {
+test('monitoring lifecycle messages open the matching plan detail or the campaign list', () => {
   const item = { ...message('rules', 'OPTIMIZATION_RULES'), bizId: 'plan-1' };
   assert.equal(presentation.inboxPresentation(item).category, '盯盘优化');
   assert.deepEqual(presentation.optimizationInboxRoute(item), { path: '/campaigns', query: { plan: 'plan-1', tab: 'optimization' } });
-  assert.deepEqual(presentation.optimizationInboxRoute(message('rules', 'OPTIMIZATION_RULES')), { path: '/monitoring', query: { tab: 'history' } });
+  const noPlan = message('rules', 'OPTIMIZATION_RULES');
+  assert.equal(presentation.inboxPresentation(noPlan).action, '查看投放计划');
+  assert.deepEqual(presentation.optimizationInboxRoute(noPlan), { path: '/campaigns' });
   assert.equal(presentation.optimizationInboxRoute(message('other', 'AUDIT_PASS')), null);
 });
 

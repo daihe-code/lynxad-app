@@ -6,13 +6,13 @@
       <div class="paused-fold__body">
         <article v-if="pauseRecord?.automatic" class="paused-automatic" aria-label="自动暂停触发原因">
           <span class="paused-automatic__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span>
-          <div><h4>{{ pauseRecord.reason }}</h4><p v-if="pauseRecord.action.automation?.evidence">{{ pauseRecord.action.automation.evidence }}</p><p>坤境已自动暂停此计划，千川回查已确认生效。</p><p>确认生效时间：{{ reviewTime(pauseRecord.action.snapshotTs) }}</p><p>{{ automaticPauseAdvice(pauseRecord.action.automation?.cause || '') }}</p><router-link :to="{ path:'/monitoring', query:{ planId:plan.planId, tab:'history' } }">查看自动调控记录 →</router-link></div>
+          <div><h4>{{ pauseRecord.reason }}</h4><p v-if="pauseRecord.action.automation?.evidence">{{ pauseRecord.action.automation.evidence }}</p><p>坤境已自动暂停此计划，千川回查已确认生效。</p><p>确认生效时间：{{ reviewTime(pauseRecord.action.snapshotTs) }}</p><p>{{ automaticPauseAdvice(pauseRecord.action.automation?.cause || '') }}</p><router-link :to="{ path: '/campaigns', query: { plan: plan.planId, tab: 'optimization-history' } }">查看自动调控记录 →</router-link></div>
         </article>
         <template v-if="pauseRecord?.manual"><ul class="pause-reason-options" aria-label="已记录的暂停原因（只读）"><li v-for="reason in PLAN_PAUSE_REASONS" :key="reason" :class="{ selected: pauseRecord.selected === reason }"><i aria-hidden="true" /><span>{{ reason }}</span><span v-if="pauseRecord.selected === reason" class="sr-only">（已记录）</span></li></ul><p class="paused-muted">已记录原因：<strong>{{ pauseRecord.reason || '历史记录未填写具体原因' }}</strong></p></template>
         <p v-else-if="!pauseRecord?.automatic" class="paused-muted">{{ pauseRecord?.reason || (actionsLoading ? '正在读取本计划的暂停记录…' : '尚未取得本次暂停原因，历史暂停原因不会自动作为本次原因。') }}</p>
         <p v-if="!pauseRecord?.automatic" class="paused-muted">{{ pauseRecord ? `系统记录的暂停时间：${reviewTime(pauseRecord.action.snapshotTs)}` : '暂停时间尚未记录。' }}</p>
         <p v-if="actionsError" class="paused-error" role="status">{{ actionsError }}</p>
-        <router-link v-if="actionsError && !pauseRecord?.automatic" class="paused-records-link" :to="{ path:'/monitoring', query:{ planId:plan.planId, tab:'history' } }">查看自动调控记录 →</router-link>
+        <router-link v-if="actionsError && !pauseRecord?.automatic" class="paused-records-link" :to="{ path: '/campaigns', query: { plan: plan.planId, tab: 'optimization-history' } }">查看自动调控记录 →</router-link>
         <button class="paused-read" type="button" :disabled="loading || busy" @click="read(true)"><ReferenceIcon name="refresh" />{{ loading ? '正在读取…' : '刷新记录与数据' }}</button>
       </div>
     </details>
