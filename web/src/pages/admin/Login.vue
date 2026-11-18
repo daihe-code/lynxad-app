@@ -1,10 +1,10 @@
 <template>
   <main class="admin-login">
     <section class="login-card">
-      <span class="admin-brand">坤境智营 · 平台管理</span><h1>管理员登录</h1><p>仅限平台管理员访问用户资料与套餐管理。</p>
+      <span class="admin-brand">坤境智营 · 平台管理</span><h1>账户管理员登录</h1><p>仅限平台管理员访问用户资料与套餐管理。</p>
       <el-form label-position="top" @submit.prevent="login">
-        <el-form-item label="管理员手机号" :error="phoneError">
-          <el-input v-model="phone" type="tel" autocomplete="tel-national" inputmode="numeric" maxlength="11" placeholder="输入管理员手机号" :disabled="busy || sending" />
+        <el-form-item label="账户管理员手机号" :error="phoneError">
+          <el-input v-model="phone" type="tel" autocomplete="tel-national" inputmode="numeric" maxlength="11" placeholder="输入账户管理员手机号" :disabled="busy || sending" />
         </el-form-item>
         <el-form-item label="短信验证码" :error="codeError">
           <div class="code-row">
