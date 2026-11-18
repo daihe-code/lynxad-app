@@ -62,11 +62,13 @@ public class VideoRemakeService {
         this.json = json;
     }
 
-    public record Capability(boolean ready, boolean subscribed, String balanceStatus, BigDecimal points) {}
+    public record Capability(boolean ready, boolean subscribed, String balanceStatus, BigDecimal points,
+                             boolean kling4Available) {}
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
                         String productImageId, String referenceId, String portraitId, String portraitName,
-                        boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds) {}
+                        boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
+                        String portraitImageId) {}
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
     public record Confirm(String title, List<ShotEdit> shots, boolean accepted, BigDecimal points) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
@@ -75,13 +77,13 @@ public class VideoRemakeService {
     public Capability capability(String tenant) {
         var membership = charges.access(tenant);
         var rate = pricing.rate("video");
-        if (!membership.enabled()) return new Capability(false, false, null, rate);
+        if (!membership.enabled()) return new Capability(false, false, null, rate, false);
         try {
             var status = engine.remake("GET", "/capabilities", null);
             return new Capability(status.path("ready").asBoolean() && status.path("review_worker_ready").asBoolean(),
-                    true, membership.balanceStatus().name(), rate);
+                    true, membership.balanceStatus().name(), rate, status.path("kling_4_available").asBoolean());
         } catch (RemakeEngineError ex) {
-            return new Capability(false, true, membership.balanceStatus().name(), rate);
+            return new Capability(false, true, membership.balanceStatus().name(), rate, false);
         }
     }
 
@@ -125,7 +127,7 @@ public class VideoRemakeService {
         var existing = store.find(tenant, id, false);
         if (existing.isPresent()) return summary(owned(tenant, actor, id));
         requireGeneration(tenant, actor, request.bindingId());
-        if (!request.rightsConfirmed() || !request.portraitTermsConfirmed()) throw input("请确认参考视频和预置人像的使用授权");
+        if (!request.rightsConfirmed() || !request.portraitTermsConfirmed()) throw input("请确认参考视频和人物素材的使用授权");
         if (!Set.of(15, 30).contains(request.durationSeconds())) throw input("请选择 15 秒或 30 秒");
         if (request.facts() == null || request.facts().isEmpty() || request.facts().size() > 12) throw input("请填写 1 至 12 条真实商品事实");
         var facts = request.facts().stream().map(value -> text(value, 200)).toList();
@@ -133,8 +135,6 @@ public class VideoRemakeService {
         var product = catalog.restorable(new TenantId(tenant), request.bindingId(), text(request.awemeId(), 128), List.of(productId))
                 .stream().filter(row -> productId.equals(row.qcProductId())).findFirst()
                 .orElseThrow(() -> input("所选商品已不可用，请重新选择"));
-        String portrait = text(request.portraitId(), 136).replaceFirst("^asset://", "");
-        if (!portrait.matches("asset-[A-Za-z0-9_-]{4,120}")) throw input("请填写有效的方舟预置人像 ID");
         String productName = text(product.name(), 200);
         var target = json.createObjectNode().put("id", productId).put("name", productName);
         target.set("facts", json.valueToTree(facts));
@@ -150,9 +150,21 @@ public class VideoRemakeService {
                 .put("max_shots", 4).put("rights_confirmed", true).put("costs_confirmed", true)
                 .put("require_plan_confirmation", true);
         payload.set("product", target);
-        payload.putObject("portrait").put("source", "ark_preset").put("asset_id", portrait)
-                .put("label", text(request.portraitName(), 80))
-                .put("platform_terms_confirmed", true).put("adult_confirmed", true);
+        if (request.portraitImageId() != null && !request.portraitImageId().isBlank()) {
+            if (request.portraitId() != null && !request.portraitId().isBlank()) {
+                throw input("人物参考图和方舟预置人像只能选一种");
+            }
+            String actorImage = requireAsset(tenant, actor, request.bindingId(), request.portraitImageId(), "image");
+            if (actorImage.equals(request.productImageId())) throw input("请分别上传商品参考图和人物参考图");
+            payload.putObject("kling_portrait").put("image_asset_id", actorImage)
+                    .put("rights_confirmed", true).put("adult_confirmed", true);
+        } else {
+            String portrait = text(request.portraitId(), 136).replaceFirst("^asset://", "");
+            if (!portrait.matches("asset-[A-Za-z0-9_-]{4,120}")) throw input("请填写有效的方舟预置人像 ID");
+            payload.putObject("portrait").put("source", "ark_preset").put("asset_id", portrait)
+                    .put("label", text(request.portraitName(), 80))
+                    .put("platform_terms_confirmed", true).put("adult_confirmed", true);
+        }
         return tx.execute(status -> {
             store.lockWorkspace(tenant);
             var previous = store.find(tenant, id, false);
