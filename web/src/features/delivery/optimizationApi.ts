@@ -137,9 +137,6 @@ export const reviewCreativeJob = (id: string, job: string, approved: boolean) =>
 const centerPath = '/api/v1/optimization';
 export interface PlanOptimizationStatus { planId: string; enabled: boolean; mode: string; holdReason?: string; stale: boolean; failed: boolean; state?: string; ruleBased?: boolean }
 export const getOptimizationStatuses = (planIds: string[]) => apiGet<PlanOptimizationStatus[]>(`${centerPath}/statuses`, { params: { planIds: planIds.join(',') }, headers: { 'X-Quiet-Request': 'true' } });
-export interface CenterRow { planId: string; qcId: string; planName: string; accountId: string; accountName: string; planStatus: string; enabled: boolean; mode: string; version: number; holdReason?: string; lastSuccess?: string; lastAction?: string; error?: string; stale: boolean; result?: MonitoringReport }
-export interface CenterAccount { accountId: string; name: string; budgetLimit?: number }
-export interface CenterView { records: CenterRow[]; total: number; watched: number; automatic: number; held: number; accounts: CenterAccount[]; pageNum: number; pageSize: number }
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
 export interface OptimizationDetails {
@@ -156,13 +153,8 @@ export interface OptimizationDetails {
   pause?: { pausedAt: string; snapshot?: { dailySpend?: string | number | null; dataAt?: string | null } | null } | null;
 }
 export const getOptimizationDetails = (id: string, params: Record<string, unknown>) => apiGet<OptimizationDetails>(`${path(id)}/details`, { params, headers: { 'X-Quiet-Request': 'true' } });
-export const getMonitoringCenter = (params: Record<string, unknown>) => apiGet<CenterView>(`${centerPath}/center`, { params, headers: { 'X-Quiet-Request': 'true' } });
 export const getOptimizationHistory = (params: Record<string, unknown>, signal?: AbortSignal) => apiGet<HistoryPage>(`${centerPath}/history`, { params, signal, headers: { 'X-Quiet-Request': 'true' } });
-export const setAccountBudgetLimit = (id: string, budgetLimit: number) => apiPut(`${centerPath}/accounts/${encodeURIComponent(id)}/limit`, { budgetLimit });
-export const holdAllOptimization = () => apiPost(`${centerPath}/hold-all`);
-export const resumeOptimization = (id: string, expectedVersion: number) => apiPost(`${centerPath}/plans/${encodeURIComponent(id)}/resume`, { expectedVersion });
 export const recheckOptimization = (id: string) => apiPost(`${centerPath}/history/${encodeURIComponent(id)}/recheck`);
-export const acknowledgeOptimization = (id: string) => apiPost(`${centerPath}/history/${encodeURIComponent(id)}/acknowledge`);
 
 export const previewOptimizationDecision = (id: string, event: string) => apiGet<DecisionPreview>(`${path(id)}/decisions/${encodeURIComponent(event)}/preview`, { headers: { 'X-Quiet-Request': 'true' } });
 export const confirmOptimizationDecision = (id: string, event: string, expectedVersion: number, previewHash: string) => apiPost<OptimizationEvent>(`${path(id)}/decisions/${encodeURIComponent(event)}/confirm`, { expectedVersion, previewHash }, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } });

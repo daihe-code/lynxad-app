@@ -123,7 +123,7 @@
       <PlanInsights v-if="insightsPlanId" :key="insightsPlanId" :plan-id="insightsPlanId" :tab="insightsTab" :initial-range="insightsRange" @tab="setInsightsTab" @range="setInsightsRange" @changed="load()" />
     </el-drawer>
     <el-drawer :model-value="!!optimizationPlanId" :with-header="false" size="min(760px, 100vw)" class="optimization-drawer" destroy-on-close @update:model-value="onInsightsVisible">
-      <PlanOptimization v-if="optimizationPlanId" :key="optimizationPlanId" :plan-id="optimizationPlanId" :plan="optimizationPlan" :account="accounts.find(account => account.accountId === optimizationPlan?.accountId)" :configured="!!optimizationStatuses[optimizationPlanId]" @saved="loadOptimizationStatuses(records)" @close="closeInsights" @data="setInsightsTab($event)" />
+      <PlanOptimization v-if="optimizationPlanId" :key="`${optimizationPlanId}:${route.query.tab}`" :plan-id="optimizationPlanId" :plan="optimizationPlan" :account="accounts.find(account => account.accountId === optimizationPlan?.accountId)" :configured="!!optimizationStatuses[optimizationPlanId]" :start-in-history="startInOptimizationHistory" @saved="loadOptimizationStatuses(records)" @close="closeInsights" @data="setInsightsTab($event)" />
     </el-drawer>
   </div>
 </template>
@@ -161,8 +161,10 @@ import { recentRange, rangeError, shanghaiToday, shiftDay, type StatisticsRange 
 
 const user = useUserStore();
 const router = useRouter(), route = useRoute(), wizard = useWizardStore();
-const insightsPlanId = computed(() => route.query.tab !== 'optimization' && typeof route.query.plan === 'string' ? route.query.plan : '');
-const optimizationPlanId = computed(() => route.query.tab === 'optimization' && typeof route.query.plan === 'string' ? route.query.plan : '');
+const startInOptimizationHistory = computed(() => route.query.tab === 'optimization-history');
+const showOptimization = computed(() => route.query.tab === 'optimization' || startInOptimizationHistory.value);
+const insightsPlanId = computed(() => !showOptimization.value && typeof route.query.plan === 'string' ? route.query.plan : '');
+const optimizationPlanId = computed(() => showOptimization.value && typeof route.query.plan === 'string' ? route.query.plan : '');
 const optimizationPlan = computed(() => records.value.find(row => row.planId === optimizationPlanId.value));
 const insightsTab = computed(() => typeof route.query.tab === 'string' ? route.query.tab : 'data');
 const insightsRange = computed<StatisticsRange>(() => typeof route.query.planStart === 'string' && typeof route.query.planEnd === 'string' ? [route.query.planStart, route.query.planEnd] : [...displayedRange.value]);

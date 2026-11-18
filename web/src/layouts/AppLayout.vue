@@ -17,7 +17,6 @@
         </router-link>
         <el-menu id="app-navigation" mode="horizontal" :ellipsis="false" :default-active="active" @select="navOpen = false" :class="{ 'mobile-menu-open': usesReferenceHeader && navOpen }" router>
           <el-menu-item v-if="user.me?.memberRole !== 'FINANCE'" index="/campaigns">广告投放</el-menu-item>
-          <el-menu-item v-if="businessWriteRole" index="/monitoring">全店盯盘</el-menu-item>
           <el-menu-item v-if="businessWriteRole" index="/creatives">素材中心</el-menu-item>
           <el-menu-item v-if="businessWriteRole && !usesReferenceHeader" index="/analytics">数据分析</el-menu-item>
           <el-menu-item index="/accounts">账户管理</el-menu-item>
@@ -73,19 +72,18 @@ const user = useUserStore();
 const businessWriteRole = computed(() => !['FINANCE','VIEWER'].includes(user.me?.memberRole || ''));
 const route = useRoute();
 const advertisingAccounts = useAdvertisingAccountsStore();
-const showAdvertisingAccount = computed(() => ['/campaigns', '/monitoring', '/creatives'].includes(route.path));
+const showAdvertisingAccount = computed(() => ['/campaigns', '/creatives'].includes(route.path));
 watch([showAdvertisingAccount, () => advertisingAccounts.preferenceKey], ([visible]) => { if (visible) void advertisingAccounts.load(); }, { immediate: true });
 const isCreate = computed(() => route.path === "/campaigns/create");
 const isAsset = computed(() => route.path === "/creatives");
 const isAccount = computed(() => route.path === "/accounts" || route.path === "/subscription");
 const isReference = computed(() => isCreate.value || isAsset.value || isAccount.value || route.path.startsWith('/campaigns/') || route.path.startsWith('/authorization') || route.path === '/oauth/callback' || route.path === '/analytics');
 // Navigation styling is shared independently of each page’s content layout.
-const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns") || route.path.startsWith('/monitoring'));
+const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns"));
 const navOpen = ref(false);
 watch(() => route.fullPath, () => { navOpen.value = false; });
 const router = useRouter();
 const active = computed(() => {
-  if (route.path.startsWith("/monitoring")) return "/monitoring";
   if (route.path.startsWith("/creatives")) return "/creatives";
   if (route.path.startsWith("/analytics")) return "/campaigns";
   if (route.path.startsWith("/accounts") || route.path.startsWith("/subscription") || route.path.startsWith("/authorization") || route.path === "/oauth/callback") return "/accounts";
