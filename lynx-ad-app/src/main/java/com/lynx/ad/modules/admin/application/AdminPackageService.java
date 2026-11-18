@@ -1,10 +1,15 @@
 package com.lynx.ad.modules.admin.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.admin.infrastructure.*;
+import com.lynx.ad.modules.billing.application.PaymentCommandService;
 import com.lynx.ad.modules.billing.application.WorkspacePointOrders;
+import com.lynx.ad.modules.billing.domain.model.OrderStatus;
 import com.lynx.ad.modules.billing.domain.model.PlanCode;
+import com.lynx.ad.modules.billing.domain.model.Trial;
+import com.lynx.ad.modules.billing.domain.model.TrialWindow;
 import java.security.MessageDigest;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
@@ -17,10 +22,16 @@ import static com.lynx.ad.modules.admin.infrastructure.AdminAccountStore.*;
 @Service
 public class AdminPackageService {
     public record ExtendRequest(String requestId,String type,String planCode,int days,Instant expectedEnd,String reason) {}
+    public enum PackageMode { TRIAL, SUBSCRIPTION }
     public record ChangeRequest(String requestId, String tenantId, String planCode, Integer days,
-                                Instant expectedUpdatedAt, String reason) {}
+                                Instant expectedUpdatedAt, String reason, PackageMode mode, Instant expectedTrialEnd) {
+        public ChangeRequest(String requestId, String tenantId, String planCode, Integer days,
+                             Instant expectedUpdatedAt, String reason) {
+            this(requestId, tenantId, planCode, days, expectedUpdatedAt, reason, null, null);
+        }
+    }
     private record SubscriptionSnapshot(String code,String nextPlan,Instant end) {}
-    private record CurrentPackage(String code, String status, Instant end, Instant updatedAt) {
+    private record CurrentPackage(String code, String status, Instant end, Instant updatedAt, int paidFen) {
         boolean effectiveAt(Instant now) {
             return ("ACTIVE".equals(status) || "PENDING_DOWNGRADE".equals(status)) && end.isAfter(now);
         }
@@ -28,9 +39,10 @@ public class AdminPackageService {
     private record Receipt(AdminUserQuery.Adjustment adjustment,String admin,String hash) {}
     private final AdminAuthService auth;private final AdminAccountStore admins;private final JdbcTemplate jdbc;private final ObjectMapper json;
     private final WorkspacePointOrders points;
+    private final PaymentCommandService payments;
     public AdminPackageService(AdminAuthService auth,AdminAccountStore admins,JdbcTemplate jdbc,ObjectMapper json,
-                               WorkspacePointOrders points) {
-        this.auth=auth;this.admins=admins;this.jdbc=jdbc;this.json=json;this.points=points;
+                               WorkspacePointOrders points, PaymentCommandService payments) {
+        this.auth=auth;this.admins=admins;this.jdbc=jdbc;this.json=json;this.points=points;this.payments=payments;
     }
     @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public AdminUserQuery.Adjustment extend(String user,ExtendRequest request) {
@@ -63,15 +75,23 @@ public class AdminPackageService {
         return recordAdjustment(admin.id(), hash, new AdminUserQuery.Adjustment(request.requestId(),admin.username(),user,id,request.type(),code,request.days(),before,after,request.reason().trim(),now));
     }
 
-    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    // A checkout may settle while it is being closed. Commit that payment even when the edit needs a fresh snapshot.
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED,
+            noRollbackFor = AdminPackageService.PackagePaymentSettled.class)
     public AdminUserQuery.Adjustment change(String user, ChangeRequest request) {
         var admin = auth.require();
         validateChange(request);
         String tenant = request.tenantId();
-        String code = request.planCode();
+        boolean toTrial = request.mode() == PackageMode.TRIAL;
+        String code = toTrial ? PlanCode.PROFESSIONAL.name() : request.planCode();
         String reason = request.reason().trim();
-        String hash = hash(List.of("PLAN_CHANGE", user, tenant, code, Objects.toString(request.days(), ""),
+        var fields = new ArrayList<>(List.of("PLAN_CHANGE", user, tenant, code, Objects.toString(request.days(), ""),
                 Objects.toString(request.expectedUpdatedAt(), ""), reason));
+        if (request.mode() != null) {
+            fields.add(request.mode().name());
+            fields.add(Objects.toString(request.expectedTrialEnd(), ""));
+        }
+        String hash = hash(fields);
 
         if (jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? AND status='ACTIVE' FOR UPDATE",
                 String.class, tenant).isEmpty()) throw new BizException(1904, "该坤境账户不可用");
@@ -85,25 +105,77 @@ public class AdminPackageService {
         if (existing != null) return existing;
 
         var current = jdbc.query("""
-                SELECT plan_code,status,period_end,updated_at FROM billing_subscription
+                SELECT plan_code,status,period_end,updated_at,paid_fen_this_period FROM billing_subscription
                 WHERE tenant_id=? FOR UPDATE
                 """, (r, n) -> new CurrentPackage(r.getString("plan_code"), r.getString("status"),
-                instant(r, "period_end"), instant(r, "updated_at")), tenant).stream().findFirst().orElse(null);
+                instant(r, "period_end"), instant(r, "updated_at"), r.getInt("paid_fen_this_period")), tenant)
+                .stream().findFirst().orElse(null);
+        Instant trialEnd = jdbc.query("SELECT expires_at FROM billing_trial WHERE tenant_id=? FOR UPDATE",
+                (r, n) -> instant(r, "expires_at"), tenant).stream().findFirst().orElse(null);
         if (!Objects.equals(request.expectedUpdatedAt(), current == null ? null : current.updatedAt()))
             throw new BizException(409, "套餐已变更，请重新打开后操作");
+        if (request.mode() != null) checkExpected(trialEnd, request.expectedTrialEnd());
         if (jdbc.queryForObject("SELECT COUNT(*) FROM billing_plan WHERE code=?", Integer.class, code) != 1)
             throw new BizException(1904, "套餐不存在");
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         boolean effective = current != null && current.effectiveAt(now);
-        if (effective && code.equals(current.code())) throw new BizException(1904, "已是当前套餐");
-        if (effective != (request.days() == null)) throw new BizException(409, "套餐有效期已变化，请重新打开后操作");
+        boolean onTrial = !effective && trialEnd != null && trialEnd.isAfter(now);
+        if (toTrial) {
+            if (onTrial) throw new BizException(1904, "当前已是试用中");
+            if (effective && current.paidFen() > 0) throw new BizException(1904, "已付款套餐到期后才可设为试用");
+        } else {
+            if (effective && code.equals(current.code())) throw new BizException(1904, "已是当前套餐");
+            if (effective != (request.days() == null)) throw new BizException(409, "套餐有效期已变化，请重新打开后操作");
+        }
 
         closeUnpaidPackageOrders(tenant);
-        Instant before = current == null ? null : current.end();
-        int days = effective ? 0 : request.days();
-        Instant after = effective ? before : end(null, now, days);
+        now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        if (current != null && current.effectiveAt(now) != effective) {
+            throw new BizException(409, "套餐有效期已变化，请重新打开后操作");
+        }
+        onTrial = !effective && trialEnd != null && trialEnd.isAfter(now);
+        Instant before = onTrial || current == null ? trialEnd : current.end();
         Instant updatedAt = current != null && !now.isAfter(current.updatedAt()) ? current.updatedAt().plusMillis(1) : now;
+        String adjustment = toTrial ? "TRIAL_START" : onTrial && request.mode() != null ? "TRIAL_CONVERT" : "PLAN_CHANGE";
+        int days;
+        Instant after;
+        if (toTrial) {
+            var window = TrialWindow.threeDays();
+            var trial = Trial.start(new TenantId(tenant), now, window);
+            days = window.days();
+            after = trial.expiresAt();
+            if (effective) {
+                jdbc.update("""
+                        UPDATE billing_subscription SET status='EXPIRED',period_end=?,auto_renew=FALSE,
+                        next_plan_code=NULL,updated_at=? WHERE tenant_id=?
+                        """, ts(now), ts(updatedAt), tenant);
+            }
+            if (trialEnd == null) {
+                jdbc.update("INSERT INTO billing_trial(tenant_id,started_at,expires_at) VALUES(?,?,?)",
+                        tenant, ts(trial.startedAt()), ts(after));
+            } else {
+                jdbc.update("UPDATE billing_trial SET started_at=?,expires_at=? WHERE tenant_id=?",
+                        ts(trial.startedAt()), ts(after), tenant);
+            }
+        } else {
+            days = effective ? 0 : request.days();
+            after = effective ? current.end() : end(null, now, days);
+            activatePackage(tenant, code, current, effective, now, after, updatedAt);
+            if (trialEnd != null && trialEnd.isAfter(now)) {
+                jdbc.update("UPDATE billing_trial SET expires_at=? WHERE tenant_id=?", ts(now), tenant);
+            }
+            points.ensureCurrentGrant(tenant);
+        }
+        String previous = onTrial ? "试用中" : current == null ? "未开通" : current.code();
+        admins.audit(admin, "PACKAGE_CHANGE", "SUCCESS", user, tenant,
+                previous + " → " + (toTrial ? "试用中" : "正式用户 " + code) + "；" + reason);
+        return recordAdjustment(admin.id(), hash, new AdminUserQuery.Adjustment(request.requestId(), admin.username(),
+                user, tenant, adjustment, code, days, before, after, reason, now));
+    }
+
+    private void activatePackage(String tenant, String code, CurrentPackage current, boolean effective,
+                                 Instant now, Instant after, Instant updatedAt) {
         if (effective) {
             // Keep the period key and the amount actually paid, including any credit for a later upgrade.
             jdbc.update("""
@@ -121,11 +193,6 @@ public class AdminPackageService {
                     auto_renew=FALSE,pay_method='ADMIN',paid_fen_this_period=0,next_plan_code=NULL,updated_at=? WHERE tenant_id=?
                     """, code, ts(now), ts(after), ts(updatedAt), tenant);
         }
-        points.ensureCurrentGrant(tenant);
-        admins.audit(admin, "PACKAGE_CHANGE", "SUCCESS", user, tenant,
-                (current == null ? "未开通" : current.code()) + " → " + code + "；" + reason);
-        return recordAdjustment(admin.id(), hash, new AdminUserQuery.Adjustment(request.requestId(), admin.username(),
-                user, tenant, "PLAN_CHANGE", code, days, before, after, reason, now));
     }
 
     private void closeUnpaidPackageOrders(String tenant) {
@@ -133,9 +200,34 @@ public class AdminPackageService {
         if (jdbc.queryForObject("""
                 SELECT COUNT(*) FROM billing_order o JOIN billing_payment p ON p.order_id=o.id AND p.tenant_id=o.tenant_id
                 WHERE o.tenant_id=? AND o.type<>'POINT_RECHARGE' AND o.status='PENDING_PAY' AND p.status<>'FAILED'
+                  AND (p.channel NOT IN ('ALIPAY','MOCK') OR p.status<>'CREATED')
                 """, Integer.class, tenant) > 0)
-            throw new BizException(1904, "有套餐订单正在支付，请核对支付结果后再修改套餐");
+            throw new BizException(1904, "该套餐有待核对的支付结果，请核对原支付渠道后再修改");
+        var checkoutOrders = jdbc.queryForList("""
+                SELECT DISTINCT o.id FROM billing_order o JOIN billing_payment p ON p.order_id=o.id AND p.tenant_id=o.tenant_id
+                WHERE o.tenant_id=? AND o.type<>'POINT_RECHARGE' AND o.status='PENDING_PAY'
+                  AND p.channel='ALIPAY' AND p.status='CREATED' ORDER BY o.id
+                """, String.class, tenant);
+        for (String orderId : checkoutOrders) {
+            var order = payments.closePackageCheckout(new TenantId(tenant), orderId);
+            if (OrderStatus.PAID.name().equals(order.status())) throw new PackagePaymentSettled();
+            if (!OrderStatus.CLOSED.name().equals(order.status())) {
+                throw new BizException(1904, "支付宝订单尚未关闭，请稍后核对后重试");
+            }
+        }
+        jdbc.update("""
+                UPDATE billing_payment SET status='FAILED',completed_at=?
+                WHERE tenant_id=? AND channel='MOCK' AND status='CREATED' AND order_id IN (
+                    SELECT id FROM billing_order WHERE tenant_id=? AND type<>'POINT_RECHARGE' AND status='PENDING_PAY'
+                )
+                """, ts(Instant.now()), tenant, tenant);
         jdbc.update("UPDATE billing_order SET status='CLOSED' WHERE tenant_id=? AND type<>'POINT_RECHARGE' AND status='PENDING_PAY'", tenant);
+    }
+
+    static final class PackagePaymentSettled extends BizException {
+        PackagePaymentSettled() {
+            super(409, "套餐订单已付款并生效，请重新打开套餐后修改");
+        }
     }
 
     private AdminUserQuery.Adjustment receipt(String requestId, String adminId, String hash) {
@@ -161,11 +253,12 @@ public class AdminPackageService {
         if (request == null || request.requestId() == null || !request.requestId().matches("[a-fA-F0-9-]{36}")
                 || request.tenantId() == null || request.tenantId().isBlank() || request.tenantId().length() > 36
                 || request.reason() == null || request.reason().trim().length() < 2 || request.reason().length() > 300
-                || (request.days() != null && (request.days() < 1 || request.days() > 3650)))
+                || (request.days() != null && (request.days() < 1 || request.days() > 3650))
+                || (request.mode() == PackageMode.TRIAL && (request.planCode() != null || request.days() != null)))
             throw new BizException(1904, "请填写有效的套餐、有效期和2至300字操作原因");
         try {
             UUID.fromString(request.requestId());
-            PlanCode.valueOf(request.planCode());
+            if (request.mode() != PackageMode.TRIAL) PlanCode.valueOf(request.planCode());
         } catch (RuntimeException invalid) {
             throw new BizException(1904, "请求标识或套餐类型不正确");
         }

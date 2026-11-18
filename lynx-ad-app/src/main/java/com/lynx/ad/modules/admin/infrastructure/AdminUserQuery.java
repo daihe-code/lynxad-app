@@ -19,7 +19,7 @@ public class AdminUserQuery {
             String companyName,String industry,String tenantId,String tenantName,String memberRole,String packageType,String packageStatus,
             String planCode,Instant expiresAt,Instant lastLoginAt,long loginCount) {}
     public record Profile(String avatarUrl,String companyScale,String position,String monthlyBudget,String adExperience,String coreDemand,Instant completedAt) {}
-    public record Package(String planCode,String status,Instant startedAt,Instant expiresAt,Boolean autoRenew,String payMethod,String nextPlanCode,Instant updatedAt) {}
+    public record Package(String planCode,String status,Instant startedAt,Instant expiresAt,Boolean autoRenew,String payMethod,String nextPlanCode,Instant updatedAt,boolean paidThisPeriod) {}
     public record Detail(UserRow user,Profile profile,Package subscription,Package trial,long memberCount,long adAccounts,long adPlans) {}
     public record LoginRow(String id,String userId,String phone,String nickname,String method,String result,String failureReason,String ip,String userAgent,Instant createdAt) {}
     public record Adjustment(String requestId,String actorName,String userId,String tenantId,String type,String planCode,int days,Instant beforeEnd,Instant afterEnd,String reason,Instant createdAt) {}
@@ -56,8 +56,8 @@ public class AdminUserQuery {
         var profile=jdbc.query("SELECT * FROM user_profile WHERE user_id=?",(r,n)->new Profile(r.getString("avatar_url"),r.getString("company_scale"),r.getString("position"),r.getString("monthly_budget"),r.getString("ad_experience"),r.getString("core_demand"),instant(r,"completed_at")),id).stream().findFirst().orElse(null);
         String tenant=user.tenantId();Package subscription=null,trial=null;long members=0,ads=0,plans=0;
         if(tenant!=null){
-            subscription=jdbc.query("SELECT * FROM billing_subscription WHERE tenant_id=?",(r,n)->new Package(r.getString("plan_code"),r.getString("status"),instant(r,"period_start"),instant(r,"period_end"),r.getBoolean("auto_renew"),r.getString("pay_method"),r.getString("next_plan_code"),instant(r,"updated_at")),tenant).stream().findFirst().orElse(null);
-            trial=jdbc.query("SELECT * FROM billing_trial WHERE tenant_id=?",(r,n)->new Package("PROFESSIONAL",r.getTimestamp("expires_at").toInstant().isAfter(Instant.now())?"TRIAL":"EXPIRED",instant(r,"started_at"),instant(r,"expires_at"),null,null,null,null),tenant).stream().findFirst().orElse(null);
+            subscription=jdbc.query("SELECT * FROM billing_subscription WHERE tenant_id=?",(r,n)->new Package(r.getString("plan_code"),r.getString("status"),instant(r,"period_start"),instant(r,"period_end"),r.getBoolean("auto_renew"),r.getString("pay_method"),r.getString("next_plan_code"),instant(r,"updated_at"),r.getInt("paid_fen_this_period")>0),tenant).stream().findFirst().orElse(null);
+            trial=jdbc.query("SELECT * FROM billing_trial WHERE tenant_id=?",(r,n)->new Package("PROFESSIONAL",r.getTimestamp("expires_at").toInstant().isAfter(Instant.now())?"TRIAL":"EXPIRED",instant(r,"started_at"),instant(r,"expires_at"),null,null,null,null,false),tenant).stream().findFirst().orElse(null);
             members=count("tenant_member",tenant);ads=count("oauth_account",tenant);plans=count("ad_plan",tenant);
         }
         return new Detail(user,profile,subscription,trial,members,ads,plans);

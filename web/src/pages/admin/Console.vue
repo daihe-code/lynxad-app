@@ -57,16 +57,26 @@
           <el-form-item label="当前套餐">
             {{ packageStates[packageTarget.user.packageStatus] }} {{ plans[packageTarget.user.planCode || ''] || '' }}
           </el-form-item>
-          <el-form-item label="目标套餐" required>
+          <el-form-item label="用户状态" required>
+            <el-radio-group v-model="targetMode" :disabled="changingPackage">
+              <el-radio value="SUBSCRIPTION">正式用户</el-radio>
+              <el-radio value="TRIAL" :disabled="trialBlocked">试用中</el-radio>
+            </el-radio-group>
+            <p v-if="trialBlocked" class="note">已付款套餐到期后可设为试用。</p>
+          </el-form-item>
+          <el-form-item v-if="targetMode === 'TRIAL'" label="试用套餐">
+            专业版 · 3 天
+          </el-form-item>
+          <el-form-item v-else label="目标套餐" required>
             <el-select v-model="targetPlan" placeholder="请选择套餐" :disabled="changingPackage">
               <el-option v-for="(label, key) in plans" :key="key" :label="label" :value="key"
                 :disabled="hasActivePackage && key === packageTarget.subscription?.planCode" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="hasActivePackage" label="到期时间">
+          <el-form-item v-if="targetMode === 'SUBSCRIPTION' && hasActivePackage" label="到期时间">
             {{ time(packageTarget.subscription?.expiresAt) }}
           </el-form-item>
-          <el-form-item v-else label="有效天数" required>
+          <el-form-item v-else-if="targetMode === 'SUBSCRIPTION'" label="有效天数" required>
             <el-input-number v-model="targetDays" :min="1" :max="3650" :precision="0" :disabled="changingPackage" />
           </el-form-item>
           <el-form-item label="操作原因" required>
@@ -111,14 +121,14 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { blockPhone, changePackage, deleteAdminUser, getAdminPhones, grantAdminPhone, type AdminMe } from '@/features/admin/adminApi';
+import { blockPhone, changePackage, deleteAdminUser, getAdminPhones, grantAdminPhone, type AdminMe, type ChangePackage } from '@/features/admin/adminApi';
 import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { adminSession, adminLogout, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
 import PhoneBlacklist from './PhoneBlacklist.vue';
 const router=useRouter();
 const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FLAGSHIP:'旗舰版'};
-const packageStates:Record<string,string>={ACTIVE:'套餐生效中',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
+const packageStates:Record<string,string>={ACTIVE:'正式用户',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
 const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员人工开通'};
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
 const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',PACKAGE_CHANGE:'修改套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
@@ -175,17 +185,23 @@ async function moderateUser(user: AdminUser, deleting: boolean) {
 }
 function showUserRecords(target:string,user:AdminUser){filterUser.value=user.id;filterName.value=user.phone;closeUser();if(tab.value!==target)tab.value=target;else search();}
 function adjustmentAction(row: PackageAdjustment) {
+  if (row.type === 'TRIAL_START') return `开启试用 ${row.days} 天`;
+  if (row.type === 'TRIAL_CONVERT') return `转为正式用户 · ${row.days} 天`;
   if (row.type === 'PLAN_CHANGE') return row.days ? `人工开通 ${row.days} 天` : '切换套餐';
   return `延长 ${row.days} 天`;
 }
 const packageChangeOpen = ref(false), openingChange = ref(false), changingPackage = ref(false);
 const packageTarget = ref<AdminUserDetail>(), targetPlan = ref(''), targetDays = ref<number | undefined>(30);
+const targetMode = ref<ChangePackage['mode']>('SUBSCRIPTION');
 const changeReason = ref(''), changeError = ref(''), changeRequestId = ref('');
 const hasActivePackage = computed(() => packageTarget.value?.user.packageStatus === 'ACTIVE');
-const canChangePackage = computed(() => !!packageTarget.value?.user.tenantId && !!targetPlan.value
-  && (hasActivePackage.value ? targetPlan.value !== packageTarget.value.subscription?.planCode : !!targetDays.value)
-  && changeReason.value.trim().length >= 2);
-watch([targetPlan, targetDays, changeReason], () => {
+const onTrial = computed(() => packageTarget.value?.user.packageStatus === 'TRIAL');
+const trialBlocked = computed(() => hasActivePackage.value && packageTarget.value?.subscription?.paidThisPeriod === true);
+const canChangePackage = computed(() => !!packageTarget.value?.user.tenantId && changeReason.value.trim().length >= 2
+  && (targetMode.value === 'TRIAL'
+    ? !onTrial.value && !trialBlocked.value
+    : !!targetPlan.value && (hasActivePackage.value ? targetPlan.value !== packageTarget.value.subscription?.planCode : !!targetDays.value)));
+watch([targetMode, targetPlan, targetDays, changeReason], () => {
   changeRequestId.value = crypto.randomUUID();
   changeError.value = '';
 });
@@ -195,7 +211,8 @@ async function openPackageChange(user: AdminUser) {
   try {
     const target = await getAdminUser(user.id, user.tenantId);
     packageTarget.value = target;
-    targetPlan.value = '';
+    targetMode.value = target.user.packageStatus === 'TRIAL' ? 'TRIAL' : 'SUBSCRIPTION';
+    targetPlan.value = target.user.planCode ?? '';
     targetDays.value = 30;
     changeReason.value = '';
     changeError.value = '';
@@ -213,9 +230,11 @@ async function savePackageChange() {
     await changePackage(target.user.id, {
       requestId: changeRequestId.value,
       tenantId: target.user.tenantId,
-      planCode: targetPlan.value,
-      days: hasActivePackage.value ? null : (targetDays.value ?? null),
+      mode: targetMode.value,
+      planCode: targetMode.value === 'SUBSCRIPTION' ? targetPlan.value : null,
+      days: targetMode.value === 'SUBSCRIPTION' && !hasActivePackage.value ? targetDays.value ?? null : null,
       expectedUpdatedAt: target.subscription?.updatedAt ?? null,
+      expectedTrialEnd: target.trial?.expiresAt ?? null,
       reason: changeReason.value.trim(),
     });
     packageChangeOpen.value = false;

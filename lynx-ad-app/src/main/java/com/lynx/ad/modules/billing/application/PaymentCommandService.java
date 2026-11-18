@@ -183,6 +183,20 @@ public class PaymentCommandService {
         return OrderView.from(order);
     }
 
+    @Transactional
+    public OrderView closePackageCheckout(TenantId tenantId, String orderId) {
+        lockWorkspace(tenantId);
+        var order = orderRepository.findByIdForUpdate(tenantId, orderId)
+                .filter(o -> o.type() != OrderType.POINT_RECHARGE)
+                .orElseThrow(() -> new BizException(1604, "套餐订单不存在"));
+        if (order.status() == OrderStatus.PENDING_PAY) {
+            var payment = alipayPayment(order)
+                    .orElseThrow(() -> new BizException(1610, "支付宝支付单无法核对，请稍后重试"));
+            refreshAlipay(order, payment, true);
+        }
+        return OrderView.from(order);
+    }
+
     private void refreshAlipay(BillingOrder order, BillingPayment payment, boolean closeRequested) {
         var trade = alipay.query(payment.id());
         if (trade.status() == AlipayPaymentAdapter.Status.NOT_FOUND && alipay.expired(payment, Instant.now())) {
@@ -314,6 +328,9 @@ public class PaymentCommandService {
 
     private void settleSuccess(BillingOrder order, BillingPayment payment, Instant now, String tradeNo) {
         if (order.status() == OrderStatus.PAID) return;
+        if (order.status() != OrderStatus.PENDING_PAY) {
+            throw new BizException(1603, "订单已关闭，请核对支付结果");
+        }
         payment.succeed(tradeNo, now);
         order.markPaid(now);
         paymentRepository.save(payment);

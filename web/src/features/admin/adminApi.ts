@@ -38,7 +38,7 @@ export const getAdminPhones = () => get<AdminMe[]>('/admin-phones');
 export const grantAdminPhone = (phone: string) => post<AdminMe>('/admin-phones', { phone });
 export interface AdminPage<T> { records: T[]; total: number; pageNum: number; pageSize: number }
 export interface AdminUser { id: string; phone: string; nickname?: string; email?: string; status: string; registeredAt: string; hasPassword: boolean; companyName?: string; industry?: string; tenantId?: string; tenantName?: string; memberRole?: string; packageType: string; packageStatus: string; planCode?: string; expiresAt?: string; lastLoginAt?: string; loginCount: number }
-export interface AdminPackage { planCode: string; status: string; startedAt: string; expiresAt: string; autoRenew?: boolean; payMethod?: string; nextPlanCode?: string; updatedAt?: string }
+export interface AdminPackage { planCode: string; status: string; startedAt: string; expiresAt: string; autoRenew?: boolean; payMethod?: string; nextPlanCode?: string; updatedAt?: string; paidThisPeriod?: boolean }
 export interface AdminUserDetail { user: AdminUser; profile?: { avatarUrl?: string; companyScale?: string; position?: string; monthlyBudget?: string; adExperience?: string; coreDemand?: string; completedAt?: string }; subscription?: AdminPackage; trial?: AdminPackage; memberCount: number; adAccounts: number; adPlans: number }
 export interface AdminLoginLog { id: string; userId?: string; phone?: string; nickname?: string; method: string; result: string; failureReason?: string; ip?: string; userAgent?: string; createdAt: string }
 export interface PackageAdjustment { requestId: string; actorName: string; userId: string; tenantId: string; type: string; planCode?: string; days: number; beforeEnd?: string; afterEnd: string; reason: string; createdAt: string }
@@ -55,9 +55,11 @@ export const extendPackage = (id: string, body: ExtendPackage) => post<PackageAd
 export interface ChangePackage {
   requestId: string;
   tenantId: string;
-  planCode: string;
+  mode: 'TRIAL' | 'SUBSCRIPTION';
+  planCode: string | null;
   days: number | null;
   expectedUpdatedAt: string | null;
+  expectedTrialEnd: string | null;
   reason: string;
 }
 export const changePackage = (id: string, body: ChangePackage) => post<PackageAdjustment>(`/users/${encodeURIComponent(id)}/package/change`, body);
