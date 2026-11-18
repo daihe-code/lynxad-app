@@ -179,10 +179,10 @@ import { defaultOptimizationRules } from '@/features/delivery/optimizationRules'
 import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { listControlTasks, type ControlTask, type PlanListVo } from '@/features/delivery/deliveryApi';
 import type { AccountVo } from '@/features/identity/oauthApi';
-const props = defineProps<{ planId: string; plan?: PlanListVo; account?: AccountVo }>();
+const props = defineProps<{ planId: string; plan?: PlanListVo; account?: AccountVo; startInHistory?: boolean }>();
 const emit = defineEmits<{ edit: []; close: []; saved: []; data: [tab: string] }>();
 const authorizationRecovery = defineModel<'recheck' | 'reauthorize' | 'opened'>('authorizationRecovery');
-const router = useRouter(), tab = ref('overview'), today = ref(false), category = ref('ALL'), days = ref(7), page = ref(1);
+const router = useRouter(), tab = ref(props.startInHistory ? 'history' : 'overview'), today = ref(false), category = ref('ALL'), days = ref(props.startInHistory ? 180 : 7), page = ref(1);
 const categories = [{ value: 'ALL', label: '全部' }, { value: 'RISK', label: '风险处理' }, { value: 'GROWTH', label: '增长优化' }, { value: 'RULES', label: '规则变更' }];
 const followingReviewStatuses = ['TRACKING', 'OBSERVING', 'WAITING_DATA'];
 const data = ref<OptimizationDetails>(), loading = ref(true), refreshing = ref(false), closing = ref(false), checking = ref(''), error = ref(''), taskError = ref('');
@@ -481,7 +481,7 @@ let shownRestart: string | undefined;
 watch(restartAt, value => {
   if (!value || shownRestart === value) return;
   shownRestart = value;
-  if (shanghaiDay(new Date(value)) === shanghaiDay(new Date())) tab.value = 'current';
+  if (tab.value !== 'history' && shanghaiDay(new Date(value)) === shanghaiDay(new Date())) tab.value = 'current';
 });
 async function poll() { if (disposed) return; if (!refreshing.value && !closing.value && !resuming.value && !confirming.value) { await load(); await loadTasks(); } if (!disposed) timer = setTimeout(poll, 30000); }
 onMounted(async () => {

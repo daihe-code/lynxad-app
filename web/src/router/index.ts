@@ -15,7 +15,15 @@ const router = createRouter({
   },
   routes: [
     { path: '/admin/login', component: () => import('@/pages/admin/Login.vue'), meta: { public: true } },
-    { path: '/monitoring', component: () => import('@/layouts/AppLayout.vue'), meta: { auth: true }, children: [{ path: '', component: () => import('@/pages/monitoring/Index.vue') }] },
+    {
+      path: '/monitoring',
+      redirect: ({ query }) => ({
+        path: '/campaigns',
+        query: typeof query.planId === 'string' && query.planId
+          ? { plan: query.planId, tab: 'optimization-history' }
+          : {},
+      }),
+    },
     { path: "/", component: () => import("@/pages/landing/Index.vue"), meta: { public: true } },
     { path: "/login", component: () => import("@/pages/login/Login.vue"), meta: { public: true } },
     { path: "/onboarding", redirect: "/welcome" },
