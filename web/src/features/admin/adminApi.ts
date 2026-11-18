@@ -23,7 +23,7 @@ http.interceptors.response.use(response => {
 });
 function expired() {
   clearAdminSession();
-  if (location.pathname.startsWith('/admin') && location.pathname !== '/admin/login') location.assign('/admin/login?expired=1');
+  if (location.pathname.startsWith('/admin') && location.pathname !== '/admin/login') location.assign('/admin/login');
 }
 const get = async <T>(path: string, params?: Record<string, unknown>) => (await http.get<{ data: T }>(`/api/v1/admin${path}`, { params })).data.data;
 const post = async <T>(path: string, data: unknown) => (await http.post<{ data: T }>(`/api/v1/admin${path}`, data)).data.data;

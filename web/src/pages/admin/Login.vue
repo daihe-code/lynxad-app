@@ -2,7 +2,6 @@
   <main class="admin-login">
     <section class="login-card">
       <span class="admin-brand">坤境智营 · 平台管理</span><h1>管理员登录</h1><p>仅限平台管理员访问用户资料与套餐管理。</p>
-      <el-alert v-if="route.query.expired" title="管理员会话已失效，请重新登录" type="info" :closable="false" />
       <el-form label-position="top" @submit.prevent="login">
         <el-form-item label="管理员手机号" :error="phoneError">
           <el-input v-model="phone" type="tel" autocomplete="tel-national" inputmode="numeric" maxlength="11" placeholder="输入管理员手机号" :disabled="busy || sending" />
@@ -22,9 +21,9 @@
 </template>
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { adminLogin, sendAdminSms } from '@/features/admin/adminApi';
-const router = useRouter(), route = useRoute();
+const router = useRouter();
 const phone = ref(''), code = ref(''), phoneError = ref(''), codeError = ref('');
 const busy = ref(false), sending = ref(false), cooldown = ref(0);
 const validPhone = computed(() => /^1[3-9]\d{9}$/.test(phone.value.trim()));
@@ -64,5 +63,5 @@ async function login() {
 </script>
 <style scoped>
 .code-row{display:flex;gap:10px;width:100%}.code-row .el-input{min-width:0}
-.admin-login{min-height:100dvh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#f1f2fb,#fbfcff);box-sizing:border-box}.login-card{width:min(420px,100%);padding:36px;box-sizing:border-box;border:1px solid #e7e8f4;border-radius:18px;background:#fff;box-shadow:0 14px 50px #242d5910}.admin-brand{font-size:14px;color:#5b55ef;font-weight:600}.login-card h1{font-size:25px;color:#20263d;margin:25px 0 10px}.login-card>p{font-size:13px;line-height:1.7;color:#777f94;margin-bottom:25px}.login-card .el-alert{margin-bottom:18px}.login-button{width:100%;margin-top:8px}@media(max-width:480px){.login-card{padding:25px}.admin-login{padding:16px}}
+.admin-login{min-height:100dvh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#f1f2fb,#fbfcff);box-sizing:border-box}.login-card{width:min(420px,100%);padding:36px;box-sizing:border-box;border:1px solid #e7e8f4;border-radius:18px;background:#fff;box-shadow:0 14px 50px #242d5910}.admin-brand{font-size:14px;color:#5b55ef;font-weight:600}.login-card h1{font-size:25px;color:#20263d;margin:25px 0 10px}.login-card>p{font-size:13px;line-height:1.7;color:#777f94;margin-bottom:25px}.login-button{width:100%;margin-top:8px}@media(max-width:480px){.login-card{padding:25px}.admin-login{padding:16px}}
 </style>
