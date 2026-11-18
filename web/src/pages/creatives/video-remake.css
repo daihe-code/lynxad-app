@@ -123,7 +123,10 @@
 }
 .remake-workspace textarea { resize: vertical; }
 .remake-workspace .remake-check { display: flex; align-items: baseline; gap: 8px; font-weight: 400; }
-.remake-check input { accent-color: var(--remake-accent); width: 15px; height: 15px; flex: 0 0 auto; }
+.remake-check input {
+  accent-color: var(--remake-accent); width: 15px; height: 15px; flex: 0 0 auto;
+  align-self: flex-start; font: inherit; margin-block: calc((1lh - 15px) / 2) 0;
+}
 .remake-rights-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .remake-agreement-link { border: 0; padding: 0; background: none; color: #4f45d6; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .remake-agreement-link:disabled { cursor: not-allowed; opacity: .6; }
