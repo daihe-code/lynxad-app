@@ -10,7 +10,28 @@
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon><el-button text @click="load">重新加载</el-button></el-alert><el-alert v-if="data?.warning" :title="data.warning" type="warning" :closable="false" show-icon />
     <el-table ref="table" :data="paged" row-key="id" class="material-table" scrollbar-always-on :default-sort="{ prop: 'metrics.shows', order: 'descending' }" :empty-text="error ? '素材查询失败，请重新加载' : filteredEmpty" @selection-change="selected = $event" @sort-change="sortChange">
       <el-table-column type="selection" :reserve-selection="true" width="44" />
-      <el-table-column :label="categoryLabel" min-width="250"><template #default="{ row }"><div class="material-info"><button v-if="row.type !== 'TITLE'" class="material-cover" :disabled="!canPreview(row)" :aria-label="`预览素材 ${row.id}`" @click="preview = row"><img v-if="row.posterUrl" :src="row.posterUrl" alt="素材缩略图" /><el-icon v-if="row.type === 'VIDEO'" class="cover-play"><VideoPlay /></el-icon><span v-else-if="!row.posterUrl">{{ typeText(row.type) }}</span></button><div class="material-name"><el-tooltip :content="row.name"><strong>{{ row.name }}</strong></el-tooltip><small>素材 ID：{{ row.id }}</small><span v-if="row.aigc" class="ai-tag">AIGC</span><el-tooltip v-if="row.reasons.length" :content="row.reasons.join('；')"><span class="material-status" :class="{ deleted: row.deleted }">{{ stateText(row) }}<template v-if="row.auditStatus"> · {{ auditText(row.auditStatus) }}</template></span></el-tooltip><span v-else class="material-status" :class="{ deleted: row.deleted }">{{ stateText(row) }}<template v-if="row.auditStatus"> · {{ auditText(row.auditStatus) }}</template></span></div></div></template></el-table-column>
+      <el-table-column :label="categoryLabel" min-width="250">
+        <template #default="{ row }">
+          <div class="material-info">
+            <button v-if="row.type !== 'TITLE'" class="material-cover" :disabled="!canPreview(row)" :aria-label="`预览素材 ${row.id}`" @click="preview = row">
+              <img v-if="row.posterUrl" :src="row.posterUrl" alt="素材缩略图" />
+              <el-icon v-if="row.type === 'VIDEO'" class="cover-play"><VideoPlay /></el-icon>
+              <span v-else-if="!row.posterUrl">{{ typeText(row.type) }}</span>
+            </button>
+            <div class="material-name">
+              <el-tooltip :content="row.name"><strong>{{ row.name }}</strong></el-tooltip>
+              <small>素材 ID：{{ row.id }}</small>
+              <span v-if="row.aigc" class="ai-tag">AIGC</span>
+              <el-tooltip :disabled="!row.reasons.length" :content="row.reasons.join('；')">
+                <span class="material-status" :class="{ deleted: row.deleted }">{{ stateText(row) }}</span>
+              </el-tooltip>
+              <span v-if="row.type !== 'TITLE' || row.auditStatus" class="material-status" :class="{ deleted: row.deleted }">
+                · {{ auditText(row.auditStatus) }}
+              </span>
+            </div>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="80"><template #default="{ row }"><el-button link type="primary" aria-label="查看素材" :disabled="!canPreview(row)" @click="preview = row">预览</el-button></template></el-table-column>
       <el-table-column label="商品信息" min-width="190"><template #default="{ row }"><div v-for="p in row.products" :key="p.id" class="material-product"><img v-if="p.imageUrl" :src="p.imageUrl" alt="关联商品" /><div><el-tooltip :content="p.name"><strong>{{ p.name }}</strong></el-tooltip><small>ID：{{ p.id }}</small></div></div><span v-if="!row.products.length" class="muted">—</span></template></el-table-column>
       <el-table-column label="标签" width="100"><template #default="{ row }"><div class="material-tags"><el-tag v-for="t in row.tags" :key="t" size="small" :type="t === 'FIRST_PUBLISH_MATERIAL' ? 'success' : 'info'">{{ tagText(t) }}</el-tag><span v-if="!row.tags.length">—</span></div></template></el-table-column>
@@ -42,7 +63,16 @@ const states: Record<string, string> = { DELIVERY_OK: '投放中', DELIVERY_NOT:
 const tagNames: Record<string, string> = { FIRST_PUBLISH_MATERIAL: '首发', HIGH_QUALITY_MATERIAL: '优质素材', LOW_QUALITY_MATERIAL: '低质素材', INEFFICIENT_MATERIAL: '低效素材', CARRY_MATERIAL: '搬运素材', SIMILAR_MATERIAL: '相似素材' };
 const tagText = (t: string) => tagNames[t] || t, typeText = (t: string) => types.find(v => v.id === t)?.label || '其他素材';
 const stateText = (m: PlanMaterial) => m.deleted ? '已删除' : states[m.status || ''] || m.status || '状态未返回';
-const auditText = (s?: string) => ({ PASS: '审核通过', AUDIT_PASS: '审核通过', REJECT: '审核拒绝', AUDIT_REJECT: '审核拒绝', AUDITING: '审核中', AUDIT_ING: '审核中' } as Record<string, string>)[s || ''] || s || '—';
+const auditLabels = new Map([
+  ['PASS', '审核通过'], ['AUDIT_PASS', '审核通过'],
+  ['REJECT', '审核未通过'], ['AUDIT_REJECT', '审核未通过'],
+  ['IN_PROGRESS', '审核中'], ['AUDITING', '审核中'], ['AUDIT_ING', '审核中'],
+]);
+function auditText(status?: string | null) {
+  const key = status?.trim().toUpperCase();
+  if (!key || key === 'UNKNOWN') return '审核状态未返回';
+  return auditLabels.get(key) ?? '审核状态未知';
+}
 const goods = computed(() => [...new Map((data.value?.records || []).flatMap(r => r.products).map(p => [p.id, p])).values()]);
 const tags = computed(() => [...new Set((data.value?.records || []).flatMap(r => r.tags))]);
 const metrics: { key: keyof MaterialMetrics; label: string; kind: string; width: number }[] = [
