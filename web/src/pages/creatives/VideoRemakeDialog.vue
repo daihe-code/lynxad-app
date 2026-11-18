@@ -57,16 +57,27 @@
             </label>
           </fieldset>
           <fieldset :disabled="busy">
-            <div class="remake-row">
-              <label>方舟预置虚拟人像 ID
-                <input v-model.trim="portraitId" maxlength="136" placeholder="asset-…">
+            <template v-if="useKling">
+              <label>人物参考图 · 可灵 4.0
+                <input type="file" accept=".jpg,.jpeg,.png,.webp" @change="chooseFile($event, 'portrait')">
               </label>
-              <label>人物名称
-                <input v-model.trim="portraitName" maxlength="80">
-              </label>
-            </div>
-            <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library" target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库</a>
-            <label class="remake-check"><input v-model="portraitTerms" type="checkbox">我有权使用所选预置人像，并已确认人像为成年人</label>
+              <span v-if="portraitError" class="remake-error" role="alert">{{ portraitError }}</span>
+              <span v-else class="remake-hint">上传清晰的单人照，最大 10 MB</span>
+            </template>
+            <template v-else>
+              <div class="remake-row">
+                <label>方舟预置虚拟人像 ID
+                  <input v-model.trim="portraitId" maxlength="136" placeholder="asset-…">
+                </label>
+                <label>人物名称
+                  <input v-model.trim="portraitName" maxlength="80">
+                </label>
+              </div>
+              <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library" target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库</a>
+            </template>
+            <label class="remake-check"><input v-model="portraitTerms" type="checkbox">{{
+              useKling ? '我确认图中人物为成年人，并有权将图片提供给可灵生成广告视频' : '我有权使用所选预置人像，并已确认人像为成年人'
+            }}</label>
             <label>成片时长
               <select v-model.number="duration"><option :value="15">15 秒 · 竖屏</option><option :value="30">30 秒 · 竖屏</option></select>
             </label>
@@ -138,13 +149,16 @@ const bindingId = ref(''), awemeId = ref(''), keyword = ref(''), productId = ref
 const awemes = computed(() => activeAccounts.value.find(account => account.accountId === bindingId.value)?.awemes ?? []);
 const products = ref<CreationProduct[]>([]), productsLoading = ref(false), productPage = ref(1), hasMore = ref(false);
 const selectedProduct = computed(() => products.value.find(product => product.qcProductId === productId.value));
-const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>();
+const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
 const portraitId = ref(''), portraitName = ref(''), duration = ref(15), facts = ref('');
+const portraitError = ref('');
 const rights = ref(false), portraitTerms = ref(false);
 const cleanFacts = computed(() => facts.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
-const ready = computed(() => Boolean(reference.value && selectedProduct.value && (productImage.value || selectedProduct.value.imageUrl)
-  && portraitId.value && portraitName.value && rights.value && portraitTerms.value && cleanFacts.value.length));
 const capability = ref<RemakeCapability>(), task = ref<RemakeTask>(), tasks = ref<RemakeTask[]>([]);
+const useKling = computed(() => capability.value?.kling4Available === true);
+const ready = computed(() => Boolean(reference.value && selectedProduct.value && (productImage.value || selectedProduct.value.imageUrl)
+  && (useKling.value ? portraitImage.value : portraitId.value && portraitName.value)
+  && rights.value && portraitTerms.value && cleanFacts.value.length));
 const plan = ref<RemakeTask['plan']>();
 const panel = ref<'new' | 'history' | 'task'>('new');
 const busy = ref(false), loading = ref(true), error = ref(''), uploadLabel = ref('');
@@ -186,7 +200,7 @@ async function loadProducts(page = 1) {
 watch(bindingId, () => {
   awemeId.value = awemes.value.find(aweme => aweme.isPrimary)?.awemeId ?? awemes.value[0]?.awemeId ?? '';
   // Uploads and selected products belong to the account active at submission.
-  for (const upload of [reference.value, productImage.value]) {
+  for (const upload of [reference.value, productImage.value, portraitImage.value]) {
     if (upload) { upload.requestId = crypto.randomUUID(); upload.uploadId = undefined; upload.assetId = undefined; upload.nextChunk = 0; }
   }
 });
@@ -198,15 +212,22 @@ watch([bindingId, awemeId], () => {
   void loadProducts();
 });
 
-function chooseFile(event: Event, kind: 'video' | 'image') {
+watch(useKling, () => { portraitTerms.value = false; });
+
+function chooseFile(event: Event, kind: 'video' | 'image' | 'portrait') {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  const state = kind === 'video' ? reference : productImage;
+  const state = { video: reference, image: productImage, portrait: portraitImage }[kind];
   state.value = undefined;
   error.value = '';
+  if (kind === 'portrait') {
+    portraitError.value = '';
+    portraitTerms.value = false;
+  }
   if (!file) return;
   if (!file.size || file.size > (kind === 'video' ? 200 : 10) * 1024 * 1024) {
-    error.value = kind === 'video' ? '参考视频最大 200 MB' : '商品图最大 10 MB';
+    if (kind === 'portrait') portraitError.value = '人物参考图最大 10 MB';
+    else error.value = kind === 'video' ? '参考视频最大 200 MB' : '商品图最大 10 MB';
     input.value = '';
     return;
   }
@@ -267,6 +288,7 @@ async function open(id: string, retry = false) {
 
 async function start() {
   if (!ready.value || !reference.value || busy.value) return;
+  const kling = useKling.value;
   error.value = '';
   if (cleanFacts.value.length > 12 || cleanFacts.value.some(fact => Array.from(fact).length > 200)) {
     error.value = '请填写 1 至 12 条商品事实，每条最多 200 字。';
@@ -279,9 +301,13 @@ async function start() {
     const productImageId = productImage.value
       ? await uploadRemakeMedia(productImage.value, 'image', bindingId.value,
         percent => { uploadLabel.value = `上传商品图 ${percent}%`; }) : undefined;
+    const portraitImageId = kling && portraitImage.value
+      ? await uploadRemakeMedia(portraitImage.value, 'image', bindingId.value,
+        percent => { uploadLabel.value = `上传人物图 ${percent}%`; }) : undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
       productId: productId.value, facts: cleanFacts.value, productImageId, referenceId,
-      portraitId: portraitId.value, portraitName: portraitName.value, rightsConfirmed: rights.value,
+      portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value,
+      portraitImageId, rightsConfirmed: rights.value,
       portraitTermsConfirmed: portraitTerms.value, durationSeconds: duration.value });
     requestId = crypto.randomUUID();
     show(result);

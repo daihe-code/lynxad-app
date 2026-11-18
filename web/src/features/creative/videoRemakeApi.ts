@@ -8,6 +8,7 @@ export interface RemakeCapability {
   subscribed: boolean;
   balanceStatus?: 'SUFFICIENT' | 'LOW' | 'EMPTY';
   points: number;
+  kling4Available: boolean;
 }
 
 export interface RemakeShot {
@@ -39,8 +40,9 @@ export interface RemakeInput {
   productImageId?: string;
   referenceId: string;
   facts: string[];
-  portraitId: string;
-  portraitName: string;
+  portraitId?: string;
+  portraitName?: string;
+  portraitImageId?: string;
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
   durationSeconds: number;

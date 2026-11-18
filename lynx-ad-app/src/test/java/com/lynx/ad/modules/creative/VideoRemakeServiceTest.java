@@ -1,10 +1,15 @@
 package com.lynx.ad.modules.creative;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.common.domain.Ids.TenantId;
+import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.billing.application.GenerationCharges;
 import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.creative.application.AssetUploadService;
@@ -15,6 +20,7 @@ import com.lynx.ad.modules.creative.infrastructure.adapter.VideoRemakeScheduling
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore.Task;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
+import com.lynx.ad.modules.delivery.domain.model.CreationState.Product;
 import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.tenant.application.WorkspaceAccess;
 import java.math.BigDecimal;
@@ -23,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.ClassPathBeanDefinitionScanner;
 import org.springframework.core.type.filter.AssignableTypeFilter;
@@ -40,7 +47,8 @@ class VideoRemakeServiceTest {
     private final CreationEngineClient engine = mock(CreationEngineClient.class);
     private final VideoRemakeStore store = mock(VideoRemakeStore.class);
     private final GenerationCharges charges = mock(GenerationCharges.class);
-    private final VideoRemakeService service = new VideoRemakeService(engine, mock(CreationQianchuanGateway.class),
+    private final CreationQianchuanGateway catalog = mock(CreationQianchuanGateway.class);
+    private final VideoRemakeService service = new VideoRemakeService(engine, catalog,
             mock(AccountBindingRegistry.class), mock(WorkspaceAccess.class), charges, new WorkspacePricing(), store,
             mock(CreationAssetImporter.class), mock(AssetUploadService.class), new TransactionTemplate() {
                 @Override public <T> T execute(TransactionCallback<T> action) {
@@ -83,6 +91,33 @@ class VideoRemakeServiceTest {
         verify(charges).hold("tenant", "remake:" + ID, "binding", "actor", Map.of("video", 1));
         verify(store).queueConfirmation(eq(review), contains("这是新台词"));
         verify(charges, never()).finish(any(), any(), any());
+    }
+
+    @Test
+    void klingUsesTheCurrentActorsUploadedPortrait() throws Exception {
+        String reference = "rpa_" + "1".repeat(32);
+        String portrait = "rpa_" + "2".repeat(32);
+        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", List.of("不锈钢"),
+                null, reference, null, null, true, true, 15, portrait);
+        var product = new Product("p", "123", "水杯", null, null, "https://example.com/product.png",
+                null, null, List.of(), List.of());
+        when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
+                .thenReturn(List.of(product));
+        when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+        assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
+        verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+
+        when(store.ownsAsset("tenant", "actor", "binding", portrait, "image")).thenReturn(true);
+        when(store.find("tenant", ID, false)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(row("CREATING")));
+        service.create("tenant", "actor", request);
+        var payload = ArgumentCaptor.forClass(String.class);
+        verify(store).create(eq("tenant"), eq(ID), eq("actor"), eq("binding"), eq("水杯"), payload.capture());
+        var engineInput = json.readTree(payload.getValue());
+        assertEquals(portrait, engineInput.at("/kling_portrait/image_asset_id").asText());
+        assertTrue(engineInput.at("/kling_portrait/rights_confirmed").asBoolean());
+        assertTrue(engineInput.at("/kling_portrait/adult_confirmed").asBoolean());
+        assertTrue(engineInput.path("require_plan_confirmation").asBoolean());
+        assertFalse(engineInput.has("portrait"));
     }
 
     @Test
