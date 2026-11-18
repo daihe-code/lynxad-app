@@ -15,7 +15,16 @@
     </div>
     <p class="ac-card__n" :title="item.filename">{{ item.filename }}</p>
     <p class="ac-card__id" :title="assetIdentifier(item)">素材 ID：{{ assetIdentifier(item) }}</p>
-    <p class="ac-card__m"><span>{{ fileSize(item.sizeBytes) }}</span><i class="ac-card__dot">·</i><template v-if="item.type === 'VIDEO' && item.durationSec != null"><span>{{ duration(item.durationSec) }}</span><i class="ac-card__dot">·</i></template><span>{{ item.category || '—' }}</span><i class="ac-card__dot">·</i><span :title="`${item.source === 'EXTERNAL' ? '千川上传时间' : '上传时间'}：${assetDateTime(item.createdAt)}`">{{ assetDay(item.createdAt) }}</span></p>
+    <p class="ac-card__m">
+      <span>{{ fileSize(item.sizeBytes) }}</span><i class="ac-card__dot">·</i>
+      <template v-if="item.type === 'VIDEO' && item.durationSec != null">
+        <span>{{ duration(item.durationSec) }}</span><i class="ac-card__dot">·</i>
+      </template>
+      <span>{{ item.category || '—' }}</span>
+    </p>
+    <p class="ac-card__m ac-card__m--date" :title="`${item.source === 'EXTERNAL' ? '千川上传时间' : '上传时间'}：${assetDateTime(item.createdAt)}`">
+      {{ assetDay(item.createdAt) }}
+    </p>
     <p class="ac-card__m ac-card__m--st"><template v-if="cardStatus?.label"><span class="ac-use" :class="cardStatus.cls"><i aria-hidden="true"></i>{{ cardStatus.label }}</span><i class="ac-card__dot">·</i></template><button v-if="item.used" class="ac-card__ref" type="button" @click="emit('detail')">{{ referenceLabel(item) }}</button><span v-else class="ac-card__ref ac-card__ref--off">{{ referenceLabel(item) }}</span></p>
   </article>
 </template>
