@@ -48,6 +48,7 @@ public class WorkspaceRequestGuard implements HandlerInterceptor,WebMvcConfigure
             }
             if(path.startsWith("/api/v1/identity/")||path.equals("/oauth/accounts")||planList
                     ||path.startsWith("/api/v1/delivery/plans/")||path.startsWith("/plans/")
+                    ||path.equals("/api/v1/creative/video-remakes")||path.startsWith("/api/v1/creative/video-remakes/")
                     ||path.startsWith("/api/v1/delivery/creation/")||path.equals("/api/v1/delivery/creation"))return true;
             // Legacy tenant-wide surfaces stay closed when they cannot isolate the responsible operator.
             if(!access.ownsBusinessScope(member))throw new BizException(403,"当前成员没有这些业务资源的访问权限");

@@ -18,7 +18,10 @@
             <div class="ac-bar">
               <div class="lsearch"><AssetIcon class="lsearch__ic h-[16px] w-[16px]" name="search" /><input v-model="q" class="lsearch__input" type="search" placeholder="搜索素材名称 / ID" aria-label="搜索素材名称或 ID" @input="searchChanged" @keydown.enter="resetAndReload" /></div>
               <div class="ac-chips" role="group" aria-label="按使用状态筛选"><button v-for="chip in statuses" :key="chip.key" class="ac-chip" type="button" :aria-pressed="status === chip.key" :aria-busy="loading && status === chip.key" @click="pickStatus(chip.key)">{{ chip.label }}<span class="ac-chip__n"><AssetIcon v-if="loading && status === chip.key" name="refresh" class="asset-control-spinner" /><template v-else>{{ data.statusCounts[chip.count] ?? '—' }}</template></span></button></div>
-              <div class="ac-bar__r"><button class="btn-create" type="button" @click="openModal('upload')"><AssetIcon name="upload" />上传素材</button></div>
+              <div class="ac-bar__r asset-create-actions">
+                <el-button v-if="type === 'VIDEO'" plain type="primary" @click="remakeOpen = true">爆款复刻</el-button>
+                <button class="btn-create" type="button" @click="openModal('upload')"><AssetIcon name="upload" />上传素材</button>
+              </div>
             </div>
             <div class="ac-batch" :data-on="picked.size > 0"><label class="check"><input class="checkbox" type="checkbox" aria-label="全选本页素材" :checked="allPicked" :indeterminate="somePicked && !allPicked" :disabled="!data.items.length || loading || deleting" @change="pickAll" /><span class="check__label">全选本页</span></label><span class="ac-batch__n">已选 <b>{{ picked.size }}</b> 项素材</span><span class="ac-batch__hint">勾选素材后即可批量删除</span><div class="ac-batch__ops"><button class="ltool__btn ltool__btn--danger" type="button" :disabled="!picked.size || loading || deleting" @click="openDelete"><AssetIcon name="trash" />批量删除</button></div></div>
             <p v-if="!data.qianchuanBound" class="asset-notice">尚未绑定巨量千川账户，当前展示本平台素材。<router-link to="/accounts?tab=oauth">前往绑定</router-link></p>
@@ -42,6 +45,7 @@
     <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 坤境智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
     <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" :account-id="accountId || undefined" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
     <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
+    <VideoRemakeDialog v-if="remakeOpen" @close="remakeOpen = false" @saved="reload('refresh')" />
   </div>
 </template>
 
@@ -55,6 +59,7 @@ import AssetIcon from "./AssetIcon.vue";
 import AssetCard from "./AssetCard.vue";
 import AssetModal from "./AssetModal.vue";
 import AssetDeleteDialog from './AssetDeleteDialog.vue';
+import VideoRemakeDialog from './VideoRemakeDialog.vue';
 import { uploadRows, reviewPending } from '@/features/creative/assetUploads';
 
 type AssetType = LibraryItemVo["type"];
@@ -70,6 +75,7 @@ function defaultRange(days = 7): [string, string] {
 const range = ref<[string, string] | null>(null), draftRange = ref<[string, string]>(defaultRange());
 const { accountId } = storeToRefs(useAdvertisingAccountsStore());
 const calendarOpen = ref(false), dateError = ref("");
+const remakeOpen = ref(false);
 const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
 const data = shallowRef<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
 const page = ref(1), loading = ref(false), failMsg = ref("");
@@ -174,6 +180,7 @@ onUnmounted(() => { alive = false; ++requestId; activeQuery?.abort(); queryCache
 
 <style src="./asset-center.css"></style>
 <style scoped>
+.asset-create-actions { display: flex; align-items: center; gap: 8px; }
 .asset-flip { transform: rotate(180deg); }
 .asset-notice { margin-top: 14px; padding: 10px 14px; border-radius: 10px; background: #f7f8fe; font-size: 13px; }
 .asset-notice a, .asset-notice button { color: #4348db; }
