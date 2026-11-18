@@ -19,7 +19,7 @@
               <div class="lsearch"><AssetIcon class="lsearch__ic h-[16px] w-[16px]" name="search" /><input v-model="q" class="lsearch__input" type="search" placeholder="搜索素材名称 / ID" aria-label="搜索素材名称或 ID" @input="searchChanged" @keydown.enter="resetAndReload" /></div>
               <div class="ac-chips" role="group" aria-label="按使用状态筛选"><button v-for="chip in statuses" :key="chip.key" class="ac-chip" type="button" :aria-pressed="status === chip.key" :aria-busy="loading && status === chip.key" @click="pickStatus(chip.key)">{{ chip.label }}<span class="ac-chip__n"><AssetIcon v-if="loading && status === chip.key" name="refresh" class="asset-control-spinner" /><template v-else>{{ data.statusCounts[chip.count] ?? '—' }}</template></span></button></div>
               <div class="ac-bar__r asset-create-actions">
-                <el-button v-if="type === 'VIDEO'" plain type="primary" @click="remakeOpen = true">爆款复刻</el-button>
+                <button v-if="type === 'VIDEO'" class="btn-create" type="button" @click="remakeOpen = true">爆款复刻</button>
                 <button class="btn-create" type="button" @click="openModal('upload')"><AssetIcon name="upload" />上传素材</button>
               </div>
             </div>
