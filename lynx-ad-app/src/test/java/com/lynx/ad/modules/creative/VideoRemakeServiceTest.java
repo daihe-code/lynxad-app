@@ -1,0 +1,91 @@
+package com.lynx.ad.modules.creative;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.modules.billing.application.GenerationCharges;
+import com.lynx.ad.modules.billing.application.WorkspacePricing;
+import com.lynx.ad.modules.creative.application.AssetUploadService;
+import com.lynx.ad.modules.creative.application.CreationAssetImporter;
+import com.lynx.ad.modules.creative.application.VideoRemakeService;
+import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
+import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore;
+import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore.Task;
+import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
+import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
+import com.lynx.ad.modules.tenant.application.WorkspaceAccess;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+
+class VideoRemakeServiceTest {
+    private static final String ID = "10000000-0000-0000-0000-000000000001";
+    private static final String ENGINE = "rpt_11111111111111111111111111111111";
+    private static final String TASK_PATH = "/tasks/" + ENGINE;
+    private static final BigDecimal RATE = BigDecimal.valueOf(240);
+    private final ObjectMapper json = new ObjectMapper();
+    private final CreationEngineClient engine = mock(CreationEngineClient.class);
+    private final VideoRemakeStore store = mock(VideoRemakeStore.class);
+    private final GenerationCharges charges = mock(GenerationCharges.class);
+    private final VideoRemakeService service = new VideoRemakeService(engine, mock(CreationQianchuanGateway.class),
+            mock(AccountBindingRegistry.class), mock(WorkspaceAccess.class), charges, new WorkspacePricing(), store,
+            mock(CreationAssetImporter.class), mock(AssetUploadService.class), new TransactionTemplate() {
+                @Override public <T> T execute(TransactionCallback<T> action) {
+                    return action.doInTransaction(new SimpleTransactionStatus());
+                }
+            }, json);
+
+    @Test
+    void reviewingIsFreeAndApprovalReservesExactlyOnce() throws Exception {
+        var review = row("REVIEW");
+        when(store.find("tenant", ID, false)).thenReturn(Optional.of(review), Optional.of(review),
+                Optional.of(row("CONFIRMING")));
+        when(store.find("tenant", ID, true)).thenReturn(Optional.of(review));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.readTree("""
+                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation","plan":{
+                   "target_product_id":"p1","title":"原分镜","shots":[{"scene_id":"source-1","duration":15}]}}
+                """.formatted(ENGINE)));
+        when(charges.quote("tenant", "remake:" + ID)).thenReturn(
+                new GenerationCharges.Quote(null, Map.of("video", 1), Map.of("video", RATE)));
+
+        assertEquals("REVIEW", service.get("tenant", "actor", ID).phase());
+        verifyNoInteractions(charges);
+        var confirmation = new VideoRemakeService.Confirm("新标题",
+                List.of(new VideoRemakeService.ShotEdit("镜头缓慢从杯口移到杯身的把手", "这是新台词", "新字幕")), true, RATE);
+        assertEquals("CONFIRMING", service.confirm("tenant", "actor", ID, confirmation).phase());
+        assertEquals("CONFIRMING", service.confirm("tenant", "actor", ID, confirmation).phase());
+
+        verify(charges).hold("tenant", "remake:" + ID, "binding", "actor", Map.of("video", 1));
+        verify(store).queueConfirmation(eq(review), contains("这是新台词"));
+        verify(charges, never()).finish(any(), any(), any());
+    }
+
+    @Test
+    void definitiveFailureReleasesReservationButUncertainReceiptDoesNot() throws Exception {
+        var generating = row("GENERATING");
+        when(store.due()).thenReturn(List.of(generating));
+        when(store.claim(eq(generating), anyString())).thenReturn(true);
+        when(store.update(eq(generating), anyString(), anyString(), eq(ENGINE), any(), anyLong())).thenReturn(true);
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(
+                json.readTree("{\"id\":\"" + ENGINE + "\",\"store_id\":\"tenant\",\"status\":\"needs_attention\"}"),
+                json.readTree("{\"id\":\"" + ENGINE + "\",\"store_id\":\"tenant\",\"status\":\"failed\"}"));
+
+        service.advance();
+        verify(charges, never()).finish(any(), any(), any());
+        service.advance();
+        verify(charges).finish("tenant", "remake:" + ID, Map.of());
+    }
+
+    private Task row(String phase) {
+        return new Task("tenant", ID, "actor", "binding", "水杯", ENGINE, phase, "{}", "{}",
+                null, null, null, Instant.EPOCH);
+    }
+}

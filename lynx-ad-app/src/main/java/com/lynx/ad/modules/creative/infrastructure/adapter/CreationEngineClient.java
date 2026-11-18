@@ -27,6 +27,48 @@ public class CreationEngineClient {
     }
     public JsonNode get(String path){return exchange(path,null);}
     public JsonNode find(String path){return exchange(path,null,true);}
+    public JsonNode remake(String method, String path, Object payload) {
+        try {
+            var request = HttpRequest.newBuilder(URI.create(base()+"/api/v1/replication/product"+path))
+                    .timeout(Duration.ofSeconds(path.endsWith("/finish") ? 150 : 12))
+                    .header("Accept","application/json").header("X-LynxAd-Caller","lynxad-app");
+            if (apiKey != null && !apiKey.isBlank()) request.header("X-API-Key",apiKey);
+            var body = HttpRequest.BodyPublishers.noBody();
+            if (payload instanceof byte[] bytes) {
+                request.header("Content-Type","application/octet-stream");
+                body = HttpRequest.BodyPublishers.ofByteArray(bytes);
+            } else if (payload != null) {
+                request.header("Content-Type","application/json");
+                body = HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload),StandardCharsets.UTF_8);
+            }
+            var result = http.send(request.method(method,body).build(),HttpResponse.BodyHandlers.ofByteArray());
+            if (result.statusCode() < 200 || result.statusCode() >= 300)
+                throw new RemakeEngineError(result.statusCode());
+            return json.readTree(result.body());
+        } catch (RemakeEngineError ex) {
+            throw ex;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new RemakeEngineError(503);
+        } catch (Exception ex) {
+            throw new RemakeEngineError(503);
+        }
+    }
+    public static class RemakeEngineError extends BizException {
+        private final int status;
+        public RemakeEngineError(int status) {
+            super(8002, switch (status) {
+                case 404 -> "复刻任务或素材不可用";
+                case 409 -> "复刻数据已变更，请刷新后核对";
+                case 422 -> "复刻素材或分镜不符合要求，请核对格式、商品图和分镜内容";
+                case 429 -> "复刻任务较多，请稍后重试";
+                default -> "复刻服务暂不可用，请稍后重试";
+            });
+            this.status = status;
+        }
+        public int status() { return status; }
+        public boolean inputRejected() { return status == 400 || status == 404 || status == 409 || status == 422; }
+    }
     public String base(){String base=properties.getAi().getReview().getBaseUrl();if(base==null||base.isBlank())throw new BizException(8001,"LynxAd-ai-engine 地址未配置");return base.replaceAll("/+$","");}
     private JsonNode exchange(String path,Object payload){
         return exchange(path,payload,false);

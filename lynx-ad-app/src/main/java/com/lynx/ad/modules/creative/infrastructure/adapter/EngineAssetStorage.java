@@ -37,6 +37,12 @@ public class EngineAssetStorage implements StoragePort {
     public EngineAssetStorage(AssetUploadRepository repository,CreationEngineClient engine){this.repository=repository;this.engine=engine;}
 
     private JsonNode material(String tenant,String job,String mid,boolean fresh) {
+        if (job.matches("rpt_[a-f0-9]{32}") && job.equals(mid)) {
+            var item = engine.remake("GET", "/tasks/"+job+"/asset?store_id="+CreationEngineClient.query(tenant), null);
+            if (tenant.equals(item.path("store_id").asText()) && mid.equals(item.path("material_id").asText())
+                    && "succeeded".equals(item.path("status").asText())) return item;
+            throw new BizException(1521,"引擎复刻素材尚未验收或归属不匹配");
+        }
         String key=tenant+":"+job;var cached=cache.get(key);
         JsonNode result;
         if(!fresh&&cached!=null&&cached.until().isAfter(Instant.now()))result=cached.job();
