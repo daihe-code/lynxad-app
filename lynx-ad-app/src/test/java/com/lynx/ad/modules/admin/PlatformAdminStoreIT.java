@@ -11,6 +11,7 @@ import com.lynx.ad.common.security.*;
 import com.lynx.ad.modules.admin.application.*;
 import com.lynx.ad.modules.admin.infrastructure.*;
 import com.lynx.ad.modules.billing.application.*;
+import com.lynx.ad.modules.billing.api.dto.OrderView;
 import com.lynx.ad.modules.billing.domain.port.OrderRepository;
 import com.lynx.ad.modules.billing.domain.port.PlanRepository;
 import com.lynx.ad.modules.billing.infrastructure.persistence.SubscriptionPersistenceFixture;
@@ -38,6 +39,7 @@ class PlatformAdminStoreIT {
     static long backfilled;static String legacyMethod;static final ObjectMapper json=new ObjectMapper();
     AdminAccountStore admins;AdminAuthService auth;AdminAccountStore.Account admin;AdminPackageService packages;AdminUserQuery queries;Instant end;
     EntitlementQueryService entitlements;
+    PaymentCommandService payments;
     @BeforeAll static void setup()throws Exception {
         String url=System.getenv("LYNXAD_ADMIN_TEST_URL");database=url.substring(url.indexOf("/lynxad_")+1,url.indexOf('?'));if(!database.matches("lynxad_admin_verify_[a-zA-Z0-9_]+"))throw new IllegalArgumentException("Unsafe verification schema");
         server=url.replace("/"+database+"?","/?");user=System.getenv("LYNXAD_ADMIN_TEST_USER");password=System.getenv("LYNXAD_ADMIN_TEST_PASSWORD");
@@ -85,7 +87,8 @@ class PlatformAdminStoreIT {
         entitlements.workspacePricing(pricing);
         var points = new WorkspacePointOrders(pricing, null, foundation, mock(OrderRepository.class),
                 new PointWalletService(jdbc, foundation), jdbc, subscriptions);
-        packages = new AdminPackageService(auth, admins, jdbc, json, points);
+        payments = mock(PaymentCommandService.class);
+        packages = new AdminPackageService(auth, admins, jdbc, json, points, payments);
     }
     @AfterEach void clearContext(){TenantContext.clear();RequestMeta.clear();}
     AdminPackageService.ExtendRequest request(String type,int days,Instant before){return new AdminPackageService.ExtendRequest(UUID.randomUUID().toString(),type,"PROFESSIONAL",days,before,"测试客户补偿");}
@@ -178,6 +181,70 @@ class PlatformAdminStoreIT {
         assertEquals(0, queries.adjustments("u1", 1, 20).total());
     }
 
+    @Test void convertsTrialToFormalWithAnOpenMockCheckoutAndCanRestoreThreeDayTrial() {
+        pendingPackageOrder();
+        jdbc.update("""
+                INSERT INTO billing_payment(id,tenant_id,order_id,channel,status,amount_fen)
+                VALUES('mock-checkout','t1','pending-order','MOCK','CREATED',79900)
+                """);
+        var formal = new AdminPackageService.ChangeRequest(UUID.randomUUID().toString(), "t1", "FLAGSHIP", 30,
+                null, "线下开通", AdminPackageService.PackageMode.SUBSCRIPTION, end);
+        var converted = change("u1", formal);
+        assertEquals("TRIAL_CONVERT", converted.type());
+        assertEquals(end, converted.beforeEnd());
+        assertEquals(converted, change("u1", formal));
+        var detail = queries.detail("u1");
+        assertEquals("ACTIVE", detail.user().packageStatus());
+        assertEquals("FLAGSHIP", detail.user().planCode());
+        assertEquals("EXPIRED", detail.trial().status());
+        assertEquals("CLOSED", jdbc.queryForObject("SELECT status FROM billing_order WHERE id='pending-order'", String.class));
+        assertEquals("FAILED", jdbc.queryForObject("SELECT status FROM billing_payment WHERE id='mock-checkout'", String.class));
+        assertEquals(30000, availablePoints());
+
+        var toTrial = new AdminPackageService.ChangeRequest(UUID.randomUUID().toString(), "t1", null, null,
+                detail.subscription().updatedAt(), "恢复试用", AdminPackageService.PackageMode.TRIAL, detail.trial().expiresAt());
+        var trial = change("u1", toTrial);
+        var updated = queries.detail("u1");
+        assertEquals("TRIAL_START", trial.type());
+        assertEquals("TRIAL", updated.user().packageStatus());
+        assertEquals("EXPIRED", updated.subscription().status());
+        assertEquals(Duration.ofDays(3), Duration.between(updated.trial().startedAt(), updated.trial().expiresAt()));
+        assertEquals(30000, availablePoints());
+        verifyNoInteractions(payments);
+    }
+
+    @Test void keepsAnActivePaidSubscriptionWhenSettingTrial() {
+        change("u1", changeRequest("PROFESSIONAL", 30, null));
+        jdbc.update("UPDATE billing_subscription SET paid_fen_this_period=79900 WHERE tenant_id='t1'");
+        var detail = queries.detail("u1");
+        var toTrial = new AdminPackageService.ChangeRequest(UUID.randomUUID().toString(), "t1", null, null,
+                detail.subscription().updatedAt(), "切换试用", AdminPackageService.PackageMode.TRIAL, detail.trial().expiresAt());
+        assertThrows(BizException.class, () -> change("u1", toTrial));
+        assertTrue(queries.detail("u1").subscription().paidThisPeriod());
+        assertEquals("ACTIVE", queries.detail("u1").user().packageStatus());
+    }
+
+    @Test void commitsPaidCheckoutWhenItPreventsTheAdministrativeChange() {
+        pendingPackageOrder();
+        jdbc.update("""
+                INSERT INTO billing_payment(id,tenant_id,order_id,channel,status,amount_fen)
+                VALUES('alipay-checkout','t1','pending-order','ALIPAY','CREATED',79900)
+                """);
+        when(payments.closePackageCheckout(new TenantId("t1"), "pending-order")).thenAnswer(call -> {
+            jdbc.update("UPDATE billing_order SET status='PAID' WHERE id='pending-order'");
+            return new OrderView("pending-order", "FIRST_SUBSCRIBE", "PROFESSIONAL", null, 79900, 799, null, "PAID");
+        });
+        var proxy = new org.springframework.aop.framework.ProxyFactory(packages);
+        proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(
+                new DataSourceTransactionManager(dataSource),
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        var service = (AdminPackageService) proxy.getProxy();
+        assertEquals(409, assertThrows(BizException.class,
+                () -> service.change("u1", changeRequest("BASIC", 30, null))).code());
+        assertEquals("PAID", jdbc.queryForObject("SELECT status FROM billing_order WHERE id='pending-order'", String.class));
+        assertEquals(0, queries.adjustments("u1", 1, 20).total());
+    }
+
     private void pendingPackageOrder() {
         jdbc.update("""
                 INSERT INTO billing_order(id,tenant_id,plan_code,type,status,list_price_fen,payable_fen)
@@ -207,7 +274,7 @@ class PlatformAdminStoreIT {
     }
     @Test void auditFailureRollsBackExpiryAndReceiptTogether() {
         var failing=spy(admins);doThrow(new IllegalStateException("audit unavailable")).when(failing).audit(any(AdminAccountStore.Account.class),eq("PACKAGE_EXTEND"),anyString(),anyString(),anyString(),anyString());
-        var service=new AdminPackageService(auth,failing,jdbc,json,mock(WorkspacePointOrders.class));assertThrows(IllegalStateException.class,()->tx.execute(status->service.extend("u1",request("TRIAL",30,end))));
+        var service=new AdminPackageService(auth,failing,jdbc,json,mock(WorkspacePointOrders.class),mock(PaymentCommandService.class));assertThrows(IllegalStateException.class,()->tx.execute(status->service.extend("u1",request("TRIAL",30,end))));
         assertEquals(end,queries.detail("u1").trial().expiresAt());assertEquals(0,queries.adjustments(null,1,20).total());
     }
     @Test void simultaneousReplayCommitsOnlyOneGrant()throws Exception {

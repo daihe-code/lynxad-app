@@ -82,6 +82,21 @@ class AlipaySettlementTest {
         verifyNoInteractions(pointOrders);
     }
 
+    @Test
+    void packageChangeClosesAlipayCheckoutAndRequiresALinkedPayment() {
+        var order = prepare(OrderType.FIRST_SUBSCRIBE);
+        when(payments.findById(tenant, paymentId)).thenReturn(Optional.empty());
+        assertThrows(BizException.class, () -> service.closePackageCheckout(tenant, orderId));
+        assertEquals(OrderStatus.PENDING_PAY, order.status());
+
+        when(payments.findById(tenant, paymentId)).thenReturn(Optional.of(payment));
+        when(alipay.query(paymentId)).thenReturn(new Trade(paymentId, Status.WAITING, null, null));
+        when(alipay.close(paymentId)).thenReturn(true);
+        assertEquals("CLOSED", service.closePackageCheckout(tenant, orderId).status());
+        assertEquals(PaymentStatus.FAILED, payment.status());
+        verifyNoInteractions(subscriptions, pointOrders);
+    }
+
     private BillingOrder prepare(OrderType type) {
         var order = new BillingOrder(orderId, tenant, PlanCode.BASIC, null, type, OrderStatus.PENDING_PAY,
                 9900, 9900, null, Instant.now(), null);
