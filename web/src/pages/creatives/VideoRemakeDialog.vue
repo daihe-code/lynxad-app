@@ -1,6 +1,6 @@
 <template>
   <el-dialog :model-value="true" title="爆款复刻" width="min(1080px, calc(100vw - 32px))" append-to-body
-    class="remake-dialog" align-center :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy"
+    class="remake-dialog" align-center :close-on-click-modal="false" :close-on-press-escape="!busy && !rightsAgreementOpen" :show-close="!busy"
     @close="emit('close')">
     <div class="remake-workspace">
       <div class="remake-toolbar">
@@ -49,8 +49,13 @@
               <RemakeFilePicker kind="video" label="上传或拖入参考视频" :file="reference?.file" :disabled="busy"
                 @change="selectReference" @duration="referenceDuration = $event" />
               <p v-if="referenceTooLong || fieldError('reference')" class="remake-error" role="alert">{{ referenceTooLong ? '参考视频不得超过 120 秒。' : fieldError('reference') }}</p>
-              <label class="remake-check"><input v-model="rights" type="checkbox" :disabled="busy">我有权使用此参考视频</label>
-              <p v-if="fieldError('rights')" class="remake-error" role="alert">{{ fieldError('rights') }}</p>
+              <div class="remake-rights-row">
+                <label class="remake-check"><input v-model="rights" type="checkbox" :disabled="busy"
+                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频</label>
+                <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
+                  @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+              </div>
+              <p v-if="fieldError('rights')" id="remake-video-rights-error" class="remake-error" role="alert">{{ fieldError('rights') }}</p>
             </div>
 
             <div v-else-if="setupStep === 1" class="remake-step-body">
@@ -136,10 +141,15 @@
                   target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
               </template>
               <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
-              <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy">{{
-                useKling ? '我确认图中人物为成年人，并有权将图片提供给可灵生成广告视频' : '我确认所选人像为成年人，且有权使用'
-              }}</label>
-              <p v-if="fieldError('portraitTerms')" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
+              <div class="remake-rights-row">
+                <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
+                  :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
+                  useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
+                }}</label>
+                <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
+                  @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+              </div>
+              <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
               <div class="remake-output-options">
                 <div class="remake-field-title"><strong>成片时长</strong><span>竖屏 9:16</span></div>
                 <div class="remake-durations" role="group" aria-label="成片时长">
@@ -298,6 +308,25 @@
         </div>
       </section>
     </div>
+
+    <el-dialog v-model="rightsAgreementOpen" title="素材授权与责任协议" width="min(560px, calc(100vw - 32px))"
+      class="remake-agreement-dialog" append-to-body align-center>
+      <div class="remake-agreement-content">
+        <section>
+          <h3>参考视频授权</h3>
+          <p>商家须对参考视频及其中使用的音乐、画面等素材享有合法权利，或事先取得权利人的有效授权。授权范围须涵盖本次上传、AI 分析、编辑、复刻及成片的商业使用和广告投放。</p>
+        </section>
+        <section>
+          <h3>人物肖像与声音授权</h3>
+          <p>使用可识别真人的肖像或声音前，商家须向本人告知 AI 生成、编辑及广告投放等用途，并取得相应授权。涉及编辑人脸、人声等生物识别信息的，须依法取得本人的单独同意。使用预置虚拟人像的，须遵守相应许可条款。</p>
+        </section>
+        <section>
+          <h3>责任承担</h3>
+          <p><strong>因商家未经授权、超出授权范围或违法使用素材及成片引发的纠纷，由商家依法处理并承担相应法律责任。</strong>坤境智营提供视频生成与复刻技术服务，依法履行平台义务并承担相应责任。</p>
+        </section>
+      </div>
+      <template #footer><el-button type="primary" @click="rightsAgreementOpen = false">返回确认</el-button></template>
+    </el-dialog>
   </el-dialog>
 </template>
 
@@ -328,6 +357,7 @@ const referenceDuration = ref<number>();
 const referenceTooLong = computed(() => (referenceDuration.value ?? 0) > 120.02);
 const portraitId = ref(''), portraitName = ref(''), outputDuration = ref(15), facts = ref('');
 const rights = ref(false), portraitTerms = ref(false);
+const rightsAgreementOpen = ref(false);
 const cleanFacts = computed(() => facts.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
 const setupSteps = ['参考视频', '目标商品', '人物与成片'];
 const setupStep = ref(0), furthestStep = ref(0);
@@ -483,7 +513,7 @@ watch([bindingId, awemeId], () => {
   furthestStep.value = Math.min(furthestStep.value, 1);
   void loadProducts(1);
 });
-watch(useKling, () => { portraitTerms.value = false; });
+watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
   facts, portraitId, portraitName, outputDuration, rights, portraitTerms], () => {
   requestId = crypto.randomUUID();
@@ -509,7 +539,7 @@ function validateStep(step: number) {
     [
       { when: !reference.value, field: 'reference', message: '请上传参考视频。' },
       { when: referenceTooLong.value, field: 'reference', message: '参考视频不得超过 120 秒。' },
-      { when: !rights.value, field: 'rights', message: '请确认参考视频的使用授权。' },
+      { when: !rights.value, field: 'rights', message: '请阅读并同意协议，确认参考视频的使用授权。' },
     ],
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },

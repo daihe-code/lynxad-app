@@ -124,6 +124,12 @@
 .remake-workspace textarea { resize: vertical; }
 .remake-workspace .remake-check { display: flex; align-items: baseline; gap: 8px; font-weight: 400; }
 .remake-check input { accent-color: var(--remake-accent); width: 15px; height: 15px; flex: 0 0 auto; }
+.remake-rights-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.remake-agreement-link { border: 0; padding: 0; background: none; color: #4f45d6; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.remake-agreement-link:disabled { cursor: not-allowed; opacity: .6; }
+.remake-agreement-content { max-height: 55dvh; overflow: auto; display: grid; gap: 16px; line-height: 1.65; }
+.remake-agreement-content h3 { margin: 0 0 4px; font-size: 15px; color: var(--el-text-color-primary); }
+.remake-agreement-content p { margin: 0; overflow-wrap: anywhere; }
 .remake-muted { color: var(--remake-muted); line-height: 1.5; font-size: 13px; }
 .remake-workspace .remake-link { color: #4f45d6; text-decoration: none; width: fit-content; display: inline-flex; align-items: center; gap: 3px; }
 .remake-file { min-width: 0; }
