@@ -68,11 +68,11 @@ public class VideoRemakeService {
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
                         String productImageId, String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
-                        String portraitImageId) {}
+                        String portraitImageId, List<String> adNotices) {}
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
     public record Confirm(String title, List<ShotEdit> shots, boolean accepted, BigDecimal points) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
-                       String assetId, JsonNode plan, String videoUrl, String coverUrl) {}
+                       String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices) {}
 
     public Capability capability(String tenant) {
         var membership = charges.access(tenant);
@@ -131,6 +131,7 @@ public class VideoRemakeService {
         if (!Set.of(15, 30).contains(request.durationSeconds())) throw input("请选择 15 秒或 30 秒");
         if (request.facts() == null || request.facts().isEmpty() || request.facts().size() > 12) throw input("请填写 1 至 12 条真实商品事实");
         var facts = request.facts().stream().map(value -> text(value, 200)).toList();
+        var adNotices = requestedNotices(request.adNotices());
         String productId = text(request.productId(), 19);
         var product = catalog.restorable(new TenantId(tenant), request.bindingId(), text(request.awemeId(), 128), List.of(productId))
                 .stream().filter(row -> productId.equals(row.qcProductId())).findFirst()
@@ -138,6 +139,7 @@ public class VideoRemakeService {
         String productName = text(product.name(), 200);
         var target = json.createObjectNode().put("id", productId).put("name", productName);
         target.set("facts", json.valueToTree(facts));
+        if (product.category() != null && !product.category().isBlank()) target.put("category", product.category().strip());
         if (request.productImageId() != null && !request.productImageId().isBlank()) {
             target.putArray("image_asset_ids").add(requireAsset(tenant, actor, request.bindingId(), request.productImageId(), "image"));
         } else {
@@ -150,6 +152,7 @@ public class VideoRemakeService {
                 .put("max_shots", 4).put("rights_confirmed", true).put("costs_confirmed", true)
                 .put("require_plan_confirmation", true);
         payload.set("product", target);
+        if (!adNotices.isEmpty()) payload.set("ad_notices", json.valueToTree(adNotices));
         if (request.portraitImageId() != null && !request.portraitImageId().isBlank()) {
             if (request.portraitId() != null && !request.portraitId().isBlank()) {
                 throw input("人物参考图和方舟预置人像只能选一种");
@@ -188,9 +191,10 @@ public class VideoRemakeService {
         var data = detail(task);
         var result = data.path("delivery");
         boolean finished = "SUCCEEDED".equals(task.phase());
+        var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
-                finished ? result.path("cover_url").asText(null) : null);
+                finished ? result.path("cover_url").asText(null) : null, adNotices);
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -367,7 +371,7 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null);
+                task.createdAt(), task.asset(), null, null, null, List.of());
     }
 
     private JsonNode detail(Task task) {
@@ -384,6 +388,19 @@ public class VideoRemakeService {
     private JsonNode parse(String value) {
         try { return json.readTree(value); }
         catch (java.io.IOException ex) { throw new IllegalStateException("Invalid stored remake request", ex); }
+    }
+
+    private List<String> requestedNotices(List<String> values) {
+        if (values == null) return List.of();
+        if (values.size() > 3) throw input("成片提示语最多填写 3 条");
+        return values.stream().map(value -> {
+            if (value == null || value.isBlank() || value.matches("(?s).*[\\p{Cc}\\p{Cf}\\p{Cs}\\p{Zl}\\p{Zp}].*")) {
+                throw input("成片提示语每条须为 1 至 60 字的单行文字");
+            }
+            String normalized = value.strip();
+            if (normalized.codePointCount(0, normalized.length()) > 60) throw input("成片提示语每条最多 60 字");
+            return normalized;
+        }).distinct().toList();
     }
 
     private String uuid(String value) {

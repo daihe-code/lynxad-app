@@ -75,13 +75,15 @@ class VideoRemakeServiceTest {
                 Optional.of(row("CONFIRMING")));
         when(store.find("tenant", ID, true)).thenReturn(Optional.of(review));
         when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.readTree("""
-                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation","plan":{
+                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation","ad_notices":["请按说明存放"],"plan":{
                    "target_product_id":"p1","title":"原分镜","shots":[{"scene_id":"source-1","duration":15}]}}
                 """.formatted(ENGINE)));
         when(charges.quote("tenant", "remake:" + ID)).thenReturn(
                 new GenerationCharges.Quote(null, Map.of("video", 1), Map.of("video", RATE)));
 
-        assertEquals("REVIEW", service.get("tenant", "actor", ID).phase());
+        var view = service.get("tenant", "actor", ID);
+        assertEquals("REVIEW", view.phase());
+        assertEquals(List.of("请按说明存放"), view.adNotices());
         verifyNoInteractions(charges);
         var confirmation = new VideoRemakeService.Confirm("新标题",
                 List.of(new VideoRemakeService.ShotEdit("镜头缓慢从杯口移到杯身的把手", "这是新台词", "新字幕")), true, RATE);
@@ -98,9 +100,9 @@ class VideoRemakeServiceTest {
         String reference = "rpa_" + "1".repeat(32);
         String portrait = "rpa_" + "2".repeat(32);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", List.of("不锈钢"),
-                null, reference, null, null, true, true, 15, portrait);
+                null, reference, null, null, true, true, 15, portrait, List.of(" 请按说明清洗 "));
         var product = new Product("p", "123", "水杯", null, null, "https://example.com/product.png",
-                null, null, List.of(), List.of());
+                "家居>水杯", null, List.of(), List.of());
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
                 .thenReturn(List.of(product));
         when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
@@ -118,6 +120,8 @@ class VideoRemakeServiceTest {
         assertTrue(engineInput.at("/kling_portrait/adult_confirmed").asBoolean());
         assertTrue(engineInput.path("require_plan_confirmation").asBoolean());
         assertFalse(engineInput.has("portrait"));
+        assertEquals("家居>水杯", engineInput.at("/product/category").asText());
+        assertEquals("请按说明清洗", engineInput.at("/ad_notices/0").asText());
     }
 
     @Test

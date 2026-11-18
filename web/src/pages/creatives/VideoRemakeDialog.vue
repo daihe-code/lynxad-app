@@ -123,6 +123,11 @@
                 </label>
                 <div class="remake-count"><span>只填写可核实的规格、卖点和用法。</span><span>{{ cleanFacts.length }} / 12 条</span></div>
                 <p v-if="fieldError('facts')" class="remake-error" role="alert">{{ fieldError('facts') }}</p>
+                <label>补充成片提示语（选填）
+                  <textarea v-model="adNotices" rows="2" :disabled="busy" aria-describedby="remake-ad-notices-hint" />
+                </label>
+                <p v-if="fieldError('adNotices')" class="remake-error" role="alert">{{ fieldError('adNotices') }}</p>
+                <p id="remake-ad-notices-hint" class="remake-muted">按商品说明或已核准的广告样件填写，每行一条，最多 3 条，每条最多 60 字。</p>
               </template>
             </div>
 
@@ -245,6 +250,10 @@
                 <label>字幕<input v-model="editShot.caption" maxlength="24" :disabled="busy"></label>
                 <p v-if="visibleShotError === 'caption'" class="remake-error" role="alert">请填写 1 至 24 字的字幕。</p>
               </div>
+              <section v-if="task.adNotices?.length" class="remake-ad-notices">
+                <h3>全程显示的成片提示语</h3>
+                <ul><li v-for="notice in task.adNotices" :key="notice">{{ notice }}</li></ul>
+              </section>
               <div v-if="taskError" class="remake-inline-error" role="alert">{{ taskError }}</div>
               <div class="remake-actions">
                 <router-link v-if="capability?.subscribed === false" :to="'/subscription'" class="remake-link" @click="emit('close')">查看套餐</router-link>
@@ -356,9 +365,11 @@ const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portr
 const referenceDuration = ref<number>();
 const referenceTooLong = computed(() => (referenceDuration.value ?? 0) > 120.02);
 const portraitId = ref(''), portraitName = ref(''), outputDuration = ref(15), facts = ref('');
+const adNotices = ref('');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
 const cleanFacts = computed(() => facts.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
+const cleanAdNotices = computed(() => adNotices.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
 const setupSteps = ['参考视频', '目标商品', '人物与成片'];
 const setupStep = ref(0), furthestStep = ref(0);
 const setupIssue = ref<{ field: string; message: string }>();
@@ -488,6 +499,7 @@ function pickProduct(product: CreationProduct) {
   selectedProduct.value = product;
   productImage.value = undefined;
   facts.value = '';
+  adNotices.value = '';
 }
 watch(bindingId, () => {
   awemeId.value = awemes.value.find(aweme => aweme.isPrimary)?.awemeId ?? awemes.value[0]?.awemeId ?? '';
@@ -506,6 +518,7 @@ watch([bindingId, awemeId], () => {
   selectedProduct.value = undefined;
   productImage.value = undefined;
   facts.value = '';
+  adNotices.value = '';
   productPage.value = 1;
   hasMore.value = false;
   productsLoading.value = false;
@@ -515,7 +528,7 @@ watch([bindingId, awemeId], () => {
 });
 watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, portraitId, portraitName, outputDuration, rights, portraitTerms], () => {
+  facts, adNotices, portraitId, portraitName, outputDuration, rights, portraitTerms], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
@@ -547,6 +560,8 @@ function validateStep(step: number) {
       { when: !selectedProduct.value?.imageUrl && !productImage.value, field: 'productImage', message: '请上传目标商品参考图。' },
       { when: !cleanFacts.value.length || cleanFacts.value.length > 12 || cleanFacts.value.some(fact => countText(fact) > 200),
         field: 'facts', message: '请填写 1 至 12 条商品事实，每条最多 200 字。' },
+      { when: cleanAdNotices.value.length > 3 || cleanAdNotices.value.some(notice => countText(notice) > 60 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(notice)),
+        field: 'adNotices', message: '最多填写 3 条成片提示语，每条须为 1 至 60 字的单行文字。' },
     ],
     [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
@@ -593,6 +608,7 @@ async function continueSetup() {
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
       productId: product.qcProductId, facts: cleanFacts.value, productImageId, referenceId,
       portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
+      adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
       rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, durationSeconds: outputDuration.value });
     requestId = crypto.randomUUID();
     setupStep.value = 0;

@@ -133,6 +133,8 @@
 .remake-agreement-content { max-height: 55dvh; overflow: auto; display: grid; gap: 16px; line-height: 1.65; }
 .remake-agreement-content h3 { margin: 0 0 4px; font-size: 15px; color: var(--el-text-color-primary); }
 .remake-agreement-content p { margin: 0; overflow-wrap: anywhere; }
+.remake-ad-notices { padding: 10px 12px; border-radius: 8px; background: #f4f5fa; overflow-wrap: anywhere; }
+.remake-ad-notices ul { margin: 5px 0 0; padding-inline-start: 20px; }
 .remake-muted { color: var(--remake-muted); line-height: 1.5; font-size: 13px; }
 .remake-workspace .remake-link { color: #4f45d6; text-decoration: none; width: fit-content; display: inline-flex; align-items: center; gap: 3px; }
 .remake-file { min-width: 0; }

@@ -30,6 +30,7 @@ export interface RemakeTask {
   plan?: { title: string; shots: RemakeShot[] };
   videoUrl?: string;
   coverUrl?: string;
+  adNotices?: string[];
 }
 
 export interface RemakeInput {
@@ -46,6 +47,7 @@ export interface RemakeInput {
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
   durationSeconds: number;
+  adNotices?: string[];
 }
 
 export interface RemakeUpload {
