@@ -11,6 +11,7 @@ import com.lynx.ad.modules.creative.application.AssetUploadService;
 import com.lynx.ad.modules.creative.application.CreationAssetImporter;
 import com.lynx.ad.modules.creative.application.VideoRemakeService;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
+import com.lynx.ad.modules.creative.infrastructure.adapter.VideoRemakeSchedulingConfiguration;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore.Task;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
@@ -22,6 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.ClassPathBeanDefinitionScanner;
+import org.springframework.core.type.filter.AssignableTypeFilter;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -42,6 +47,18 @@ class VideoRemakeServiceTest {
                     return action.doInTransaction(new SimpleTransactionStatus());
                 }
             }, json);
+
+    @Test
+    void schedulerIsRegisteredWhenItsConfigurationIsComponentScanned() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            var scanner = new ClassPathBeanDefinitionScanner(context, false);
+            scanner.addIncludeFilter(new AssignableTypeFilter(VideoRemakeSchedulingConfiguration.class));
+            scanner.scan(VideoRemakeSchedulingConfiguration.class.getPackageName());
+            context.refresh();
+            assertEquals("video-remake-",
+                    context.getBean("videoRemakeScheduler", ThreadPoolTaskScheduler.class).getThreadNamePrefix());
+        }
+    }
 
     @Test
     void reviewingIsFreeAndApprovalReservesExactlyOnce() throws Exception {

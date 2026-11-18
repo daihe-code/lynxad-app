@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration(proxyBeanMethods = false)
-public class VideoRemakeScheduler {
+public class VideoRemakeSchedulingConfiguration {
     @Bean(defaultCandidate = false)
     public ThreadPoolTaskScheduler videoRemakeScheduler() {
         var scheduler = new ThreadPoolTaskScheduler();
