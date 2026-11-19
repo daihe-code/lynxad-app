@@ -7,7 +7,7 @@
     <div class="payment-actions">
       <el-button v-if="state === 'pending' || state === 'error' || state === 'checking'" type="primary"
         :loading="state === 'checking'" @click="retry">查询支付结果</el-button>
-      <router-link :to="recharge ? pointRechargePath : '/subscription'">
+      <router-link :to="returnPath">
         {{ recharge ? '返回积分充值' : '返回套餐页面' }}
       </router-link>
     </div>
@@ -27,6 +27,7 @@ const state = ref<'checking' | 'pending' | 'paid' | 'closed' | 'error' | 'invali
 const retryToken = ref(0);
 const retry = () => retryToken.value++;
 const recharge = computed(() => order.value ? order.value.type === 'POINT_RECHARGE' : route.query.kind === 'recharge');
+const returnPath = computed(() => recharge.value ? pointRechargePath : '/subscription');
 const amount = computed(() => order.value ? `¥${order.value.payableYuan.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '');
 const title = computed(() => ({
   checking: '正在核对支付结果…', pending: '等待支付确认', paid: recharge.value ? '充值成功' : '支付成功',
@@ -51,10 +52,8 @@ watch([() => route.query.order, retryToken], ([id], previous, onCleanup) => {
       if (signal.aborted) return;
       order.value = result;
       if (result.status === 'PAID') {
-        if (result.type === 'POINT_RECHARGE') {
-          const failure = await router.replace(pointRechargePath);
-          if (!failure || signal.aborted) return;
-        }
+        const failure = await router.replace(returnPath.value);
+        if (!failure || signal.aborted) return;
         state.value = 'paid';
         void user.loadMe().catch(() => {});
       } else if (result.status === 'CLOSED') {
