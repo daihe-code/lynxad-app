@@ -297,7 +297,7 @@ public class AccountSystemPersistenceTest {
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         f.tx.executeWithoutResult(s -> grants.ensureCurrentGrant("a"));
         assertEquals(0, f.points.balance("a").available().signum());
-        for (var entry : Map.of(PlanCode.BASIC, 1800, PlanCode.PROFESSIONAL, 2400, PlanCode.FLAGSHIP, 5000)
+        for (var entry : Map.of(PlanCode.BASIC, 2000, PlanCode.PROFESSIONAL, 3000, PlanCode.FLAGSHIP, 5000)
                 .entrySet().stream().sorted(Map.Entry.comparingByValue()).toList()) {
             when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(new Subscription(tenant,
                     entry.getKey(), SubStatus.ACTIVE, now.minusSeconds(60), now.plusSeconds(3600),

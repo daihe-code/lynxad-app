@@ -24,7 +24,7 @@ public class WorkspacePricing {
 
     private boolean enabled;
     private Map<String, Integer> childSeats = new LinkedHashMap<>(Map.of("trial", 2, "basic", 0, "professional", 3, "flagship", 10));
-    private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("basic", 1800L, "professional", 2400L, "flagship", 5000L));
+    private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("basic", 2000L, "professional", 3000L, "flagship", 5000L));
     private Map<String, Long> generationPoints = new LinkedHashMap<>(Map.of("video", 240L, "image", 15L,
             "native_image_text", 60L, "title", 1L, VIDEO_SECOND, 65L, IMAGE_UNIT, 15L, PRODUCT_ANALYSIS, 10L,
             REMAKE_720P_SECOND, 40L, REMAKE_1080P_SECOND, 60L));
