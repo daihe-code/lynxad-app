@@ -2,7 +2,7 @@
   <div v-loading="loading" class="workspace-settings">
     <template v-if="overview">
       <div class="workspace-heading"><h2>{{ overview.name }}</h2><el-tag>{{ workspaceAccountLabel(overview.role) }}</el-tag><span>千川账户 {{ overview.accountsUsed }} / {{ overview.accountLimit }}</span></div>
-      <WorkspaceRecharge v-if="overview.role === 'OWNER'" @paid="load" />
+      <router-link v-if="overview.role === 'OWNER'" :to="pointRechargePath" class="workspace-recharge-link obtn obtn--primary">积分充值</router-link>
       <el-alert v-if="pointsWarning" class="wallet-warning" :title="pointsWarning" type="warning" show-icon :closable="false" />
       <section v-if="overview.wallet" class="wallet-grid" aria-label="工作空间积分">
         <div><span>可用积分</span><strong>{{ number(overview.wallet.available) }}</strong></div>
@@ -34,7 +34,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '@/stores/user';
 import PointLedgerTable from '@/components/PointLedgerTable.vue';
-import WorkspaceRecharge from './WorkspaceRecharge.vue';
+import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { getGenerationAccess, pointsBalanceWarning } from '@/features/billing/billingApi';
 import { workspaceOverview, workspaceAccounts, workspacePointHistory, saveClientSpace, deleteClientSpace, assignClientSpace, workspaceAccountLabel, type WorkspaceOverview, type AccountBinding, type ClientSpace } from '@/features/tenant/workspaceApi';
 const user = useUserStore(), overview = ref<WorkspaceOverview>(), accounts = ref<AccountBinding[]>([]), loading = ref(true);
@@ -68,5 +68,6 @@ async function assign(account: AccountBinding, client: string) { await assignCli
 onMounted(() => { void load().catch(() => {}); });
 </script>
 <style scoped>
+.workspace-recharge-link{display:inline-flex;margin-top:16px}
 .wallet-warning{margin-top:16px}.workspace-settings{color:#22243d}.workspace-heading,.section-heading{display:flex;align-items:center;gap:14px}.workspace-heading h2{font-size:20px;margin:0}.workspace-heading>span:last-child{margin-left:auto;color:#777b95;font-size:14px}.wallet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.wallet-grid>div{padding:20px;border-radius:14px;background:#f5f3ff;display:grid;gap:12px}.wallet-grid span{color:#777b95;font-size:14px}.wallet-grid strong{font-size:25px}.section-heading{justify-content:space-between}.client-groups{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}.client-groups>span{border:1px solid #e2e2f2;border-radius:10px;padding:8px 12px}.client-groups b{font-size:14px;font-weight:500}h3{font-size:16px;margin-top:28px}.field-error{font-size:13px;color:#f56c6c}@media(max-width:700px){.wallet-grid{grid-template-columns:1fr}.workspace-heading{flex-wrap:wrap}.workspace-heading>span:last-child{margin-left:0}}
 </style>

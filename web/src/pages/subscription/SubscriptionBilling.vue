@@ -3,7 +3,7 @@
   <div v-else-if="loadError" class="acct-card nodata"><p class="account-error">{{ loadError }}</p><button class="obtn mt-[18px]" @click="reload">重新加载</button></div>
   <template v-else>
     <section class="acct-card">
-      <div class="acct-card__hd"><h2 class="acct-card__t">当前订阅</h2><button class="acct-card__a" @click="scrollPlans">变更套餐 <AccountIcon name="arrow-right" /></button></div>
+      <div class="acct-card__hd"><h2 class="acct-card__t">当前订阅</h2><div class="subscription-links"><router-link v-if="canManage" :to="pointRechargePath" class="acct-card__a">积分充值</router-link><button class="acct-card__a" @click="scrollPlans">变更套餐 <AccountIcon name="arrow-right" /></button></div></div>
       <div class="acct-card__b planhero"><p class="planhero__en">CURRENT PLAN</p><p class="planhero__t">{{ sub?.planName || '—' }} {{ englishName(sub?.planCode) }}</p><p class="planhero__p"><span class="planhero__num">{{ money(sub?.listPriceYuan) }}</span><span class="planhero__unit">/ 月</span><span class="planhero__off">{{ !sub?.hasPaidSubscription ? trialLabel : sub?.discountLabel }}</span></p><div class="planhero__m"><div><p class="planhero__k">{{ sub?.hasPaidSubscription ? '计费周期' : '试用到期' }}</p><p class="planhero__v">{{ sub?.hasPaidSubscription ? `${date(sub.periodStart)} ~ ${date(sub.periodEnd)}` : date(user.me?.trialExpiresAt) }}</p></div><div><p class="planhero__k">剩余天数</p><p class="planhero__v">{{ sub?.remainingDays ?? 0 }} 天</p></div><div><p class="planhero__k">自动续费</p><p class="planhero__v"><span v-if="sub?.payMethod === 'ALIPAY'">手动续费</span><button v-else-if="sub?.hasPaidSubscription && canManage" class="account-renew" :disabled="renewing" @click="toggleRenew">{{ renewing ? '更新中…' : sub.autoRenew ? '已开启' : '已关闭' }} <AccountIcon name="caret" /></button><span v-else>{{ sub?.hasPaidSubscription ? (sub.autoRenew ? '已开启' : '已关闭') : '试用期不扣费' }}</span></p></div><div><p class="planhero__k">支付方式</p><p class="planhero__v">{{ payMethod(sub?.payMethod) }}</p></div></div></div>
       <div v-if="pendingOrder" class="account-pending-order">
         <p>有一笔待支付订单，应付 {{ money(pendingOrder.payableYuan) }}</p>
@@ -35,6 +35,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useUserStore } from '@/stores/user';
+import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { alipayCheckoutUrl, checkOrderPayment, createOrder, createPayment, getSubscription, listBills, listPlans, mockComplete, patchAutoRenew, getPendingOrder, closeOrder, type OrderView, type BillItem, type PlanItem, type SubscriptionView, type PaymentView } from '@/features/billing/billingApi';
 import AccountIcon from '@/pages/accounts/AccountIcon.vue';
 import AccountModal from '@/pages/accounts/AccountModal.vue';
@@ -226,3 +227,7 @@ watch(() => route.query.plan, plan => {
 });
 onMounted(reload);
 </script>
+
+<style scoped>
+.subscription-links { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+</style>

@@ -36,8 +36,24 @@ public class WorkspacePointOrders {
 
     public List<WorkspacePricing.RechargeOption> options() {
         var owner = access.require(MemberRole.OWNER);
-        return pricing.isEnabled() && paidSubscription(new TenantId(owner.tenantId())).isPresent()
+        return availability(new TenantId(owner.tenantId())) == RechargeAvailability.AVAILABLE
                 ? pricing.options() : List.of();
+    }
+
+    public enum RechargeAvailability { AVAILABLE, PAID_SUBSCRIPTION_REQUIRED, DISABLED }
+    public record RechargeCatalog(RechargeAvailability availability, List<WorkspacePricing.RechargeOption> options, OrderView pending) {}
+
+    public RechargeCatalog catalog() {
+        var tenant = new TenantId(access.require(MemberRole.OWNER).tenantId());
+        var availability = availability(tenant);
+        return new RechargeCatalog(availability, availability == RechargeAvailability.AVAILABLE ? pricing.options() : List.of(),
+                orders.findPendingRecharge(tenant).map(OrderView::from).orElse(null));
+    }
+
+    private RechargeAvailability availability(TenantId tenant) {
+        if (!pricing.isEnabled()) return RechargeAvailability.DISABLED;
+        return paidSubscription(tenant).isPresent()
+                ? RechargeAvailability.AVAILABLE : RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED;
     }
 
     public WorkspacePricing.RechargeOption quote(int amountFen) {

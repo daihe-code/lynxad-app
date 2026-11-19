@@ -127,10 +127,14 @@ export const getGenerationAccess = (signal?: AbortSignal) =>
   apiGet<GenerationAccess>('/api/v1/billing/points/generation-access', { signal, headers: { 'X-Quiet-Request': 'true' } });
 
 export interface RechargeOption { code: string; priceFen: number; points: number }
-export const rechargeOptions = () => apiGet<RechargeOption[]>('/api/v1/billing/points/recharge-options');
+export interface RechargeCatalog {
+  availability: 'AVAILABLE' | 'PAID_SUBSCRIPTION_REQUIRED' | 'DISABLED';
+  options: RechargeOption[];
+  pending: OrderView | null;
+}
+export const getRechargeCatalog = () => apiGet<RechargeCatalog>('/api/v1/billing/points/recharge-catalog', { headers: { 'X-Quiet-Request': 'true' } });
 export const quoteRecharge = (amountFen: number) => apiGet<RechargeOption>(`/api/v1/billing/points/recharge-quote?amountFen=${amountFen}`);
 export const createRecharge = (code: string, key: string) =>
   apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
 export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);
-export const pendingRecharge = () => apiGet<OrderView | null>('/api/v1/billing/points/orders/pending');
 export const closeRecharge = (id: string) => apiPost<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}/close`, {});

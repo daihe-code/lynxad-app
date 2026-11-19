@@ -7,8 +7,8 @@
     <div class="payment-actions">
       <el-button v-if="state === 'pending' || state === 'error' || state === 'checking'" type="primary"
         :loading="state === 'checking'" @click="retry">查询支付结果</el-button>
-      <router-link :to="recharge ? { path: '/accounts', query: { tab: 'workspace' } } : '/subscription'">
-        {{ recharge ? '返回工作空间' : '返回套餐页面' }}
+      <router-link :to="recharge ? pointRechargePath : '/subscription'">
+        {{ recharge ? '返回积分充值' : '返回套餐页面' }}
       </router-link>
     </div>
   </section>
@@ -18,6 +18,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { checkOrderPayment, type OrderView } from '@/features/billing/billingApi';
+import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { useUserStore } from '@/stores/user';
 
 const route = useRoute(), user = useUserStore();

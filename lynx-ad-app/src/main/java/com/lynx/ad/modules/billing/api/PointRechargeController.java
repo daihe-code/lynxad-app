@@ -25,6 +25,8 @@ public class PointRechargeController {
     public record RechargeRequest(String code) {}
     @GetMapping("/recharge-options")
     public ApiResponse<?> options() { return ApiResponse.ok(orders.options()); }
+    @GetMapping("/recharge-catalog")
+    public ApiResponse<WorkspacePointOrders.RechargeCatalog> catalog() { return ApiResponse.ok(orders.catalog()); }
     @GetMapping("/recharge-quote")
     public ApiResponse<?> quote(@RequestParam int amountFen) { return ApiResponse.ok(orders.quote(amountFen)); }
     @PostMapping("/orders")

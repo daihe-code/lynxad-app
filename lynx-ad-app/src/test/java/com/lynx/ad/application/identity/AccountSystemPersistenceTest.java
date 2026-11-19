@@ -485,15 +485,26 @@ public class AccountSystemPersistenceTest {
         doAnswer(call -> { orderState.set(call.getArgument(0)); return null; }).when(orders).save(any());
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         assertTrue(recharge.options().isEmpty());
+        assertEquals(WorkspacePointOrders.RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED, recharge.catalog().availability());
         assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 0)));
         assertTrue(recharge.options().isEmpty());
+        assertEquals(WorkspacePointOrders.RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED, recharge.catalog().availability());
         assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
         assertFalse(recharge.options().isEmpty());
+        assertEquals(WorkspacePointOrders.RechargeAvailability.AVAILABLE, recharge.catalog().availability());
+        assertEquals(recharge.options(), recharge.catalog().options());
         var created=f.tx.execute(s -> recharge.create("r99","recharge-request"));
         assertNotNull(created);
         var order=orderState.get();
+        when(orders.findPendingRecharge(tenant)).thenReturn(Optional.of(order));
+        pricing.setEnabled(false);
+        var disabledCatalog = recharge.catalog();
+        assertEquals(WorkspacePointOrders.RechargeAvailability.DISABLED, disabledCatalog.availability());
+        assertTrue(disabledCatalog.options().isEmpty());
+        assertEquals(created, disabledCatalog.pending());
+        pricing.setEnabled(true);
         doReturn(new WorkspacePricing.RechargeOption("fen-9900", 9900, 2000)).when(pricing).rechargeQuote(9900);
         assertEquals(created,f.tx.execute(s -> recharge.create("r99","recharge-request")));
         var payment=new BillingPayment("wechat-payment",tenant,order.id(),PayChannel.WECHAT,PaymentStatus.CREATED,
