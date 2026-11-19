@@ -12,9 +12,9 @@
             <AssetIcon name="clock" /> 任务记录
           </button>
         </div>
-        <router-link v-if="capability?.balanceStatus && !busy" class="remake-balance" :to="pointsRoute" @click="emit('close')">
+        <router-link v-if="capability?.availablePoints != null && !busy" class="remake-balance" :to="pointsRoute" @click="emit('close')">
           <AssetIcon name="sparkle" />
-          {{ balanceLabel }}
+          剩余 {{ formatPoints(capability.availablePoints) }} 积分
         </router-link>
       </div>
 
@@ -22,7 +22,7 @@
         <div class="remake-main">
           <div v-if="capabilityLoading" class="remake-empty" role="status">正在检查套餐与复刻服务…</div>
 
-          <section v-else-if="!capability?.ready" class="remake-access">
+          <section v-else-if="!sourceMatchingReady" class="remake-access">
             <span class="remake-access-icon"><AssetIcon :name="capability?.subscribed === false ? 'video' : 'info-line'" /></span>
             <h3>{{ capability?.subscribed === false ? '开通套餐后即可开始复刻' : '复刻服务暂不可用' }}</h3>
             <p v-if="capabilityError" role="alert">{{ capabilityError }}</p>
@@ -47,10 +47,19 @@
               <h3>参考视频</h3>
               <p class="remake-muted">选择要参考镜头、构图和节奏的视频。</p>
               <RemakeFilePicker kind="video" label="上传或拖入参考视频" :file="reference?.file" :disabled="busy"
-                @change="selectReference" @duration="referenceDuration = $event" />
-              <p v-if="referenceTooLong || fieldError('reference')" class="remake-error" role="alert">{{ referenceTooLong ? '参考视频不得超过 120 秒。' : fieldError('reference') }}</p>
+                :approval-required="!rights" @blocked="promptReferenceRights" @change="selectReference"
+                @metadata="referenceMetadata = $event" />
+              <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
+              <p v-else-if="referenceMetadata === null" class="remake-muted">当前浏览器无法预览，上传后会校验视频规格。</p>
+              <details class="remake-video-requirements">
+                <summary>查看视频要求</summary>
+                <ul>
+                  <li>横屏 16:9 · 1280 × 720 至 2560 × 1440</li>
+                  <li>竖屏 9:16 · 720 × 1280 至 1440 × 2560</li>
+                </ul>
+              </details>
               <div class="remake-rights-row">
-                <label class="remake-check"><input v-model="rights" type="checkbox" :disabled="busy"
+                <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
                   :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频</label>
                 <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
@@ -155,13 +164,6 @@
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
               </div>
               <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
-              <div class="remake-output-options">
-                <div class="remake-field-title"><strong>成片时长</strong><span>竖屏 9:16</span></div>
-                <div class="remake-durations" role="group" aria-label="成片时长">
-                  <button v-for="seconds in [15,30]" :key="seconds" type="button" :disabled="busy"
-                    :aria-pressed="outputDuration === seconds" @click="outputDuration = seconds">{{ seconds }} 秒</button>
-                </div>
-              </div>
             </div>
 
             <p v-if="setupError" class="remake-inline-error" role="alert">{{ setupError }}</p>
@@ -187,13 +189,17 @@
           </section>
           <section class="remake-side-card remake-summary">
             <h3>成片设置</h3>
-            <dl><div><dt>画幅</dt><dd>竖屏 9:16</dd></div><div><dt>时长</dt><dd>{{ capability?.ready ? outputDuration + ' 秒' : '15 / 30 秒' }}</dd></div>
-              <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ capability.points }} 积分 / 条</dd></div>
+            <dl>
+              <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
+              <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
+              <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : '匹配原视频' }}</dd></div>
+              <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ formatPoints(capability.points) }} 积分 / 条</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
               <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
               <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
             </dl>
-            <p v-if="capability?.ready" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
+            <p v-if="shortfallMessage" class="remake-error" role="status">{{ shortfallMessage }}</p>
+            <p v-if="sourceMatchingReady" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
           </section>
         </aside>
       </div>
@@ -265,14 +271,15 @@
             <aside class="remake-sidebar">
               <section class="remake-side-card remake-summary">
                 <h3>分镜摘要</h3>
-                <dl><div><dt>镜头数量</dt><dd>{{ plan.shots.length }} 个</dd></div><div><dt>计划时长</dt><dd>{{ planDuration }} 秒</dd></div><div><dt>画幅</dt><dd>竖屏 9:16</dd></div>
-                  <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ capability.points }} 积分</dd></div>
+                <dl><div><dt>镜头数量</dt><dd>{{ plan.shots.length }} 个</dd></div><div><dt>计划时长</dt><dd>{{ planDuration }} 秒</dd></div>
+                  <div><dt>画幅</dt><dd>{{ task.outputSpec ? orientationLabel(task.outputSpec) : '竖屏 9:16' }}</dd></div>
+                  <div v-if="task.outputSpec"><dt>分辨率</dt><dd>{{ resolutionLabel(task.outputSpec) }}</dd></div>
+                  <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ formatPoints(capability.points) }} 积分</dd></div>
                 </dl>
-                <p v-if="capability?.balanceStatus === 'EMPTY'" class="remake-error" role="status">积分不足，补充后可继续生成。</p>
-                <p v-else-if="capability?.balanceStatus === 'LOW'" class="remake-muted">积分余额偏低。</p>
+                <p v-if="shortfallMessage" class="remake-error" role="status">{{ shortfallMessage }}</p>
                 <p v-else-if="capability?.subscribed === false" class="remake-muted">开通套餐后可继续生成。</p>
-                <p v-else-if="!generationReady" class="remake-muted">复刻服务暂不可用。</p>
-                <router-link v-if="!busy && (capability?.balanceStatus === 'EMPTY' || capability?.balanceStatus === 'LOW')"
+                <p v-else-if="!capabilityLoading && !generationReady" class="remake-muted">复刻服务暂不可用。</p>
+                <router-link v-if="!busy && shortfallMessage"
                   class="remake-link" :to="pointsRoute" @click="emit('close')">查看积分</router-link>
                 <el-button v-if="!generationReady" link type="primary" :disabled="busy" :loading="capabilityLoading"
                   @click="loadCapability">刷新权限和积分</el-button>
@@ -288,7 +295,7 @@
             </div>
             <div class="remake-result-info">
               <h3>{{ task.plan?.title || '复刻成片' }}</h3>
-              <p class="remake-muted">{{ formatDate(task.createdAt) }} · 竖屏 9:16</p>
+              <p class="remake-muted">{{ formatDate(task.createdAt) }}<template v-if="task.outputSpec"> · {{ orientationLabel(task.outputSpec) }} · {{ task.outputSpec.duration_seconds }} 秒 · {{ resolutionLabel(task.outputSpec) }}</template></p>
               <p v-if="task.assetId" class="remake-saved"><AssetIcon name="check-circle" />已保存到素材库</p>
               <p v-if="previewFailed" class="remake-error" role="alert">预览加载失败，请刷新成片。</p>
               <div class="remake-result-actions">
@@ -346,7 +353,7 @@ import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { creationProducts, type CreationProduct } from '@/features/delivery/creationApi';
 import {
   confirmRemake, createRemake, getRemake, getRemakeCapability, listRemakes, saveRemake, uploadRemakeMedia,
-  type RemakeCapability, type RemakeShot, type RemakeTask, type RemakeUpload,
+  type RemakeCapability, type RemakeShot, type RemakeTask, type RemakeUpload, type RemakeVideoSpec,
 } from '@/features/creative/videoRemakeApi';
 import AssetIcon from './AssetIcon.vue';
 import RemakeFilePicker from './RemakeFilePicker.vue';
@@ -362,9 +369,19 @@ const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProdu
 const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoading = ref(false), productsError = ref('');
 
 const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
-const referenceDuration = ref<number>();
-const referenceTooLong = computed(() => (referenceDuration.value ?? 0) > 120.02);
-const portraitId = ref(''), portraitName = ref(''), outputDuration = ref(15), facts = ref('');
+const referenceMetadata = ref<{ duration: number; width: number; height: number } | null>();
+const referenceError = computed(() => {
+  const media = referenceMetadata.value;
+  if (!media) return '';
+  if (media.duration < 3.98 || media.duration > 120.02) return '参考视频时长须为 4 至 120 秒。';
+  const shortEdge = Math.min(media.width, media.height), longEdge = Math.max(media.width, media.height);
+  if (shortEdge < 720 || shortEdge > 1440 || longEdge > 2560 || Math.abs(longEdge / shortEdge - 16 / 9) > .005) {
+    return '参考视频须为横屏 16:9 或竖屏 9:16，分辨率须在 720p 至 1440p 内。';
+  }
+  return '';
+});
+const referenceRights = ref<HTMLInputElement>();
+const portraitId = ref(''), portraitName = ref(''), facts = ref('');
 const adNotices = ref('');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
@@ -379,10 +396,27 @@ let requestId = crypto.randomUUID();
 
 const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capabilityError = ref('');
 const useKling = computed(() => capability.value?.kling4Available === true);
+const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
+const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
+const shortfallMessage = computed(() => {
+  const current = capability.value;
+  if (current?.availablePoints == null) return current?.balanceStatus === 'EMPTY' ? '积分不足，补充后可继续生成。' : '';
+  const missing = current.points - current.availablePoints;
+  return missing > 0 ? `本次生成需 ${formatPoints(current.points)} 积分，还差 ${formatPoints(missing)} 积分。` : '';
+});
 const generationReady = computed(() => !capabilityLoading.value && capability.value?.ready === true
-  && capability.value.balanceStatus !== 'EMPTY');
-const balanceLabel = computed(() => ({ SUFFICIENT: '积分可用', LOW: '积分余额偏低', EMPTY: '积分不足' }
-  [capability.value?.balanceStatus ?? 'SUFFICIENT']));
+  && !shortfallMessage.value);
+const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
+  const media = referenceMetadata.value;
+  if (!media || referenceError.value) return;
+  const shortEdge = capability.value?.sourceMatchingHd && Math.min(media.width, media.height) >= 900 ? 1080 : 720;
+  const longEdge = shortEdge * 16 / 9;
+  const portrait = media.height > media.width;
+  return { width: portrait ? shortEdge : longEdge, height: portrait ? longEdge : shortEdge,
+    duration_seconds: Math.min(120, Math.max(4, Math.round(media.duration))) };
+});
+const orientationLabel = (spec: RemakeVideoSpec) => spec.height > spec.width ? '竖屏 9:16' : '横屏 16:9';
+const resolutionLabel = (spec: RemakeVideoSpec) => `${spec.width} × ${spec.height}`;
 const pointsRoute = { path: '/accounts', query: { tab: 'workspace' } };
 
 const panel = ref<'new' | 'history' | 'task'>('new');
@@ -445,7 +479,7 @@ const taskProgress = computed(() => {
   if (!task.value) return '';
   if (!inProgress.has(task.value.phase)) return phaseLabel(task.value.phase);
   const stage = task.value.stage ?? '';
-  const shot = /(?:^|_)shot_([0-3])_/.exec(stage);
+  const shot = /(?:^|_)shot_([0-7])_/.exec(stage);
   if (shot && task.value.phase === 'GENERATING') return '正在处理镜头 ' + (Number(shot[1]) + 1);
   return stageLabels[stage] ?? phaseLabel(task.value.phase);
 });
@@ -527,8 +561,11 @@ watch([bindingId, awemeId], () => {
   void loadProducts(1);
 });
 watch([useKling, portraitId], () => { portraitTerms.value = false; });
+watch(referenceMetadata, () => {
+  if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
+});
 watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, adNotices, portraitId, portraitName, outputDuration, rights, portraitTerms], () => {
+  facts, adNotices, portraitId, portraitName, rights, portraitTerms], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
@@ -537,10 +574,14 @@ function uploadSession(file?: File): RemakeUpload | undefined {
   return file ? { file, requestId: crypto.randomUUID(), nextChunk: 0 } : undefined;
 }
 function selectReference(file?: File) {
+  if (reference.value) rights.value = false;
   reference.value = uploadSession(file);
-  referenceDuration.value = undefined;
-  rights.value = false;
+  referenceMetadata.value = undefined;
   furthestStep.value = 0;
+}
+function promptReferenceRights() {
+  setupIssue.value = { field: 'rights', message: '请先阅读并勾选《素材授权与责任协议》，再选择视频。' };
+  referenceRights.value?.focus();
 }
 function selectPortrait(file?: File) {
   portraitImage.value = uploadSession(file);
@@ -550,9 +591,10 @@ const fieldError = (field: string) => setupIssue.value?.field === field ? setupI
 function validateStep(step: number) {
   const issues: { when: boolean; field: string; message: string }[][] = [
     [
-      { when: !reference.value, field: 'reference', message: '请上传参考视频。' },
-      { when: referenceTooLong.value, field: 'reference', message: '参考视频不得超过 120 秒。' },
       { when: !rights.value, field: 'rights', message: '请阅读并同意协议，确认参考视频的使用授权。' },
+      { when: !reference.value, field: 'reference', message: '请上传参考视频。' },
+      { when: !!referenceError.value, field: 'reference', message: referenceError.value },
+      { when: !!reference.value && referenceMetadata.value === undefined, field: 'reference', message: '正在读取视频规格，请稍候。' },
     ],
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
@@ -585,7 +627,7 @@ function goToStep(next: number) {
   furthestStep.value = Math.max(furthestStep.value, next);
 }
 async function continueSetup() {
-  if (busy.value || !capability.value?.ready) return;
+  if (busy.value || !sourceMatchingReady.value) return;
   if (setupStep.value < 2) { goToStep(setupStep.value + 1); return; }
   for (let step = 0; step < setupSteps.length; step++) {
     if (!validateStep(step)) { setupStep.value = step; return; }
@@ -609,7 +651,7 @@ async function continueSetup() {
       productId: product.qcProductId, facts: cleanFacts.value, productImageId, referenceId,
       portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
       adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
-      rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, durationSeconds: outputDuration.value });
+      rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;
     await openTask(result.id, result);

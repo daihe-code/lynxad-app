@@ -36,19 +36,19 @@ public class GenerationCharges {
     public record Quote(AccountBindingRegistry.ExecutionScope scope, Map<String,Integer> requested, Map<String,BigDecimal> rates) {}
 
     public enum BalanceStatus { SUFFICIENT, LOW, EMPTY }
-    public record Access(boolean enabled, BalanceStatus balanceStatus) {}
+    public record Access(boolean enabled, BalanceStatus balanceStatus, BigDecimal availablePoints) {}
 
     public Access access(String tenant) {
-        if (!pricing.isEnabled()) return new Access(false, null);
+        if (!pricing.isEnabled()) return new Access(false, null, null);
         var sub = subscriptions.effective(new TenantId(tenant), Instant.now());
-        if (sub.isEmpty()) return new Access(false, null);
+        if (sub.isEmpty()) return new Access(false, null, null);
         credits.ensureCurrentGrant(tenant);
         BigDecimal available = wallet.balance(tenant).available();
         BigDecimal threshold = BigDecimal.valueOf(pricing.points(sub.get().planCode().name()))
                 .movePointLeft(1).max(pricing.rate("video"));
         BalanceStatus status = available.signum() <= 0 ? BalanceStatus.EMPTY
                 : available.compareTo(threshold) <= 0 ? BalanceStatus.LOW : BalanceStatus.SUFFICIENT;
-        return new Access(true, status);
+        return new Access(true, status, available);
     }
 
     public void requireAccess(String tenant) {

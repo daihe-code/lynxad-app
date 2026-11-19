@@ -18,7 +18,7 @@
 .remake-workspace svg { width: 18px; height: 18px; flex-shrink: 0; }
 .remake-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0; }
 .remake-nav { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--remake-border); border-radius: 11px; background: #eef0f8; }
-.remake-nav button, .remake-steps button, .remake-durations button, .remake-shot-strip button, .remake-product {
+.remake-nav button, .remake-steps button, .remake-shot-strip button, .remake-product {
   font: inherit;
   cursor: pointer;
 }
@@ -146,6 +146,9 @@
 .remake-file-picked video { width: 100%; height: min(200px, 28vh); display: block; border-radius: 7px; background: #16172b; }
 .remake-file-picked img { width: 62px; height: 62px; border-radius: 6px; object-fit: contain; background: #fff; }
 .remake-file-actions { display: flex; margin-top: 5px; }
+.remake-video-requirements summary { width: fit-content; color: #4f45d6; font-size: 13px; cursor: pointer; }
+.remake-video-requirements ul { display: grid; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; }
+.remake-video-requirements li { padding: 8px 10px; border: 1px solid var(--remake-border); border-radius: 8px; background: var(--remake-tint); color: var(--remake-muted); font-size: 13px; }
 .remake-search, .remake-field-title, .remake-card-title, .remake-count { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .remake-field-title span, .remake-card-title span, .remake-count { color: var(--remake-muted); font-size: 12px; }
 .remake-card-title span { text-align: right; overflow-wrap: anywhere; }
@@ -159,10 +162,6 @@
 .remake-product-image img { width: 100%; height: 100%; object-fit: cover; }
 .remake-product-meta { flex: 1; min-width: 0; }
 .remake-product-meta strong, .remake-product-meta small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.remake-output-options { border-top: 1px solid var(--remake-border); padding-top: 12px; }
-.remake-durations { display: flex; gap: 8px; margin-top: 8px; }
-.remake-durations button { padding: 8px 19px; border: 1px solid var(--remake-border); border-radius: 8px; color: var(--remake-ink); background: #fff; }
-.remake-durations button[aria-pressed="true"] { background: var(--remake-tint); color: #433bb5; border-color: var(--remake-accent); font-weight: 600; }
 .remake-pager, .remake-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .remake-actions { padding-top: 12px; border-top: 1px solid var(--remake-border); margin-top: 4px; }
 .remake-actions .el-button + .el-button, .remake-pager .el-button + .el-button, .remake-result-actions .el-button + .el-button { margin-left: 0; }

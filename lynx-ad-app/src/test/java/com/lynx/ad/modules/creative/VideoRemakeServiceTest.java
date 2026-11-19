@@ -69,13 +69,30 @@ class VideoRemakeServiceTest {
     }
 
     @Test
+    void capabilityReturnsSpendablePointsAndSourceMatching() {
+        var available = new BigDecimal("137.5");
+        when(charges.access("tenant")).thenReturn(new GenerationCharges.Access(true, GenerationCharges.BalanceStatus.LOW, available));
+        when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode()
+                .put("ready", true).put("review_worker_ready", true).put("kling_4_available", true)
+                .put("source_matching_available", true).put("source_matching_hd", true));
+
+        var capability = service.capability("tenant");
+        assertEquals(available, capability.availablePoints());
+        assertEquals(0, RATE.compareTo(capability.points()));
+        assertTrue(capability.ready());
+        assertTrue(capability.sourceMatchingAvailable());
+        assertTrue(capability.sourceMatchingHd());
+    }
+
+    @Test
     void reviewingIsFreeAndApprovalReservesExactlyOnce() throws Exception {
         var review = row("REVIEW");
         when(store.find("tenant", ID, false)).thenReturn(Optional.of(review), Optional.of(review),
                 Optional.of(row("CONFIRMING")));
         when(store.find("tenant", ID, true)).thenReturn(Optional.of(review));
         when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.readTree("""
-                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation","ad_notices":["请按说明存放"],"plan":{
+                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation","ad_notices":["请按说明存放"],
+                 "output_spec":{"width":1920,"height":1080,"duration_seconds":15},"plan":{
                    "target_product_id":"p1","title":"原分镜","shots":[{"scene_id":"source-1","duration":15}]}}
                 """.formatted(ENGINE)));
         when(charges.quote("tenant", "remake:" + ID)).thenReturn(
@@ -84,6 +101,7 @@ class VideoRemakeServiceTest {
         var view = service.get("tenant", "actor", ID);
         assertEquals("REVIEW", view.phase());
         assertEquals(List.of("请按说明存放"), view.adNotices());
+        assertEquals(1920, view.outputSpec().path("width").asInt());
         verifyNoInteractions(charges);
         var confirmation = new VideoRemakeService.Confirm("新标题",
                 List.of(new VideoRemakeService.ShotEdit("镜头缓慢从杯口移到杯身的把手", "这是新台词", "新字幕")), true, RATE);
@@ -100,12 +118,13 @@ class VideoRemakeServiceTest {
         String reference = "rpa_" + "1".repeat(32);
         String portrait = "rpa_" + "2".repeat(32);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", List.of("不锈钢"),
-                null, reference, null, null, true, true, 15, portrait, List.of(" 请按说明清洗 "));
+                null, reference, null, null, true, true, 0, portrait, List.of(" 请按说明清洗 "), true);
         var product = new Product("p", "123", "水杯", null, null, "https://example.com/product.png",
                 "家居>水杯", null, List.of(), List.of());
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
                 .thenReturn(List.of(product));
         when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+        when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode().put("source_matching_available", true));
         assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
         verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
 
@@ -119,6 +138,9 @@ class VideoRemakeServiceTest {
         assertTrue(engineInput.at("/kling_portrait/rights_confirmed").asBoolean());
         assertTrue(engineInput.at("/kling_portrait/adult_confirmed").asBoolean());
         assertTrue(engineInput.path("require_plan_confirmation").asBoolean());
+        assertTrue(engineInput.path("follow_source").asBoolean());
+        assertEquals("source", engineInput.path("orientation").asText());
+        assertFalse(engineInput.has("duration_seconds"));
         assertFalse(engineInput.has("portrait"));
         assertEquals("家居>水杯", engineInput.at("/product/category").asText());
         assertEquals("请按说明清洗", engineInput.at("/ad_notices/0").asText());

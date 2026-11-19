@@ -8,7 +8,16 @@ export interface RemakeCapability {
   subscribed: boolean;
   balanceStatus?: 'SUFFICIENT' | 'LOW' | 'EMPTY';
   points: number;
+  availablePoints?: number;
   kling4Available?: boolean;
+  sourceMatchingAvailable?: boolean;
+  sourceMatchingHd?: boolean;
+}
+
+export interface RemakeVideoSpec {
+  width: number;
+  height: number;
+  duration_seconds: number;
 }
 
 export interface RemakeShot {
@@ -31,6 +40,7 @@ export interface RemakeTask {
   videoUrl?: string;
   coverUrl?: string;
   adNotices?: string[];
+  outputSpec?: RemakeVideoSpec;
 }
 
 export interface RemakeInput {
@@ -46,7 +56,7 @@ export interface RemakeInput {
   portraitImageId?: string;
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
-  durationSeconds: number;
+  followSource: boolean;
   adNotices?: string[];
 }
 
