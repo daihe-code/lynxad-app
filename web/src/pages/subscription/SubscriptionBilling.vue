@@ -8,9 +8,9 @@
       <div v-if="pendingOrder" class="account-pending-order">
         <p>有一笔待支付订单，应付 {{ money(pendingOrder.payableYuan) }}</p>
         <div v-if="canManage">
-          <button class="obtn obtn--primary" :disabled="busy" @click="resumePayment">继续支付</button>
-          <button class="obtn" :disabled="busy" @click="viewPaymentResult(pendingOrder.orderId)">查询支付结果</button>
-          <button class="obtn" :disabled="busy" @click="cancelOpen = true">取消订单</button>
+          <el-button type="primary" :disabled="busy" @click="resumePayment">继续支付</el-button>
+          <el-button type="primary" :disabled="busy" @click="viewPaymentResult(pendingOrder.orderId)">查询支付结果</el-button>
+          <el-button type="primary" :disabled="busy" @click="openCancel">取消订单</el-button>
         </div>
       </div>
     </section>
@@ -28,12 +28,13 @@
     <p v-if="error" class="account-error" role="alert">{{ error }}</p>
     <template #footer><button class="btn-modal-ghost" :disabled="busy" @click="closePayment">关闭</button><template v-if="payment?.mockReady && payment.mockNonce"><button class="btn-modal-ghost" :disabled="busy" @click="confirmPay(false)">模拟失败</button><button class="btn-modal-primary" :disabled="busy" @click="confirmPay(true)">{{ busy ? '处理中…' : '确认演示支付' }}</button></template><button v-else class="btn-modal-primary" :disabled="busy" @click="checkPayment">刷新支付状态</button></template>
   </AccountModal>
-  <AccountModal v-if="cancelOpen && pendingOrder" title="取消待支付订单" description="确定取消这笔订单？取消后可重新选择套餐，已支付的订阅不受影响。" small :busy="busy" @close="cancelOpen = false"><p v-if="error" class="account-error" role="alert">{{ error }}</p><template #footer><button class="btn-modal-ghost" :disabled="busy" @click="cancelOpen = false">返回</button><button class="btn-modal-primary" :disabled="busy" @click="cancelPending">{{ busy ? '处理中…' : '确认取消订单' }}</button></template></AccountModal>
+  <AccountModal v-if="cancelOpen && pendingOrder" title="取消待支付订单" description="确定取消这笔订单？取消后可重新选择套餐，已支付的订阅不受影响。" small :busy="busy" @close="cancelOpen = false"><p v-if="cancelError" class="account-error" role="alert">{{ cancelError }}</p><template #footer><button class="btn-modal-ghost" :disabled="busy" @click="cancelOpen = false">返回</button><button class="btn-modal-primary" :disabled="busy" @click="cancelPending">{{ busy ? '处理中…' : '确认取消订单' }}</button></template></AccountModal>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
+import { requestFailure } from '@/api/apiErrors';
 import { useUserStore } from '@/stores/user';
 import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { alipayCheckoutUrl, checkOrderPayment, createOrder, createPayment, getSubscription, listBills, listPlans, mockComplete, patchAutoRenew, getPendingOrder, closeOrder, type OrderView, type BillItem, type PlanItem, type SubscriptionView, type PaymentView } from '@/features/billing/billingApi';
@@ -45,7 +46,9 @@ const sub = ref<SubscriptionView | null>(null), plans = ref<PlanItem[]>([]), bil
 const payOpen = ref(false), busy = ref(false), renewing = ref(false), loading = ref(true), loadError = ref(''), error = ref(''), pendingYuan = ref(0), payment = ref<PaymentView>();
 const canManage = computed(() => user.me?.memberRole === 'OWNER');
 const paymentQr = ref('');
-const pendingOrder = ref<OrderView | null>(null), cancelOpen = ref(false);
+const pendingOrder = ref<OrderView | null>(null), cancelOpen = ref(false), cancelError = ref('');
+const paymentChecks = new AbortController();
+let paymentStatusTimer: number | undefined;
 const aliases: Record<string, string> = { basic: 'BASIC', pro: 'PROFESSIONAL', flagship: 'FLAGSHIP' };
 const selectedPlan = computed(() => canManage.value ? plans.value.find(p => p.code === (aliases[String(route.query.plan)] || route.query.plan) && p.action !== 'CURRENT') : undefined);
 const trialLabel = computed(() => user.me?.trialStatusLabel || (user.trialActive ? '试用中' : '试用已结束'));
@@ -75,6 +78,7 @@ async function reload() { loading.value = true; loadError.value = ''; try {
     bills.value = b.items;
     pendingOrder.value = o;
     await user.loadMe();
+    if (o && canManage.value) void refreshPendingOrder();
 }
 catch {
     loadError.value = '订阅与账单加载失败，请重试';
@@ -189,16 +193,55 @@ catch {
 finally {
     busy.value = false;
 } }
-async function cancelPending() { if (!pendingOrder.value || busy.value)
-    return; busy.value = true; error.value = ''; try {
-    const result = await closeOrder(pendingOrder.value.orderId);
-    cancelOpen.value = false;
-    payOpen.value = false;
-    await reload();
-    ElMessage.success(result.status === 'PAID' ? '订单已支付' : '订单已取消');
+function openCancel() {
+    cancelError.value = '';
+    cancelOpen.value = true;
 }
-catch {
-    error.value = '订单未取消，请查看支付状态后重试';
+function schedulePaymentCheck(expiresAt?: string | null) {
+    window.clearTimeout(paymentStatusTimer);
+    const delay = Date.parse(expiresAt ?? '') - Date.now();
+    if (delay > 0) paymentStatusTimer = window.setTimeout(checkAfterExpiry, delay + 1_000);
+}
+function checkAfterExpiry() {
+    if (paymentChecks.signal.aborted || !pendingOrder.value) return;
+    if (busy.value) {
+        paymentStatusTimer = window.setTimeout(checkAfterExpiry, 1_000);
+        return;
+    }
+    void refreshPendingOrder();
+}
+async function refreshPendingOrder() {
+    const id = pendingOrder.value?.orderId;
+    if (!id || busy.value || paymentChecks.signal.aborted) return;
+    busy.value = true;
+    try {
+        const result = await checkOrderPayment(id, paymentChecks.signal);
+        if (paymentChecks.signal.aborted || pendingOrder.value?.orderId !== id) return;
+        if (result.status === 'PENDING_PAY') {
+            pendingOrder.value = result;
+            schedulePaymentCheck(result.paymentExpiresAt);
+        } else {
+            pendingOrder.value = null;
+            cancelOpen.value = false;
+            resetPayment();
+            await reload();
+        }
+    } catch { /* The order can still be queried manually. */ }
+    finally { busy.value = false; }
+}
+async function cancelPending() { if (!pendingOrder.value || busy.value)
+    return; busy.value = true; cancelError.value = ''; try {
+    const result = await closeOrder(pendingOrder.value.orderId);
+    if (paymentChecks.signal.aborted) return;
+    window.clearTimeout(paymentStatusTimer);
+    pendingOrder.value = null;
+    cancelOpen.value = false;
+    resetPayment();
+    await reload();
+    if (!paymentChecks.signal.aborted) ElMessage.success(result.status === 'PAID' ? '订单已支付' : '订单已取消');
+}
+catch (failure) {
+    if (!paymentChecks.signal.aborted) cancelError.value = requestFailure(failure).message;
 }
 finally {
     busy.value = false;
@@ -230,8 +273,18 @@ watch(() => route.query.plan, plan => {
     if (!plan && !busy.value) resetPayment();
 });
 onMounted(reload);
+onBeforeUnmount(() => {
+    paymentChecks.abort();
+    window.clearTimeout(paymentStatusTimer);
+});
 </script>
 
 <style scoped>
 .subscription-links { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.account-pending-order .el-button:not(:disabled) {
+    background-color: var(--el-button-bg-color);
+    color: var(--el-button-text-color);
+}
+.account-pending-order .el-button:not(:disabled):hover { background-color: var(--el-button-hover-bg-color); }
+.account-pending-order .el-button + .el-button { margin-left: 0; }
 </style>

@@ -102,7 +102,13 @@ public class BillingSubscriptionController {
     public ApiResponse<PaymentView> createPayment(
             @Valid @RequestBody CreatePaymentRequest req,
             @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
-        return ApiResponse.ok(paymentCommandService.create(TenantContext.requireTenantId(), req.orderId(), idem));
+        return ApiResponse.ok(paymentCommandService.create(
+                TenantContext.requireTenantId(), req.orderId(), idem, req.deferAlipayCheckout()));
+    }
+
+    @PostMapping("/payments/alipay/checkout")
+    public ApiResponse<PaymentView> openAlipayCheckout(@Valid @RequestBody CreatePaymentRequest req) {
+        return ApiResponse.ok(paymentCommandService.openAlipayCheckout(TenantContext.requireTenantId(), req.orderId()));
     }
 
     @PostMapping("/payments/{paymentId}/mock-complete")

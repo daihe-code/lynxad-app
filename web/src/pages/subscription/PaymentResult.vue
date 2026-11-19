@@ -17,7 +17,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { checkOrderPayment, type OrderView } from '@/features/billing/billingApi';
+import { checkOrderPayment, isBillingOrderId, type OrderView } from '@/features/billing/billingApi';
 import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { useUserStore } from '@/stores/user';
 
@@ -35,7 +35,7 @@ const title = computed(() => ({
 
 watch([() => route.query.order, retryToken], ([id], previous, onCleanup) => {
   if (id !== previous?.[0]) order.value = undefined;
-  if (typeof id !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id)) {
+  if (!isBillingOrderId(id)) {
     state.value = 'invalid';
     return;
   }

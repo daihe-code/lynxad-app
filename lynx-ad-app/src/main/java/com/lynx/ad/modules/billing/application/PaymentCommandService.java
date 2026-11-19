@@ -77,21 +77,20 @@ public class PaymentCommandService {
     }
 
     @Transactional
-    public PaymentView create(TenantId tenantId, String orderId, String idempotencyKey) {
+    public PaymentView create(TenantId tenantId, String orderId, String idempotencyKey, boolean deferAlipayCheckout) {
         if (foundation != null) foundation.ensure(tenantId.value());
         BillingOrder order = orderRepository
                 .findById(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
         requireRechargeOwner(order);
-        if (order.type() == OrderType.POINT_RECHARGE) {
-            pointOrders.requireRechargeSubscription(tenantId);
-        }
-        if (order.status() != OrderStatus.PENDING_PAY) {
-            throw new BizException(1603, "订单状态不允许支付");
-        }
+        requirePayable(order);
         Optional<BillingPayment> existingAlipay = alipayPayment(order);
         if (existingAlipay.isPresent() || properties.getPayment().isAlipay()) {
-            return prepareAlipay(order, existingAlipay.orElse(null));
+            if (!deferAlipayCheckout) return issueAlipayCheckout(order, existingAlipay);
+            var payment = existingAlipay.orElseGet(() -> newAlipayPayment(order));
+            String url = "/subscription/alipay-checkout?order=" + order.id()
+                    + "&kind=" + (order.type() == OrderType.POINT_RECHARGE ? "recharge" : "package");
+            return PaymentView.from(payment, url, null);
         }
         if (properties.getPayment().isLive() || order.type() == OrderType.POINT_RECHARGE) idempotencyKey = "order:"+orderId;
         else if(idempotencyKey != null) idempotencyKey=orderId+":"+idempotencyKey;
@@ -139,19 +138,43 @@ public class PaymentCommandService {
         return view;
     }
 
-    private PaymentView prepareAlipay(BillingOrder order, BillingPayment payment) {
-        if (payment == null) {
-            if (paymentRepository.findById(order.tenantId(), order.id().replace("-", "")).isPresent()) {
-                throw new BizException(1603, "请先核实原支付渠道的订单状态");
-            }
-            payment = new BillingPayment(alipayPaymentId(order.id()), order.tenantId(), order.id(),
-                    PayChannel.ALIPAY, PaymentStatus.CREATED, order.payableFen(), null, null, Instant.now(), null);
-            paymentRepository.save(payment);
+    @Transactional
+    public PaymentView openAlipayCheckout(TenantId tenantId, String orderId) {
+        lockWorkspace(tenantId);
+        var order = orderRepository.findByIdForUpdate(tenantId, orderId)
+                .orElseThrow(() -> new BizException(1604, "订单不存在"));
+        requireOrderOwner(order);
+        requirePayable(order);
+        var existing = alipayPayment(order);
+        if (existing.isEmpty() && !properties.getPayment().isAlipay()) {
+            throw new BizException(1605, "当前支付宝支付通道不可用");
         }
+        return issueAlipayCheckout(order, existing);
+    }
+
+    private PaymentView issueAlipayCheckout(BillingOrder order, Optional<BillingPayment> existing) {
+        var payment = existing.orElseGet(() -> newAlipayPayment(order));
+        if (alipay.expired(payment, Instant.now())) return PaymentView.from(payment, null, null);
         boolean recharge = order.type() == OrderType.POINT_RECHARGE;
         String title = recharge ? "坤境智营积分充值" : "坤境智营 " + order.planCode().displayName();
-        String url = alipay.expired(payment, Instant.now()) ? null : alipay.checkoutUrl(payment, title, recharge);
+        String url = alipay.checkoutUrl(payment, title, recharge);
+        if (url == null || url.isBlank()) throw new BizException(1610, "暂时无法打开支付宝收银台，请稍后重试");
+        // A persisted row means a signed gateway URL may be in a browser. This includes payments from older versions.
+        if (existing.isEmpty()) paymentRepository.save(payment);
         return PaymentView.from(payment, url, null);
+    }
+
+    private BillingPayment newAlipayPayment(BillingOrder order) {
+        if (paymentRepository.findById(order.tenantId(), order.id().replace("-", "")).isPresent()) {
+            throw new BizException(1603, "请先核实原支付渠道的订单状态");
+        }
+        return new BillingPayment(alipayPaymentId(order.id()), order.tenantId(), order.id(), PayChannel.ALIPAY,
+                PaymentStatus.CREATED, order.payableFen(), null, null, Instant.now(), null);
+    }
+
+    private void requirePayable(BillingOrder order) {
+        if (order.status() != OrderStatus.PENDING_PAY) throw new BizException(1603, "订单状态不允许支付");
+        if (order.type() == OrderType.POINT_RECHARGE) pointOrders.requireRechargeSubscription(order.tenantId());
     }
 
     @Transactional
@@ -164,7 +187,7 @@ public class PaymentCommandService {
             var payment = alipayPayment(order);
             if (payment.isPresent()) {
                 refreshAlipay(order, payment.get(), false);
-                if (order.type() == OrderType.POINT_RECHARGE && order.status() == OrderStatus.PENDING_PAY) {
+                if (order.status() == OrderStatus.PENDING_PAY) {
                     return OrderView.from(order, alipay.checkoutExpiresAt(payment.get()));
                 }
             }
@@ -340,7 +363,10 @@ public class PaymentCommandService {
     }
 
     private void requireRechargeOwner(BillingOrder order) {
-        if (order.type() != OrderType.POINT_RECHARGE) return;
+        if (order.type() == OrderType.POINT_RECHARGE) requireOrderOwner(order);
+    }
+
+    private void requireOrderOwner(BillingOrder order) {
         var owner = workspaceAccess.require(MemberRole.OWNER);
         if (!order.tenantId().value().equals(owner.tenantId())) throw new BizException(1604, "订单不存在");
     }
