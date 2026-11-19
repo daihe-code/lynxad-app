@@ -38,6 +38,7 @@ export interface OrderView {
   payableYuan: number;
   discountLabel?: string | null;
   status: string;
+  paymentExpiresAt?: string | null;
 }
 
 export interface PaymentView {
@@ -139,4 +140,6 @@ export const quoteRecharge = (amountFen: number) => apiGet<RechargeOption>('/api
 export const createRecharge = (code: string, key: string) =>
   apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
 export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);
-export const closeRecharge = (id: string) => apiPost<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}/close`, {});
+export const closeRecharge = (id: string) => apiPost<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}/close`, {}, {
+  headers: { 'X-Quiet-Request': 'true' },
+});

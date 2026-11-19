@@ -105,12 +105,20 @@ class AlipaySettlementTest {
     @Test
     void unacceptedCheckoutCanOnlyCloseAfterItsSignedExpiry() {
         var order = prepare(OrderType.POINT_RECHARGE);
+        Instant expiry = Instant.parse("2026-11-19T09:39:55Z");
+        when(alipay.checkoutExpiresAt(payment)).thenReturn(expiry);
         when(alipay.query(paymentId)).thenReturn(new Trade(paymentId, Status.NOT_FOUND, null, null));
-        assertThrows(BizException.class, () -> service.close(tenant, orderId, true));
+        var failure = assertThrows(BizException.class, () -> service.close(tenant, orderId, true));
+        assertTrue(failure.getMessage().contains("11月19日 17:39:55"));
         assertEquals(OrderStatus.PENDING_PAY, order.status());
+        var pending = service.check(tenant, orderId);
+        assertEquals("PENDING_PAY", pending.status());
+        assertEquals(expiry, pending.paymentExpiresAt());
 
         when(alipay.expired(eq(payment), any())).thenReturn(true);
-        assertEquals("CLOSED", service.check(tenant, orderId).status());
+        var closed = service.check(tenant, orderId);
+        assertEquals("CLOSED", closed.status());
+        assertNull(closed.paymentExpiresAt());
         assertEquals(PaymentStatus.FAILED, payment.status());
         verify(alipay, never()).close(paymentId);
         verifyNoInteractions(pointOrders);

@@ -63,7 +63,11 @@ public class AlipayPaymentAdapter {
     }
 
     public boolean expired(BillingPayment payment, Instant now) {
-        return !now.isBefore(payment.createdAt().plus(CHECKOUT_DURATION));
+        return !now.isBefore(checkoutExpiresAt(payment));
+    }
+
+    public Instant checkoutExpiresAt(BillingPayment payment) {
+        return payment.createdAt().plus(CHECKOUT_DURATION);
     }
 
     public String checkoutUrl(BillingPayment payment, String subject, boolean recharge) {
@@ -74,7 +78,7 @@ public class AlipayPaymentAdapter {
         model.setSubject(subject);
         model.setProductCode("FAST_INSTANT_TRADE_PAY");
         model.setQrPayMode("2");
-        model.setTimeExpire(ALIPAY_TIME.format(payment.createdAt().plus(CHECKOUT_DURATION)));
+        model.setTimeExpire(ALIPAY_TIME.format(checkoutExpiresAt(payment)));
         var request = new AlipayTradePagePayRequest();
         request.setBizModel(model);
         request.setNotifyUrl(config.getNotifyUrl());

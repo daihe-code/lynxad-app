@@ -21,10 +21,11 @@
       <p v-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'">恢复正式套餐后可继续支付。</p>
       <p v-else-if="availability === 'DISABLED'">积分充值暂未开放。</p>
       <div class="recharge-actions">
-        <el-button :disabled="busy" @click="cancel">取消订单</el-button>
-        <el-button v-if="!payment?.mockReady" :disabled="busy" @click="check">查询支付结果</el-button>
+        <el-button class="recharge-primary" type="primary" :disabled="busy" @click="cancel">取消订单</el-button>
+        <el-button v-if="!payment?.mockReady" class="recharge-primary" type="primary" :disabled="busy" @click="check()">查询支付结果</el-button>
         <el-button v-if="!payment && availability === 'AVAILABLE'" class="recharge-primary" type="primary" :loading="busy" @click="checkout">继续支付</el-button>
       </div>
+      <p v-if="orderError" class="amount-error" role="alert">{{ orderError }}</p>
     </section>
     <section v-if="!loadError && options.length" class="acct-card" aria-labelledby="recharge-amount">
       <h2 id="recharge-amount" class="acct-card__t">充值套餐</h2>
@@ -92,6 +93,9 @@ const availability = ref<RechargeCatalog['availability']>(), balance = ref<numbe
 const loading = ref(true), loadError = ref('');
 const amount = ref(''), amountError = ref(''), customQuote = ref<RechargeOption>();
 const quoting = ref(false), ledgerRefresh = ref(0);
+const orderError = ref('');
+const paymentChecks = new AbortController();
+let paymentStatusTimer: number | undefined;
 let requestKey: string | undefined;
 let requestCode: string | undefined;
 let active = true;
@@ -122,7 +126,9 @@ function reset() {
   qr.value = '';
 }
 function clearOrder() {
+  window.clearTimeout(paymentStatusTimer);
   order.value = undefined;
+  orderError.value = '';
   requestKey = undefined;
   requestCode = undefined;
   reset();
@@ -153,7 +159,15 @@ async function checkout() {
     payment.value = result;
   } catch { /* API shows the failure. */ } finally { busy.value = false; }
 }
-function handleStatus(updated: OrderView) {
+function checkAfterExpiry() {
+  if (!active || !order.value) return;
+  if (busy.value) {
+    paymentStatusTimer = window.setTimeout(checkAfterExpiry, 1_000);
+    return;
+  }
+  void check(false);
+}
+function handleStatus(updated: OrderView, showPending = true) {
   if (updated.status === 'PAID') {
     clearOrder();
     ledgerRefresh.value++;
@@ -163,24 +177,43 @@ function handleStatus(updated: OrderView) {
     clearOrder();
     ElMessage.info('订单已关闭');
   } else {
-    ElMessage.info('尚未收到支付结果');
+    order.value = updated;
+    window.clearTimeout(paymentStatusTimer);
+    const delay = Date.parse(updated.paymentExpiresAt ?? '') - Date.now();
+    if (delay > 0) paymentStatusTimer = window.setTimeout(checkAfterExpiry, delay + 1_000);
+    if (showPending) ElMessage.info('尚未收到支付结果');
   }
 }
-async function check() {
-  if (!order.value || busy.value) return;
+async function check(showPending = true) {
+  const id = order.value?.orderId;
+  if (!id || busy.value) return;
+  if (showPending) orderError.value = '';
   busy.value = true;
-  try { handleStatus(await checkOrderPayment(order.value.orderId)); }
-  catch { /* API shows the failure. */ } finally { busy.value = false; }
+  try {
+    const updated = await checkOrderPayment(id, paymentChecks.signal);
+    if (active) handleStatus(updated, showPending);
+  } catch (error) {
+    if (active && showPending) orderError.value = requestFailure(error).message;
+  } finally { busy.value = false; }
 }
 async function cancel() {
   const id = order.value?.orderId;
   if (!id || busy.value) return;
-  try { await ElMessageBox.confirm('确定取消这笔积分充值订单？', '取消订单', { type: 'warning' }); }
+  try {
+    await ElMessageBox.confirm('确定取消这笔积分充值订单？', '取消订单', {
+      type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回',
+    });
+  }
   catch { return; }
   if (!active || busy.value || order.value?.orderId !== id) return;
+  orderError.value = '';
   busy.value = true;
-  try { handleStatus(await closeRecharge(id)); }
-  catch { /* API shows the failure. */ } finally { busy.value = false; }
+  try {
+    const updated = await closeRecharge(id);
+    if (active) handleStatus(updated);
+  } catch (error) {
+    if (active) orderError.value = requestFailure(error).message;
+  } finally { busy.value = false; }
 }
 async function completeMock() {
   if (!payment.value?.mockNonce || !order.value) return;
@@ -207,6 +240,7 @@ async function load() {
     options.value = catalog.options;
     selected.value = options.value[0]?.code || '';
     order.value = catalog.pending ?? undefined;
+    if (order.value) void check(false);
   } catch (error) {
     loadError.value = requestFailure(error).message;
   } finally {
@@ -217,7 +251,11 @@ onMounted(() => {
   void load();
   void refreshBalance();
 });
-onBeforeUnmount(() => { active = false; });
+onBeforeUnmount(() => {
+  active = false;
+  paymentChecks.abort();
+  window.clearTimeout(paymentStatusTimer);
+});
 </script>
 
 <style scoped>

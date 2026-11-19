@@ -25,6 +25,7 @@ import com.lynx.ad.modules.billing.infrastructure.adapter.AlipayPaymentAdapter;
 import com.lynx.ad.modules.billing.infrastructure.adapter.MockPaymentAdapter;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,6 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PaymentCommandService {
+
+    private static final DateTimeFormatter CHECKOUT_TIME = DateTimeFormatter.ofPattern("M月d日 HH:mm:ss")
+            .withZone(ZoneId.of("Asia/Shanghai"));
 
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
@@ -157,7 +161,13 @@ public class PaymentCommandService {
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
         requireRechargeOwner(order);
         if (order.status() == OrderStatus.PENDING_PAY) {
-            alipayPayment(order).ifPresent(payment -> refreshAlipay(order, payment, false));
+            var payment = alipayPayment(order);
+            if (payment.isPresent()) {
+                refreshAlipay(order, payment.get(), false);
+                if (order.type() == OrderType.POINT_RECHARGE && order.status() == OrderStatus.PENDING_PAY) {
+                    return OrderView.from(order, alipay.checkoutExpiresAt(payment.get()));
+                }
+            }
         }
         return OrderView.from(order);
     }
@@ -210,7 +220,8 @@ public class PaymentCommandService {
         if (!closeRequested || order.status() != OrderStatus.PENDING_PAY) return;
         if (trade.status() == AlipayPaymentAdapter.Status.NOT_FOUND) {
             // A browser may still open an issued checkout URL before the signed expiry.
-            throw new BizException(1603, "支付宝订单尚未受理。可打开收银台后取消订单，或等支付链接过期");
+            throw new BizException(1603, "支付宝尚未受理。付款链接将于 "
+                    + CHECKOUT_TIME.format(alipay.checkoutExpiresAt(payment)) + "（北京时间）失效，届时可取消。");
         }
         if (alipay.close(payment.id())) {
             closeAlipay(order, payment);
