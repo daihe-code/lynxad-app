@@ -5,6 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.modules.admin.application.AdminAuthService;
+import com.lynx.ad.modules.admin.application.AdminPointService;
+import com.lynx.ad.modules.admin.infrastructure.AdminAccountStore;
 import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.billing.application.*;
@@ -56,6 +59,55 @@ public class AccountSystemPersistenceTest {
                 new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V56__workspace_child_roles.sql")).execute(ds);
         var foundation=new WorkspaceFoundation(jdbc);var quotas=mock(EntitlementQueryService.class);when(quotas.adAccountLimit(any())).thenReturn(2);
         return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),new PointWalletService(jdbc,foundation));
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void adminAdjustsSharedAvailablePointsOnceWithoutTouchingReservations(String mode) throws Exception {
+        var f = fixture(mode);
+        f.jdbc.update("INSERT INTO sys_user VALUES('child','ACTIVE')");
+        f.jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,status,membership_id) VALUES('a','child','MEMBER','ACTIVE','m-child')");
+        var auth = mock(AdminAuthService.class);
+        var admin = new AdminAccountStore.Account("admin", "operator", "测试管理员", "ACTIVE", null, null, false);
+        when(auth.require()).thenReturn(admin);
+        var audit = mock(AdminAccountStore.class);
+        var service = new AdminPointService(auth, audit, f.jdbc, new WorkspaceFoundation(f.jdbc), mock(WorkspacePointOrders.class),
+                f.points, new com.fasterxml.jackson.databind.ObjectMapper());
+        f.tx.executeWithoutResult(s -> {
+            f.points.credit("a", "init", new BigDecimal("10"));
+            f.points.reserve("a", "pending", null, "a", new BigDecimal("4"));
+        });
+        var before = f.tx.execute(s -> service.balance("child", "a"));
+        UUID request = UUID.randomUUID();
+        var add = new AdminPointService.Change(request, "a", AdminPointService.Direction.ADD, new BigDecimal("5.125"),
+                before.version(), "活动补偿");
+        var added = f.tx.execute(s -> service.adjust("child", add));
+        assertEquals(new BigDecimal("11.1250"), added.available());
+        assertEquals(added, f.tx.execute(s -> service.adjust("child", add)));
+
+        var conflict = new AdminPointService.Change(request, "a", AdminPointService.Direction.ADD, new BigDecimal("5.125"),
+                before.version(), "另一个原因");
+        assertEquals(409, assertThrows(BizException.class, () -> f.tx.execute(s -> service.adjust("child", conflict))).code());
+        var tooMuch = new AdminPointService.Change(UUID.randomUUID(), "a", AdminPointService.Direction.DEDUCT,
+                new BigDecimal("12"), added.version(), "收回积分");
+        assertEquals(1903, assertThrows(BizException.class, () -> f.tx.execute(s -> service.adjust("child", tooMuch))).code());
+        var stale = new AdminPointService.Change(UUID.randomUUID(), "a", AdminPointService.Direction.DEDUCT,
+                new BigDecimal("1"), before.version(), "收回积分");
+        assertEquals(409, assertThrows(BizException.class, () -> f.tx.execute(s -> service.adjust("child", stale))).code());
+        assertThrows(BizException.class, () -> f.tx.execute(s -> service.adjust("b", tooMuch)));
+
+        var deduct = new AdminPointService.Change(UUID.randomUUID(), "a", AdminPointService.Direction.DEDUCT,
+                added.available(), added.version(), "收回积分");
+        var after = f.tx.execute(s -> service.adjust("child", deduct));
+        assertEquals(0, after.available().signum());
+        assertEquals(new BigDecimal("4.0000"), after.frozen());
+        assertEquals(0, after.consumed().signum());
+        assertEquals(after, f.tx.execute(s -> service.adjust("child", add)));
+        assertEquals(0, f.points.balance("b").available().signum());
+        assertEquals(List.of("ADMIN_CREDIT", "ADMIN_DEBIT"), f.jdbc.queryForList(
+                "SELECT event_type FROM point_ledger WHERE tenant_id='a' AND event_type LIKE 'ADMIN%' ORDER BY event_type", String.class));
+        verify(audit).audit(admin, "POINT_ADJUST", "SUCCESS", "child", "a", "增加 5.125 积分（6 → 11.125） · 活动补偿");
+        verify(audit).audit(admin, "POINT_ADJUST", "SUCCESS", "child", "a", "扣减 11.125 积分（11.125 → 0） · 收回积分");
+        verifyNoMoreInteractions(audit);
     }
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void migrationPreservesIdsAndQuarantinesDuplicateOrUnknownResponsibility(String mode) throws Exception {

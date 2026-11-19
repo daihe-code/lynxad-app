@@ -20,7 +20,7 @@
         <el-table-column prop="authorization_paths" label="授权路径" width="95" />
         <el-table-column label="客户分组" min-width="170"><template #default="{ row }"><el-select v-if="row.bound_user_id === user.me?.userId && row.status === 'ACTIVE'" :model-value="row.client_space_id" @change="(id: string) => assign(row, id)"><el-option v-for="client in overview.clientSpaces" :key="client.id" :label="client.name" :value="client.id" /></el-select><span v-else>{{ overview.clientSpaces.find(c => c.id === row.client_space_id)?.name || '—' }}</span></template></el-table-column>
       </el-table>
-      <template v-if="overview.wallet"><h3>积分流水</h3><el-table :data="entries" empty-text="暂无积分记录"><el-table-column prop="created_at" label="时间" min-width="180" /><el-table-column label="类型"><template #default="{ row }">{{ entryTypes[row.event_type] || row.event_type }}</template></el-table-column><el-table-column label="积分"><template #default="{ row }">{{ number(row.amount) }}</template></el-table-column></el-table><div class="ledger-pages"><el-button :disabled="page === 1" @click="loadEntries(page - 1)">上一页</el-button><span>{{ page }}</span><el-button :disabled="entries.length < 20" @click="loadEntries(page + 1)">下一页</el-button></div></template>
+      <template v-if="overview.wallet"><h3>积分流水</h3><el-table :data="entries" empty-text="暂无积分记录"><el-table-column prop="created_at" label="时间" min-width="180" /><el-table-column label="类型"><template #default="{ row }">{{ entryTypes[row.event_type] || row.event_type }}</template></el-table-column><el-table-column label="积分"><template #default="{ row }">{{ pointChange(row) }}</template></el-table-column></el-table><div class="ledger-pages"><el-button :disabled="page === 1" @click="loadEntries(page - 1)">上一页</el-button><span>{{ page }}</span><el-button :disabled="entries.length < 20" @click="loadEntries(page + 1)">下一页</el-button></div></template>
     </template>
     <el-button v-else-if="!loading" @click="load">重新加载</el-button>
     <el-dialog v-model="clientDialog" :title="editing ? '重命名分组' : '新增分组'" width="420px"><el-input v-model="clientName" maxlength="128" placeholder="分组名称" /><p v-if="clientError" class="field-error">{{ clientError }}</p><template #footer><el-button @click="clientDialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="saveClient">保存</el-button></template></el-dialog>
@@ -36,8 +36,9 @@ import { workspaceOverview, workspaceAccounts, pointEntries, saveClientSpace, de
 const user = useUserStore(), overview = ref<WorkspaceOverview>(), accounts = ref<AccountBinding[]>([]), entries = ref<PointEntry[]>([]), page = ref(1), loading = ref(true);
 const canManage = computed(() => ['OWNER', 'ADMIN'].includes(overview.value?.role || ''));
 const bindingStatus: Record<string, string> = { ACTIVE: '已绑定', REVIEW_REQUIRED: '待核验', RELEASED: '已解绑' };
-const entryTypes: Record<string, string> = { CREDIT: '入账', RESERVE: '预占', SETTLE: '结算', RELEASE: '释放', REFUND: '退回' };
+const entryTypes: Record<string, string> = { CREDIT: '入账', RESERVE: '预占', SETTLE: '结算', RELEASE: '释放', REFUND: '退回', ADMIN_CREDIT: '后台增加', ADMIN_DEBIT: '后台扣减' };
 const number = (value: number) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+const pointChange = (entry: PointEntry) => (entry.event_type === 'ADMIN_CREDIT' ? '+' : entry.event_type === 'ADMIN_DEBIT' ? '−' : '') + number(entry.amount);
 async function loadEntries(next: number) { try { entries.value = await pointEntries(next); page.value = next; } catch { /* Keep current page on failure. */ } }
 const pointsWarning = ref('');
 async function load() {

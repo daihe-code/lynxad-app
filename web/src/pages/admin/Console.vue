@@ -21,6 +21,7 @@
               <el-button link type="primary" @click="openUser(row.id)">查看资料</el-button>
               <el-button link type="primary" :disabled="!row.tenantId || openingChange" @click="openPackageChange(row)">修改套餐</el-button>
               <el-button link type="primary" :disabled="!row.tenantId || openingExtension" @click="openExtend(row.id)">延长套餐</el-button>
+              <el-button link type="primary" :disabled="!row.tenantId" @click="pointsTarget = row">调整积分</el-button>
               <el-button v-if="row.status === 'BLOCKED'" link type="primary" @click="tab = 'blacklist'">管理黑名单</el-button>
               <el-button v-else link type="danger" :disabled="moderating" @click="moderateUser(row, false)">拉黑</el-button>
               <el-button link type="danger" :disabled="moderating" @click="moderateUser(row, true)">删除账户</el-button>
@@ -29,7 +30,7 @@
         </el-table>
         <el-table v-else-if="tab === 'logins'" :data="logins.records" v-loading="loading" empty-text="暂无登录记录"><el-table-column label="用户" min-width="180"><template #default="{row}">{{ row.nickname || '—' }}<small>{{ row.phone || '未识别手机号' }}</small></template></el-table-column><el-table-column label="登录时间（北京时间）" min-width="205"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column label="登录方式" min-width="110"><template #default="{row}">{{ loginMethods[row.method] || row.method }}</template></el-table-column><el-table-column label="结果" min-width="110"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="ip" label="来源 IP" min-width="150" /><el-table-column prop="userAgent" label="浏览器 / 设备信息" min-width="260" show-overflow-tooltip /><el-table-column prop="failureReason" label="说明" min-width="220" /></el-table>
         <el-table v-else-if="tab === 'adjustments'" :data="adjustments.records" v-loading="loading" empty-text="暂无套餐调整记录"><el-table-column label="操作时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="操作管理员" min-width="145" /><el-table-column label="影响用户 / 账户" min-width="260"><template #default="{row}">{{ row.userId }}<small>坤境账户：{{ row.tenantId }}</small></template></el-table-column><el-table-column label="套餐 / 操作" min-width="170"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }}<small>{{ adjustmentAction(row) }}</small></template></el-table-column><el-table-column label="原到期 → 新到期" min-width="250"><template #default="{row}">{{ time(row.beforeEnd) }}<small>→ {{ time(row.afterEnd) }}</small></template></el-table-column><el-table-column prop="reason" label="操作原因" min-width="240" /></el-table>
-        <el-table v-else-if="tab === 'audit'" :data="audit.records" v-loading="loading" empty-text="暂无管理员操作记录"><el-table-column label="时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="管理员" min-width="145" /><el-table-column label="操作" min-width="160"><template #default="{row}">{{ actions[row.action] || row.action }}</template></el-table-column><el-table-column label="结果" min-width="100"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column prop="description" label="说明" min-width="320" /><el-table-column prop="ip" label="来源 IP" min-width="150" /></el-table>
+        <el-table v-else-if="tab === 'audit'" :data="audit.records" v-loading="loading" empty-text="暂无管理员操作记录"><el-table-column label="时间" min-width="185"><template #default="{row}">{{ time(row.createdAt) }}</template></el-table-column><el-table-column prop="actorName" label="管理员" min-width="145" /><el-table-column label="操作" min-width="160"><template #default="{row}">{{ actions[row.action] || row.action }}</template></el-table-column><el-table-column label="结果" min-width="100"><template #default="{row}"><el-tag :type="row.result === 'SUCCESS' ? 'success' : 'danger'">{{ row.result === 'SUCCESS' ? '成功' : '失败' }}</el-tag></template></el-table-column><el-table-column label="说明" min-width="320"><template #default="{row}">{{ row.description }}<small v-if="row.action === 'POINT_ADJUST' && row.tenantId">坤境账户 {{ row.tenantId }} · 用户 {{ row.userId }}</small></template></el-table-column><el-table-column prop="ip" label="来源 IP" min-width="150" /></el-table>
         <el-pagination v-if="tab !== 'qualifications' && tab !== 'blacklist'" class="admin-pagination" background layout="total, prev, pager, next" :total="total" :page-size="20" v-model:current-page="page" :disabled="loading" @current-change="load" />
       </section>
     </div>
@@ -39,6 +40,7 @@
           <div><h2>{{ detail.user.nickname || detail.user.phone }}</h2><p>{{ detail.user.phone }} · {{ detail.user.email || '未填写邮箱' }}</p></div>
           <div>
             <el-button :disabled="!detail.user.tenantId || openingExtension" @click="openExtend(detail.user.id)">延长套餐</el-button>
+            <el-button :disabled="!detail.user.tenantId" @click="pointsTarget = detail.user">调整积分</el-button>
             <el-button type="primary" :disabled="!detail.user.tenantId || openingChange" @click="openPackageChange(detail.user)">修改套餐</el-button>
           </div>
         </div>
@@ -48,6 +50,7 @@
         <h3>账户套餐调整记录 <el-button link type="primary" @click="showUserRecords('adjustments', detail.user)">查看全部调整记录</el-button></h3><el-table :data="detailAdjustments.records" empty-text="该账户暂无套餐调整记录"><el-table-column prop="actorName" label="管理员" min-width="120" /><el-table-column label="套餐 / 操作" min-width="160"><template #default="{row}">{{ row.type === 'TRIAL' ? '试用期' : plans[row.planCode] }} <small>{{ adjustmentAction(row) }}</small></template></el-table-column><el-table-column label="调整后到期" min-width="185"><template #default="{row}">{{ time(row.afterEnd) }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="210" /></el-table>
       </template></div>
     </el-drawer>
+    <PointAdjustmentDialog v-if="pointsTarget" :target="pointsTarget" @close="pointsTarget = undefined" />
     <el-dialog v-model="packageChangeOpen" title="修改套餐" width="min(520px, 95vw)" append-to-body
       :close-on-click-modal="false" :close-on-press-escape="!changingPackage" :show-close="!changingPackage">
       <template v-if="packageTarget">
@@ -126,6 +129,7 @@ import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { adminSession, adminLogout, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
 import PhoneBlacklist from './PhoneBlacklist.vue';
+import PointAdjustmentDialog from './PointAdjustmentDialog.vue';
 const router=useRouter();
 const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FLAGSHIP:'旗舰版'};
 const packageStates:Record<string,string>={ACTIVE:'正式用户',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
@@ -133,9 +137,11 @@ const payMethods:Record<string,string>={WECHAT:'微信支付',ADMIN:'管理员�
 const loginMethods:Record<string,string>={PASSWORD:'密码登录',SMS:'短信登录',LEGACY:'历史登录'};
 const actions:Record<string,string>={LOGIN:'管理员登录',LOGOUT:'管理员退出',PASSWORD_CHANGE:'修改管理员密码',PACKAGE_EXTEND:'手动延长套餐',PACKAGE_CHANGE:'修改套餐',QUALIFICATION_REVIEW:'企业资质人工审核',PHONE_BLOCK:'添加黑名单',PHONE_UNBLOCK:'解除拉黑',USER_DELETE:'删除账户'};
 actions.ADMIN_PHONE_GRANT = '添加管理员权限';
+actions.POINT_ADJUST = '调整积分';
 const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label:'注册用户'},{key:'accounts',label:'坤境账户'},{key:'activePackages',label:'生效套餐'},{key:'activeTrials',label:'试用中账户'},{key:'todayLogins',label:'今日成功登录'}];
 const blank=<T,>():AdminPage<T>=>({records:[],total:0,pageNum:1,pageSize:20});
 const overview=ref<AdminOverview>(),users=ref(blank<AdminUser>()),logins=ref(blank<AdminLoginLog>()),adjustments=ref(blank<PackageAdjustment>()),audit=ref(blank<AdminAudit>());
+const pointsTarget = ref<AdminUser>();
 const tab=ref('users'),q=ref(''),status=ref(''),result=ref(''),range=ref<[string,string]>(),page=ref(1),loading=ref(false),error=ref(''),filterUser=ref(''),filterName=ref('');
 const total=computed(()=>({users:users.value.total,logins:logins.value.total,adjustments:adjustments.value.total,audit:audit.value.total})[tab.value]||0);
 const time=(value?:string|null)=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';

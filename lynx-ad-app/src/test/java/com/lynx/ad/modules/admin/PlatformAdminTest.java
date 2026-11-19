@@ -118,22 +118,24 @@ class PlatformAdminTest {
     @Test void actualRegisteredInterceptorProtectsAllAdministrativeEndpointsAndLeavesLoginPublic()throws Exception {
         var users=mock(AdminUserQuery.class);var packages=mock(AdminPackageService.class);
         var moderation=mock(AdminAccountModeration.class);
+        var points=mock(AdminPointService.class);
         when(accounts.activePhone(phone)).thenReturn(Optional.of(account));when(accounts.account(account.id())).thenReturn(Optional.of(account));when(accounts.validSession(eq(account.id()),anyString(),any())).thenReturn(true);
         when(otp.verifyAndConsumeAdminLogin(phone,"197531")).thenReturn(true);
         when(users.overview()).thenReturn(new AdminUserQuery.Overview(1,1,1,0,1));
         class Registry extends InterceptorRegistry { List<Object> all(){return getInterceptors();} }
         var registry=new Registry();new AdminAccessConfiguration(auth).addInterceptors(registry);
-        var mvc=MockMvcBuilders.standaloneSetup(new PlatformAdminController(auth,users,packages), new AdminAccountModerationController(moderation)).setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).addInterceptors((HandlerInterceptor)registry.all().getFirst()).build();
+        var mvc=MockMvcBuilders.standaloneSetup(new PlatformAdminController(auth,users,packages),
+                new AdminAccountModerationController(moderation), new AdminPointController(points)).setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).addInterceptors((HandlerInterceptor)registry.all().getFirst()).build();
         assertTrue(mvc.perform(get("/api/v1/admin/overview")).andReturn().getResponse().getContentAsString().contains("\"code\":401"));
         when(tenantUsers.findById(new UserId("customer"))).thenReturn(Optional.of(new com.lynx.ad.modules.tenant.domain.model.User(
                 new UserId("customer"), new com.lynx.ad.common.domain.PhoneNumber("13900009801"), null, null)));
         String customer=jwt.issue(new UserId("customer"),Optional.of(new TenantId("tenant")),MemberRole.OWNER,SysRole.USER);
-        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist","/admin-phones"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
-        for (String path : List.of("/users/one/package/extend", "/users/one/package/change", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock", "/admin-phones")) {
+        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist","/admin-phones","/users/one/points?tenantId=tenant"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
+        for (String path : List.of("/users/one/package/extend", "/users/one/package/change", "/users/one/points/adjust", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock", "/admin-phones")) {
             assertTrue(mvc.perform(post("/api/v1/admin" + path).header("Authorization","Bearer " + customer)
                     .contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
         }
-        verifyNoInteractions(users, packages, moderation);
+        verifyNoInteractions(users, packages, moderation, points);
         var smsResult=mvc.perform(post("/api/v1/admin/auth/sms").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"phone\":\"" + phone.value() + "\"}")).andReturn().getResponse().getContentAsString();
         assertEquals(1114,new ObjectMapper().readTree(smsResult).path("code").asInt());
@@ -150,6 +152,16 @@ class PlatformAdminTest {
                 .content("{\"requestId\":\"id\",\"tenantId\":\"tenant\",\"planCode\":\"BASIC\",\"days\":30,\"reason\":\"测试\"}"))
                 .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
         verify(packages).change("one", new AdminPackageService.ChangeRequest("id", "tenant", "BASIC", 30, null, "测试"));
+        assertTrue(mvc.perform(get("/api/v1/admin/users/one/points").param("tenantId", "tenant").header("Authorization", "Bearer " + token))
+                .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
+        verify(points).balance("one", "tenant");
+        UUID requestId = UUID.randomUUID();
+        assertTrue(mvc.perform(post("/api/v1/admin/users/one/points/adjust").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                    {"requestId":"%s","tenantId":"tenant","direction":"ADD","amount":"10.25","expectedVersion":2,"reason":"积分补偿"}
+                    """.formatted(requestId))).andReturn().getResponse().getContentAsString().contains("\"code\":0"));
+        verify(points).adjust("one", new AdminPointService.Change(requestId, "tenant", AdminPointService.Direction.ADD,
+                new java.math.BigDecimal("10.25"), 2L, "积分补偿"));
     }
     @Test void failedUserLoginsAreRecordedAfterAuthFailureAndSuccessRemainsCompatible() {
         var commands=mock(AuthCommandService.class);var journal=mock(UserLoginJournal.class);var controller=new TenantAuthController(commands,journal);

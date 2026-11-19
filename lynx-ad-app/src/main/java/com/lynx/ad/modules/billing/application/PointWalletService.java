@@ -15,6 +15,7 @@ public class PointWalletService {
     private final WorkspaceFoundation foundation;
     public PointWalletService(JdbcTemplate jdbc,WorkspaceFoundation foundation) {this.jdbc=jdbc;this.foundation=foundation;}
     public record Wallet(BigDecimal available,BigDecimal frozen,BigDecimal consumed,long version) {}
+    public record Adjustment(Wallet wallet, boolean applied) {}
     public record Reservation(String id,String tenantId,String taskKey,String bindingId,String actorUserId,BigDecimal amount,BigDecimal settled,String status) {}
     public Wallet balance(String tenant) {
         return jdbc.query("SELECT * FROM point_wallet WHERE tenant_id=?",(r,i)->new Wallet(r.getBigDecimal("available"),r.getBigDecimal("frozen"),r.getBigDecimal("consumed"),r.getLong("version")),tenant).stream().findFirst().orElseThrow(()->new BizException(1901,"积分账户尚未初始化"));
@@ -48,6 +49,30 @@ public class PointWalletService {
         jdbc.update("INSERT INTO point_ledger(id,tenant_id,event_key,event_type,amount,actor_user_id) VALUES(?,?,?,'CREDIT',?,?)",
                 UUID.randomUUID().toString(),tenant,event,value,actor);
         return balance(tenant);
+    }
+
+    @Transactional
+    public Adjustment adjustAvailable(String tenant, UUID request, String fingerprint, BigDecimal change, long expectedVersion) {
+        BigDecimal value = amount(change.abs(), false);
+        String prefix = "admin-adjust:" + request + ":";
+        String event = prefix + fingerprint;
+        key(event,160);
+        lock(tenant);
+        var previous = jdbc.queryForList("SELECT event_key FROM point_ledger WHERE tenant_id=? AND event_key LIKE ?",
+                String.class, tenant, prefix + "%");
+        var before = balance(tenant);
+        if (!previous.isEmpty()) {
+            if (!previous.getFirst().equals(event)) throw new BizException(409, "该请求已用于其他积分调整，请重新确认");
+            return new Adjustment(before, false);
+        }
+        if (before.version() != expectedVersion) throw new BizException(409, "可用积分已变化，请核对余额后重新确认");
+        boolean increase = change.signum() > 0;
+        BigDecimal after = increase ? before.available().add(value) : before.available().subtract(value);
+        if (after.signum() < 0) throw new BizException(1903, "扣减积分不能超过可用积分");
+        amount(after, true);
+        jdbc.update("UPDATE point_wallet SET available=?,version=version+1 WHERE tenant_id=?", after, tenant);
+        ledger(tenant, event, increase ? "ADMIN_CREDIT" : "ADMIN_DEBIT", value, null);
+        return new Adjustment(balance(tenant), true);
     }
     @Transactional
     public Reservation reserve(String tenant,String task,String binding,String actor,BigDecimal value) {

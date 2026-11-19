@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { reactive } from 'vue';
+export class AdminApiError extends Error {
+  constructor(message: string, readonly code?: number) { super(message); }
+}
 export interface AdminMe { id: string; phone: string; displayName: string; canManageAdmins: boolean; lastLoginAt?: string }
 export const adminSession = reactive<{ me?: AdminMe }>({});
 const tokenKey = 'lynx.admin.token';
@@ -14,12 +17,13 @@ http.interceptors.request.use(config => {
 http.interceptors.response.use(response => {
   if (response.data?.code && response.data.code !== 0) {
     if ([401, 403].includes(response.data.code)) expired();
-    return Promise.reject(new Error(response.data.message || '管理请求失败'));
+    return Promise.reject(new AdminApiError(response.data.message || '管理请求失败', response.data.code));
   }
   return response;
 }, error => {
   if ([401, 403].includes(error.response?.status)) expired();
-  return Promise.reject(new Error(error.response?.data?.message || '无法连接管理服务，请稍后重试'));
+  return Promise.reject(new AdminApiError(error.response?.data?.message || '无法连接管理服务，请稍后重试',
+    error.response?.data?.code ?? error.response?.status));
 });
 function expired() {
   clearAdminSession();
@@ -63,6 +67,19 @@ export interface ChangePackage {
   reason: string;
 }
 export const changePackage = (id: string, body: ChangePackage) => post<PackageAdjustment>(`/users/${encodeURIComponent(id)}/package/change`, body);
+export interface AdminPointWallet { available: number; frozen: number; version: number }
+export interface AdjustPoints {
+  requestId: string;
+  tenantId: string;
+  direction: 'ADD' | 'DEDUCT';
+  amount: string;
+  expectedVersion: number;
+  reason: string;
+}
+export const getAdminPointWallet = (id: string, tenantId: string) =>
+  get<AdminPointWallet>(`/users/${encodeURIComponent(id)}/points`, { tenantId });
+export const adjustAdminPoints = (id: string, body: AdjustPoints) =>
+  post<AdminPointWallet>(`/users/${encodeURIComponent(id)}/points/adjust`, body);
 export interface PhoneBlacklistEntry { phone: string; reason: string; updatedAt: string }
 export const getPhoneBlacklist = (q: string, pageNum: number) => get<AdminPage<PhoneBlacklistEntry>>('/phone-blacklist', { q, pageNum });
 export const blockPhone = (phone: string, reason: string, userId?: string) => post<void>('/phone-blacklist', { phone, reason, userId });
