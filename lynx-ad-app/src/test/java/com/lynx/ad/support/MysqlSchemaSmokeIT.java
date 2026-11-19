@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.persistence.DbVendorFlywayConfig;
 import com.lynx.ad.common.persistence.JsonbStringTypeHandler;
+import com.lynx.ad.modules.billing.application.PointWalletService;
 import com.lynx.ad.modules.dataops.infrastructure.persistence.MetricSnapshotMapper;
 import com.lynx.ad.modules.dataops.infrastructure.persistence.MetricSnapshotPo;
 import com.lynx.ad.starter.LynxAdApplication;
@@ -21,6 +23,8 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +33,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -65,6 +72,42 @@ class MysqlSchemaSmokeIT {
     private MetricSnapshotMapper metricSnapshotMapper;
     @Autowired
     private com.lynx.ad.modules.creative.domain.port.CreativeTaskRepository creativePackages;
+
+    @Autowired
+    private PointWalletService points;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Test
+    void sharedWalletChecksCurrentBalanceEvenWithAnOlderMysqlSnapshot() {
+        String tenant = UUID.randomUUID().toString();
+        jdbc().update("INSERT INTO sys_tenant(id,name) VALUES(?,?)", tenant, "Shared points test");
+        var charge = new BigDecimal("240.0000");
+        points.credit(tenant, "initial-recharge", new BigDecimal("400"));
+        var checkout = new TransactionTemplate(transactionManager);
+        checkout.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var conflict = assertThrows(BizException.class, () -> checkout.executeWithoutResult(status -> {
+                assertEquals(new BigDecimal("400.0000"), points.balance(tenant).available());
+                try {
+                    pool.submit(() -> points.reserve(tenant, "first-task", null, "first-child", charge))
+                            .get(15, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(ex);
+                } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ex) {
+                    throw new AssertionError(ex);
+                }
+                points.reserve(tenant, "second-task", null, "second-child", charge);
+            }));
+            assertEquals(1903, conflict.code());
+        }
+        var shared = points.balance(tenant);
+        assertEquals(new BigDecimal("160.0000"), shared.available());
+        assertEquals(charge, shared.frozen());
+    }
 
     @Test
     void creativePackageConfirmationRoundTrips() {

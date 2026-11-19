@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -59,7 +60,7 @@ public class WorkspacePointOrders {
         return orders.findPendingRecharge(new TenantId(owner.tenantId())).map(OrderView::from).orElse(null);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public OrderView create(String code, String key) {
         var owner = access.require(MemberRole.OWNER);
         if (key == null || !key.matches("[A-Za-z0-9_-]{8,64}")) throw new BizException(1001,"充值请求标识无效");

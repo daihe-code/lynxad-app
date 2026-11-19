@@ -313,6 +313,81 @@ public class AccountSystemPersistenceTest {
     }
 
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void childGenerationRechargeAndAdminDeductionUseTheSameLockedWallet(String mode) throws Exception {
+        var f = fixture(mode);
+        for (String child : List.of("child-one", "child-two")) {
+            f.jdbc.update("INSERT INTO sys_user VALUES(?,'ACTIVE')", child);
+            f.jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,status,membership_id) VALUES('a',?,'MEMBER','ACTIVE',?)",
+                    child, child + "-membership");
+        }
+        bind(f, "a", "video-one", "1001", "ACTIVE", "child-one", null);
+        bind(f, "a", "video-two", "1002", "ACTIVE", "child-two", null);
+        var tenant = new TenantId("a");
+        var foundation = new WorkspaceFoundation(f.jdbc);
+        var pricing = new WorkspacePricing();
+        pricing.setEnabled(true);
+        pricing.setPeriodPoints(Map.of());
+        var subscriptions = mock(SubscriptionSupport.class);
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
+        var orders = mock(OrderRepository.class);
+        var access = mock(WorkspaceAccess.class);
+        var owner = com.lynx.ad.common.security.MemberRole.OWNER;
+        when(access.require(owner)).thenReturn(new WorkspaceAccess.Membership("owner", "a", "a", owner, 1));
+        var recharge = new WorkspacePointOrders(pricing, access, foundation, orders, f.points, f.jdbc, subscriptions);
+        var order = org.mockito.ArgumentCaptor.forClass(BillingOrder.class);
+        when(orders.findById(eq(tenant), anyString())).thenReturn(Optional.empty());
+        f.tx.execute(s -> recharge.create("r99", "combined-recharge"));
+        verify(orders).save(order.capture());
+        var auth = mock(AdminAuthService.class);
+        when(auth.require()).thenReturn(new AdminAccountStore.Account("admin", "operator", "平台管理员", "ACTIVE", null, null, false));
+        var audit = mock(AdminAccountStore.class);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var admin = new AdminPointService(auth, audit, f.jdbc, foundation, recharge, f.points, json);
+        var charges = new GenerationCharges(pricing, recharge, foundation, f.points, f.bindings, f.jdbc, json, subscriptions);
+        f.tx.execute(s -> f.points.credit("a", "initial", new BigDecimal("400")));
+        f.tx.execute(s -> charges.hold("a", "child-video-one", "video-one", "child-one", Map.of("video", 1)));
+        assertEquals(1903, assertThrows(BizException.class, () -> f.tx.execute(
+                s -> charges.hold("a", "child-video-two", "video-two", "child-two", Map.of("video", 1)))).code());
+        var balance = f.tx.execute(s -> admin.balance("child-two", "a"));
+        var deduct = new AdminPointService.Change(UUID.randomUUID(), "a", AdminPointService.Direction.DEDUCT,
+                new BigDecimal("100"), balance.version(), "测试扣减");
+        var latch = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var credit = pool.submit(() -> {
+                latch.await();
+                f.tx.executeWithoutResult(s -> recharge.settle(order.getValue()));
+                return true;
+            });
+            var adjustment = pool.submit(() -> {
+                latch.await();
+                try { f.tx.execute(s -> admin.adjust("child-two", deduct)); return true; }
+                catch (BizException conflict) { assertEquals(409, conflict.code()); return false; }
+            });
+            latch.countDown();
+            assertTrue(credit.get(15, TimeUnit.SECONDS));
+            if (!adjustment.get(15, TimeUnit.SECONDS)) {
+                var current = f.tx.execute(s -> admin.balance("child-two", "a"));
+                f.tx.execute(s -> admin.adjust("child-two", new AdminPointService.Change(UUID.randomUUID(), "a", deduct.direction(),
+                        deduct.amount(), current.version(), deduct.reason())));
+            }
+        }
+        f.tx.executeWithoutResult(s -> {
+            recharge.settle(order.getValue());
+            charges.finishAll("a", "child-video-one");
+        });
+        var shared = f.tx.execute(s -> admin.balance("child-one", "a"));
+        assertEquals(new BigDecimal("1060.0000"), shared.available());
+        assertEquals(new BigDecimal("240.0000"), shared.consumed());
+        assertEquals(0, shared.frozen().signum());
+        assertEquals(shared, f.tx.execute(s -> admin.balance("a", "a")));
+        assertEquals(shared, f.tx.execute(s -> admin.balance("child-two", "a")));
+        assertEquals(0, f.points.balance("b").available().signum());
+        assertEquals(1, f.jdbc.queryForObject("SELECT COUNT(*) FROM point_ledger WHERE tenant_id='a' AND event_key=?", Integer.class,
+                "recharge:" + order.getValue().id()));
+        verify(audit, times(1)).audit(any(AdminAccountStore.Account.class), eq("POINT_ADJUST"), eq("SUCCESS"), eq("child-two"), eq("a"), anyString());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void rechargeUsesPurchasedPointsAndOnlyCreditsAValidCallbackOnce(String mode) throws Exception {
         var f=fixture(mode);
         var tenant=new TenantId("a");
@@ -328,6 +403,7 @@ public class AccountSystemPersistenceTest {
         var recharge=new WorkspacePointOrders(pricing,access,foundation,orders,f.points,f.jdbc,subscriptions);
         var orderState=new java.util.concurrent.atomic.AtomicReference<BillingOrder>();
         when(orders.findById(eq(tenant),anyString())).thenAnswer(call -> Optional.ofNullable(orderState.get()));
+        when(orders.findByIdForUpdate(eq(tenant),anyString())).thenAnswer(call -> Optional.ofNullable(orderState.get()));
         doAnswer(call -> { orderState.set(call.getArgument(0)); return null; }).when(orders).save(any());
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         assertTrue(recharge.options().isEmpty());

@@ -55,6 +55,29 @@ class WorkspaceSecurityTest {
         assertEquals(401,assertThrows(BizException.class,()->guard.preHandle(request,new MockHttpServletResponse(),new Object())).code());
     }
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void childOperatorsCanReadSharedGenerationAccessButCannotManageRecharges(String mode) throws Exception {
+        var f = new AccountSystemPersistenceTest().fixture(mode);
+        f.jdbc().update("INSERT INTO sys_user VALUES('child','ACTIVE')");
+        f.jdbc().update("INSERT INTO tenant_member(tenant_id,user_id,member_role,membership_id,status) VALUES('a','child','MEMBER','child-member','ACTIVE')");
+        var guard = new WorkspaceRequestGuard(new WorkspaceAccess(f.jdbc()));
+        TenantContext.set(new TenantPrincipal(new UserId("child"), Optional.of(new TenantId("a")),
+                Optional.of(MemberRole.OWNER), SysRole.USER, Optional.of("old-session")));
+        var response = new MockHttpServletResponse();
+        var generation = new MockHttpServletRequest("GET", "/api/v1/billing/points/generation-access");
+        assertTrue(guard.preHandle(generation, response, new Object()));
+        assertEquals(MemberRole.MEMBER, TenantContext.require().memberRole().orElseThrow());
+        for (String path : List.of("/api/v1/billing/points/orders", "/api/v1/billing/points/orders/order/close",
+                "/api/v1/billing/orders/order/check-payment", "/api/v1/billing/payments")) {
+            assertEquals(403, assertThrows(BizException.class, () -> guard.preHandle(
+                    new MockHttpServletRequest("POST", path), response, new Object())).code());
+        }
+        assertEquals(403, assertThrows(BizException.class, () -> guard.preHandle(
+                new MockHttpServletRequest("GET", "/api/v1/billing/points/orders/pending"), response, new Object())).code());
+        f.jdbc().update("UPDATE tenant_member SET status='REMOVED' WHERE user_id='child'");
+        assertEquals(403, assertThrows(BizException.class, () -> guard.preHandle(generation, response, new Object())).code());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void signedExecutionScopesCannotMoveTenantActorTaskOrPermissionVersion(String mode) throws Exception {
         var test=new AccountSystemPersistenceTest();var f=test.fixture(mode);test.bind(f,"a","account","1001","ACTIVE","a",null);
         var config=new LynxAdProperties();config.getJwt().setSecret("workspace-tests-only-secret-32-bytes");

@@ -26,6 +26,8 @@ public class WorkspaceRequestGuard implements HandlerInterceptor,WebMvcConfigure
         var member=access.current();
         TenantContext.set(new TenantPrincipal(principal.userId(),principal.tenantId(),java.util.Optional.of(member.role()),principal.sysRole(),principal.sessionId()));
         if(path.startsWith("/api/v1/billing")) {
+            if ("GET".equals(request.getMethod()) && path.equals("/api/v1/billing/points/generation-access")
+                    && (member.role() == MemberRole.MEMBER || member.role() == MemberRole.OPERATOR)) return true;
             if(!member.roles().contains(MemberRole.OWNER)&&!member.roles().contains(MemberRole.FINANCE))throw new BizException(403,"没有财务权限");
             if(member.role()!=MemberRole.OWNER&&!"GET".equals(request.getMethod()))throw new BizException(403,"财务成员只能查看账务");
         } else if(path.startsWith("/api/v1/tenant/members")) {

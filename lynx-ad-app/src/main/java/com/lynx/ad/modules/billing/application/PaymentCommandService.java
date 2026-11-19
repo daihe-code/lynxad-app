@@ -6,6 +6,7 @@ import com.lynx.ad.common.domain.Ids.IdempotencyKey;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.idempotency.IdempotencyService;
+import com.lynx.ad.common.security.MemberRole;
 import com.lynx.ad.modules.billing.api.dto.OrderView;
 import com.lynx.ad.modules.billing.api.dto.PaymentView;
 import com.lynx.ad.modules.billing.domain.model.BillingOrder;
@@ -77,8 +78,8 @@ public class PaymentCommandService {
         BillingOrder order = orderRepository
                 .findById(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
+        requireRechargeOwner(order);
         if (order.type() == OrderType.POINT_RECHARGE) {
-            workspaceAccess.require(com.lynx.ad.common.security.MemberRole.OWNER);
             pointOrders.requireRechargeSubscription(tenantId);
         }
         if (order.status() != OrderStatus.PENDING_PAY) {
@@ -154,6 +155,7 @@ public class PaymentCommandService {
         lockWorkspace(tenantId);
         BillingOrder order = orderRepository.findByIdForUpdate(tenantId, orderId)
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
+        requireRechargeOwner(order);
         if (order.status() == OrderStatus.PENDING_PAY) {
             alipayPayment(order).ifPresent(payment -> refreshAlipay(order, payment, false));
         }
@@ -168,6 +170,7 @@ public class PaymentCommandService {
         if (recharge != (order.type() == OrderType.POINT_RECHARGE)) {
             throw new BizException(1604, "订单不存在");
         }
+        requireRechargeOwner(order);
         if (order.status() != OrderStatus.PENDING_PAY) return OrderView.from(order);
         var payment = alipayPayment(order);
         if (payment.isPresent()) {
@@ -290,8 +293,7 @@ public class PaymentCommandService {
         if (payment.amountFen() != order.payableFen()) {
             throw new BizException(1609, "支付金额与订单应付不一致");
         }
-        if (order.type() == OrderType.POINT_RECHARGE)
-            workspaceAccess.require(com.lynx.ad.common.security.MemberRole.OWNER);
+        requireRechargeOwner(order);
         if (order.status() == OrderStatus.PAID) return PaymentView.from(payment, null, null);
         if (order.type() == OrderType.POINT_RECHARGE) pointOrders.requireRechargeSubscription(tenantId);
         Instant now = Instant.now();
@@ -313,7 +315,7 @@ public class PaymentCommandService {
                 .orElseThrow(() -> new BizException(1604, "支付单不存在"));
         if (foundation != null) foundation.ensure(payment.tenantId().value());
         BillingOrder order = orderRepository
-                .findById(payment.tenantId(), payment.orderId())
+                .findByIdForUpdate(payment.tenantId(), payment.orderId())
                 .orElseThrow(() -> new BizException(1604, "订单不存在"));
         if (payment.amountFen() != order.payableFen() || (notify.success() && !java.util.Objects.equals(notify.amountFen(),order.payableFen()))) {
             throw new BizException(1609, "支付金额与订单应付不一致");
@@ -324,6 +326,12 @@ public class PaymentCommandService {
 
     private void settleSuccess(BillingOrder order, BillingPayment payment, Instant now) {
         settleSuccess(order,payment,now,payment.channelTradeNo());
+    }
+
+    private void requireRechargeOwner(BillingOrder order) {
+        if (order.type() != OrderType.POINT_RECHARGE) return;
+        var owner = workspaceAccess.require(MemberRole.OWNER);
+        if (!order.tenantId().value().equals(owner.tenantId())) throw new BizException(1604, "订单不存在");
     }
 
     private void settleSuccess(BillingOrder order, BillingPayment payment, Instant now, String tradeNo) {

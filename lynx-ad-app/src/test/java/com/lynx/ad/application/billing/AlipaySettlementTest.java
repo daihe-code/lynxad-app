@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.lynx.ad.common.config.LynxAdProperties;
 import com.lynx.ad.common.domain.Ids.TenantId;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.MemberRole;
 import com.lynx.ad.modules.billing.application.PaymentCommandService;
 import com.lynx.ad.modules.billing.application.SubscriptionSupport;
 import com.lynx.ad.modules.billing.application.WorkspacePointOrders;
@@ -16,6 +17,7 @@ import com.lynx.ad.modules.billing.domain.port.SubscriptionRepository;
 import com.lynx.ad.modules.billing.infrastructure.adapter.AlipayPaymentAdapter;
 import com.lynx.ad.modules.billing.infrastructure.adapter.AlipayPaymentAdapter.Status;
 import com.lynx.ad.modules.billing.infrastructure.adapter.AlipayPaymentAdapter.Trade;
+import com.lynx.ad.modules.tenant.application.WorkspaceAccess;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +33,7 @@ class AlipaySettlementTest {
     private final SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
     private final WorkspacePointOrders pointOrders = mock(WorkspacePointOrders.class);
     private final AlipayPaymentAdapter alipay = mock(AlipayPaymentAdapter.class);
+    private final WorkspaceAccess access = mock(WorkspaceAccess.class);
     private final PaymentCommandService service = new PaymentCommandService(orders, payments, subscriptions,
             mock(SubscriptionSupport.class), null, alipay, null, new LynxAdProperties(), null, null);
     private final BillingPayment payment = new BillingPayment(paymentId, tenant, orderId,
@@ -83,6 +86,18 @@ class AlipaySettlementTest {
     }
 
     @Test
+    void rechargeQueriesAndCancellationRequireWorkspaceOwner() {
+        prepare(OrderType.POINT_RECHARGE);
+        when(access.require(MemberRole.OWNER)).thenThrow(new BizException(403, "当前成员没有此操作权限"));
+        assertEquals(403, assertThrows(BizException.class, () -> service.check(tenant, orderId)).code());
+        assertEquals(403, assertThrows(BizException.class, () -> service.close(tenant, orderId, true)).code());
+        doReturn(new WorkspaceAccess.Membership("other", "another", "owner", MemberRole.OWNER, 1))
+                .when(access).require(MemberRole.OWNER);
+        assertEquals(1604, assertThrows(BizException.class, () -> service.check(tenant, orderId)).code());
+        verifyNoInteractions(alipay, pointOrders);
+    }
+
+    @Test
     void packageChangeClosesAlipayCheckoutAndRequiresALinkedPayment() {
         var order = prepare(OrderType.FIRST_SUBSCRIBE);
         when(payments.findById(tenant, paymentId)).thenReturn(Optional.empty());
@@ -104,6 +119,8 @@ class AlipaySettlementTest {
         when(payments.findById(tenant, paymentId)).thenReturn(Optional.of(payment));
         when(payments.findByIdOnly(paymentId)).thenReturn(Optional.of(payment));
         ReflectionTestUtils.setField(service, "pointOrders", pointOrders);
+        ReflectionTestUtils.setField(service, "workspaceAccess", access);
+        when(access.require(MemberRole.OWNER)).thenReturn(new WorkspaceAccess.Membership("member", tenant.value(), "owner", MemberRole.OWNER, 1));
         return order;
     }
 }

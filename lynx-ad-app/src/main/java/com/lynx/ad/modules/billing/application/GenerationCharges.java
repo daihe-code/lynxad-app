@@ -114,7 +114,7 @@ public class GenerationCharges {
     private void settle(String tenant,String task,Quote quote,BigDecimal actual) {
         if (quote.total().signum() == 0) return;
         foundation.ensure(tenant);
-        if (wallet.reservation(tenant,task).filter(r -> "HELD".equals(r.status())).isEmpty()) return;
+        if (wallet.reservationForUpdate(tenant,task).filter(r -> "HELD".equals(r.status())).isEmpty()) return;
         if (actual.signum() == 0) wallet.release(tenant,task);
         else wallet.settle(tenant,task,actual);
     }
