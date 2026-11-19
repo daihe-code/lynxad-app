@@ -8,6 +8,7 @@ import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,6 +40,7 @@ public class GenerationCharges {
 
     public enum BalanceStatus { SUFFICIENT, LOW, EMPTY }
     public record Access(boolean enabled, BalanceStatus balanceStatus, BigDecimal availablePoints) {}
+    public record SettledItem(String unit, int quantity, String unitPoints, String points) {}
 
     public Access access(String tenant) {
         if (!pricing.isEnabled()) return new Access(false, null, null);
@@ -100,7 +102,7 @@ public class GenerationCharges {
         if (task == null) return;
         var quote = quote(tenant,task);
         if (quote == null) return;
-        settle(tenant,task,quote,total(quote,delivered));
+        settle(tenant,task,quote,delivered);
     }
 
     @Transactional
@@ -108,15 +110,31 @@ public class GenerationCharges {
         if (task == null) return;
         var quote = quote(tenant,task);
         if (quote == null) return;
-        settle(tenant,task,quote,quote.total());
+        settle(tenant,task,quote,quote.requested());
     }
 
-    private void settle(String tenant,String task,Quote quote,BigDecimal actual) {
+    private void settle(String tenant,String task,Quote quote,Map<String,Integer> delivered) {
         if (quote.total().signum() == 0) return;
         foundation.ensure(tenant);
         if (wallet.reservationForUpdate(tenant,task).filter(r -> "HELD".equals(r.status())).isEmpty()) return;
-        if (actual.signum() == 0) wallet.release(tenant,task);
-        else wallet.settle(tenant,task,actual);
+        List<SettledItem> items = quote.requested().entrySet().stream().sorted(Map.Entry.comparingByKey())
+                .map(entry -> {
+                    int quantity = Math.clamp(delivered.getOrDefault(entry.getKey(), 0), 0, entry.getValue());
+                    BigDecimal rate = quote.rates().get(entry.getKey());
+                    return new SettledItem(entry.getKey(), quantity, rate.toPlainString(),
+                            rate.multiply(BigDecimal.valueOf(quantity)).toPlainString());
+                }).filter(item -> item.quantity() > 0).toList();
+        if (items.isEmpty()) {
+            wallet.release(tenant, task);
+            return;
+        }
+        wallet.settle(tenant,task,total(quote,delivered));
+        try {
+            jdbc.update("UPDATE workspace_generation_charge SET settlement_json=? WHERE tenant_id=? AND task_key=?",
+                    json.writeValueAsString(items), tenant, task);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     public Quote quote(String tenant,String task) {

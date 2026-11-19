@@ -16,7 +16,10 @@
         <template #default="{ row }">{{ (row.roles || [row.role]).map((role: string) => workspaceRoles[role] || role).join('、') }}</template>
       </el-table-column>
       <el-table-column label="状态" width="110"><template #default="{ row }">{{ status[row.status] || row.status }}</template></el-table-column>
-      <el-table-column label="操作" width="246">
+      <el-table-column label="累计净消耗" min-width="140" align="right">
+        <template #default="{ row }">{{ formatLedgerPoints(row.netConsumed ?? null) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" min-width="270">
         <template #default="{ row }">
           <el-button class="team-action" text type="primary" :disabled="actionsDisabled" @click="open('permissions', row)">设置权限</el-button>
           <template v-if="row.status === 'PENDING'">
@@ -24,10 +27,16 @@
             <el-button class="team-action" text type="primary" :disabled="actionsDisabled" @click="revoke(row)">撤销邀请</el-button>
           </template>
           <el-button v-else text :disabled="actionsDisabled" @click="toggle(row)">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
+          <el-button v-if="row.userId" text type="primary" @click="ledgerAccount = row">积分明细</el-button>
         </template>
       </el-table-column>
     </el-table>
     <p v-if="actionError" class="action-error" role="alert">{{ actionError }}</p>
+    <el-dialog v-if="ledgerAccount?.userId" :model-value="true" :title="`积分明细 · ${ledgerAccount.phone}`"
+      width="min(1050px, 96vw)" append-to-body @close="ledgerAccount = undefined">
+      <PointLedgerTable :key="ledgerAccount.userId" :fetch-page="workspacePointHistory"
+        :subject-account="ledgerAccount.userId" show-date-filter />
+    </el-dialog>
     <el-dialog v-model="dialog" :title="dialogTitle" width="min(680px, calc(100vw - 24px))"
       class="workspace-team-dialog" align-center append-to-body
       :close-on-click-modal="false" :close-on-press-escape="!dialogBusy" :show-close="!dialogBusy" @closed="clearForm">
@@ -114,10 +123,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox, type InputInstance } from 'element-plus';
 import { Check, CircleCheck, User } from '@element-plus/icons-vue';
 import { requestFailure } from '@/api/apiErrors';
+import PointLedgerTable from '@/components/PointLedgerTable.vue';
+import { formatLedgerPoints } from '@/features/billing/pointLedger';
+import { workspacePointHistory } from '@/features/tenant/workspaceApi';
 import { isCnMobile } from '@/utils/phone';
 import { workspaceTeam, inviteChild, changeChild, changeChildInviteRole, revokeChildInvite, sendChildActivationSms, activateChild, workspaceRoles, childRoleDescriptions, type ChildRole, type WorkspaceChild, type WorkspaceTeam } from '@/features/tenant/workspaceApi';
 
 const team = ref<WorkspaceTeam>();
+const ledgerAccount = ref<WorkspaceChild>();
 const dialog = ref(false), busy = ref(false), loading = ref(true);
 const phone = ref(''), phoneError = ref(''), formError = ref('');
 const activationId = ref(''), code = ref(''), password = ref('');

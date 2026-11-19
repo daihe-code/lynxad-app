@@ -78,15 +78,19 @@ class AccountInitializationTest {
         jdbc.execute("ALTER TABLE tenant_member ADD permission_version BIGINT DEFAULT 1 NOT NULL");
         jdbc.execute("CREATE TABLE client_space(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36),name VARCHAR(128),is_default BOOLEAN)");
         jdbc.execute("CREATE TABLE point_wallet(tenant_id VARCHAR(36) PRIMARY KEY,available NUMERIC(20,4) DEFAULT 0,frozen NUMERIC(20,4) DEFAULT 0,consumed NUMERIC(20,4) DEFAULT 0,version BIGINT DEFAULT 1)");
+        jdbc.execute("CREATE TABLE point_reservation(id VARCHAR(36),tenant_id VARCHAR(36),task_key VARCHAR(128),binding_id VARCHAR(36),actor_user_id VARCHAR(36),amount NUMERIC(20,4))");
+        jdbc.execute("CREATE TABLE point_ledger(id VARCHAR(36),tenant_id VARCHAR(36),event_key VARCHAR(160),event_type VARCHAR(16),amount NUMERIC(20,4),reservation_id VARCHAR(36),binding_id VARCHAR(36),actor_user_id VARCHAR(36),created_at TIMESTAMP)");
         jdbc.execute("CREATE TABLE workspace_session_revocation(session_id VARCHAR(64) PRIMARY KEY,expires_at TIMESTAMP)");
-        jdbc.execute("CREATE TABLE ad_account_binding(tenant_id VARCHAR(36),bound_user_id VARCHAR(36),status VARCHAR(24))");
+        jdbc.execute("CREATE TABLE ad_account_binding(id VARCHAR(36),tenant_id VARCHAR(36),bound_user_id VARCHAR(36),status VARCHAR(24),real_account_id VARCHAR(64))");
+        jdbc.execute("CREATE TABLE real_ad_account(id VARCHAR(64),advertiser_id VARCHAR(64))");
         jdbc.execute("CREATE TABLE ad_plan(tenant_id VARCHAR(36),status VARCHAR(24))");
         jdbc.execute("CREATE TABLE billing_order(tenant_id VARCHAR(36),status VARCHAR(24))");
         jdbc.execute("CREATE TABLE billing_subscription(tenant_id VARCHAR(36),status VARCHAR(24),period_end TIMESTAMP)");
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
                 new org.springframework.core.io.ClassPathResource("db/migration/V53__workspace_team_and_points.sql"),
                 new org.springframework.core.io.ClassPathResource("db/" + ("MySQL".equals(mode) ? "migration-mysql" : "migration") + "/V54__platform_account_moderation.sql"),
-                new org.springframework.core.io.ClassPathResource("db/migration/V56__workspace_child_roles.sql")).execute(ds);
+                new org.springframework.core.io.ClassPathResource("db/migration/V56__workspace_child_roles.sql"),
+                new org.springframework.core.io.ClassPathResource("db/migration/V61__point_settlement_details.sql")).execute(ds);
         var config = new MybatisConfiguration();
         config.setMapUnderscoreToCamelCase(true);
         for (Class<?> mapper : List.of(UserMapper.class, UserProfileMapper.class, TenantMapper.class, TenantMemberMapper.class)) config.addMapper(mapper);
@@ -122,6 +126,7 @@ class AccountInitializationTest {
             return limits;
         });
         context.registerBean(WorkspaceTeamService.class);
+        context.registerBean(PointLedgerService.class, () -> new PointLedgerService(jdbc, json));
         context.registerBean(UserRepository.class, () -> users);
         context.registerBean(TenantRepository.class, () -> new MpTenantRepository(session.getMapper(TenantMapper.class), session.getMapper(TenantMemberMapper.class)));
         context.registerBean(BillingTrialService.class, () -> trials);
@@ -153,7 +158,7 @@ class AccountInitializationTest {
                 new AccountLegalController(new AccountLegalService(jdbc, queries, mock(AdminAuthService.class), mock(AdminAccountStore.class), mock(AuditRecorder.class))),
                 new WorkspaceController(mock(WorkspaceQueryService.class), context.getBean(WorkspaceAccess.class),
                         mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class), auth,
-                        mock(PointLedgerService.class)),
+                        context.getBean(PointLedgerService.class)),
                 new WelcomeController(jdbc, context.getBean(PlatformTransactionManager.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).build();
     }
@@ -395,6 +400,8 @@ class AccountInitializationTest {
         String teamPath = "/api/v1/tenant/workspaces/current/team";
         var team = call("GET", teamPath, null, ownerToken).path("data");
         assertEquals(team.path("limit"), team.path("used"));
+        assertEquals(jwt.parse(child.token()).userId().value(), team.path("members").get(0).path("userId").asText());
+        assertEquals("0", team.path("members").get(0).path("netConsumed").asText());
         String memberPath = teamPath + "/members/" + team.path("members").get(0).path("id").asText();
         assertEquals(403, call("PUT", memberPath, "{\"roles\":[\"FINANCE\"]}", child.token()).path("code").asInt());
         assertEquals(0, call("PUT", memberPath, "{\"roles\":[\"VIEWER\"]}", ownerToken).path("code").asInt());

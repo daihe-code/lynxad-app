@@ -29,7 +29,7 @@ export const childRoleDescriptions = {
   VIEWER: '查看投放计划与数据',
 };
 export type ChildRole = keyof typeof childRoleDescriptions;
-export interface WorkspaceChild { id: string; phone: string; role: string; roles?: ChildRole[]; status: string; expiresAt?: string }
+export interface WorkspaceChild { id: string; phone: string; role: string; roles?: ChildRole[]; status: string; expiresAt?: string; userId?: string | null; netConsumed?: string | null }
 export interface WorkspaceTeam { used: number; limit: number; members: WorkspaceChild[]; invites: WorkspaceChild[] }
 const quietTeamRequest = { headers: { 'X-Quiet-Request': 'true' } };
 export const workspaceTeam = () => apiGet<WorkspaceTeam>(teamPath, quietTeamRequest);

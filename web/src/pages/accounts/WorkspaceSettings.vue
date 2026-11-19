@@ -22,7 +22,7 @@
       </el-table>
       <template v-if="overview.wallet">
         <h3>积分流水</h3>
-        <PointLedgerTable :key="overview.tenantId" :fetch-page="workspacePointHistory" :refresh-key="ledgerRefresh" />
+        <PointLedgerTable :key="overview.tenantId" :fetch-page="workspacePointHistory" :refresh-key="ledgerRefresh" show-date-filter />
       </template>
     </template>
     <el-button v-else-if="!loading" @click="load">重新加载</el-button>

@@ -5,7 +5,9 @@ import com.lynx.ad.common.security.*;
 import com.lynx.ad.modules.tenant.application.*;
 import com.lynx.ad.modules.billing.application.PointLedgerService;
 import com.lynx.ad.modules.billing.application.PointWalletService;
+import java.time.LocalDate;
 import java.util.*;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -35,9 +37,11 @@ public class WorkspaceController {
     }
     @GetMapping("/current/points/history")
     public ApiResponse<PointLedgerService.Page> pointHistory(@RequestParam(required = false) String account,
-            @RequestParam(required = false) PointLedgerService.Kind kind, @RequestParam(defaultValue = "1") int page) {
+            @RequestParam(required = false) PointLedgerService.Kind kind, @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         var member = access.require(MemberRole.OWNER, MemberRole.FINANCE);
-        return ApiResponse.ok(pointLedger.history(member.tenantId(), account, kind, page));
+        return ApiResponse.ok(pointLedger.history(member.tenantId(), account, kind, page, from, to));
     }
     public record ClientRequest(String name) {}
     public record AssignRequest(String clientSpaceId) {}

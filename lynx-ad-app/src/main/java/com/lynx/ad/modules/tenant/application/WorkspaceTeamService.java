@@ -5,6 +5,7 @@ import com.lynx.ad.common.domain.PhoneNumber;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.MemberRole;
 import com.lynx.ad.modules.billing.application.EntitlementQueryService;
+import com.lynx.ad.modules.billing.application.PointLedgerService;
 import com.lynx.ad.modules.tenant.domain.model.PasswordHasher;
 import com.lynx.ad.modules.tenant.domain.model.User;
 import com.lynx.ad.modules.tenant.domain.port.UserRepository;
@@ -29,15 +30,23 @@ public class WorkspaceTeamService {
     private final WorkspaceAccess access;
     private final EntitlementQueryService limits;
     private final UserRepository users;
+    private final PointLedgerService pointLedger;
 
-    public WorkspaceTeamService(JdbcTemplate jdbc, WorkspaceAccess access, EntitlementQueryService limits, UserRepository users) {
+    public WorkspaceTeamService(JdbcTemplate jdbc, WorkspaceAccess access, EntitlementQueryService limits, UserRepository users,
+                                PointLedgerService pointLedger) {
         this.jdbc = jdbc;
         this.access = access;
         this.limits = limits;
         this.users = users;
+        this.pointLedger = pointLedger;
     }
 
-    public record Child(String id, String phone, String role, String status, Instant expiresAt, List<MemberRole> roles) {}
+    public record Child(String id, String phone, String role, String status, Instant expiresAt, List<MemberRole> roles,
+                        String userId, String netConsumed) {
+        public Child(String id, String phone, String role, String status, Instant expiresAt, List<MemberRole> roles) {
+            this(id, phone, role, status, expiresAt, roles, null, null);
+        }
+    }
     public record Team(int used, int limit, List<Child> members, List<Child> invites) {}
     public record Invitation(String token, Instant expiresAt, String id) {}
     public record Activation(User user, String tenant, MemberRole role, boolean initialPasswordSet) {}
@@ -45,9 +54,11 @@ public class WorkspaceTeamService {
 
     public Team list() {
         String tenant = access.require(MemberRole.OWNER).tenantId();
+        var usage = pointLedger.netConsumptionByAccount(tenant);
         return new Team(used(tenant), limits.childAccountLimit(new TenantId(tenant)),
-                jdbc.query("SELECT m.membership_id,u.phone,m.member_role,m.status,m.child_roles FROM tenant_member m JOIN sys_user u ON u.id=m.user_id WHERE m.tenant_id=? AND m.member_role<>'OWNER' AND m.status<>'REMOVED' ORDER BY m.created_at",
-                        (r,i) -> new Child(r.getString(1),r.getString(2),r.getString(3),r.getString(4),null,readRoles(r.getString(5),r.getString(3))),tenant),
+                jdbc.query("SELECT m.membership_id,u.phone,m.member_role,m.status,m.child_roles,m.user_id FROM tenant_member m JOIN sys_user u ON u.id=m.user_id WHERE m.tenant_id=? AND m.member_role<>'OWNER' AND m.status<>'REMOVED' ORDER BY m.created_at",
+                        (r,i) -> new Child(r.getString(1),r.getString(2),r.getString(3),r.getString(4),null,
+                                readRoles(r.getString(5),r.getString(3)),r.getString(6),usage.getOrDefault(r.getString(6), "0")),tenant),
                 jdbc.query("SELECT id,phone,member_role,status,expires_at,child_roles FROM workspace_child_invite WHERE tenant_id=? AND status='PENDING' AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at DESC",
                         (r,i) -> new Child(r.getString(1),r.getString(2),r.getString(3),r.getString(4),r.getTimestamp(5).toInstant(),readRoles(r.getString(6),r.getString(3))),tenant));
     }

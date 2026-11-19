@@ -57,7 +57,8 @@ public class AccountSystemPersistenceTest {
         try(var c=ds.getConnection()){ScriptUtils.executeSqlScript(c,new org.springframework.core.io.ByteArrayResource(migration.getBytes(StandardCharsets.UTF_8)));}
         new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
                 new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V53__workspace_team_and_points.sql"),
-                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V56__workspace_child_roles.sql")).execute(ds);
+                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V56__workspace_child_roles.sql"),
+                new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V61__point_settlement_details.sql")).execute(ds);
         var foundation=new WorkspaceFoundation(jdbc);var quotas=mock(EntitlementQueryService.class);when(quotas.adAccountLimit(any())).thenReturn(2);
         return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),new PointWalletService(jdbc,foundation));
     }
@@ -72,7 +73,7 @@ public class AccountSystemPersistenceTest {
         when(auth.require()).thenReturn(admin);
         var audit = mock(AdminAccountStore.class);
         var service = new AdminPointService(auth, audit, f.jdbc, new WorkspaceFoundation(f.jdbc), mock(WorkspacePointOrders.class),
-                f.points, new PointLedgerService(f.jdbc), new com.fasterxml.jackson.databind.ObjectMapper());
+                f.points, new PointLedgerService(f.jdbc, new com.fasterxml.jackson.databind.ObjectMapper()), new com.fasterxml.jackson.databind.ObjectMapper());
         f.tx.executeWithoutResult(s -> {
             f.points.credit("a", "init", new BigDecimal("10"));
             f.points.reserve("a", "pending", null, "a", new BigDecimal("4"));
@@ -321,16 +322,24 @@ public class AccountSystemPersistenceTest {
         f.jdbc.update("INSERT INTO sys_user(id,status,phone) VALUES('child','ACTIVE','13900001234')");
         f.jdbc.update("INSERT INTO user_profile VALUES('child','素材运营')");
         f.jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,status,membership_id) VALUES('a','child','OPERATOR','ACTIVE','child-member')");
+        bind(f, "a", "child-ad", "1001", "ACTIVE", "child", null);
+        var pricing = new WorkspacePricing();
+        pricing.setEnabled(true);
+        var subscriptions = mock(SubscriptionSupport.class);
+        var tenant = new TenantId("a");
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
+        var generation = new GenerationCharges(pricing, mock(WorkspacePointOrders.class), new WorkspaceFoundation(f.jdbc),
+                f.points, f.bindings, f.jdbc, new com.fasterxml.jackson.databind.ObjectMapper(), subscriptions);
         f.tx.executeWithoutResult(s -> {
             f.points.credit("a", "recharge:order-a", new BigDecimal("1000"), "a");
             f.points.credit("a", "subscription:interval:PROFESSIONAL", new BigDecimal("100"));
-            f.points.reserve("a", "remake:task-a", null, "child", new BigDecimal("240"));
-            f.points.settle("a", "remake:task-a", new BigDecimal("180"));
+            generation.hold("a", "remake:task-a", "child-ad", "child", Map.of(WorkspacePricing.REMAKE_1080P_SECOND, 4));
+            generation.finish("a", "remake:task-a", Map.of(WorkspacePricing.REMAKE_1080P_SECOND, 3));
             f.points.refund("a", "remake:task-a");
             f.points.credit("b", "recharge:order-b", new BigDecimal("2000"), "b");
         });
         f.jdbc.update("UPDATE tenant_member SET status='REMOVED' WHERE user_id='child'");
-        var ledger = new PointLedgerService(f.jdbc);
+        var ledger = new PointLedgerService(f.jdbc, new com.fasterxml.jackson.databind.ObjectMapper());
         var auth = mock(AdminAuthService.class);
         var audit = mock(AdminAccountStore.class);
         var recharge = mock(WorkspacePointOrders.class);
@@ -346,6 +355,20 @@ public class AccountSystemPersistenceTest {
         assertEquals("180.0000", expense.amount());
         assertEquals("60.0000", expense.availableChange());
         assertEquals("remake:task-a", expense.reference());
+        assertEquals("1001", expense.advertiserId());
+        assertEquals(List.of(new GenerationCharges.SettledItem(WorkspacePricing.REMAKE_1080P_SECOND, 3, "60", "180")), expense.items());
+        assertEquals("0.0000", ledger.netConsumptionByAccount("a").get("child"));
+        assertTrue(ledger.netConsumptionByAccount("b").isEmpty());
+        f.jdbc.update("UPDATE point_ledger SET created_at=? WHERE tenant_id='a' AND event_type='SETTLE'",
+                java.sql.Timestamp.from(Instant.parse("2026-11-18T16:00:00Z")));
+        f.jdbc.update("UPDATE point_ledger SET created_at=? WHERE tenant_id='a' AND event_type='REFUND'",
+                java.sql.Timestamp.from(Instant.parse("2026-11-19T16:00:00Z")));
+        var november19 = java.time.LocalDate.of(2026, 11, 19);
+        var day = ledger.history("a", "child", PointLedgerService.Kind.SETTLE, 1, november19, november19);
+        assertEquals(1, day.records().size());
+        assertEquals("180.0000", day.netConsumed());
+        assertEquals("-180.0000",
+                ledger.history("a", "child", null, 1, november19.plusDays(1), november19.plusDays(1)).netConsumed());
         var receipt = ledger.history("a", null, PointLedgerService.Kind.RECHARGE, 1).records().getFirst();
         assertEquals("order-a", receipt.reference());
         assertEquals("OWNER", receipt.account().role());
@@ -397,7 +420,7 @@ public class AccountSystemPersistenceTest {
         when(auth.require()).thenReturn(new AdminAccountStore.Account("admin", "operator", "平台管理员", "ACTIVE", null, null, false));
         var audit = mock(AdminAccountStore.class);
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
-        var admin = new AdminPointService(auth, audit, f.jdbc, foundation, recharge, f.points, new PointLedgerService(f.jdbc), json);
+        var admin = new AdminPointService(auth, audit, f.jdbc, foundation, recharge, f.points, new PointLedgerService(f.jdbc, new com.fasterxml.jackson.databind.ObjectMapper()), json);
         var charges = new GenerationCharges(pricing, recharge, foundation, f.points, f.bindings, f.jdbc, json, subscriptions);
         f.tx.execute(s -> f.points.credit("a", "initial", new BigDecimal("400")));
         f.tx.execute(s -> charges.hold("a", "child-video-one", "video-one", "child-one", Map.of("video", 1)));
