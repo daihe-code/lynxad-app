@@ -489,18 +489,19 @@ public class AccountSystemPersistenceTest {
         assertEquals(pricing.options(), recharge.catalog().options());
         assertEquals(pricing.rechargeQuote(100_000), recharge.quote(100_000));
         assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
-        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 0)));
-        assertTrue(recharge.options().isEmpty());
-        assertEquals(WorkspacePointOrders.RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED, recharge.catalog().availability());
-        assertEquals(pricing.options(), recharge.catalog().options());
-        assertEquals(pricing.rechargeQuote(500_000), recharge.quote(500_000));
-        assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
-        assertFalse(recharge.options().isEmpty());
         assertEquals(WorkspacePointOrders.RechargeAvailability.AVAILABLE, recharge.catalog().availability());
+        Instant now = Instant.now();
+        var adminPlan = new Subscription(tenant, PlanCode.PROFESSIONAL, SubStatus.ACTIVE, now.minusSeconds(60),
+                now.plusSeconds(3600), false, "ADMIN", 0, null, now);
+        when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(adminPlan));
+        assertEquals(WorkspacePointOrders.RechargeAvailability.AVAILABLE, recharge.catalog().availability());
+        assertEquals(pricing.options(), recharge.options());
         assertEquals(recharge.options(), recharge.catalog().options());
+        assertEquals(pricing.rechargeQuote(500_000), recharge.quote(500_000));
         var created=f.tx.execute(s -> recharge.create("r99","recharge-request"));
         assertNotNull(created);
+        assertEquals(PlanCode.PROFESSIONAL.name(), created.planCode());
         var order=orderState.get();
         when(orders.findPendingRecharge(tenant)).thenReturn(Optional.of(order));
         pricing.setEnabled(false);

@@ -18,12 +18,12 @@
         <p>请使用微信扫码支付</p>
       </template>
       <el-button v-else-if="payment?.mockReady" :loading="busy" @click="completeMock">确认演示支付</el-button>
-      <p v-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'">恢复有效的付费套餐后可继续支付。</p>
+      <p v-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'">恢复正式套餐后可继续支付。</p>
       <p v-else-if="availability === 'DISABLED'">积分充值暂未开放。</p>
       <div class="recharge-actions">
         <el-button :disabled="busy" @click="cancel">取消订单</el-button>
         <el-button v-if="!payment?.mockReady" :disabled="busy" @click="check">查询支付结果</el-button>
-        <el-button v-if="!payment && availability === 'AVAILABLE'" type="primary" :loading="busy" @click="checkout">继续支付</el-button>
+        <el-button v-if="!payment && availability === 'AVAILABLE'" class="recharge-primary" type="primary" :loading="busy" @click="checkout">继续支付</el-button>
       </div>
     </section>
     <section v-if="!loadError && options.length" class="acct-card" aria-labelledby="recharge-amount">
@@ -34,7 +34,7 @@
             <el-radio v-for="option in options" :key="option.code" :value="option.code" border>
               <span class="option-amount">¥{{ number(option.priceFen / 100) }}</span>
               <span class="option-points">{{ number(option.points) }} 积分</span>
-              <span class="option-rate">约 {{ pointsPerHundred(option) }} 积分 / ¥100</span>
+              <span class="option-rate">约 {{ pointsPerHundred(option) }} 积分/¥100</span>
             </el-radio>
             <el-radio value="custom" border>
               <span class="option-amount option-custom">自定义金额</span>
@@ -47,7 +47,7 @@
                 inputmode="decimal" placeholder="最低 ¥99" :disabled="busy" @input="clearQuote" @keyup.enter="calculate">
                 <template #prepend>¥</template>
               </el-input>
-              <el-button class="recharge-calculate" type="primary" size="large" :disabled="!amount || busy" :loading="quoting" @click="calculate">计算积分</el-button>
+              <el-button class="recharge-primary" type="primary" size="large" :disabled="!amount || busy" :loading="quoting" @click="calculate">计算积分</el-button>
             </div>
             <p v-if="amountError" id="recharge-amount-error" class="amount-error" role="alert">{{ amountError }}</p>
           </template>
@@ -60,8 +60,8 @@
           </dl>
           <div class="summary-action">
             <p v-if="order" class="payment-note">请先处理上方的待支付订单。</p>
-            <p v-else-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" class="payment-note">有生效的实付订阅后可支付。</p>
-            <el-button type="primary" :disabled="!selectedOption || !!order || availability !== 'AVAILABLE' || quoting"
+            <p v-else-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" class="payment-note">开通正式套餐后可充值。</p>
+            <el-button class="recharge-primary" type="primary" :disabled="!selectedOption || !!order || availability !== 'AVAILABLE' || quoting"
               :loading="busy && !quoting && !order" @click="checkout">去支付</el-button>
           </div>
         </div>
@@ -229,18 +229,28 @@ onBeforeUnmount(() => { active = false; });
 .recharge-balance strong { color: rgb(var(--c-primary-ink)); font-size: 26px; font-variant-numeric: tabular-nums; }
 .balance-scope { margin-left: auto; color: var(--el-text-color-secondary); font-size: 13px; }
 .recharge-grid { display: grid; gap: 20px; margin-top: 20px; }
-.options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 12px; }
+.options { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: stretch; gap: 10px; }
 .options :deep(.el-radio) {
-  display: flex; align-items: flex-start; height: auto; min-height: 100px; margin: 0; padding: 13px 11px;
-  border-radius: 12px; white-space: normal;
+  position: relative; display: flex; align-items: flex-start; min-width: 0; height: auto; min-height: 110px;
+  margin: 0; padding: 14px 10px; border: 1px solid rgb(var(--c-border)); border-radius: 14px;
+  background: rgb(var(--c-primary-soft-3)); white-space: normal;
 }
-.options :deep(.el-radio.is-checked) { background: rgb(var(--c-primary-soft) / .55); }
-.options :deep(.el-radio__label) { min-width: 0; padding-left: 7px; overflow-wrap: anywhere; }
+.options :deep(.el-radio.is-checked) {
+  border-color: transparent; background: linear-gradient(110deg, rgb(var(--c-primary-active)), #5d4ad4 65%, #824bc7);
+}
+.options :deep(.el-radio:has(:focus-visible)) { outline: 2px solid rgb(var(--c-primary)); outline-offset: 2px; }
+.options :deep(.el-radio__input) { position: absolute; top: 11px; right: 9px; }
+.options :deep(.el-radio__inner) { border: 1px solid rgb(var(--c-primary-ink) / .35); }
+.options :deep(.el-radio.is-checked .el-radio__inner) { background: transparent; border-color: #fff; }
+.options :deep(.el-radio__label) { min-width: 0; padding-left: 0; overflow-wrap: anywhere; }
 .option-amount, .option-points, .option-rate { display: block; }
-.option-amount { font-size: 18px; font-weight: 700; line-height: 1.2; }
-.option-custom { font-size: 16px; }
+.option-amount { padding-right: 16px; color: rgb(var(--c-primary-ink)); font-size: 17px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.option-custom { font-size: 14px; }
 .option-points { margin-top: 7px; font-weight: 600; }
 .option-rate { margin-top: 5px; font-size: 12px; color: var(--el-text-color-secondary); }
+.options :deep(.el-radio.is-checked .el-radio__label),
+.options :deep(.el-radio.is-checked .option-amount),
+.options :deep(.el-radio.is-checked .option-rate) { color: #fff; }
 .recharge-summary {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px 20px;
   padding: 16px 20px; border: 1px solid var(--el-border-color-lighter); border-radius: 14px; background: #f8f7fe;
@@ -261,20 +271,21 @@ onBeforeUnmount(() => { active = false; });
 .custom-amount { display: flex; gap: 8px; max-width: 420px; margin-top: 14px; }
 .recharge-amount-input { min-width: 0; --el-input-focus-border-color: #78829b; }
 .recharge-amount-input :deep(.el-input__inner:focus-visible) { outline: none; box-shadow: none; }
-.recharge-calculate {
+.recharge-primary {
   padding-inline: 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
   background-color: var(--el-button-bg-color); color: var(--el-button-text-color);
 }
-.recharge-calculate:not(:disabled):hover { background-color: var(--el-button-hover-bg-color); }
-.recharge-calculate:disabled { background-color: var(--el-button-disabled-bg-color); }
+.recharge-primary:not(:disabled):hover { background-color: var(--el-button-hover-bg-color); }
+.recharge-primary:disabled { background-color: var(--el-button-disabled-bg-color); }
 .amount-error { color: var(--el-color-danger); margin: 8px 0 0; font-size: 13px; }
 .recharge-history h2 { margin-bottom: 16px; }
 .recharge-history :deep(.el-date-editor) { flex: 0 1 280px; }
-@media (max-width: 740px) {
-  .options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 880px) {
+  .options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .balance-scope { margin-left: 0; }
 }
-@media (max-width: 520px) {
+@media (max-width: 560px) {
+  .options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .recharge-summary { grid-template-columns: minmax(0, 1fr); }
   .summary-action { justify-items: stretch; }
 }

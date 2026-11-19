@@ -10,6 +10,7 @@ import com.lynx.ad.common.security.MemberRole;
 import com.lynx.ad.modules.billing.application.PaymentCommandService;
 import com.lynx.ad.modules.billing.application.SubscriptionSupport;
 import com.lynx.ad.modules.billing.application.WorkspacePointOrders;
+import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.billing.domain.model.*;
 import com.lynx.ad.modules.billing.domain.port.OrderRepository;
 import com.lynx.ad.modules.billing.domain.port.PaymentRepository;
@@ -38,6 +39,36 @@ class AlipaySettlementTest {
             mock(SubscriptionSupport.class), null, alipay, null, new LynxAdProperties(), null, null);
     private final BillingPayment payment = new BillingPayment(paymentId, tenant, orderId,
             PayChannel.ALIPAY, PaymentStatus.CREATED, 9900, null, null, Instant.now(), null);
+
+    @Test
+    void adminGrantedSubscriptionAllowsAlipayRechargeUntilItExpires() {
+        var order = prepare(OrderType.POINT_RECHARGE);
+        when(orders.findById(tenant, orderId)).thenReturn(Optional.of(order));
+        when(payments.findById(tenant, paymentId)).thenReturn(Optional.empty());
+        var pricing = new WorkspacePricing();
+        pricing.setEnabled(true);
+        var subscriptionSupport = new SubscriptionSupport(subscriptions);
+        var recharge = new WorkspacePointOrders(pricing, access, null, orders, null, null, subscriptionSupport);
+        var properties = new LynxAdProperties();
+        properties.getPayment().setMode("alipay");
+        var checkout = new PaymentCommandService(orders, payments, subscriptions, subscriptionSupport, null,
+                alipay, null, properties, null, null);
+        ReflectionTestUtils.setField(checkout, "pointOrders", recharge);
+        ReflectionTestUtils.setField(checkout, "workspaceAccess", access);
+        Instant now = Instant.now();
+        var adminPlan = new Subscription(tenant, PlanCode.BASIC, SubStatus.ACTIVE, now.minusSeconds(60),
+                now.plusSeconds(3600), false, "ADMIN", 0, null, now);
+        when(subscriptions.findByTenant(tenant)).thenReturn(Optional.of(adminPlan));
+        String url = "https://openapi.alipay.com/gateway.do?test=recharge";
+        when(alipay.checkoutUrl(any(), eq("坤境智营积分充值"), eq(true))).thenReturn(url);
+
+        assertEquals(url, checkout.create(tenant, orderId, null).codeUrl());
+        verify(payments).save(argThat(payment -> payment.channel() == PayChannel.ALIPAY && payment.amountFen() == 9900));
+
+        adminPlan.expire(now);
+        assertEquals(1904, assertThrows(BizException.class, () -> checkout.create(tenant, orderId, null)).code());
+        verify(alipay).checkoutUrl(any(), eq("坤境智营积分充值"), eq(true));
+    }
 
     @Test
     void validQuerySettlesRechargeOnceEvenWhenCallbackArrivesLater() {

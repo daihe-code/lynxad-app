@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -40,7 +41,11 @@ public class WorkspacePointOrders {
                 ? pricing.options() : List.of();
     }
 
-    public enum RechargeAvailability { AVAILABLE, PAID_SUBSCRIPTION_REQUIRED, DISABLED }
+    public enum RechargeAvailability {
+        AVAILABLE,
+        PAID_SUBSCRIPTION_REQUIRED, // Legacy API value for a workspace without an effective subscription.
+        DISABLED
+    }
     public record RechargeCatalog(RechargeAvailability availability, List<WorkspacePricing.RechargeOption> options, OrderView pending) {}
 
     public RechargeCatalog catalog() {
@@ -52,7 +57,7 @@ public class WorkspacePointOrders {
 
     private RechargeAvailability availability(TenantId tenant) {
         if (!pricing.isEnabled()) return RechargeAvailability.DISABLED;
-        return paidSubscription(tenant).isPresent()
+        return effectiveSubscription(tenant).isPresent()
                 ? RechargeAvailability.AVAILABLE : RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED;
     }
 
@@ -62,13 +67,13 @@ public class WorkspacePointOrders {
         return pricing.rechargeQuote(amountFen);
     }
 
-    private java.util.Optional<Subscription> paidSubscription(TenantId tenant) {
-        return subscriptions.effective(tenant, Instant.now()).filter(sub -> sub.paidFenThisPeriod() > 0);
+    private Optional<Subscription> effectiveSubscription(TenantId tenant) {
+        return subscriptions.effective(tenant, Instant.now());
     }
 
     public Subscription requireRechargeSubscription(TenantId tenant) {
         if (!pricing.isEnabled()) throw new BizException(1904, "积分充值尚未开放");
-        return paidSubscription(tenant).orElseThrow(() -> new BizException(1904, "购买套餐后才可充值积分"));
+        return effectiveSubscription(tenant).orElseThrow(() -> new BizException(1904, "开通正式套餐后可充值积分"));
     }
 
     public OrderView status(String id) {
