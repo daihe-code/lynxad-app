@@ -1,45 +1,17 @@
 <template>
-  <section class="acct-card recharge-page" v-loading="loading">
-    <div v-if="balance != null" class="recharge-balance">
+  <div class="recharge-page" v-loading="loading">
+    <section v-if="balance != null" class="acct-card recharge-balance" aria-label="工作空间积分余额">
       <span>可用积分</span>
       <strong>{{ number(balance) }}</strong>
-    </div>
-    <div v-if="loadError" class="recharge-state">
+      <span class="balance-scope">主账户和子账户共享</span>
+    </section>
+    <section v-if="loadError" class="acct-card recharge-state">
       <p class="amount-error" role="alert">{{ loadError }}</p>
       <el-button @click="load">重新加载</el-button>
-    </div>
-    <div v-else-if="!loading && availability !== 'AVAILABLE' && !order" class="recharge-state">
-      <p>{{ availability === 'PAID_SUBSCRIPTION_REQUIRED' ? '购买并开通套餐后可充值积分。' : '积分充值暂未开放。' }}</p>
-      <router-link v-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" to="/subscription" class="obtn obtn--primary">查看套餐</router-link>
-    </div>
-    <template v-else-if="!loading && !order">
-      <h2 id="recharge-amount" class="acct-card__t">选择充值金额</h2>
-      <el-radio-group v-model="selected" class="options" aria-labelledby="recharge-amount" :disabled="busy">
-        <el-radio v-for="option in options" :key="option.code" :value="option.code" border>
-          <span class="option-amount">¥{{ number(option.priceFen / 100) }}</span>
-          <span class="option-points">{{ number(option.points) }} 积分</span>
-        </el-radio>
-        <el-radio value="custom" border>自定义金额</el-radio>
-      </el-radio-group>
-      <template v-if="selected === 'custom'">
-        <div class="custom-amount">
-          <el-input v-model="amount" aria-label="自定义充值金额" inputmode="decimal" placeholder="最低 ¥99" :disabled="busy" @input="clearQuote" @keyup.enter="calculate">
-            <template #prepend>¥</template>
-          </el-input>
-          <el-button :disabled="!amount" :loading="busy" @click="calculate">计算积分</el-button>
-        </div>
-        <p v-if="amountError" class="amount-error" role="alert">{{ amountError }}</p>
-        <p v-else-if="customQuote" class="custom-points" aria-live="polite">到账 {{ number(customQuote.points) }} 积分</p>
-      </template>
-      <div class="recharge-actions">
-        <el-button type="primary" :disabled="!selectedOption" :loading="busy" @click="checkout">
-          {{ selectedOption ? `支付 ¥${number(selectedOption.priceFen / 100)}` : '去支付' }}
-        </el-button>
-      </div>
-    </template>
-    <div v-else-if="!loading && order" class="checkout">
+    </section>
+    <section v-if="!loading && !loadError && order" class="acct-card checkout">
       <h2 class="acct-card__t">待支付充值订单</h2>
-      <p>应付 ¥{{ order.payableYuan }}</p>
+      <p>应付 ¥{{ number(order.payableYuan) }}</p>
       <p v-if="order.discountLabel">{{ order.discountLabel }}</p>
       <template v-if="qr">
         <img :src="qr" width="220" height="220" alt="微信支付二维码" />
@@ -53,8 +25,54 @@
         <el-button v-if="!payment?.mockReady" :disabled="busy" @click="check">查询支付结果</el-button>
         <el-button v-if="!payment && availability === 'AVAILABLE'" type="primary" :loading="busy" @click="checkout">继续支付</el-button>
       </div>
-    </div>
-  </section>
+    </section>
+    <section v-if="!loadError && options.length" class="acct-card" aria-labelledby="recharge-amount">
+      <h2 id="recharge-amount" class="acct-card__t">充值套餐</h2>
+      <div class="recharge-grid">
+        <div class="recharge-options">
+          <el-radio-group v-model="selected" class="options" aria-labelledby="recharge-amount" :disabled="busy">
+            <el-radio v-for="option in options" :key="option.code" :value="option.code" border>
+              <span class="option-amount">¥{{ number(option.priceFen / 100) }}</span>
+              <span class="option-points">{{ number(option.points) }} 积分</span>
+              <span class="option-rate">约 {{ pointsPerHundred(option) }} 积分 / ¥100</span>
+            </el-radio>
+            <el-radio value="custom" border>
+              <span class="option-amount option-custom">自定义金额</span>
+              <span class="option-rate">¥99 起</span>
+            </el-radio>
+          </el-radio-group>
+          <template v-if="selected === 'custom'">
+            <div class="custom-amount">
+              <el-input v-model="amount" aria-label="自定义充值金额" :aria-invalid="!!amountError" :aria-describedby="amountError ? 'recharge-amount-error' : undefined"
+                inputmode="decimal" placeholder="最低 ¥99" :disabled="busy" @input="clearQuote" @keyup.enter="calculate">
+                <template #prepend>¥</template>
+              </el-input>
+              <el-button :disabled="!amount || busy" :loading="quoting" @click="calculate">计算积分</el-button>
+            </div>
+            <p v-if="amountError" id="recharge-amount-error" class="amount-error" role="alert">{{ amountError }}</p>
+          </template>
+        </div>
+        <div class="recharge-summary">
+          <h3>订单预览</h3>
+          <dl aria-live="polite">
+            <div><dt>应付金额</dt><dd>{{ selectedOption ? `¥${number(selectedOption.priceFen / 100)}` : '—' }}</dd></div>
+            <div><dt>到账积分</dt><dd class="summary-points">{{ selectedOption ? number(selectedOption.points) : '—' }}</dd></div>
+          </dl>
+          <p v-if="order" class="payment-note">请先处理上方的待支付订单。</p>
+          <p v-else-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" class="payment-note">有生效的实付订阅后可支付。</p>
+          <el-button type="primary" :disabled="!selectedOption || !!order || availability !== 'AVAILABLE' || quoting"
+            :loading="busy && !quoting && !order" @click="checkout">去支付</el-button>
+        </div>
+      </div>
+    </section>
+    <section v-else-if="!loading && !loadError && !order && availability === 'DISABLED'" class="acct-card recharge-state">
+      <p>积分充值暂未开放。</p>
+    </section>
+    <section class="acct-card recharge-history">
+      <h2 class="acct-card__t">充值记录</h2>
+      <PointLedgerTable :fetch-page="workspacePointHistory" :refresh-key="ledgerRefresh" show-date-filter recharge-only />
+    </section>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -62,7 +80,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { requestFailure } from '@/api/apiErrors';
-import { workspaceOverview } from '@/features/tenant/workspaceApi';
+import PointLedgerTable from '@/components/PointLedgerTable.vue';
+import { workspaceOverview, workspacePointHistory } from '@/features/tenant/workspaceApi';
 import { alipayCheckoutUrl, checkOrderPayment, closeRecharge, createPayment, createRecharge, getRechargeCatalog, mockComplete, quoteRecharge, rechargeStatus, type OrderView, type PaymentView, type RechargeCatalog, type RechargeOption } from '@/features/billing/billingApi';
 const router = useRouter();
 const options = ref<RechargeOption[]>([]), order = ref<OrderView>(), payment = ref<PaymentView>();
@@ -70,11 +89,14 @@ const busy = ref(false), selected = ref(''), qr = ref('');
 const availability = ref<RechargeCatalog['availability']>(), balance = ref<number>();
 const loading = ref(true), loadError = ref('');
 const amount = ref(''), amountError = ref(''), customQuote = ref<RechargeOption>();
+const quoting = ref(false), ledgerRefresh = ref(0);
 let requestKey: string | undefined;
 let requestCode: string | undefined;
 let active = true;
 const selectedOption = computed(() => selected.value === 'custom' ? customQuote.value : options.value.find(item => item.code === selected.value));
 const number = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+const pointsPerHundred = (option: RechargeOption) => (option.points * 10_000 / option.priceFen)
+  .toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 function clearQuote() {
   customQuote.value = undefined;
   amountError.value = '';
@@ -88,9 +110,10 @@ async function calculate() {
     amountError.value = '请输入至少 ¥99 的有效金额，最多保留两位小数';
     return;
   }
-  busy.value = true;
+  quoting.value = busy.value = true;
   try { customQuote.value = await quoteRecharge(fen); }
-  catch { /* API shows the failure. */ } finally { busy.value = false; }
+  catch (error) { amountError.value = requestFailure(error).message; }
+  finally { quoting.value = busy.value = false; }
 }
 function reset() {
   payment.value = undefined;
@@ -131,6 +154,7 @@ async function checkout() {
 function handleStatus(updated: OrderView) {
   if (updated.status === 'PAID') {
     clearOrder();
+    ledgerRefresh.value++;
     void refreshBalance();
     ElMessage.success('充值成功');
   } else if (updated.status === 'CLOSED') {
@@ -195,11 +219,45 @@ onBeforeUnmount(() => { active = false; });
 </script>
 
 <style scoped>
-.recharge-page{min-height:155px}.recharge-balance{display:flex;align-items:baseline;gap:14px;padding:16px 20px;margin-bottom:24px;border-radius:12px;background:#f4f2ff}
-.recharge-balance strong{color:#5149d7;font-size:24px}.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
-.options :deep(.el-radio){height:auto;min-height:68px;margin:0;padding:10px 12px}.options :deep(.el-radio__label){white-space:normal}
-.option-amount,.option-points{display:block}.option-amount{font-weight:600}.option-points{margin-top:4px;color:var(--el-text-color-secondary)}
-.recharge-state,.checkout{display:grid;gap:12px;justify-items:start}.recharge-state p,.checkout p,.custom-points{margin:0}
-.recharge-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.recharge-actions :deep(.el-button){margin-left:0}
-.custom-amount{display:flex;gap:8px;max-width:420px}.amount-error{color:var(--el-color-danger);margin:8px 0 0}
+.recharge-page { min-height: 155px; }
+.recharge-page .recharge-balance {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px;
+  padding-block: 18px; background: rgb(var(--c-primary-soft) / .65);
+}
+.recharge-balance strong { color: rgb(var(--c-primary-ink)); font-size: 26px; font-variant-numeric: tabular-nums; }
+.balance-scope { margin-left: auto; color: var(--el-text-color-secondary); font-size: 13px; }
+.recharge-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: start; gap: 22px; margin-top: 20px; }
+.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr)); align-items: stretch; gap: 10px; }
+.options :deep(.el-radio) {
+  display: flex; align-items: flex-start; height: auto; min-height: 100px; margin: 0; padding: 13px 11px;
+  border-radius: 12px; white-space: normal;
+}
+.options :deep(.el-radio.is-checked) { background: rgb(var(--c-primary-soft) / .55); }
+.options :deep(.el-radio__label) { min-width: 0; padding-left: 7px; overflow-wrap: anywhere; }
+.option-amount, .option-points, .option-rate { display: block; }
+.option-amount { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.option-custom { font-size: 16px; }
+.option-points { margin-top: 7px; font-weight: 600; }
+.option-rate { margin-top: 5px; font-size: 12px; color: var(--el-text-color-secondary); }
+.recharge-summary { padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 14px; background: #f8f7fe; }
+.recharge-summary h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.recharge-summary dl { display: grid; gap: 10px; margin: 16px 0; }
+.recharge-summary dl div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+.recharge-summary dt, .payment-note { color: var(--el-text-color-secondary); font-size: 13px; }
+.recharge-summary dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.summary-points { color: rgb(var(--c-primary-ink)); }
+.recharge-summary .el-button { width: 100%; }
+.payment-note { margin: 0 0 12px; line-height: 1.5; }
+.recharge-state, .checkout { display: grid; gap: 12px; justify-items: start; }
+.recharge-state p, .checkout p { margin: 0; }
+.recharge-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.recharge-actions :deep(.el-button) { margin-left: 0; }
+.custom-amount { display: flex; gap: 8px; max-width: 420px; margin-top: 14px; }
+.amount-error { color: var(--el-color-danger); margin: 8px 0 0; font-size: 13px; }
+.recharge-history h2 { margin-bottom: 16px; }
+.recharge-history :deep(.el-date-editor) { flex: 0 1 280px; }
+@media (max-width: 740px) {
+  .recharge-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .balance-scope { margin-left: 0; }
+}
 </style>

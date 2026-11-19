@@ -46,7 +46,7 @@ public class WorkspacePointOrders {
     public RechargeCatalog catalog() {
         var tenant = new TenantId(access.require(MemberRole.OWNER).tenantId());
         var availability = availability(tenant);
-        return new RechargeCatalog(availability, availability == RechargeAvailability.AVAILABLE ? pricing.options() : List.of(),
+        return new RechargeCatalog(availability, availability == RechargeAvailability.DISABLED ? List.of() : pricing.options(),
                 orders.findPendingRecharge(tenant).map(OrderView::from).orElse(null));
     }
 
@@ -57,8 +57,8 @@ public class WorkspacePointOrders {
     }
 
     public WorkspacePricing.RechargeOption quote(int amountFen) {
-        var owner = access.require(MemberRole.OWNER);
-        requireRechargeSubscription(new TenantId(owner.tenantId()));
+        access.require(MemberRole.OWNER);
+        if (!pricing.isEnabled()) throw new BizException(1904, "积分充值尚未开放");
         return pricing.rechargeQuote(amountFen);
     }
 

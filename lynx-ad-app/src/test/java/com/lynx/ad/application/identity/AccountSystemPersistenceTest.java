@@ -486,10 +486,14 @@ public class AccountSystemPersistenceTest {
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         assertTrue(recharge.options().isEmpty());
         assertEquals(WorkspacePointOrders.RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED, recharge.catalog().availability());
+        assertEquals(pricing.options(), recharge.catalog().options());
+        assertEquals(pricing.rechargeQuote(100_000), recharge.quote(100_000));
         assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 0)));
         assertTrue(recharge.options().isEmpty());
         assertEquals(WorkspacePointOrders.RechargeAvailability.PAID_SUBSCRIPTION_REQUIRED, recharge.catalog().availability());
+        assertEquals(pricing.options(), recharge.catalog().options());
+        assertEquals(pricing.rechargeQuote(500_000), recharge.quote(500_000));
         assertThrows(BizException.class, () -> f.tx.execute(s -> recharge.create("r99","recharge-request")));
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(activeSubscription(tenant, 9900)));
         assertFalse(recharge.options().isEmpty());
@@ -504,6 +508,7 @@ public class AccountSystemPersistenceTest {
         assertEquals(WorkspacePointOrders.RechargeAvailability.DISABLED, disabledCatalog.availability());
         assertTrue(disabledCatalog.options().isEmpty());
         assertEquals(created, disabledCatalog.pending());
+        assertThrows(BizException.class, () -> recharge.quote(100_000));
         pricing.setEnabled(true);
         doReturn(new WorkspacePricing.RechargeOption("fen-9900", 9900, 2000)).when(pricing).rechargeQuote(9900);
         assertEquals(created,f.tx.execute(s -> recharge.create("r99","recharge-request")));

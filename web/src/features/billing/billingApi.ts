@@ -133,7 +133,9 @@ export interface RechargeCatalog {
   pending: OrderView | null;
 }
 export const getRechargeCatalog = () => apiGet<RechargeCatalog>('/api/v1/billing/points/recharge-catalog', { headers: { 'X-Quiet-Request': 'true' } });
-export const quoteRecharge = (amountFen: number) => apiGet<RechargeOption>(`/api/v1/billing/points/recharge-quote?amountFen=${amountFen}`);
+export const quoteRecharge = (amountFen: number) => apiGet<RechargeOption>('/api/v1/billing/points/recharge-quote', {
+  params: { amountFen }, headers: { 'X-Quiet-Request': 'true' },
+});
 export const createRecharge = (code: string, key: string) =>
   apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
 export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);
