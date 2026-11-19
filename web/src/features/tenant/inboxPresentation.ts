@@ -2,10 +2,13 @@ import type { InboxMessage } from './inboxApi';
 import { WATCHER_TYPES } from '@/features/agentops/agentopsApi';
 import { generationNotice } from './inboxGeneration';
 
-export type InboxFilterCategory = 'system' | 'warning' | 'approval' | 'optimization';
+export type InboxFilterCategory = 'system' | 'warning' | 'approval' | 'optimization' | 'points';
+type PointsAccess = 'owner' | 'finance' | null;
+const pointNotices = new Set(['POINTS_INSUFFICIENT', 'POINTS_CONSUMED', 'POINTS_RECHARGED']);
 
 export function filterCategory(item: InboxMessage): InboxFilterCategory {
   const type = item.bizType || '';
+  if (pointNotices.has(type)) return 'points';
   if (WATCHER_TYPES.includes(type as (typeof WATCHER_TYPES)[number]) || type === 'OPTIMIZATION_ERROR') return 'warning';
   if (type === 'AUDIT_PASS' || type === 'AUDIT_REJECT') return 'approval';
   if (type.startsWith('OPTIMIZATION_') || type.startsWith('CREATIVE_')) return 'optimization';
@@ -16,8 +19,18 @@ export function filterInbox(items: InboxMessage[], tab: 'all' | 'unread', catego
   return items.filter(item => (tab === 'all' || item.unread) && (category === 'all' || filterCategory(item) === category));
 }
 
-export function inboxPresentation(item: InboxMessage) {
+export function inboxPresentation(item: InboxMessage, pointsAccess: PointsAccess = null) {
   const type = item.bizType || '';
+  if (pointNotices.has(type)) {
+    const insufficient = type === 'POINTS_INSUFFICIENT';
+    const recharge = pointsAccess === 'owner' && (insufficient || type === 'POINTS_RECHARGED');
+    return {
+      category: '积分',
+      tone: insufficient ? 'point-shortfall' : '',
+      action: recharge ? (insufficient ? '去充值' : '查看充值记录') : pointsAccess ? '查看积分' : '',
+      destination: recharge ? 'pointRecharge' as const : pointsAccess ? 'pointWorkspace' as const : null,
+    };
+  }
   const generation = generationNotice(item);
   if(generation)return {category:'素材',tone:'material',action:generation.action,destination:type === 'CREATION_EDIT_GENERATED' ? 'contentEdit' as const : 'draft' as const};
   if (type === 'OPTIMIZATION_SERVICE_HOLD') return { category: '盯盘优化', tone: 'warning', action: '查看订阅', destination: 'optimization' as const };

@@ -43,6 +43,10 @@ public class GenerationCharges {
     public record SettledItem(String unit, int quantity, String unitPoints, String points) {}
 
     public Access access(String tenant) {
+        return access(tenant, null);
+    }
+
+    public Access access(String tenant, BigDecimal required) {
         if (!pricing.isEnabled()) return new Access(false, null, null);
         var sub = subscriptions.effective(new TenantId(tenant), Instant.now());
         if (sub.isEmpty()) return new Access(false, null, null);
@@ -52,6 +56,9 @@ public class GenerationCharges {
                 .movePointLeft(1).max(pricing.rate("video"));
         BalanceStatus status = available.signum() <= 0 ? BalanceStatus.EMPTY
                 : available.compareTo(threshold) <= 0 ? BalanceStatus.LOW : BalanceStatus.SUFFICIENT;
+        if (required == null ? status == BalanceStatus.EMPTY : available.compareTo(required) < 0) {
+            wallet.reportShortfall(tenant, required);
+        }
         return new Access(true, status, available);
     }
 

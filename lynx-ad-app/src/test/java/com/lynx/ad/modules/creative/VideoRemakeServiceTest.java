@@ -107,7 +107,8 @@ class VideoRemakeServiceTest {
         assertEquals(List.of("请按说明存放"), view.adNotices());
         assertEquals(1920, view.outputSpec().path("width").asInt());
         assertEquals(RATE, view.quote().points());
-        verifyNoInteractions(charges);
+        verify(charges).access("tenant", RATE);
+        verifyNoMoreInteractions(charges);
         var confirmation = new VideoRemakeService.Confirm("新标题",
                 List.of(new VideoRemakeService.ShotEdit("镜头缓慢从杯口移到杯身的把手", "这是新台词", "新字幕")), true, RATE);
         assertEquals("CONFIRMING", service.confirm("tenant", "actor", ID, confirmation).phase());
@@ -143,7 +144,8 @@ class VideoRemakeServiceTest {
                 new VideoRemakeService.ShotEdit("镜头转向桌面的水杯并拉近", "水杯细节", "水杯"));
         assertThrows(BizException.class, () -> service.confirm("tenant", "actor", ID,
                 new VideoRemakeService.Confirm("成片", shots, true, RATE)));
-        verifyNoInteractions(charges);
+        verify(charges).access("tenant", expected);
+        verifyNoMoreInteractions(charges);
         var result = service.confirm("tenant", "actor", ID, new VideoRemakeService.Confirm("成片", shots, true, expected));
         assertEquals("CONFIRMING", result.phase());
         verify(charges).hold("tenant", "remake:" + ID, "binding", "actor", units);

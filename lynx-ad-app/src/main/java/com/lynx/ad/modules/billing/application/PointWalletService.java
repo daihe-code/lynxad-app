@@ -4,19 +4,35 @@ import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
 import java.math.BigDecimal;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 /** All mutations lock the tenant wallet; caller-supplied balances are never trusted. */
 @Service
 public class PointWalletService {
+    private static final Logger log = LoggerFactory.getLogger(PointWalletService.class);
     private final JdbcTemplate jdbc;
     private final WorkspaceFoundation foundation;
-    public PointWalletService(JdbcTemplate jdbc,WorkspaceFoundation foundation) {this.jdbc=jdbc;this.foundation=foundation;}
+    private final PointActivityNotice notices;
+    private final ApplicationEventPublisher events;
+    public PointWalletService(JdbcTemplate jdbc, WorkspaceFoundation foundation, PointActivityNotice notices,
+            ApplicationEventPublisher events) {
+        this.jdbc = jdbc;
+        this.foundation = foundation;
+        this.notices = notices;
+        this.events = events;
+    }
     public record Wallet(BigDecimal available,BigDecimal frozen,BigDecimal consumed,long version) {}
     public record Adjustment(Wallet wallet, boolean applied) {}
     public record Reservation(String id,String tenantId,String taskKey,String bindingId,String actorUserId,BigDecimal amount,BigDecimal settled,String status) {}
+    public record Shortfall(String tenant, BigDecimal required) {}
     public Wallet balance(String tenant) {
         return readBalance(tenant, false);
     }
@@ -64,9 +80,12 @@ public class PointWalletService {
             return before;
         }
         jdbc.update("UPDATE point_wallet SET available=available+?,version=version+1 WHERE tenant_id=?",value,tenant);
+        String entry = UUID.randomUUID().toString();
         jdbc.update("INSERT INTO point_ledger(id,tenant_id,event_key,event_type,amount,actor_user_id) VALUES(?,?,?,'CREDIT',?,?)",
-                UUID.randomUUID().toString(),tenant,event,value,actor);
-        return balance(tenant);
+                entry,tenant,event,value,actor);
+        var after = balance(tenant);
+        if (event.startsWith("recharge:")) notices.recharged(tenant, entry, value, after.available());
+        return after;
     }
 
     @Transactional
@@ -102,7 +121,10 @@ public class PointWalletService {
             return r;
         }
         if(binding!=null&&jdbc.queryForObject("SELECT COUNT(*) FROM ad_account_binding WHERE id=? AND tenant_id=? AND bound_user_id=? AND status='ACTIVE'",Integer.class,binding,tenant,actor)!=1)throw new BizException(403,"积分任务账户归属不匹配");
-        if(before.available().compareTo(value)<0)throw new BizException(1903,"可用积分不足");
+        if (before.available().compareTo(value) < 0) {
+            reportShortfall(tenant, value);
+            throw new BizException(1903, "可用积分不足");
+        }
         jdbc.update("UPDATE point_wallet SET available=available-?,frozen=frozen+?,version=version+1 WHERE tenant_id=?",value,value,tenant);
         String id=UUID.randomUUID().toString();
         jdbc.update("INSERT INTO point_reservation(id,tenant_id,task_key,binding_id,actor_user_id,amount,status) VALUES(?,?,?,?,?,?,'HELD')",id,tenant,task,binding,actor,value);
@@ -119,7 +141,27 @@ public class PointWalletService {
         }
         jdbc.update("UPDATE point_wallet SET available=available+?,frozen=frozen-?,consumed=consumed+?,version=version+1 WHERE tenant_id=?",r.amount().subtract(actual),r.amount(),actual,tenant);
         jdbc.update("UPDATE point_reservation SET status='SETTLED',settled=? WHERE id=? AND tenant_id=?",actual,r.id(),tenant);
-        ledger(tenant,"settle:"+r.id(),"SETTLE",actual,r);return reservation(tenant,task).orElseThrow();
+        ledger(tenant,"settle:"+r.id(),"SETTLE",actual,r);
+        if (actual.signum() > 0) notices.consumed(tenant, r.id(), actual, balance(tenant).available());
+        return reservation(tenant,task).orElseThrow();
+    }
+
+    void reportShortfall(String tenant, BigDecimal required) {
+        try {
+            events.publishEvent(new Shortfall(tenant, required));
+        } catch (RuntimeException unavailable) {
+            log.warn("Could not record points shortfall notice", unavailable);
+        }
+    }
+
+    // Failed reservations roll back. Recheck committed funds before recording the alert in its own transaction.
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMPLETION, fallbackExecution = true)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordShortfall(Shortfall event) {
+        var current = lock(event.tenant());
+        boolean insufficient = event.required() == null ? current.available().signum() <= 0
+                : current.available().compareTo(event.required()) < 0;
+        if (insufficient) notices.insufficient(event.tenant(), current, event.required());
     }
     @Transactional
     public Reservation release(String tenant,String task) {

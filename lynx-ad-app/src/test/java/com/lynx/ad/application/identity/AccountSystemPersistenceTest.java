@@ -14,6 +14,7 @@ import com.lynx.ad.modules.billing.application.*;
 import com.lynx.ad.modules.billing.domain.model.*;
 import com.lynx.ad.modules.billing.domain.port.*;
 import com.lynx.ad.modules.tenant.application.*;
+import com.lynx.ad.modules.tenant.infrastructure.persistence.InboxOutboxStore;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -24,10 +25,14 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
 public class AccountSystemPersistenceTest {
@@ -60,7 +65,67 @@ public class AccountSystemPersistenceTest {
                 new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V56__workspace_child_roles.sql"),
                 new ClassPathResource("db/"+(mode.equals("MySQL")?"migration-mysql":"migration")+"/V61__point_settlement_details.sql")).execute(ds);
         var foundation=new WorkspaceFoundation(jdbc);var quotas=mock(EntitlementQueryService.class);when(quotas.adAccountLimit(any())).thenReturn(2);
-        return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),new PointWalletService(jdbc,foundation));
+        return new Fixture(jdbc,new TransactionTemplate(new DataSourceTransactionManager(ds)),new AccountBindingRegistry(jdbc,quotas,foundation),
+                new PointWalletService(jdbc, foundation, mock(PointActivityNotice.class), mock(ApplicationEventPublisher.class)));
+    }
+
+    @EnableTransactionManagement(proxyTargetClass = true)
+    static class PointNoticeTransactions {}
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void pointInboxReportsCommittedChangesAndSurvivesInsufficientReservationRollback(String mode) throws Exception {
+        var f = fixture(mode);
+        String migrations = "db/migration" + (mode.equals("MySQL") ? "-mysql" : "") + "/";
+        f.jdbc.execute("""
+                CREATE TABLE notification(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(64),channel VARCHAR(16),
+                title VARCHAR(128),body TEXT,biz_type VARCHAR(32),biz_id VARCHAR(64),sent_at TIMESTAMP)
+                """);
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new ClassPathResource(migrations + "V38__audit_notification_outbox.sql"),
+                new ClassPathResource(migrations + "V46__notification_task_result.sql")).execute(f.jdbc.getDataSource());
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(JdbcTemplate.class, f::jdbc);
+            context.registerBean(PlatformTransactionManager.class, f.tx::getTransactionManager);
+            context.register(PointNoticeTransactions.class, WorkspaceFoundation.class, PointWalletService.class,
+                    PointActivityNotice.class, InboxOutboxStore.class);
+            context.refresh();
+            var wallet = context.getBean(PointWalletService.class);
+            wallet.credit("a", "subscription:period:BASIC", new BigDecimal("4"));
+            for (int retry = 0; retry < 2; retry++) {
+                var rejected = assertThrows(BizException.class,
+                        () -> wallet.reserve("a", "insufficient", null, "a", new BigDecimal("6")));
+                assertEquals(1903, rejected.code());
+            }
+            assertEquals(new BigDecimal("4.0000"), wallet.balance("a").available());
+            assertEquals(1, f.jdbc.queryForObject("SELECT COUNT(*) FROM inbox_outbox WHERE tenant_id='a'", Integer.class));
+
+            wallet.credit("a", "recharge:one", new BigDecimal("10"));
+            wallet.credit("a", "recharge:one", new BigDecimal("10"));
+            wallet.reserve("a", "completed", null, "a", new BigDecimal("9"));
+            wallet.settle("a", "completed", new BigDecimal("7"));
+            wallet.settle("a", "completed", new BigDecimal("7"));
+            wallet.reserve("a", "released", null, "a", BigDecimal.ONE);
+            wallet.release("a", "released");
+            f.tx.executeWithoutResult(status -> {
+                wallet.credit("a", "recharge:aborted", BigDecimal.ONE);
+                status.setRollbackOnly();
+            });
+            assertEquals(new BigDecimal("7.0000"), wallet.balance("a").available());
+
+            context.publishEvent(new PointWalletService.Shortfall("b", null));
+            context.publishEvent(new PointWalletService.Shortfall("b", null));
+            var outbox = context.getBean(InboxOutboxStore.class);
+            var tenant = new TenantId("a");
+            for (String id : outbox.due(tenant, 10)) outbox.deliver(outbox.claim(id, tenant).orElseThrow());
+            var messages = f.jdbc.query("SELECT biz_type,body FROM notification WHERE tenant_id='a'",
+                    (r, i) -> r.getString(1) + "|" + r.getString(2));
+            assertEquals(3, messages.size());
+            assertEquals(Set.of(
+                    "POINTS_INSUFFICIENT|本次需 6 积分，当前可用 4 积分。",
+                    "POINTS_RECHARGED|已到账 10 积分，当前可用 14 积分。",
+                    "POINTS_CONSUMED|本次消耗 7 积分，剩余 7 积分。"), Set.copyOf(messages));
+            assertEquals(1, outbox.due(new TenantId("b"), 10).size());
+        }
     }
 
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})

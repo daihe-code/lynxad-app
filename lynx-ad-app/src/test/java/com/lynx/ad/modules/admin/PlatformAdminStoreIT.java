@@ -86,7 +86,8 @@ class PlatformAdminStoreIT {
         entitlements = new EntitlementQueryService(subscriptions, trials, mock(PlanRepository.class));
         entitlements.workspacePricing(pricing);
         var points = new WorkspacePointOrders(pricing, null, foundation, mock(OrderRepository.class),
-                new PointWalletService(jdbc, foundation), jdbc, subscriptions);
+                new PointWalletService(jdbc, foundation, mock(PointActivityNotice.class),
+                        mock(org.springframework.context.ApplicationEventPublisher.class)), jdbc, subscriptions);
         payments = mock(PaymentCommandService.class);
         packages = new AdminPackageService(auth, admins, jdbc, json, points, payments);
     }

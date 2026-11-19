@@ -215,10 +215,12 @@ public class VideoRemakeService {
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
         var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data.path("output_spec")) : null;
+        var quote = charge == null ? null : charge.quote();
+        if (quote != null) charges.access(tenant, quote.points());
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                charge == null ? null : charge.quote());
+                quote);
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {

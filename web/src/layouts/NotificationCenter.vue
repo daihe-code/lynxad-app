@@ -6,7 +6,7 @@
     <section ref="panel" class="ntc" role="dialog" aria-label="通知中心" tabindex="-1" @keydown.esc.stop.prevent="close">
       <div class="ntc__hd"><span class="ntc__av" aria-hidden="true"><svg viewBox="0 0 1300 935"><g fill="none" stroke="currentColor" stroke-linecap="round"><path d="M1223.8 855.9C1170 610 970 300 750 125C718 106 683 75 650 75C617 75 582 106 550 125C330 300 130 610 76.2 855.9" stroke-width="150"/><path d="M82.8 175.9 285 455M1217.2 175.9 1015 455" stroke-width="58"/></g><circle cx="440" cy="559" r="82.5" fill="currentColor"/><circle cx="860" cy="559" r="82.5" fill="currentColor"/></svg></span><span class="ntc__who"><b>小灵</b><i>{{ watchedPlans === null ? '为你及时送达投放动态' : `正在替你盯着 ${watchedPlans} 个投放计划` }}</i></span><button class="ntc__close" type="button" aria-label="关闭消息面板" @click="close">×</button></div>
       <div class="ntc__bar"><div class="ntc__tabs" role="tablist" aria-label="通知筛选"><button v-for="value in ['all', 'unread'] as const" :key="value" :id="`notification-${value}`" class="ntc__tab" :class="{ 'is-on': tab === value }" type="button" role="tab" :aria-selected="tab === value" aria-controls="notification-list" :tabindex="tab === value ? 0 : -1" @click="tab = value" @keydown="tabKey($event)">{{ value === 'all' ? '全部' : '未读' }}<i class="ntc__tab-n">{{ value === 'all' ? inbox.length : unread }}</i></button></div><button class="ntc__allread" type="button" title="将所有类别的消息全部标为已读" aria-description="覆盖所有类别，不受当前筛选影响" :disabled="!unread || readingAll || pending.size > 0" @click="markAll">{{ readingAll ? '正在标记…' : '全部标为已读' }}</button></div>
-      <div class="ntc__filters"><label for="notification-category">消息类别</label><select id="notification-category" v-model="category" aria-label="消息类别"><option value="all">全部类别</option><option value="system">系统通知</option><option value="warning">投放预警</option><option value="approval">审批提醒</option><option value="optimization">优化建议</option></select></div>
+      <div class="ntc__filters"><label for="notification-category">消息类别</label><select id="notification-category" v-model="category" aria-label="消息类别"><option value="all">全部类别</option><option value="system">系统通知</option><option value="warning">投放预警</option><option value="approval">审批提醒</option><option value="optimization">优化建议</option><option value="points">积分</option></select></div>
       <div v-if="failed" class="ntc__error" role="status">{{ inbox.length ? '消息更新失败，当前显示已有消息' : '消息暂时加载失败' }}<button type="button" @click="refresh(false)">重试</button></div>
       <div id="notification-list" class="ntc__list" role="tabpanel" :aria-labelledby="`notification-${tab}`" :aria-busy="loading">
         <div v-if="!visible.length" class="ntc__empty"><el-icon><Bell /></el-icon><p>{{ loading ? '正在加载消息…' : failed ? '请稍后重试' : category !== 'all' ? (tab === 'unread' ? '该类别暂无未读消息' : '该类别暂无消息') : tab === 'unread' ? '暂无未读消息' : '暂无站内消息' }}</p></div>
@@ -26,14 +26,22 @@ import { filterInbox, inboxBody, inboxPresentation, inboxTime, optimizationInbox
 import { INBOX_CHANGED } from '@/features/tenant/inboxRefresh';
 import { getPlan, listPlans } from '@/features/delivery/deliveryApi';
 import { generationNotice, generationNoticeRoute } from '@/features/tenant/inboxGeneration';
+import { pointRechargePath } from '@/features/tenant/accountNavigation';
+import { useUserStore } from '@/stores/user';
 const route = useRoute(), router = useRouter();
+const user = useUserStore();
 const open = ref(false), tab = ref<'all' | 'unread'>('all'), inbox = ref<InboxMessage[]>([]);
 const loading = ref(false), failed = ref(false), readingAll = ref(false), pending = ref(new Set<string>());
 const watchedPlans = ref<number | null>(null), panel = ref<HTMLElement>(), bell = ref<{ $el: HTMLElement }>();
 const category = ref<InboxFilterCategory | 'all'>('all');
 const unread = computed(() => inbox.value.filter(item => item.unread).length);
+const pointsAccess = computed(() => {
+  const me = user.me;
+  if (me?.memberRole === 'OWNER') return 'owner';
+  return me?.memberRole === 'FINANCE' || me?.memberRoles?.includes('FINANCE') ? 'finance' : null;
+});
 const visible = computed(() => filterInbox(inbox.value, tab.value, category.value).map(item => ({ item,
-  view: { title: item.title || '系统消息', body: item.body || '', planName: '', outcome: '', ...inboxPresentation(item), ...generationNotice(item) },
+  view: { title: item.title || '系统消息', body: item.body || '', planName: '', outcome: '', ...inboxPresentation(item, pointsAccess.value), ...generationNotice(item) },
 })));
 let disposed = false, epoch = 0, pollTimer: number | undefined, refreshQueued = false;
 function flushRefresh() {
@@ -86,7 +94,12 @@ async function visit(item: InboxMessage) {
   if (!await mark(item) || disposed) return;
   const generation = generationNoticeRoute(item);
   if (generation) { open.value = false; await router.push(generation); return; }
-  const target = inboxPresentation(item).destination;
+  const target = inboxPresentation(item, pointsAccess.value).destination;
+  if (target === 'pointRecharge' || target === 'pointWorkspace') {
+    open.value = false;
+    await router.push(target === 'pointRecharge' ? pointRechargePath : '/accounts?tab=workspace');
+    return;
+  }
   if(target === 'contentEdit' && item.bizId){open.value=false;await router.push({path:`/campaigns/${encodeURIComponent(item.bizId)}/edit`});return;}
   if(target === 'draft' && item.bizId){open.value=false;await router.push({path:'/campaigns/create',query:{draftId:item.bizId}});return;}
   if (target === 'optimization') { open.value = false; await router.push(optimizationInboxRoute(item)!); return; }
@@ -148,6 +161,7 @@ onUnmounted(() => { disposed = true; window.clearInterval(pollTimer); window.rem
 .ntc__kind--material { background: #fff2e6; color: #c2701a; }
 .ntc__kind--authorization { background: #e8f5fe; color: #1b7fd4; }
 .ntc__kind--warning { background: #e6f7ee; color: #0d7a4c; }
+.ntc__kind--point-shortfall { background: #fff2e6; color: #a75512; }
 .ntc__meta time { margin-left: auto; font-size: 11.5px; color: #7c7f99; flex: none; }
 .ntc__message { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .ntc__txt { margin: 5px 0 0; font-size: 12.5px; line-height: 1.72; color: #4e5069; overflow-wrap: anywhere; }
