@@ -16,12 +16,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { checkOrderPayment, isBillingOrderId, type OrderView } from '@/features/billing/billingApi';
 import { pointRechargePath } from '@/features/tenant/accountNavigation';
 import { useUserStore } from '@/stores/user';
 
-const route = useRoute(), user = useUserStore();
+const route = useRoute(), router = useRouter(), user = useUserStore();
 const order = ref<OrderView>();
 const state = ref<'checking' | 'pending' | 'paid' | 'closed' | 'error' | 'invalid'>('checking');
 const retryToken = ref(0);
@@ -51,6 +51,10 @@ watch([() => route.query.order, retryToken], ([id], previous, onCleanup) => {
       if (signal.aborted) return;
       order.value = result;
       if (result.status === 'PAID') {
+        if (result.type === 'POINT_RECHARGE') {
+          const failure = await router.replace(pointRechargePath);
+          if (!failure || signal.aborted) return;
+        }
         state.value = 'paid';
         void user.loadMe().catch(() => {});
       } else if (result.status === 'CLOSED') {
