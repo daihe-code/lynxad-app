@@ -31,7 +31,7 @@ class BillingUpgradeIT extends AbstractContainerIT {
     private JdbcTemplate jdbc;
 
     @Test
-    void basicThenUpgradeProfessional420() throws Exception {
+    void basicThenUpgradeProfessionalWithPeriodCredit() throws Exception {
         String token = BillingItSupport.onboard(mvc, mapper, "13904000007");
         String tenantId = BillingItSupport.tenantId(mapper, mvc, token);
         BillingItSupport.expireTrial(jdbc, tenantId);
@@ -51,7 +51,7 @@ class BillingUpgradeIT extends AbstractContainerIT {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planCode\":\"BASIC\"}"));
-        assertEquals(29900, basic.path("data").path("payableFen").asInt());
+        assertEquals(19900, basic.path("data").path("payableFen").asInt());
         JsonNode payBasic = BillingItSupport.json(
                 mapper,
                 mvc,
@@ -83,7 +83,7 @@ class BillingUpgradeIT extends AbstractContainerIT {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planCode\":\"PROFESSIONAL\"}"));
-        assertEquals(42000, upgrade.path("data").path("payableFen").asInt());
+        assertEquals(619000, upgrade.path("data").path("payableFen").asInt());
         JsonNode payUpgrade = BillingItSupport.json(
                 mapper,
                 mvc,

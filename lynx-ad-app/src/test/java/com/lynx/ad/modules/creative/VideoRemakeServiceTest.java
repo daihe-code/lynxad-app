@@ -85,7 +85,7 @@ class VideoRemakeServiceTest {
         assertTrue(capability.ready());
         assertTrue(capability.sourceMatchingAvailable());
         assertTrue(capability.sourceMatchingHd());
-        assertEquals(Map.of("720p", BigDecimal.valueOf(16), "1080p", BigDecimal.valueOf(24)), capability.pointsPerSecond());
+        assertEquals(Map.of("720p", BigDecimal.valueOf(40), "1080p", BigDecimal.valueOf(60)), capability.pointsPerSecond());
     }
 
     @Test
@@ -119,7 +119,7 @@ class VideoRemakeServiceTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"720,1280,9,16,144,remake_720p_second", "1920,1080,17,24,408,remake_1080p_second"})
+    @CsvSource({"720,1280,9,40,360,remake_720p_second", "1920,1080,17,60,1020,remake_1080p_second"})
     void analysisQuotesMeasuredOutputAndConfirmationReservesThatAmount(int width, int height, int duration,
             long rate, long points, String kind) throws Exception {
         var review = row("REVIEW", "{\"follow_source\":true}");

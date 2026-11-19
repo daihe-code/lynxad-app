@@ -170,7 +170,8 @@ public class VideoRemakeService {
             }
             payload.put("orientation", "source").put("follow_source", true);
         } else {
-            payload.put("orientation", "portrait").put("duration_seconds", request.durationSeconds());
+            payload.put("orientation", "portrait").put("duration_seconds", request.durationSeconds())
+                    .put("_charge_by_second", true);
         }
         payload.set("product", target);
         if (!adNotices.isEmpty()) payload.set("ad_notices", json.valueToTree(adNotices));
@@ -260,7 +261,12 @@ public class VideoRemakeService {
     }
 
     private RemakeCharge remakeCharge(Task task, JsonNode spec) {
-        if (!parse(task.request()).path("follow_source").asBoolean()) {
+        var request = parse(task.request());
+        if (!request.path("follow_source").asBoolean()) {
+            if (request.path("_charge_by_second").asBoolean()) {
+                var kind = WorkspacePricing.REMAKE_720P_SECOND;
+                return new RemakeCharge(kind, request.path("duration_seconds").asInt(), pricing.rate(kind));
+            }
             return new RemakeCharge("video", 1, pricing.rate("video"));
         }
         var width = spec.path("width");
@@ -319,7 +325,9 @@ public class VideoRemakeService {
 
     private void advance(Task task, String token) {
         if ("CREATING".equals(task.phase())) {
-            var reply = engine.remake("POST", "/tasks", parse(task.request()));
+            var payload = (ObjectNode) parse(task.request());
+            payload.remove("_charge_by_second");
+            var reply = engine.remake("POST", "/tasks", payload);
             if (!task.tenant().equals(reply.path("store_id").asText())) throw input("复刻任务归属不匹配");
             store.update(task, token, "PLANNING", identifier(reply.path("id").asText(), "rpt_"), null, 3);
             return;

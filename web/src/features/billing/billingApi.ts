@@ -6,6 +6,7 @@ export interface PlanItem {
   listPriceFen: number;
   listPriceYuan: number;
   adAccountLimit: number;
+  childAccountLimit: number;
   periodPoints: number;
   suitableFor: string;
   benefits: string[];
@@ -127,6 +128,7 @@ export const getGenerationAccess = (signal?: AbortSignal) =>
 
 export interface RechargeOption { code: string; priceFen: number; points: number }
 export const rechargeOptions = () => apiGet<RechargeOption[]>('/api/v1/billing/points/recharge-options');
+export const quoteRecharge = (amountFen: number) => apiGet<RechargeOption>(`/api/v1/billing/points/recharge-quote?amountFen=${amountFen}`);
 export const createRecharge = (code: string, key: string) =>
   apiPost<OrderView>('/api/v1/billing/points/orders', { code }, { headers: { 'Idempotency-Key': key } });
 export const rechargeStatus = (id: string) => apiGet<OrderView>(`/api/v1/billing/points/orders/${encodeURIComponent(id)}`);

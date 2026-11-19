@@ -10,6 +10,8 @@ import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.billing.application.GenerationCharges;
 import com.lynx.ad.modules.identity.application.EngineExecutionTickets;
 import com.lynx.ad.modules.delivery.application.CreationWorkflowService;
+import com.lynx.ad.modules.delivery.application.MaterialPointUsage;
+import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import java.math.BigDecimal;
 import java.time.*;
@@ -100,14 +102,14 @@ public class OptimizationCreativeService {
                     var delivered=parse(result,job.productId(),body.path("strategy").path("target").asText(),engineId);
                     if(delivered!=null){
                         body.put("engine_job_id",engineId);
+                        settle(job,chargeKey,delivered);
                         body.set("material",json.valueToTree(delivered));
-                        settle(job,chargeKey,true);
                         body.put("error","生成已完成；原盯盘授权失效，未自动发布");
                         jobs.update(job,"REVIEW",body);return;
                     }
                 }
             }
-            settle(job,chargeKey,false);
+            settle(job,chargeKey,null);
             body.put("error",ex.getMessage());jobs.update(job,"CANCELLED",body);return;
         }
         if(Set.of("PLATFORM_REVIEW","TRIAL").contains(job.status())){evaluateTrial(p,state,job,body);return;}
@@ -122,21 +124,21 @@ public class OptimizationCreativeService {
                     var actor=state.policy().creativeGeneration().authorizedBy();
                     if(charges!=null){
                         charges.hold(job.tenant(),chargeKey,request.path("account_id").asText(),actor,
-                                Map.of(GenerationCharges.kind(body.path("strategy").path("target").asText()),1));
+                                MaterialPointUsage.reserve(body.path("strategy").path("target").asText(),1));
                         charges.validate(job.tenant(),chargeKey);
                     }
                     var ticketBody=(ObjectNode)request.deepCopy();
                     ticketBody.putObject("operator").put("user_id",actor);
                     ticket=tickets==null?null:tickets.header(ticketBody);
                 }catch(BizException denied){
-                    settle(job,chargeKey,false);
+                    settle(job,chargeKey,null);
                     body.put("error",denied.getMessage());jobs.update(job,"FAILED",body);return;
                 }
                 // Engine's durable request ID is reused with exactly the same saved payload, including after a restart.
                 jobs.update(job,"GENERATING",body);job=jobs.get(job.tenant(),job.id()).orElseThrow();
                 try{receipt=ticket==null?monitoring.creative(job.tenant(),"",body.path("request")):monitoring.creative(job.tenant(),"",body.path("request"),ticket);}
                 catch(BizException ex){
-                    if(ex.code()==8002)settle(job,chargeKey,false);
+                    if(ex.code()==8002)settle(job,chargeKey,null);
                     body.put("error",ex.getMessage());jobs.update(job,ex.code()==8002?"FAILED":"UNKNOWN",body);return;
                 }
             }
@@ -149,8 +151,8 @@ public class OptimizationCreativeService {
             for(var direction:result.path("direction_planning"))if("group-1".equals(direction.path("group_id").asText())&&job.productId().equals(direction.path("product_id").asText())&&body.path("strategy").path("target").asText().equals(direction.path("target").asText()))body.set("directionPlan",direction);
             if(!terminal(result)){if("UNCERTAIN".equals(receipt.path("status").asText())||job.createdAt().plusSeconds(7200).isBefore(Instant.now())){body.put("error","原生成任务尚未完成或投递不明确，请核查引擎任务 "+engineId+"；不会创建重复任务，可停止本批后续发布");jobs.update(job,"UNKNOWN",body);}else jobs.update(job,"GENERATING",body);return;}
             var material=parse(result,job.productId(),body.path("strategy").path("target").asText(),engineId);
-            if(material==null){settle(job,chargeKey,false);String reason=body.path("directionPlan").path("failure_reason").asText();body.put("error",reason.isBlank()?"未生成符合当前策略的完整素材，请查看引擎任务":"素材方向规划未通过，任务已停止："+reason);jobs.update(job,"FAILED",body);return;}
-            if(!state.policy().creativeGeneration().autoPublish())settle(job,chargeKey,true);
+            if(material==null){settle(job,chargeKey,null);String reason=body.path("directionPlan").path("failure_reason").asText();body.put("error",reason.isBlank()?"未生成符合当前策略的完整素材，请查看引擎任务":"素材方向规划未通过，任务已停止："+reason);jobs.update(job,"FAILED",body);return;}
+            if(!state.policy().creativeGeneration().autoPublish())settle(job,chargeKey,material);
             body.set("material",json.valueToTree(material));jobs.update(job,state.policy().creativeGeneration().autoPublish()?"SYNCING":"REVIEW",body);
             journal.notice(job.tenant(),job.planId(),"OPTIMIZATION_EXECUTION","自动生成素材已完成",state.policy().creativeGeneration().autoPublish()?"正在同步所选账户，等待发布检查":"请到自动盯盘页面审核素材并确认发布");return;
         }
@@ -159,9 +161,9 @@ public class OptimizationCreativeService {
             if(!state.policy().creativeGeneration().autoPublish()&&!body.path("approved").asBoolean())throw new BizException(1802,"生成素材尚未确认发布");
             var context=gateway.tactics().generationState(p,state.policy(),job.productId());
             CreationState.Material material=material(body);workflow.importOptimizationMaterial(context,material);body.set("material",json.valueToTree(material));
-            if("FAILED".equals(material.status)){settle(job,chargeKey,false);body.put("error",material.error);jobs.update(job,"FAILED",body);return;}
+            if("FAILED".equals(material.status)){settle(job,chargeKey,null);body.put("error",material.error);jobs.update(job,"FAILED",body);return;}
             if(!"READY".equals(material.status)){jobs.update(job,"SYNCING",body);return;}
-            settle(job,chargeKey,true);
+            settle(job,chargeKey,material);
             if(creativeContexts!=null&&!body.path("approved").asBoolean()){
                 creativeContexts.hydrate(context,material);body.set("material",json.valueToTree(material));
                 if("FAILED".equals(material.creativeProfileStatus)){body.put("error","实际素材场景尚未确认，已转为人工审核，不自动发布");jobs.update(job,"REVIEW",body);return;}
@@ -178,9 +180,15 @@ public class OptimizationCreativeService {
     private static boolean terminal(JsonNode result){
         return Set.of("succeeded","partial_failed","failed","cancelled").contains(result.path("status").asText());
     }
-    private void settle(Job job,String chargeKey,boolean delivered){
-        if(charges!=null)charges.finish(job.tenant(),chargeKey,delivered
-                ?Map.of(GenerationCharges.kind(job.body().path("strategy").path("target").asText()),1):Map.of());
+    private void settle(Job job, String chargeKey, CreationState.Material material) {
+        if (charges == null) return;
+        var quote = charges.quote(job.tenant(), chargeKey);
+        if (quote == null) return;
+        if (material != null && quote.requested().containsKey(WorkspacePricing.IMAGE_UNIT)) {
+            workflow.measureGeneratedImages(job.tenant(), quote.scope().actorUserId(), job.planId(), material);
+        }
+        charges.finish(job.tenant(), chargeKey, MaterialPointUsage.delivered(quote,
+                material == null ? List.of() : List.of(material)));
     }
     private void reconcile(Job job,ObjectNode body){
         String field="REMOVING".equals(job.status())?"removal_event_id":"publication_event_id";var event=journal.event(job.tenant(),body.path(field).asText()).orElse(null);
@@ -217,6 +225,8 @@ public class OptimizationCreativeService {
         if(found.size()!=1||!target.equals(found.getFirst().path("material_type").asText()))return null;
         var item=found.getFirst();var m=new CreationState.Material();m.id=item.path("material_id").asText();if(m.id.isBlank())return null;
         m.engineMaterialId=m.id;m.engineJobId=engineId;m.groupId="group-1";m.productId=product;m.type=switch(target){case "video"->"VIDEO";case "image_text"->"CAROUSEL";case "product_card"->"IMAGE";default->"";};
+        MaterialPointUsage.readVideoDuration(m, item);
+        m.deliverySource = item.path("detail").path("delivery_source").asText(null);
         m.title=item.path("content").path("title").asText();m.text=item.path("content").path("text").asText();m.titles=new ArrayList<>(List.of(m.title));var urls=item.path("urls");
         if("VIDEO".equals(m.type)){m.sourceUrls.put("VIDEO",urls.path("video_url").asText());m.sourceUrls.put("COVER",urls.path("cover_url").asText());m.previewUrl=urls.path("video_url").asText();m.posterUrl=urls.path("cover_url").asText();}
         else{int i=0;for(var url:urls.path("image_urls")){m.sourceUrls.put("IMAGE_"+i++,url.asText());m.imageUrls.add(url.asText());}if(i==0||"IMAGE".equals(m.type)&&i!=1)return null;m.previewUrl=m.imageUrls.getFirst();}

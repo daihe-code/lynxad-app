@@ -40,6 +40,12 @@ public class WorkspacePointOrders {
                 ? pricing.options() : List.of();
     }
 
+    public WorkspacePricing.RechargeOption quote(int amountFen) {
+        var owner = access.require(MemberRole.OWNER);
+        requireRechargeSubscription(new TenantId(owner.tenantId()));
+        return pricing.rechargeQuote(amountFen);
+    }
+
     private java.util.Optional<Subscription> paidSubscription(TenantId tenant) {
         return subscriptions.effective(tenant, Instant.now()).filter(sub -> sub.paidFenThisPeriod() > 0);
     }
@@ -74,8 +80,8 @@ public class WorkspacePointOrders {
                 throw new BizException(1902,"充值请求已用于其他档位");
             return OrderView.from(existing.get());
         }
-        var sku = pricing.options().stream().filter(option -> option.code().equals(code)).findFirst()
-                .orElseThrow(() -> new BizException(1001,"充值档位不存在"));
+        var sku = pricing.rechargeOption(code);
+        if (orders.findPendingRecharge(tenant).isPresent()) throw new BizException(1902, "请先处理已有的积分充值订单");
         var order = new BillingOrder(id,tenant,subscription.planCode(),null,OrderType.POINT_RECHARGE,OrderStatus.PENDING_PAY,
                 sku.priceFen(),sku.priceFen(),"积分充值 · "+sku.points()+" 积分",Instant.now(),null);
         orders.save(order);
@@ -101,7 +107,17 @@ public class WorkspacePointOrders {
         var sub = subscriptions.effective(id,now);
         if (sub.isPresent()) {
             var current = sub.get();
-            grant(tenant,"subscription:"+current.periodStart().getEpochSecond(),current.planCode().name(),pricing.points(current.planCode().name()));
+            String tier = current.planCode().name();
+            long points = pricing.points(tier);
+            if (current.paidFenThisPeriod() > 0) {
+                var paidPrice = jdbc.query("""
+                        SELECT list_price_fen FROM billing_order WHERE tenant_id=? AND plan_code=?
+                        AND status='PAID' AND type<>'POINT_RECHARGE' AND paid_at>=?
+                        ORDER BY paid_at DESC, id DESC LIMIT 1
+                        """, (row, i) -> row.getInt(1), tenant, tier, java.sql.Timestamp.from(current.periodStart()));
+                if (!paidPrice.isEmpty()) points = pricing.pointsForLegacyPrice(current.planCode(), paidPrice.getFirst());
+            }
+            grant(tenant,"subscription:"+current.periodStart().getEpochSecond(),tier,points);
         }
     }
 

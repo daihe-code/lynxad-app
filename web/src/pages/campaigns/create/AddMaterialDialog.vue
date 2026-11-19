@@ -3,7 +3,7 @@
     <template #header-extra><div class="current-product"><img v-if="product?.imageUrl" :src="product.imageUrl" alt="" /><span>当前商品<strong>{{ product?.name }}</strong></span></div></template>
     <div class="format-tabs" role="tablist" aria-label="新增素材类型"><button v-for="(label, key) in formats" :key="key" type="button" role="tab" :aria-selected="type === key" :disabled="locked" @click="chooseType(key)">{{ label }}</button></div>
     <div v-if="!localCarousel || !carouselForm.started" class="source-row"><span>添加方式</span><div class="source-options" role="group" aria-label="素材来源"><button v-for="(label, key) in availableSources" :key="key" type="button" :aria-pressed="source === key" :disabled="locked || key === 'AI' && generationBusy" @click="chooseSource(key)"><span class="radio-dot" />{{ label }}</button></div></div>
-    <div v-if="source === 'AI'" class="ai-source"><ReferenceIcon name="sparkle" /><div><strong>我会结合商品信息，为当前商品新增 {{ generationUnit }}。</strong><p>已有素材会保留，生成后可预览并决定是否用于投放。</p></div></div>
+    <div v-if="source === 'AI'" class="ai-source"><ReferenceIcon name="sparkle" /><div><strong>我会结合商品信息，为当前商品新增 {{ generationUnit }}。</strong><p>{{ generationCharge }}</p></div></div>
     <div v-if="source === 'LIBRARY'" class="library-source">
       <form class="library-search" @submit.prevent="search"><input v-model="query" aria-label="搜索素材名称" placeholder="搜索素材名称" :disabled="locked" /><button type="submit" :disabled="locked || loading">搜索</button><select :value="scope === 'AUTO' ? 'RELATED' : scope" aria-label="商品关联范围" :disabled="locked || loading" @change="scopeChanged"><option value="RELATED">当前商品相关</option><option value="ALL">{{ allLabel }}</option></select><button type="button" :disabled="locked || loading" @click="refresh"><ReferenceIcon name="refresh" />刷新</button></form>
       <p v-if="!loading && !loadError && items.length && relatedCount === 0 && scope === 'ALL'" class="hint">暂无明确关联当前商品的{{ kindLabel }}，可按名称搜索{{ allLabel }}。</p>
@@ -61,6 +61,9 @@ const availableSources = computed<Partial<Record<Source, string>>>(() => props.g
   ? { LIBRARY: sources.LIBRARY, UPLOAD: sources.UPLOAD } : sources);
 const type = ref<Format>(props.initialType), source = ref<Source>(props.generationAllowed === false ? 'LIBRARY' : props.generationBusy ? 'UPLOAD' : 'AI');
 const generationUnit = computed(() => ({ VIDEO: '1 条视频', IMAGE: '1 张商品卡图片', CAROUSEL: '1 套图文' })[type.value]);
+const generationCharge = computed(() => type.value === 'VIDEO'
+  ? '每秒 65 积分，最多预占 1,950 积分，结算后退回差额。'
+  : '按实际生成张数结算，常规图 15 积分/张，高清图 30 积分/张。');
 const generationButton = computed(() => ({ VIDEO: '生成 1 条视频', IMAGE: '生成 1 张图片', CAROUSEL: '生成 1 套图文' })[type.value]);
 const awaiting = ref(false), submitError = ref(''), requestId = ref(''), uploadBlocked = ref(false), uploadMounted = ref(!!props.generationBusy);
 const uploader = ref<InstanceType<typeof LocalMaterialUpload>>();

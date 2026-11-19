@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.modules.billing.application.GenerationCharges;
 import com.lynx.ad.modules.delivery.domain.service.DraftExpiryPolicy;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -19,6 +20,9 @@ public class DraftExpiryStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final TransactionTemplate tx;
+    private GenerationCharges charges;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void generationCharges(GenerationCharges value) { charges = value; }
     public DraftExpiryStore(JdbcTemplate jdbc, ObjectMapper json, PlatformTransactionManager manager) {
         this.jdbc = jdbc; this.json = json; this.tx = new TransactionTemplate(manager);
     }
@@ -76,6 +80,10 @@ public class DraftExpiryStore {
         if(jdbc.update("UPDATE ad_plan SET status='DELETED' WHERE tenant_id=? AND id=? AND status='DRAFT' AND qc_plan_id IS NULL",key.tenant,key.id)!=1)return false;
         jdbc.update("DELETE FROM ad_plan_creative WHERE ad_plan_id=?",key.id);
         if(saved instanceof ObjectNode body) {
+            if (charges != null && body.path("analysisChargeKey").isTextual()) {
+                charges.finish(key.tenant, body.path("analysisChargeKey").asText(), Map.of());
+                body.remove("analysisChargeKey");
+            }
             int revision=body.path("revision").asInt(1)+1;
             body.put("revision",revision);body.put("analysisStatus","CANCELLED");body.put("generationStatus","CANCELLED");
             jdbc.update("UPDATE delivery_creation SET revision=?,state_json=?,work_pending=0,lease_until=NULL,updated_at=? WHERE tenant_id=? AND plan_id=?",

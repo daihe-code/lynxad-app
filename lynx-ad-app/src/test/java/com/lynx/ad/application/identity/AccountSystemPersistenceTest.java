@@ -39,6 +39,7 @@ public class AccountSystemPersistenceTest {
         var jdbc=new JdbcTemplate(ds);
         jdbc.execute("CREATE ALIAS HASH_MD5 FOR 'com.lynx.ad.application.identity.AccountSystemPersistenceTest.md5'");
         jdbc.execute("CREATE TABLE sys_tenant(id VARCHAR(36) PRIMARY KEY,name VARCHAR(128),status VARCHAR(16),created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+        jdbc.execute("CREATE TABLE billing_order(id VARCHAR(36),tenant_id VARCHAR(36),plan_code VARCHAR(32),type VARCHAR(24),status VARCHAR(24),list_price_fen INT,paid_at TIMESTAMP)");
         jdbc.execute("CREATE TABLE sys_user(id VARCHAR(36) PRIMARY KEY,status VARCHAR(16))");
         jdbc.execute("CREATE TABLE tenant_member(tenant_id VARCHAR(36),user_id VARCHAR(36),member_role VARCHAR(16),created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(tenant_id,user_id))");
         jdbc.execute("CREATE TABLE oauth_account(id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36),platform VARCHAR(24),advertiser_id VARCHAR(64),authorized_by_user_id VARCHAR(36),grant_id VARCHAR(36),status VARCHAR(24))");
@@ -239,16 +240,16 @@ public class AccountSystemPersistenceTest {
         String remakeUnit = WorkspacePricing.REMAKE_1080P_SECOND;
         assertThrows(BizException.class, () -> f.tx.executeWithoutResult(s ->
                 charges.hold("a", "remake-too-long", "x", "a", Map.of(remakeUnit, 16))));
-        f.tx.executeWithoutResult(s -> charges.hold("a", "remake", "x", "a", Map.of(remakeUnit, 9)));
-        assertEquals(new BigDecimal("216"), charges.quote("a", "remake").total());
-        assertEquals(0, new BigDecimal("216").compareTo(f.points.balance("a").frozen()));
+        f.tx.executeWithoutResult(s -> charges.hold("a", "remake", "x", "a", Map.of(remakeUnit, 5)));
+        assertEquals(new BigDecimal("300"), charges.quote("a", "remake").total());
+        assertEquals(0, new BigDecimal("300").compareTo(f.points.balance("a").frozen()));
         pricing.getGenerationPoints().put(remakeUnit, 50L);
         f.tx.executeWithoutResult(s -> {
             charges.finishAll("a", "remake");
             charges.finishAll("a", "remake");
         });
-        assertEquals(0, new BigDecimal("456").compareTo(f.points.balance("a").consumed()));
-        assertEquals(0, new BigDecimal("144").compareTo(f.points.balance("a").available()));
+        assertEquals(0, new BigDecimal("540").compareTo(f.points.balance("a").consumed()));
+        assertEquals(0, new BigDecimal("60").compareTo(f.points.balance("a").available()));
         assertEquals(0, f.points.balance("a").frozen().signum());
     }
 
@@ -295,7 +296,7 @@ public class AccountSystemPersistenceTest {
         when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.empty());
         f.tx.executeWithoutResult(s -> grants.ensureCurrentGrant("a"));
         assertEquals(0, f.points.balance("a").available().signum());
-        for (var entry : Map.of(PlanCode.BASIC, 3000, PlanCode.PROFESSIONAL, 9000, PlanCode.FLAGSHIP, 30000)
+        for (var entry : Map.of(PlanCode.BASIC, 1800, PlanCode.PROFESSIONAL, 2400, PlanCode.FLAGSHIP, 5000)
                 .entrySet().stream().sorted(Map.Entry.comparingByValue()).toList()) {
             when(subscriptions.effective(eq(tenant), any())).thenReturn(Optional.of(new Subscription(tenant,
                     entry.getKey(), SubStatus.ACTIVE, now.minusSeconds(60), now.plusSeconds(3600),
@@ -430,7 +431,7 @@ public class AccountSystemPersistenceTest {
             charges.finishAll("a", "child-video-one");
         });
         var shared = f.tx.execute(s -> admin.balance("child-one", "a"));
-        assertEquals(new BigDecimal("1060.0000"), shared.available());
+        assertEquals(new BigDecimal("1690.0000"), shared.available());
         assertEquals(new BigDecimal("240.0000"), shared.consumed());
         assertEquals(0, shared.frozen().signum());
         assertEquals(shared, f.tx.execute(s -> admin.balance("a", "a")));
@@ -449,7 +450,7 @@ public class AccountSystemPersistenceTest {
         var access=mock(WorkspaceAccess.class);
         var role=com.lynx.ad.common.security.MemberRole.OWNER;
         when(access.require(role)).thenReturn(new WorkspaceAccess.Membership("member","a","a",role,1));
-        var pricing=new WorkspacePricing();
+        var pricing=spy(new WorkspacePricing());
         pricing.setEnabled(true);
         var orders=mock(OrderRepository.class);
         var payments=mock(PaymentRepository.class);
@@ -470,7 +471,7 @@ public class AccountSystemPersistenceTest {
         var created=f.tx.execute(s -> recharge.create("r99","recharge-request"));
         assertNotNull(created);
         var order=orderState.get();
-        pricing.getRecharge().put("r99",new WorkspacePricing.Recharge(12900,2000));
+        doReturn(new WorkspacePricing.RechargeOption("fen-9900", 9900, 2000)).when(pricing).rechargeQuote(9900);
         assertEquals(created,f.tx.execute(s -> recharge.create("r99","recharge-request")));
         var payment=new BillingPayment("wechat-payment",tenant,order.id(),PayChannel.WECHAT,PaymentStatus.CREATED,
                 9900,null,null,Instant.now(),null);
@@ -489,7 +490,7 @@ public class AccountSystemPersistenceTest {
         f.tx.execute(s -> checkout.wechatNotify("callback",Map.of()));
         f.tx.execute(s -> checkout.wechatNotify("callback",Map.of()));
         assertEquals(OrderStatus.PAID,order.status());
-        assertEquals(0,new BigDecimal("1000").compareTo(f.points.balance("a").available()));
+        assertEquals(0,new BigDecimal("1630").compareTo(f.points.balance("a").available()));
         assertEquals(1,f.points.ledger("a",1,10).size());
         assertEquals(0,f.points.balance("b").available().signum());
     }

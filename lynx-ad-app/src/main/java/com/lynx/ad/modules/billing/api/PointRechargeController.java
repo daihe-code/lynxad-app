@@ -25,6 +25,8 @@ public class PointRechargeController {
     public record RechargeRequest(String code) {}
     @GetMapping("/recharge-options")
     public ApiResponse<?> options() { return ApiResponse.ok(orders.options()); }
+    @GetMapping("/recharge-quote")
+    public ApiResponse<?> quote(@RequestParam int amountFen) { return ApiResponse.ok(orders.quote(amountFen)); }
     @PostMapping("/orders")
     public ApiResponse<?> create(@RequestBody RechargeRequest request, @RequestHeader("Idempotency-Key") String key) {
         return ApiResponse.ok(orders.create(request.code(),key));

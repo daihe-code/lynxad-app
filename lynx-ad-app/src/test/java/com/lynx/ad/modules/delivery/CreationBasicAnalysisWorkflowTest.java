@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lynx.ad.modules.billing.application.GenerationCharges;
+import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
@@ -208,6 +210,34 @@ class CreationBasicAnalysisWorkflowTest {
         service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,2));
         assertTrue(saved.get().analysisConfirmation==null||saved.get().analysisConfirmation.isNull());
     }
+    @ParameterizedTest
+    @ValueSource(strings = {"new", "cached", "failed"})
+    void chargesOnlyFreshSuccessfulAnalysis(String result) throws Exception {
+        var charges = mock(GenerationCharges.class);
+        service.generationCharges(charges);
+        queueAnalysis();
+        var key = saved.get().analysisChargeKey;
+        var request = saved.get().analysisRequestId;
+        var fingerprint = com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService.fingerprint(saved.get().products);
+        var response = json.createObjectNode();
+        response.putObject("product_set");
+        response.putObject("selection_analysis").put("analysis_id", request).put("input_version", fingerprint);
+        response.putObject("snapshot").put("cache_hit", "cached".equals(result));
+        if ("failed".equals(result)) response.putObject("processing").put("inference_error", "TimeoutError");
+        when(engine.post(eq("/api/v1/capabilities/perception/products/analyze"), any())).thenReturn(response);
+        service.process(copy(saved.get()));
+        verify(charges).hold("tenant", key, "account", "user", Map.of(WorkspacePricing.PRODUCT_ANALYSIS, 1));
+        if ("new".equals(result)) {
+            verify(charges).finishAll("tenant", key);
+            queueAnalysis();
+            verify(engine, times(1)).post(eq("/api/v1/capabilities/perception/products/analyze"), any());
+            verify(charges, times(1)).hold(anyString(), anyString(), anyString(), anyString(), anyMap());
+        } else {
+            verify(charges).finish("tenant", key, Map.of());
+        }
+        assertNull(saved.get().analysisChargeKey);
+    }
+
     @Test void retryDuringAnActiveAnalysisKeepsItsDurableRequestIdentity() {
         queueAnalysis();String request=saved.get().analysisRequestId;int revision=saved.get().revision;
         service.analyze(tenant,id,new CreationWorkflowService.Analysis(revision,true));

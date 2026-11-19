@@ -35,10 +35,16 @@ class BillingPlansIT extends AbstractContainerIT {
         JsonNode items = plans.path("data").path("items");
         assertEquals(3, items.size());
         assertEquals("BASIC", items.get(0).path("code").asText());
-        assertEquals(299, items.get(0).path("listPriceYuan").asInt());
+        assertEquals(199, items.get(0).path("listPriceYuan").asInt());
+        assertEquals(0, items.get(0).path("childAccountLimit").asInt(-1));
+        assertEquals(1800, items.get(0).path("periodPoints").asInt());
         assertEquals("PROFESSIONAL", items.get(1).path("code").asText());
-        assertEquals(799, items.get(1).path("listPriceYuan").asInt());
+        assertEquals(7099, items.get(1).path("listPriceYuan").asInt());
+        assertEquals(3, items.get(1).path("childAccountLimit").asInt(-1));
+        assertEquals(2400, items.get(1).path("periodPoints").asInt());
         assertEquals("FLAGSHIP", items.get(2).path("code").asText());
-        assertEquals(2999, items.get(2).path("listPriceYuan").asInt());
+        assertEquals(22999, items.get(2).path("listPriceYuan").asInt());
+        assertEquals(10, items.get(2).path("childAccountLimit").asInt(-1));
+        assertEquals(5000, items.get(2).path("periodPoints").asInt());
     }
 }

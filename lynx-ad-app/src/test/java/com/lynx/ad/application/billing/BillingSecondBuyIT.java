@@ -44,6 +44,6 @@ class BillingSecondBuyIT extends AbstractContainerIT {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planCode\":\"PROFESSIONAL\"}"));
-        assertEquals(79900, second.path("data").path("payableFen").asInt());
+        assertEquals(709900, second.path("data").path("payableFen").asInt());
     }
 }

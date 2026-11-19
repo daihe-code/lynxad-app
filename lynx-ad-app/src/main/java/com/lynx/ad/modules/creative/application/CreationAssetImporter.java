@@ -3,9 +3,14 @@ package com.lynx.ad.modules.creative.application;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.creative.infrastructure.adapter.EngineAssetStorage;
+import com.lynx.ad.modules.delivery.application.MaterialPointUsage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import javax.imageio.ImageIO;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -20,6 +25,26 @@ public class CreationAssetImporter {
         var asset=engine.register(tenant,user,request,job,material,component,kind,composite);
         if(account!=null)assets.ensureTarget(tenant,asset.id(),account);
         return asset.id();
+    }
+
+    /** Some engine results omit per-frame dimensions. Read the image header through its registered OSS reference. */
+    public int imageUnits(TenantId tenant, String id) {
+        var asset = assets.detail(tenant, id);
+        if (asset.width() != null && asset.height() != null) return MaterialPointUsage.imageUnits(asset.width(), asset.height());
+        try (var file = engine.open(tenant, id);
+             var header = new MemoryCacheImageInputStream(new ByteArrayInputStream(file.readNBytes(256 * 1024)))) {
+            var readers = ImageIO.getImageReaders(header);
+            if (!readers.hasNext()) return 1;
+            var reader = readers.next();
+            try {
+                reader.setInput(header, true, true);
+                return MaterialPointUsage.imageUnits(reader.getWidth(0), reader.getHeight(0));
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | BizException unavailable) {
+            return 1;
+        }
     }
 
     /** User-entered titles still follow the uploaded text path, rather than gaining engine provenance. */

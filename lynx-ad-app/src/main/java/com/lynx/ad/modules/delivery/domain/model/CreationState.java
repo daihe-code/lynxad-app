@@ -46,6 +46,7 @@ public class CreationState {
     public String analysisStatus = "NONE", analysisError, enginePlanId, engineJobId, previousEngineJobId;
     public ProductBasicAnalysis basicAnalysis;
     public String analysisRequestId;
+    public String analysisChargeKey;
     public long analysisStartedAt;
     public boolean analysisRefreshRequested;
     public JsonNode analysis, groups, recommendations;
@@ -178,6 +179,7 @@ public class CreationState {
         public String status = "PROCESSING", error, previewUrl, posterUrl;
         public Integer width, height;
         public Double durationSec;
+        public Integer billingImageUnits;
         public String failureStage;
         public Integer failureCode;
         /** Internal recovery budget. No paid generation is dispatched by sync recovery. */

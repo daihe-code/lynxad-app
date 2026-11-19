@@ -32,7 +32,7 @@ class BillingPayMockIT extends AbstractContainerIT {
     private JdbcTemplate jdbc;
 
     @Test
-    void expiredFirstProfessional719ThenPublish() throws Exception {
+    void expiredFirstProfessionalThenPublish() throws Exception {
         String token = BillingItSupport.onboard(mvc, mapper, "13904000001");
         String tenantId = BillingItSupport.tenantId(mapper, mvc, token);
         BillingItSupport.expireTrial(jdbc, tenantId);
@@ -55,7 +55,7 @@ class BillingPayMockIT extends AbstractContainerIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"planCode\":\"PROFESSIONAL\"}"));
         assertEquals(0, order.path("code").asInt());
-        assertEquals(71900, order.path("data").path("payableFen").asInt());
+        assertEquals(638900, order.path("data").path("payableFen").asInt());
         assertTrue(order.path("data").path("discountLabel").asText().contains("9折"));
         String orderId = order.path("data").path("orderId").asText();
 

@@ -96,7 +96,7 @@
           </aside>
           <div v-if="presentation === 'failed'" class="analysis-recovery">
             <p class="analysis-evidence-note">{{ analysisError || '商品智能分析暂不可用，请重新分析。' }}</p>
-            <button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked || !selected.length" @click="confirm(true)"><PreparationIcon name="refresh"/>重新分析</button>
+            <button v-if="!readOnly" class="analysis-adjust" type="button" :disabled="saving || selectionLocked || !selected.length" @click="confirm(true)"><PreparationIcon name="refresh"/>重新分析 · 10 积分</button>
           </div>
 
           <ProductPreparationAnalysis v-if="presentation === 'ready'" :group-decision="groupDecision" @keep="emit('keep')" :products="selected" :analysis="analysis" :busy="saving" :read-only="readOnly" @group="ids => emit('group', ids)" />
@@ -104,12 +104,12 @@
             <strong>{{ presentation === 'pending' ? '正在生成商品智能分析' : presentation === 'failed' ? '尚未生成有效的智能分析结果' : presentation === 'outdated' ? '商品分析需要更新' : '等待分析所选商品' }}</strong>
             <p>{{ presentation === 'pending' ? '我正在逐商品分析需求场景、素材方向和待确认信息，完成后在这里展示。' : presentation === 'failed' ? '请重新分析。已选商品和基础检查结果已保留。' : presentation === 'outdated' ? '当前保存的是旧版分析，尚无本页面所需的逐商品报告。请重新分析以获取最新结果。' : '开始分析后，将展示商品组合建议和逐商品素材方向。' }}</p>
             <small v-if="readOnly && ['failed', 'outdated'].includes(presentation)">请在编辑计划时重新分析商品。</small>
-            <button v-if="!readOnly && ['empty', 'outdated'].includes(presentation)" class="analysis-adjust analysis-empty-retry" type="button" :disabled="saving || selectionLocked || !selected.length" @click="confirm(true)"><PreparationIcon name="refresh"/>重新分析</button>
+            <button v-if="!readOnly && ['empty', 'outdated'].includes(presentation)" class="analysis-adjust analysis-empty-retry" type="button" :disabled="saving || selectionLocked || !selected.length" @click="confirm(true)"><PreparationIcon name="refresh"/>重新分析 · 10 积分</button>
           </div>
         </div>
       </section>
     </div></main>
-    <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '下一步' : '分析所选商品' }}</button></CreationFooter>
+    <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '下一步' : '分析所选商品 · 10 积分' }}</button></CreationFooter>
   </div>
 </template>
 

@@ -184,6 +184,7 @@ public class SubscriptionQueryService {
                 plan.listPriceFen(),
                 MoneyYuan.ofFen(plan.listPriceFen()),
                 plan.adAccountLimit(),
+                workspacePricing.seats(plan.code().name()),
                 workspacePricing.isEnabled() ? workspacePricing.points(plan.code().name()) : 0,
                 plan.suitableFor(),
                 plan.benefits(),

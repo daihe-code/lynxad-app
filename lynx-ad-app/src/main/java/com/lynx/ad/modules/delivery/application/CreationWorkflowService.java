@@ -8,6 +8,7 @@ import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
+import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.billing.domain.model.WriteAction;
 import com.lynx.ad.modules.creative.application.*;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
@@ -43,14 +44,15 @@ public class CreationWorkflowService {
     }
     private void finishGeneration(CreationState s, boolean rejected) {
         if (charges==null || s.generationChargeKey==null) return;
-        var counts=new HashMap<String,Integer>();
+        var delivered = new ArrayList<CreationState.Material>();
         if (!rejected) for (var m:s.materials) {
             if (!"READY".equals(m.status) || s.generationChargeBaseline.contains(m.id)) continue;
             if (s.regeneration!=null && !Objects.equals(s.regeneration.resultMaterialId,m.id)) continue;
             if (s.generationRetry==null && s.regeneration==null && !Objects.equals(s.engineJobId,m.engineJobId)) continue;
-            counts.merge(com.lynx.ad.modules.billing.application.GenerationCharges.kind(m.type),1,Integer::sum);
+            delivered.add(m);
         }
-        charges.finish(s.tenantId,s.generationChargeKey,counts);
+        var quote = charges.quote(s.tenantId, s.generationChargeKey);
+        charges.finish(s.tenantId,s.generationChargeKey,MaterialPointUsage.delivered(quote, delivered));
         s.generationChargeKey=null;s.generationChargeBaseline=new ArrayList<>();
     }
     private final CreationStore store;
@@ -297,6 +299,7 @@ public class CreationWorkflowService {
                 selectionEditable(s);if(!s.accountId.equals(request.accountId)||!s.awemeId.equals(request.awemeId))throw new BizException(1403,"切换账户后请建立新的草稿");
                 var next=selected.stream().map(CreationState.Product::qcProductId).toList();var previous=s.products.stream().map(CreationState.Product::qcProductId).toList();
                 if(!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(selected))) {
+                    finishAnalysis(s, false);
                     s.reachedStep=s.reachedStep();
                     s.groupingDecision=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisRequestId=null;s.analysisStartedAt=0;s.analysisError=null;s.analysisRefreshRequested=false;
                 }
@@ -321,11 +324,17 @@ public class CreationWorkflowService {
             selectionEditable(s);
             boolean changed=!ProductBasicAnalysisService.fingerprint(s.products).equals(ProductBasicAnalysisService.fingerprint(currentProducts));
             s.products=new ArrayList<>(currentProducts);s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);
-            if(changed){s.reachedStep=s.reachedStep();s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
+            if(changed){finishAnalysis(s, false);s.reachedStep=s.reachedStep();s.groupingDecision=null;s.analysisRequestId=null;s.analysisStatus="NONE";s.analysis=null;s.analysisConfirmation=null;s.analysisError=null;s.analysisStartedAt=0;}
             if(!s.basicAnalysis.canContinue())return;
             if(Set.of("QUEUED","RUNNING").contains(s.analysisStatus))return;
+            if(!v.refresh && "SUCCEEDED".equals(s.analysisStatus) && !ProductAnalysisOutcome.failed(s.analysis))return;
             s.analysisRefreshRequested=v.refresh;s.analysisStatus="QUEUED";s.analysisError=null;
-            s.analysisRequestId=UUID.randomUUID().toString();s.analysisStartedAt=System.currentTimeMillis();s.changed();
+            s.analysisRequestId=UUID.randomUUID().toString();
+            if (charges != null) {
+                s.analysisChargeKey = "analysis:" + s.analysisRequestId;
+                charges.hold(s.tenantId, s.analysisChargeKey, s.accountId, s.userId, Map.of(WorkspacePricing.PRODUCT_ANALYSIS, 1));
+            }
+            s.analysisStartedAt=System.currentTimeMillis();s.changed();
         });
     }
     public CreationState recommendations(TenantId tenant,String requestedId) {
@@ -402,7 +411,10 @@ public class CreationWorkflowService {
             s.generationSelection=new ArrayList<>(decisions);s.generationPendingProductIds.clear();
             if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
             int each=2*new LinkedHashSet<>(g.productIds).size();
-            holdGeneration(s,"initial:"+id+":"+s.revision,Map.of("video",each,"image",each,"native_image_text",each));
+            var requested = new HashMap<String, Integer>(MaterialPointUsage.reserve("VIDEO", each));
+            MaterialPointUsage.reserve("IMAGE", each).forEach((kind, count) -> requested.merge(kind, count, Integer::sum));
+            MaterialPointUsage.reserve("CAROUSEL", each).forEach((kind, count) -> requested.merge(kind, count, Integer::sum));
+            holdGeneration(s,"initial:"+id+":"+s.revision,requested);
             s.generationGroupProducts.clear();for(int n=0;n<s.products.size();n++)s.generationGroupProducts.put("group-"+(n+1),s.products.get(n).qcProductId());
             s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
             s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
@@ -428,7 +440,7 @@ public class CreationWorkflowService {
             var product=s.products.stream().filter(p->Objects.equals(p.qcProductId(),request.productId)).findFirst().orElseThrow(()->new BizException(1503,"商品不属于当前计划"));
             if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材");
             if(s.activeMaterials().size()>=100)throw new BizException(1503,"每个计划最多使用100个素材");
-            holdGeneration(s,"addition:"+id+":"+request.requestId,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(request.type),1));
+            holdGeneration(s,"addition:"+id+":"+request.requestId,MaterialPointUsage.reserve(request.type,1));
             var body=new LinkedHashMap<String,Object>();body.put("store_id",s.tenantId);body.put("ai_plan_task_id",s.enginePlanId);body.put("request_id",request.requestId);
             body.put("product_id",request.productId);body.put("target",additionTarget(request.type));body.put("instruction",description);
             body.put("budget",s.budget);if(s.roi2Goal!=null)body.put("roi",s.roi2Goal);
@@ -477,7 +489,7 @@ public class CreationWorkflowService {
             retry.targets=issues.stream().map(i->new CreationState.GenerationRetryTarget(i.productId(),i.slotId())).distinct().toList();
             if(retry.targets.isEmpty()&&s.dismissedGenerationIssues.stream().anyMatch(d->Objects.equals(s.engineJobId,d.jobId())))throw new BizException(1503,"当前没有可重试的失败项，请刷新后重试");
             int count=retry.targets.isEmpty()?s.generationCounts.stream().filter(c->c.type().equals(request.type)).mapToInt(CreationState.GenerationCount::failed).sum():retry.targets.size();
-            holdGeneration(s,"retry:"+id+":"+retry.requestId,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(request.type),count));
+            holdGeneration(s,"retry:"+id+":"+retry.requestId,MaterialPointUsage.reserve(request.type,count));
             s.generationRetry=retry;
             s.generationStatus="UNCERTAIN";s.generationMessage="正在提交失败项重试，成功素材已保留";s.changed();
         });
@@ -733,7 +745,7 @@ public class CreationWorkflowService {
             String materialPlan=m.enginePlanId==null?state.enginePlanId:m.enginePlanId;
             if(materialPlan==null||m.groupId==null||!Set.of("VIDEO","IMAGE","CAROUSEL").contains(Objects.toString(m.type,"")))throw new BizException(1503,"素材生成归属信息不完整，请先核查原任务");
             com.lynx.ad.modules.delivery.domain.service.RegenerationPolicy.reserve(state,System.currentTimeMillis());
-            holdGeneration(state,"regenerate:"+id+":"+state.revision,Map.of(com.lynx.ad.modules.billing.application.GenerationCharges.kind(m.type),1));
+            holdGeneration(state,"regenerate:"+id+":"+state.revision,MaterialPointUsage.reserve(m.type,1));
             if(published)publishedMaterials.reserve(tenant,requestedId,state,m,"regenerate");
             recordFeedback(state,material,"regenerate",feedback);
             var r=new CreationState.Regeneration();r.requestId=UUID.randomUUID().toString();r.sourceId=m.id;r.parentId=m.engineMaterialId;r.jobId=m.engineJobId;r.planTaskId=materialPlan;r.groupId=m.groupId;r.target=additionTarget(m.type);r.instruction=instruction;
@@ -810,7 +822,7 @@ public class CreationWorkflowService {
     public void discard(TenantId tenant,String requestedId) {
         String id=sharedId(tenant,requestedId,true);
         var s=store.get(tenant.value(),id);if(s.publishedEdit!=null){compositions.discard(tenant,id);return;}if(!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"已提交发布的计划不能丢弃");
-        store.mutate(tenant.value(),id,null,state->{if(!Set.of("NONE","FAILED").contains(state.publishStatus))throw new BizException(1403,"计划已提交");if(state.generationChargeKey!=null)throw new BizException(1403,"素材任务仍在处理中，请完成后再删除草稿");state.analysisStatus="CANCELLED";state.generationStatus="CANCELLED";});
+        store.mutate(tenant.value(),id,null,state->{if(!Set.of("NONE","FAILED").contains(state.publishStatus))throw new BizException(1403,"计划已提交");if(state.generationChargeKey!=null)throw new BizException(1403,"素材任务仍在处理中，请完成后再删除草稿");finishAnalysis(state, false);state.analysisStatus="CANCELLED";state.generationStatus="CANCELLED";});
         if(s.engineJobId!=null)try{engine.post("/api/v1/capabilities/generation/jobs/"+CreationEngineClient.query(s.engineJobId)+"/control",Map.of("store_id",s.tenantId,"action","cancel"));}catch(BizException ignored){}
         tx.executeWithoutResult(status->{if(!plans.discardDraft(tenant,new PlanId(id)))throw new BizException(1403,"仅可丢弃未发布草稿");bindings.upsert(new PlanId(id),List.of());store.delete(tenant.value(),id);});
     }
@@ -910,6 +922,7 @@ public class CreationWorkflowService {
                     String mid=item.path("material_id").asText();if(mid.isBlank()||current.removedMaterialIds.contains(mid)||current.materials.stream().anyMatch(m->m.id.equals(mid)))continue;
                     var m=new CreationState.Material();m.id=mid;m.engineMaterialId=mid;m.engineJobId=current.engineJobId;m.enginePlanId=current.enginePlanId;m.groupId=groupId;m.productId=productId;
                     m.type=switch(item.path("material_type").asText()){case "video"->"VIDEO";case "image_text"->"CAROUSEL";case "product_card"->"IMAGE";default->"";};if(m.type.isEmpty())continue;
+                    MaterialPointUsage.readVideoDuration(m, item);
                     m.title=item.path("content").path("title").asText();m.text=item.path("content").path("text").asText();
                     m.deliverySource=item.path("detail").path("delivery_source").asText(null);
                     m.deliveryMode=item.path("detail").path("delivery_mode").asText(null);
@@ -999,6 +1012,7 @@ public class CreationWorkflowService {
             if(!request.productId.equals(product)){failAddition(tenant,id,rid,"新增素材关联了其他商品");return;}
             String mid=item.path("material_id").asText();if(mid.isBlank())continue;
             var m=new CreationState.Material();m.id=mid;m.engineMaterialId=mid;m.engineJobId=request.engineJobId;m.enginePlanId=snapshot.enginePlanId;m.groupId=group.path("group_id").asText();m.productId=request.productId;m.type=request.type;
+            MaterialPointUsage.readVideoDuration(m, item);
             m.deliverySource=item.path("detail").path("delivery_source").asText(null);
             m.deliveryMode=item.path("detail").path("delivery_mode").asText(null);
             m.deliveryFamilyId=item.path("detail").path("delivery_family_id").asText(null);
@@ -1083,6 +1097,20 @@ public class CreationWorkflowService {
     }
     /** Same proven import/sync path, with an independently persisted automatic job context. */
     public CreationState.Material importOptimizationMaterial(CreationState s,CreationState.Material m){processMaterial(s,m,true);return m;}
+
+    public void measureGeneratedImages(String tenantId, String actor, String planId, CreationState.Material m) {
+        if ("VIDEO".equals(m.type) || "product_reference".equals(m.deliverySource) || m.billingImageUnits != null) return;
+        var tenant = new TenantId(tenantId);
+        int count = 0;
+        for (var component : m.sourceUrls.keySet()) {
+            if (!component.startsWith("IMAGE_")) continue;
+            String asset = m.importedAssets.get(component);
+            if (asset == null) asset = importer.reference(tenant, new UserId(actor), planId+":"+m.id+":"+component,
+                    m.engineJobId, m.engineMaterialId, component, "IMAGE", null, "CAROUSEL".equals(m.type));
+            count += importer.imageUnits(tenant, asset);
+        }
+        m.billingImageUnits = count;
+    }
     private void processMaterial(CreationState s,CreationState.Material m,boolean automatic) {
         var tenant=new TenantId(s.tenantId);
         if(m.excludedFromDelivery||m.syncRecoveryNextAt>System.currentTimeMillis())return;
@@ -1102,11 +1130,19 @@ public class CreationWorkflowService {
             m.videoAssetId=m.importedAssets.getOrDefault("VIDEO",m.videoAssetId);m.coverAssetId=m.importedAssets.getOrDefault("COVER",m.coverAssetId);m.audioAssetId=m.importedAssets.getOrDefault("AUDIO",m.audioAssetId);
             if(m.videoAssetId!=null&&m.coverAssetId!=null)assets.attachPreview(tenant,m.videoAssetId,m.coverAssetId);
             if(!m.importedAssets.isEmpty())m.imageAssetIds=m.importedAssets.entrySet().stream().filter(e->e.getKey().startsWith("IMAGE_")).map(Map.Entry::getValue).toList();
+            if (charges != null) measureGeneratedImages(s.tenantId, s.userId, s.planId, m);
             if("CAROUSEL".equals(m.type)&&m.carouselId==null) {
                 m.carouselId=carousels.create(tenant,new UserId(s.userId),carouselRequest(s,m)).id();
             }
             var mediaId="VIDEO".equals(m.type)?m.videoAssetId:!m.imageAssetIds.isEmpty()?m.imageAssetIds.getFirst():null;
-            if(mediaId!=null){var a=assets.detail(tenant,mediaId);m.imageMode="VIDEO".equals(m.type)?a.width()!=null&&a.height()!=null&&a.width()>a.height()?"VIDEO_LARGE":"VIDEO_VERTICAL":"SQUARE";}
+            if(mediaId!=null){
+                var a=assets.detail(tenant,mediaId);
+                m.imageMode="VIDEO".equals(m.type)?a.width()!=null&&a.height()!=null&&a.width()>a.height()?"VIDEO_LARGE":"VIDEO_VERTICAL":"SQUARE";
+                if ("VIDEO".equals(m.type) && m.durationSec == null && a.storageMetadata() != null
+                        && a.storageMetadata().durationMs() != null && a.storageMetadata().durationMs() > 0) {
+                    m.durationSec = a.storageMetadata().durationMs() / 1000.0;
+                }
+            }
             m.failureStage="VALIDATION";
             try{payloads.materialReady(s,m);m.status="READY";m.error=null;m.failureStage=null;}
             catch(BizException e){m.status="PROCESSING";m.error=e.getMessage();m.failureCode=e.code();
@@ -1245,6 +1281,7 @@ public class CreationWorkflowService {
         });
         if(!currentAnalysis(running,request,fingerprint))return;
         try {
+            if (charges != null && running.analysisChargeKey != null) charges.validate(running.tenantId, running.analysisChargeKey);
             var registered=registerEnginePlan(running);
             if(!currentAnalysis(registered,request,fingerprint))return;
             var response=engine.post("/api/v1/capabilities/perception/products/analyze",Map.of(
@@ -1257,15 +1294,22 @@ public class CreationWorkflowService {
                 throw new BizException(8002,"商品分析输入版本不一致，请重新分析");
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
                 if(currentAnalysis(s,request,fingerprint)){s.analysis=response;s.analysisConfirmation=null;
+                    finishAnalysis(s, !ProductAnalysisOutcome.failed(response) && !response.path("snapshot").path("cache_hit").asBoolean());
                     s.analysisStatus=ProductAnalysisOutcome.failed(response)?"FAILED":"SUCCEEDED";
                     s.analysisError=ProductAnalysisOutcome.failed(response)?ProductAnalysisOutcome.failureMessage(response):null;
                     s.analysisRefreshRequested=false;}
             });
         }catch(BizException e){
             store.mutate(snapshot.tenantId,snapshot.planId,null,s->{
-                if(currentAnalysis(s,request,fingerprint)){s.analysisStatus="FAILED";s.analysisError=e.getMessage();}
+                if(currentAnalysis(s,request,fingerprint)){finishAnalysis(s, false);s.analysisStatus="FAILED";s.analysisError=e.getMessage();}
             });
         }
+    }
+    private void finishAnalysis(CreationState state, boolean delivered) {
+        if (charges == null || state.analysisChargeKey == null) return;
+        if (delivered) charges.finishAll(state.tenantId, state.analysisChargeKey);
+        else charges.finish(state.tenantId, state.analysisChargeKey, Map.of());
+        state.analysisChargeKey = null;
     }
     private static boolean currentAnalysis(CreationState s,String request,String fingerprint) {
         return request.equals(s.analysisRequestId)&&"RUNNING".equals(s.analysisStatus)
