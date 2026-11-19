@@ -183,6 +183,21 @@ public class AccountSystemPersistenceTest {
             charges.finish("a","retry",Map.of());
         });
         assertEquals(0,new BigDecimal("360").compareTo(f.points.balance("a").available()));
+
+        String remakeUnit = WorkspacePricing.REMAKE_1080P_SECOND;
+        assertThrows(BizException.class, () -> f.tx.executeWithoutResult(s ->
+                charges.hold("a", "remake-too-long", "x", "a", Map.of(remakeUnit, 16))));
+        f.tx.executeWithoutResult(s -> charges.hold("a", "remake", "x", "a", Map.of(remakeUnit, 9)));
+        assertEquals(new BigDecimal("216"), charges.quote("a", "remake").total());
+        assertEquals(0, new BigDecimal("216").compareTo(f.points.balance("a").frozen()));
+        pricing.getGenerationPoints().put(remakeUnit, 50L);
+        f.tx.executeWithoutResult(s -> {
+            charges.finishAll("a", "remake");
+            charges.finishAll("a", "remake");
+        });
+        assertEquals(0, new BigDecimal("456").compareTo(f.points.balance("a").consumed()));
+        assertEquals(0, new BigDecimal("144").compareTo(f.points.balance("a").available()));
+        assertEquals(0, f.points.balance("a").frozen().signum());
     }
 
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})

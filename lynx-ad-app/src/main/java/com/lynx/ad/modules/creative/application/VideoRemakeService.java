@@ -30,7 +30,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class VideoRemakeService {
     private static final Logger LOG = LoggerFactory.getLogger(VideoRemakeService.class);
-    private static final Map<String, Integer> ONE_VIDEO = Map.of("video", 1);
     public static final int CHUNK_BYTES = 1024 * 1024;
 
     private final CreationEngineClient engine;
@@ -64,7 +63,7 @@ public class VideoRemakeService {
 
     public record Capability(boolean ready, boolean subscribed, String balanceStatus, BigDecimal points,
                              boolean kling4Available, BigDecimal availablePoints, boolean sourceMatchingHd,
-                             boolean sourceMatchingAvailable) {}
+                             boolean sourceMatchingAvailable, Map<String, BigDecimal> pointsPerSecond) {}
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
                         String productImageId, String referenceId, String portraitId, String portraitName,
@@ -72,23 +71,33 @@ public class VideoRemakeService {
                         String portraitImageId, List<String> adNotices, boolean followSource) {}
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
     public record Confirm(String title, List<ShotEdit> shots, boolean accepted, BigDecimal points) {}
+    public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec) {}
+                       JsonNode outputSpec, RemakeQuote quote) {}
+
+    private record RemakeCharge(String kind, int quantity, BigDecimal rate) {
+        Map<String, Integer> units() { return Map.of(kind, quantity); }
+        RemakeQuote quote() {
+            return new RemakeQuote(rate.multiply(BigDecimal.valueOf(quantity)), "video".equals(kind) ? null : rate);
+        }
+    }
 
     public Capability capability(String tenant) {
         var membership = charges.access(tenant);
         var rate = pricing.rate("video");
-        if (!membership.enabled()) return new Capability(false, false, null, rate, false, null, false, false);
+        if (!membership.enabled()) return new Capability(false, false, null, rate, false, null, false, false, Map.of());
+        var pointsPerSecond = Map.of("720p", pricing.rate(WorkspacePricing.REMAKE_720P_SECOND),
+                "1080p", pricing.rate(WorkspacePricing.REMAKE_1080P_SECOND));
         try {
             var status = engine.remake("GET", "/capabilities", null);
             return new Capability(status.path("ready").asBoolean() && status.path("review_worker_ready").asBoolean(),
                     true, membership.balanceStatus().name(), rate, status.path("kling_4_available").asBoolean(),
                     membership.availablePoints(), status.path("source_matching_hd").asBoolean(),
-                    status.path("source_matching_available").asBoolean());
+                    status.path("source_matching_available").asBoolean(), pointsPerSecond);
         } catch (RemakeEngineError ex) {
             return new Capability(false, true, membership.balanceStatus().name(), rate, false,
-                    membership.availablePoints(), false, false);
+                    membership.availablePoints(), false, false, pointsPerSecond);
         }
     }
 
@@ -204,17 +213,24 @@ public class VideoRemakeService {
         var result = data.path("delivery");
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
+        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data.path("output_spec")) : null;
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
-                finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"));
+                finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
+                charge == null ? null : charge.quote());
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
         var task = owned(tenant, actor, id);
         if (!"REVIEW".equals(task.phase())) return summary(task);
-        if (!request.accepted() || request.points() == null || pricing.rate("video").compareTo(request.points()) != 0)
+        if (!request.accepted() || request.points() == null)
             throw input("请重新核对分镜及本次生成所需积分");
-        var plan = detail(task).path("plan");
+        var data = detail(task);
+        var charge = remakeCharge(task, data.path("output_spec"));
+        if (charge == null) throw input("成片规格尚未确认，请刷新后再试");
+        if (charge.quote().points().compareTo(request.points()) != 0)
+            throw input("生成积分已变化，请刷新后再确认");
+        var plan = data.path("plan");
         if (!plan.isObject() || !plan.path("shots").isArray() || request.shots() == null
                 || plan.path("shots").size() != request.shots().size()) throw input("分镜已变化，请刷新后再确认");
         var edited = (ObjectNode) plan.deepCopy();
@@ -234,13 +250,33 @@ public class VideoRemakeService {
             var locked = store.find(tenant, id, true).orElseThrow();
             if (!"REVIEW".equals(locked.phase())) return summary(locked);
             if (store.pending(tenant, actor) >= 3) throw input("当前有 3 个复刻任务正在处理");
-            charges.hold(tenant, chargeKey(locked), locked.binding(), actor, ONE_VIDEO);
+            charges.hold(tenant, chargeKey(locked), locked.binding(), actor, charge.units());
             var quote = charges.quote(tenant, chargeKey(locked));
-            if (quote == null || quote.rates().get("video").compareTo(request.points()) != 0)
+            if (quote == null || !quote.requested().equals(charge.units()) || quote.total().compareTo(request.points()) != 0)
                 throw input("生成积分已变化，请刷新后再确认");
             store.queueConfirmation(locked, payload.toString());
             return summary(store.find(tenant, id, false).orElseThrow());
         });
+    }
+
+    private RemakeCharge remakeCharge(Task task, JsonNode spec) {
+        if (!parse(task.request()).path("follow_source").asBoolean()) {
+            return new RemakeCharge("video", 1, pricing.rate("video"));
+        }
+        var width = spec.path("width");
+        var height = spec.path("height");
+        var duration = spec.path("duration_seconds");
+        if (!width.canConvertToExactIntegral() || !height.canConvertToExactIntegral()
+                || !width.canConvertToInt() || !height.canConvertToInt()
+                || !duration.isIntegralNumber() || !duration.canConvertToInt()
+                || duration.intValue() < 4 || duration.intValue() > 120) return null;
+        int shortEdge = Math.min(width.intValue(), height.intValue()), longEdge = Math.max(width.intValue(), height.intValue());
+        String kind = switch (shortEdge) {
+            case 720 -> longEdge == 1280 ? WorkspacePricing.REMAKE_720P_SECOND : null;
+            case 1080 -> longEdge == 1920 ? WorkspacePricing.REMAKE_1080P_SECOND : null;
+            default -> null;
+        };
+        return kind == null ? null : new RemakeCharge(kind, duration.intValue(), pricing.rate(kind));
     }
 
     public String save(String tenant, String actor, String id) {
@@ -347,8 +383,9 @@ public class VideoRemakeService {
 
     private void complete(Task task, String token, String phase, String error, boolean paid, boolean delivered) {
         tx.executeWithoutResult(status -> {
-            if (store.update(task, token, phase, task.engine(), error, 0) && paid)
-                charges.finish(task.tenant(), chargeKey(task), delivered ? ONE_VIDEO : Map.of());
+            if (!store.update(task, token, phase, task.engine(), error, 0) || !paid) return;
+            if (delivered) charges.finishAll(task.tenant(), chargeKey(task));
+            else charges.finish(task.tenant(), chargeKey(task), Map.of());
         });
     }
 
@@ -383,7 +420,7 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null);
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null);
     }
 
     private JsonNode detail(Task task) {

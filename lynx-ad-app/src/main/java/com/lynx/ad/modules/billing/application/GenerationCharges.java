@@ -33,7 +33,9 @@ public class GenerationCharges {
         this.bindings = bindings; this.jdbc = jdbc; this.json = json; this.subscriptions = subscriptions;
     }
 
-    public record Quote(AccountBindingRegistry.ExecutionScope scope, Map<String,Integer> requested, Map<String,BigDecimal> rates) {}
+    public record Quote(AccountBindingRegistry.ExecutionScope scope, Map<String,Integer> requested, Map<String,BigDecimal> rates) {
+        public BigDecimal total() { return GenerationCharges.total(this, requested); }
+    }
 
     public enum BalanceStatus { SUFFICIENT, LOW, EMPTY }
     public record Access(boolean enabled, BalanceStatus balanceStatus, BigDecimal availablePoints) {}
@@ -77,7 +79,7 @@ public class GenerationCharges {
             rates.put(type,pricing.rate(type));
         });
         var quote = new Quote(scope,new TreeMap<>(requested),rates);
-        BigDecimal value = total(quote,requested);
+        BigDecimal value = quote.total();
         credits.ensureCurrentGrant(tenant);
         wallet.reserve(tenant,task,binding,scope.actorUserId(),value);
         try { jdbc.update("INSERT INTO workspace_generation_charge(tenant_id,task_key,rates_json) VALUES(?,?,?)",tenant,task,json.writeValueAsString(quote)); }
@@ -98,10 +100,21 @@ public class GenerationCharges {
         if (task == null) return;
         var quote = quote(tenant,task);
         if (quote == null) return;
-        if (total(quote,quote.requested()).signum() == 0) return;
+        settle(tenant,task,quote,total(quote,delivered));
+    }
+
+    @Transactional
+    public void finishAll(String tenant,String task) {
+        if (task == null) return;
+        var quote = quote(tenant,task);
+        if (quote == null) return;
+        settle(tenant,task,quote,quote.total());
+    }
+
+    private void settle(String tenant,String task,Quote quote,BigDecimal actual) {
+        if (quote.total().signum() == 0) return;
         foundation.ensure(tenant);
         if (wallet.reservation(tenant,task).filter(r -> "HELD".equals(r.status())).isEmpty()) return;
-        BigDecimal actual = total(quote,delivered);
         if (actual.signum() == 0) wallet.release(tenant,task);
         else wallet.settle(tenant,task,actual);
     }

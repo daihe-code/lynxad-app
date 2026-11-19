@@ -193,12 +193,12 @@
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
               <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : '匹配原视频' }}</dd></div>
-              <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ formatPoints(capability.points) }} 积分 / 条</dd></div>
+              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '分析后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
               <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
               <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
             </dl>
-            <p v-if="shortfallMessage" class="remake-error" role="status">{{ shortfallMessage }}</p>
+            <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
             <p v-if="sourceMatchingReady" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
           </section>
         </aside>
@@ -264,7 +264,7 @@
               <div class="remake-actions">
                 <router-link v-if="capability?.subscribed === false" :to="'/subscription'" class="remake-link" @click="emit('close')">查看套餐</router-link>
                 <el-button native-type="submit" type="primary" :loading="busy" :disabled="!generationReady">
-                  确认生成 · {{ capability?.points ?? '—' }} 积分
+                  确认生成<template v-if="task.quote"> · {{ formatPoints(task.quote.points) }} 积分</template>
                 </el-button>
               </div>
             </form>
@@ -274,15 +274,17 @@
                 <dl><div><dt>镜头数量</dt><dd>{{ plan.shots.length }} 个</dd></div><div><dt>计划时长</dt><dd>{{ planDuration }} 秒</dd></div>
                   <div><dt>画幅</dt><dd>{{ task.outputSpec ? orientationLabel(task.outputSpec) : '竖屏 9:16' }}</dd></div>
                   <div v-if="task.outputSpec"><dt>分辨率</dt><dd>{{ resolutionLabel(task.outputSpec) }}</dd></div>
-                  <div v-if="capability?.points != null"><dt>生成消耗</dt><dd>{{ formatPoints(capability.points) }} 积分</dd></div>
+                  <div v-if="task.quote?.pointsPerSecond != null"><dt>每秒消耗</dt><dd>{{ formatPoints(task.quote.pointsPerSecond) }} 积分</dd></div>
+                  <div v-if="task.quote"><dt>生成消耗</dt><dd>{{ formatPoints(task.quote.points) }} 积分</dd></div>
                 </dl>
-                <p v-if="shortfallMessage" class="remake-error" role="status">{{ shortfallMessage }}</p>
+                <p v-if="quotedShortfall" class="remake-error" role="status">{{ quotedShortfall }}</p>
                 <p v-else-if="capability?.subscribed === false" class="remake-muted">开通套餐后可继续生成。</p>
-                <p v-else-if="!capabilityLoading && !generationReady" class="remake-muted">复刻服务暂不可用。</p>
-                <router-link v-if="!busy && shortfallMessage"
+                <p v-else-if="!task.quote" class="remake-muted">暂未取得生成报价。</p>
+                <p v-else-if="!capabilityLoading && !taskLoading && !generationReady" class="remake-muted">复刻服务暂不可用。</p>
+                <router-link v-if="!busy && quotedShortfall"
                   class="remake-link" :to="pointsRoute" @click="emit('close')">查看积分</router-link>
-                <el-button v-if="!generationReady" link type="primary" :disabled="busy" :loading="capabilityLoading"
-                  @click="loadCapability">刷新权限和积分</el-button>
+                <el-button v-if="!generationReady" link type="primary" :disabled="busy" :loading="capabilityLoading || taskLoading"
+                  @click="refreshQuote">刷新报价和积分</el-button>
               </section>
             </aside>
           </div>
@@ -398,14 +400,6 @@ const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capab
 const useKling = computed(() => capability.value?.kling4Available === true);
 const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
 const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
-const shortfallMessage = computed(() => {
-  const current = capability.value;
-  if (current?.availablePoints == null) return current?.balanceStatus === 'EMPTY' ? '积分不足，补充后可继续生成。' : '';
-  const missing = current.points - current.availablePoints;
-  return missing > 0 ? `本次生成需 ${formatPoints(current.points)} 积分，还差 ${formatPoints(missing)} 积分。` : '';
-});
-const generationReady = computed(() => !capabilityLoading.value && capability.value?.ready === true
-  && !shortfallMessage.value);
 const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
   const media = referenceMetadata.value;
   if (!media || referenceError.value) return;
@@ -415,6 +409,19 @@ const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
   return { width: portrait ? shortEdge : longEdge, height: portrait ? longEdge : shortEdge,
     duration_seconds: Math.min(120, Math.max(4, Math.round(media.duration))) };
 });
+const estimatedPoints = computed(() => {
+  const spec = expectedOutput.value;
+  if (!spec) return;
+  const resolution = Math.min(spec.width, spec.height) === 1080 ? '1080p' : '720p';
+  const rate = capability.value?.pointsPerSecond?.[resolution];
+  if (rate != null) return rate * spec.duration_seconds;
+});
+function pointShortfall(points: number | undefined, estimated = false) {
+  const available = capability.value?.availablePoints;
+  if (points == null || available == null || available >= points) return '';
+  return `本次${estimated ? '预计' : '生成'}需 ${formatPoints(points)} 积分，还差 ${formatPoints(points - available)} 积分。`;
+}
+const estimatedShortfall = computed(() => pointShortfall(estimatedPoints.value, true));
 const orientationLabel = (spec: RemakeVideoSpec) => spec.height > spec.width ? '竖屏 9:16' : '横屏 16:9';
 const resolutionLabel = (spec: RemakeVideoSpec) => `${spec.width} × ${spec.height}`;
 const pointsRoute = { path: '/accounts', query: { tab: 'workspace' } };
@@ -423,6 +430,9 @@ const panel = ref<'new' | 'history' | 'task'>('new');
 const tasks = ref<RemakeTask[]>([]), historyError = ref(''), historyLoading = ref(false);
 const historyFilter = ref('all'), historyQuery = ref('');
 const task = ref<RemakeTask>(), taskId = ref(''), taskLoading = ref(false), taskError = ref('');
+const quotedShortfall = computed(() => pointShortfall(task.value?.quote?.points));
+const generationReady = computed(() => !capabilityLoading.value && !taskLoading.value && capability.value?.ready === true
+  && capability.value.availablePoints != null && task.value?.quote != null && !quotedShortfall.value);
 const plan = ref<RemakeTask['plan']>(), activeShot = ref(0), reviewAttempted = ref(false);
 const editShot = computed(() => plan.value?.shots[activeShot.value]);
 const planDuration = computed(() => plan.value?.shots.reduce((sum, shot) => sum + shot.duration, 0) ?? 0);
@@ -733,6 +743,9 @@ async function refreshTask() {
   await fetchTask(taskId.value, revision, !!task.value && inProgress.has(task.value.phase));
   if (alive && revision === taskRequest && !taskError.value) previewVersion.value++;
 }
+async function refreshQuote() {
+  await Promise.all([loadCapability(), refreshTask()]);
+}
 function shotError(shot: RemakeShot) {
   const visual = countText(shot.visual_prompt);
   const narration = countText(shot.narration);
@@ -746,7 +759,8 @@ const titleError = computed(() => reviewAttempted.value && plan.value
   && (countText(plan.value.title) === 0 || countText(plan.value.title) > 100) ? '请填写 1 至 100 字的视频标题。' : '');
 const visibleShotError = computed(() => reviewAttempted.value && editShot.value ? shotError(editShot.value) : '');
 async function approve() {
-  if (!task.value || !plan.value || !capability.value || !generationReady.value || busy.value) return;
+  const current = task.value;
+  if (!current?.quote || !plan.value || !generationReady.value || busy.value) return;
   reviewAttempted.value = true;
   const firstInvalid = plan.value.shots.findIndex(shotError);
   if (firstInvalid !== -1) activeShot.value = firstInvalid;
@@ -754,10 +768,13 @@ async function approve() {
   busy.value = true;
   taskError.value = '';
   try {
-    const result = await confirmRemake(task.value.id, plan.value.title.trim(), plan.value.shots, capability.value.points);
+    const result = await confirmRemake(current.id, plan.value.title.trim(), plan.value.shots, current.quote.points);
     if (result.phase !== 'REVIEW') show(result);
     await refreshTask();
-  } catch (cause) { taskError.value = message(cause); }
+  } catch (cause) {
+    await refreshQuote();
+    if (task.value?.id === current.id && task.value.phase === 'REVIEW') taskError.value = message(cause);
+  }
   finally { busy.value = false; }
 }
 async function save() {

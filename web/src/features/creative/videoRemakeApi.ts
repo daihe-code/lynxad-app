@@ -7,8 +7,8 @@ export interface RemakeCapability {
   ready: boolean;
   subscribed: boolean;
   balanceStatus?: 'SUFFICIENT' | 'LOW' | 'EMPTY';
-  points: number;
   availablePoints?: number;
+  pointsPerSecond?: Record<'720p' | '1080p', number>;
   kling4Available?: boolean;
   sourceMatchingAvailable?: boolean;
   sourceMatchingHd?: boolean;
@@ -41,6 +41,7 @@ export interface RemakeTask {
   coverUrl?: string;
   adNotices?: string[];
   outputSpec?: RemakeVideoSpec;
+  quote?: { points: number; pointsPerSecond?: number };
 }
 
 export interface RemakeInput {

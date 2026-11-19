@@ -11,10 +11,14 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "lynx.ad.workspace-pricing")
 public class WorkspacePricing {
+    public static final String REMAKE_720P_SECOND = "remake_720p_second";
+    public static final String REMAKE_1080P_SECOND = "remake_1080p_second";
+
     private boolean enabled;
     private Map<String, Integer> childSeats = new LinkedHashMap<>(Map.of("trial", 2, "basic", 2, "professional", 3, "flagship", 10));
     private Map<String, Long> periodPoints = new LinkedHashMap<>(Map.of("basic", 3000L, "professional", 9000L, "flagship", 30000L));
-    private Map<String, Long> generationPoints = new LinkedHashMap<>(Map.of("video", 240L, "image", 15L, "native_image_text", 60L, "title", 1L));
+    private Map<String, Long> generationPoints = new LinkedHashMap<>(Map.of("video", 240L, "image", 15L,
+            "native_image_text", 60L, "title", 1L, REMAKE_720P_SECOND, 16L, REMAKE_1080P_SECOND, 24L));
     private Map<String, Recharge> recharge = new LinkedHashMap<>(Map.of(
             "r99", new Recharge(9900, 1000), "r299", new Recharge(29900, 3100), "r999", new Recharge(99900, 10800)));
 
