@@ -281,10 +281,24 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .subscription-links { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.account-pending-order .el-button {
+    height: 36px;
+    padding-inline: 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+}
 .account-pending-order .el-button:not(:disabled) {
     background-color: var(--el-button-bg-color);
     color: var(--el-button-text-color);
 }
 .account-pending-order .el-button:not(:disabled):hover { background-color: var(--el-button-hover-bg-color); }
 .account-pending-order .el-button + .el-button { margin-left: 0; }
+@media (max-width: 639px) {
+    .account-pending-order .el-button {
+        height: 40px;
+        padding-inline: 12px;
+    }
+}
 </style>
