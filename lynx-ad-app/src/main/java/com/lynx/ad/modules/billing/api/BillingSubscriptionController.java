@@ -105,6 +105,11 @@ public class BillingSubscriptionController {
         return ApiResponse.ok(paymentCommandService.create(TenantContext.requireTenantId(), req.orderId(), idem));
     }
 
+    @PostMapping("/payments/alipay/checkout")
+    public ApiResponse<PaymentView> openAlipayCheckout(@Valid @RequestBody CreatePaymentRequest req) {
+        return ApiResponse.ok(paymentCommandService.openAlipayCheckout(TenantContext.requireTenantId(), req.orderId()));
+    }
+
     @PostMapping("/payments/{paymentId}/mock-complete")
     public ApiResponse<PaymentView> mockComplete(
             @PathVariable String paymentId, @RequestBody MockCompleteRequest req) {

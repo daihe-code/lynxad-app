@@ -67,7 +67,7 @@ class WorkspaceSecurityTest {
         assertTrue(guard.preHandle(generation, response, new Object()));
         assertEquals(MemberRole.MEMBER, TenantContext.require().memberRole().orElseThrow());
         for (String path : List.of("/api/v1/billing/points/orders", "/api/v1/billing/points/orders/order/close",
-                "/api/v1/billing/orders/order/check-payment", "/api/v1/billing/payments")) {
+                "/api/v1/billing/orders/order/check-payment", "/api/v1/billing/payments", "/api/v1/billing/payments/alipay/checkout")) {
             assertEquals(403, assertThrows(BizException.class, () -> guard.preHandle(
                     new MockHttpServletRequest("POST", path), response, new Object())).code());
         }

@@ -88,12 +88,32 @@ export function createPayment(orderId: string) {
   return apiPost<PaymentView>("/api/v1/billing/payments", { orderId });
 }
 
+export function openAlipayCheckout(orderId: string, signal: AbortSignal) {
+  return apiPost<PaymentView>('/api/v1/billing/payments/alipay/checkout', { orderId },
+    { signal, headers: { 'X-Quiet-Request': 'true' } });
+}
+
 export function checkOrderPayment(orderId: string, signal?: AbortSignal) {
   return apiPost<OrderView>(`/api/v1/billing/orders/${encodeURIComponent(orderId)}/check-payment`, {},
     signal ? { signal, headers: { 'X-Quiet-Request': 'true' } } : undefined);
 }
 
+export const isBillingOrderId = (id: unknown): id is string =>
+  typeof id === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id);
+
 export function alipayCheckoutUrl(payment?: PaymentView) {
+  if (payment?.channel !== 'ALIPAY' || !payment.codeUrl) return undefined;
+  if (payment.codeUrl.startsWith('/subscription/alipay-checkout?')) {
+    const url = new URL(payment.codeUrl, window.location.origin);
+    const kind = url.searchParams.get('kind');
+    if (url.origin === window.location.origin && url.pathname === '/subscription/alipay-checkout' && !url.hash
+        && isBillingOrderId(url.searchParams.get('order')) && (kind === 'package' || kind === 'recharge')) return url.href;
+    return undefined;
+  }
+  return alipayGatewayUrl(payment);
+}
+
+export function alipayGatewayUrl(payment?: PaymentView) {
   if (payment?.channel !== 'ALIPAY' || !payment.codeUrl) return undefined;
   try {
     const url = new URL(payment.codeUrl);

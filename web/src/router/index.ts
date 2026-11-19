@@ -79,6 +79,7 @@ const router = createRouter({
       meta: { auth: true },
       children: [
         { path: "", component: () => import("@/pages/subscription/Index.vue") },
+        { path: 'alipay-checkout', name: 'alipay-checkout', component: () => import('@/pages/subscription/AlipayCheckout.vue') },
         { path: "payment-result", name: 'payment-result', component: () => import("@/pages/subscription/PaymentResult.vue") },
       ],
     },
