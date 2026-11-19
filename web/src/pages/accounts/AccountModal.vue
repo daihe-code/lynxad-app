@@ -11,6 +11,7 @@
 </template>
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, useId } from 'vue';
+import { lockBodyScroll } from '@/utils/bodyScrollLock';
 import AccountIcon from './AccountIcon.vue';
 const props = defineProps<{
     title: string;
@@ -24,7 +25,8 @@ const emit = defineEmits<{
     ];
 }>();
 const titleId = useId(), box = ref<HTMLElement>();
-let overflow = '', previous: HTMLElement | null = null;
+let releaseScroll: (() => void) | undefined;
+let previous: HTMLElement | null = null;
 function close() { if (!props.busy)
     emit('close'); }
 function onKey(e: KeyboardEvent) {
@@ -49,9 +51,17 @@ function onKey(e: KeyboardEvent) {
         first.focus();
     }
 }
-onMounted(() => { previous = document.activeElement as HTMLElement; overflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; box.value?.focus(); });
-onUnmounted(() => { document.body.style.overflow = overflow; if (previous?.isConnected)
-    previous.focus(); });
+onMounted(() => {
+    previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    releaseScroll = lockBodyScroll();
+    box.value?.focus();
+});
+onUnmounted(() => {
+    releaseScroll?.();
+    if (previous?.isConnected && document.activeElement === document.body) {
+        previous.focus({ preventScroll: true });
+    }
+});
 </script>
 <style scoped>
 .modal__box.modal__box--detail{max-width:760px;max-height:calc(100dvh - 48px);display:flex;flex-direction:column;padding:24px 28px}.modal__box--detail .modal__head,.modal__box--detail .modal__foot{flex-shrink:0}.modal__body--scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:8px}@media(max-width:639px){.modal__box.modal__box--detail{padding:20px;max-height:calc(100dvh - 48px)}}

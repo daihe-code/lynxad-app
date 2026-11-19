@@ -81,12 +81,19 @@ function scrollPlans() { plansRef.value?.scrollIntoView({ behavior: 'smooth', bl
 function onPlan(p: PlanItem) { error.value = ''; void router.push({ query: { ...route.query, plan: p.code } }); }
 function closePlan() { if (!busy.value)
     void router.push({ query: { ...route.query, plan: undefined } }); }
-function closePayment() { if (!busy.value) {
+function resetPayment() {
     payOpen.value = false;
     payment.value = undefined;
     paymentQr.value = '';
-    closePlan();
-} }
+}
+function closePayment() {
+    if (busy.value) return;
+    if (route.query.plan) {
+        closePlan();
+        return;
+    }
+    resetPayment();
+}
 async function toggleRenew() { if (!sub.value?.hasPaidSubscription || renewing.value)
     return; renewing.value = true; try {
     await patchAutoRenew(!sub.value.autoRenew);
@@ -213,10 +220,9 @@ finally {
 } }
 function onInvoice() { ElMessage.info('正式发票下载接口尚未接入'); }
 function exportCsv() { csvDownload('订阅账单.csv', [['账单日期', '套餐项目', '金额（元）', '备注', '支付方式', '状态'], ...bills.value.map(b => [b.billDate, b.title, b.amountYuan, b.amountNote, payMethod(b.payMethod), b.status === 'PAID' ? '已支付' : '待扣款'])]); }
-watch(() => route.query.plan, () => { error.value = ''; if (!route.query.plan && !busy.value) {
-    payOpen.value = false;
-    payment.value = undefined;
-    paymentQr.value = '';
-} });
+watch(() => route.query.plan, plan => {
+    error.value = '';
+    if (!plan && !busy.value) resetPayment();
+});
 onMounted(reload);
 </script>
