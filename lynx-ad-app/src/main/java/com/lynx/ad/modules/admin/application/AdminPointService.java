@@ -3,6 +3,7 @@ package com.lynx.ad.modules.admin.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.admin.infrastructure.AdminAccountStore;
+import com.lynx.ad.modules.billing.application.PointLedgerService;
 import com.lynx.ad.modules.billing.application.PointWalletService;
 import com.lynx.ad.modules.billing.application.WorkspacePointOrders;
 import com.lynx.ad.modules.tenant.application.WorkspaceFoundation;
@@ -25,17 +26,19 @@ public class AdminPointService {
     private final WorkspaceFoundation foundation;
     private final WorkspacePointOrders orders;
     private final PointWalletService points;
+    private final PointLedgerService ledger;
     private final ObjectMapper json;
 
     public AdminPointService(AdminAuthService auth, AdminAccountStore admins, JdbcTemplate jdbc,
                              WorkspaceFoundation foundation, WorkspacePointOrders orders, PointWalletService points,
-                             ObjectMapper json) {
+                             PointLedgerService ledger, ObjectMapper json) {
         this.auth = auth;
         this.admins = admins;
         this.jdbc = jdbc;
         this.foundation = foundation;
         this.orders = orders;
         this.points = points;
+        this.ledger = ledger;
         this.json = json;
     }
 
@@ -43,6 +46,14 @@ public class AdminPointService {
 
     public record Change(UUID requestId, String tenantId, Direction direction, BigDecimal amount,
                          Long expectedVersion, String reason) {}
+
+    @Transactional(readOnly = true)
+    public PointLedgerService.Page history(String user, String tenant, String account, PointLedgerService.Kind kind, int page) {
+        auth.require();
+        validateTenant(tenant);
+        requireMembership(user, tenant);
+        return ledger.history(tenant, account, kind, page);
+    }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public PointWalletService.Wallet balance(String user, String tenant) {
@@ -85,18 +96,28 @@ public class AdminPointService {
     }
 
     private void prepareWallet(String user, String tenant) {
-        if (tenant == null || tenant.isBlank() || tenant.length() > 36
-                || jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? AND status='ACTIVE' FOR UPDATE",
+        validateTenant(tenant);
+        if (jdbc.queryForList("SELECT id FROM sys_tenant WHERE id=? AND status='ACTIVE' FOR UPDATE",
                         String.class, tenant).isEmpty()) {
             throw new BizException(1904, "该坤境账户不可用");
         }
-        var membership = jdbc.queryForList("""
-                SELECT m.tenant_id FROM tenant_member m JOIN sys_user u ON u.id=m.user_id
-                WHERE m.user_id=? AND m.tenant_id=? AND m.status<>'REMOVED' AND u.status<>'DELETED'
-                """, String.class, user, tenant);
-        if (membership.isEmpty()) throw new BizException(1904, "该用户不属于所选坤境账户，请刷新用户列表");
+        requireMembership(user, tenant);
         foundation.ensure(tenant);
         orders.ensureCurrentGrant(tenant);
+    }
+
+    private void validateTenant(String tenant) {
+        if (tenant == null || tenant.isBlank() || tenant.length() > 36) {
+            throw new BizException(1904, "该坤境账户不可用");
+        }
+    }
+
+    private void requireMembership(String user, String tenant) {
+        var membership = jdbc.queryForList("""
+                SELECT m.tenant_id FROM tenant_member m JOIN sys_user u ON u.id=m.user_id JOIN sys_tenant t ON t.id=m.tenant_id
+                WHERE m.user_id=? AND m.tenant_id=? AND m.status<>'REMOVED' AND u.status<>'DELETED' AND t.status='ACTIVE'
+                """, String.class, user, tenant);
+        if (membership.isEmpty()) throw new BizException(1904, "该用户不属于所选坤境账户，请刷新用户列表");
     }
 
     private String fingerprint(List<?> fields) {

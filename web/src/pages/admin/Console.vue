@@ -16,12 +16,13 @@
           <el-table-column label="套餐与到期时间" min-width="230"><template #default="{row}"><el-tag :type="row.packageStatus === 'ACTIVE' ? 'success' : row.packageStatus === 'TRIAL' ? 'primary' : 'info'">{{ packageStates[row.packageStatus] || row.packageStatus }}</el-tag><span class="plan-name">{{ row.planCode ? plans[row.planCode] : '' }}</span><small>{{ time(row.expiresAt) }}</small></template></el-table-column>
           <el-table-column label="注册时间" min-width="185"><template #default="{row}">{{ time(row.registeredAt) }}</template></el-table-column>
           <el-table-column label="最近成功登录" min-width="185"><template #default="{row}">{{ time(row.lastLoginAt) }}<small>成功登录 {{ row.loginCount }} 次</small></template></el-table-column>
-          <el-table-column label="操作" min-width="310" fixed="right">
+          <el-table-column label="操作" min-width="380" fixed="right">
             <template #default="{row}">
               <el-button link type="primary" @click="openUser(row.id)">查看资料</el-button>
               <el-button link type="primary" :disabled="!row.tenantId || openingChange" @click="openPackageChange(row)">修改套餐</el-button>
               <el-button link type="primary" :disabled="!row.tenantId || openingExtension" @click="openExtend(row.id)">延长套餐</el-button>
               <el-button link type="primary" :disabled="!row.tenantId" @click="pointsTarget = row">调整积分</el-button>
+              <el-button link type="primary" :disabled="!row.tenantId" @click="ledgerTarget = row">积分流水</el-button>
               <el-button v-if="row.status === 'BLOCKED'" link type="primary" @click="tab = 'blacklist'">管理黑名单</el-button>
               <el-button v-else link type="danger" :disabled="moderating" @click="moderateUser(row, false)">拉黑</el-button>
               <el-button link type="danger" :disabled="moderating" @click="moderateUser(row, true)">删除账户</el-button>
@@ -41,6 +42,7 @@
           <div>
             <el-button :disabled="!detail.user.tenantId || openingExtension" @click="openExtend(detail.user.id)">延长套餐</el-button>
             <el-button :disabled="!detail.user.tenantId" @click="pointsTarget = detail.user">调整积分</el-button>
+            <el-button :disabled="!detail.user.tenantId" @click="ledgerTarget = detail.user">积分流水</el-button>
             <el-button type="primary" :disabled="!detail.user.tenantId || openingChange" @click="openPackageChange(detail.user)">修改套餐</el-button>
           </div>
         </div>
@@ -51,6 +53,10 @@
       </template></div>
     </el-drawer>
     <PointAdjustmentDialog v-if="pointsTarget" :target="pointsTarget" @close="pointsTarget = undefined" />
+    <el-dialog v-if="ledgerTarget?.tenantId" :model-value="true" title="积分流水" width="min(1050px, 96vw)" append-to-body @close="ledgerTarget = undefined">
+      <p class="ledger-workspace">{{ ledgerTarget.tenantName || ledgerTarget.tenantId }}</p>
+      <PointLedgerTable :key="ledgerTarget.tenantId" :fetch-page="fetchLedgerPage" />
+    </el-dialog>
     <el-dialog v-model="packageChangeOpen" title="修改套餐" width="min(520px, 95vw)" append-to-body
       :close-on-click-modal="false" :close-on-press-escape="!changingPackage" :show-close="!changingPackage">
       <template v-if="packageTarget">
@@ -124,12 +130,14 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { blockPhone, changePackage, deleteAdminUser, getAdminPhones, grantAdminPhone, type AdminMe, type ChangePackage } from '@/features/admin/adminApi';
+import { blockPhone, changePackage, deleteAdminUser, getAdminPhones, getAdminPointHistory, grantAdminPhone, type AdminMe, type ChangePackage } from '@/features/admin/adminApi';
+import type { PointLedgerQuery } from '@/features/billing/pointLedger';
 import { workspaceAccountLabel } from '@/features/tenant/workspaceApi';
 import { adminSession, adminLogout, getAdminOverview, getAdminUsers, getAdminUser, getAdminLogins, getPackageAdjustments, getAdminAudit, extendPackage, type AdminOverview, type AdminPage, type AdminUser, type AdminUserDetail, type AdminLoginLog, type PackageAdjustment, type AdminAudit } from '@/features/admin/adminApi';
 import QualificationQueue from './QualificationQueue.vue';
 import PhoneBlacklist from './PhoneBlacklist.vue';
 import PointAdjustmentDialog from './PointAdjustmentDialog.vue';
+import PointLedgerTable from '@/components/PointLedgerTable.vue';
 const router=useRouter();
 const plans:Record<string,string>={BASIC:'基础版',PROFESSIONAL:'专业版',FLAGSHIP:'旗舰版'};
 const packageStates:Record<string,string>={ACTIVE:'正式用户',TRIAL:'试用中',EXPIRED:'已到期',NONE:'尚未开通'};
@@ -142,6 +150,12 @@ const overviewCards:{key:keyof AdminOverview;label:string}[]=[{key:'users',label
 const blank=<T,>():AdminPage<T>=>({records:[],total:0,pageNum:1,pageSize:20});
 const overview=ref<AdminOverview>(),users=ref(blank<AdminUser>()),logins=ref(blank<AdminLoginLog>()),adjustments=ref(blank<PackageAdjustment>()),audit=ref(blank<AdminAudit>());
 const pointsTarget = ref<AdminUser>();
+const ledgerTarget = ref<AdminUser>();
+const fetchLedgerPage = (query: PointLedgerQuery) => {
+  const target = ledgerTarget.value;
+  if (!target?.tenantId) return Promise.reject(new Error('坤境账户不可用'));
+  return getAdminPointHistory(target.id, target.tenantId, query);
+};
 const tab=ref('users'),q=ref(''),status=ref(''),result=ref(''),range=ref<[string,string]>(),page=ref(1),loading=ref(false),error=ref(''),filterUser=ref(''),filterName=ref('');
 const total=computed(()=>({users:users.value.total,logins:logins.value.total,adjustments:adjustments.value.total,audit:audit.value.total})[tab.value]||0);
 const time=(value?:string|null)=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—';
@@ -287,6 +301,7 @@ async function authorizePhone() {
 onMounted(load);
 </script>
 <style scoped>
+.ledger-workspace{margin:0 0 16px;color:#777b95}
 .admin-phone-form{margin-top:20px}.admin-phone-row{display:flex;gap:10px;width:100%}.admin-phone-row .el-input{min-width:0}
 .admin-console{min-height:100dvh;background:#f6f7fb;color:#222943}.admin-header{display:flex;justify-content:space-between;align-items:center;gap:20px;background:#fff;border-bottom:1px solid #e6e8f1;padding:22px 36px}.admin-header>div:first-child{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.brand{font-weight:750;color:#5b55ef;font-size:22px}.admin-header h1{font-size:20px;margin:0}.admin-only{font-size:12px;padding:5px 8px;background:#eeedff;color:#625dea;border-radius:5px}.header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.header-actions>span{font-size:13px;color:#667088;margin-right:10px}.admin-content{max-width:1680px;margin:auto;padding:28px 36px}.overview{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px}.overview article{border:1px solid #e6e8f1;background:#fff;border-radius:12px;padding:22px}.overview span{display:block;font-size:13px;color:#768096}.overview strong{display:block;font-size:27px;margin-top:12px}.admin-panel{padding:24px;border-radius:12px;border:1px solid #e6e8f1;background:#fff}.filters{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:6px 0 20px}.filters>.el-input{width:min(340px,100%)}.filters>.el-select{width:190px}.filter-hint,.note{font-size:12px;color:#758096;line-height:1.8}.admin-console :deep(.el-table small){display:block;font-size:12px;color:#8590a2;line-height:1.7;overflow-wrap:anywhere}.admin-console :deep(.el-table strong){font-weight:600}.admin-pagination{justify-content:flex-end;overflow:auto;margin-top:24px}.plan-name{margin-left:8px;font-size:13px}.user-detail{min-height:160px}.detail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}.detail-heading h2{font-size:22px;margin:0}.detail-heading p{font-size:13px;color:#758096}.user-detail h3{font-size:15px;margin:26px 0 14px}.user-detail h3>.el-button{margin-left:14px}.user-detail :deep(.el-descriptions__content){overflow-wrap:anywhere}.extension-form{margin-top:22px}.extension-form .note{width:100%;margin:6px 0 0}.day-presets{display:flex;gap:8px;margin-left:15px;flex-wrap:wrap}.day-presets .el-button+.el-button{margin-left:0}.expiry-review{padding:12px 16px;background:#f6f6fc;border-radius:8px;margin:15px 0}.expiry-review p{font-size:13px;margin:5px 0}.expiry-review span{display:block;font-size:12px;color:#758096;line-height:1.8;margin-top:10px}@media(max-width:900px){.admin-header{padding:20px;align-items:flex-start;flex-direction:column}.admin-content{padding:20px}.overview{grid-template-columns:repeat(3,1fr)}}@media(max-width:540px){.admin-header,.admin-content{padding:16px}.admin-header h1{font-size:17px}.admin-panel{padding:16px}.overview{grid-template-columns:repeat(2,1fr);gap:10px}.overview article{padding:16px}.filters{align-items:stretch}.filters>.el-input,.filters>.el-select{width:100%}.header-actions>span{width:100%;margin:0}.detail-heading{align-items:flex-start;flex-direction:column}.day-presets{width:100%;margin:12px 0 0}.admin-pagination{justify-content:flex-start}.user-detail :deep(.el-descriptions__label){white-space:normal}}
 </style>

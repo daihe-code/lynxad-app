@@ -152,7 +152,8 @@ class AccountInitializationTest {
                 new TenantUserController(queries, mock(OnboardingCommandService.class), context.getBean(AccountCommandService.class), auth),
                 new AccountLegalController(new AccountLegalService(jdbc, queries, mock(AdminAuthService.class), mock(AdminAccountStore.class), mock(AuditRecorder.class))),
                 new WorkspaceController(mock(WorkspaceQueryService.class), context.getBean(WorkspaceAccess.class),
-                        mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class), auth),
+                        mock(PointWalletService.class), mock(ClientSpaceService.class), context.getBean(WorkspaceTeamService.class), auth,
+                        mock(PointLedgerService.class)),
                 new WelcomeController(jdbc, context.getBean(PlatformTransactionManager.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new JwtAuthFilter(jwt)).build();
     }
@@ -386,6 +387,9 @@ class AccountInitializationTest {
         assertEquals(1911, call("POST", path+"/"+id+"/activate", body, ownerToken).path("code").asInt());
         var child = auth.passwordLogin(new PhoneNumber(phone), "TestChild789");
         assertEquals(jwt.parse(ownerToken).tenantId(), jwt.parse(child.token()).tenantId());
+        String pointsPath = "/api/v1/tenant/workspaces/current/points/history";
+        assertEquals(0, call("GET", pointsPath, null, ownerToken).path("code").asInt());
+        assertEquals(0, call("GET", pointsPath, null, child.token()).path("code").asInt());
         var me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
         assertEquals(json.valueToTree(List.of("OPERATOR", "VIEWER", "FINANCE")), me.path("memberRoles"));
         String teamPath = "/api/v1/tenant/workspaces/current/team";
@@ -394,6 +398,7 @@ class AccountInitializationTest {
         String memberPath = teamPath + "/members/" + team.path("members").get(0).path("id").asText();
         assertEquals(403, call("PUT", memberPath, "{\"roles\":[\"FINANCE\"]}", child.token()).path("code").asInt());
         assertEquals(0, call("PUT", memberPath, "{\"roles\":[\"VIEWER\"]}", ownerToken).path("code").asInt());
+        assertEquals(403, call("GET", pointsPath, null, child.token()).path("code").asInt());
         me = call("GET", "/api/v1/tenant/users/me", null, child.token()).path("data");
         assertEquals(json.valueToTree(List.of("VIEWER")), me.path("memberRoles"));
         assertEquals(0, call("PUT", memberPath, "{\"roles\":[\"VIEWER\",\"FINANCE\"]}", ownerToken).path("code").asInt());

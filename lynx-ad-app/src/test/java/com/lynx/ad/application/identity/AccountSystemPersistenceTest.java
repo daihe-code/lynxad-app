@@ -71,7 +71,7 @@ public class AccountSystemPersistenceTest {
         when(auth.require()).thenReturn(admin);
         var audit = mock(AdminAccountStore.class);
         var service = new AdminPointService(auth, audit, f.jdbc, new WorkspaceFoundation(f.jdbc), mock(WorkspacePointOrders.class),
-                f.points, new com.fasterxml.jackson.databind.ObjectMapper());
+                f.points, new PointLedgerService(f.jdbc), new com.fasterxml.jackson.databind.ObjectMapper());
         f.tx.executeWithoutResult(s -> {
             f.points.credit("a", "init", new BigDecimal("10"));
             f.points.reserve("a", "pending", null, "a", new BigDecimal("4"));
@@ -313,6 +313,60 @@ public class AccountSystemPersistenceTest {
     }
 
     @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
+    void pointHistoryPreservesChildAttributionAndDistinguishesAvailableFromConsumed(String mode) throws Exception {
+        var f = fixture(mode);
+        f.jdbc.execute("ALTER TABLE sys_user ADD phone VARCHAR(20)");
+        f.jdbc.execute("CREATE TABLE user_profile(user_id VARCHAR(36) PRIMARY KEY, nickname VARCHAR(64))");
+        f.jdbc.update("INSERT INTO sys_user(id,status,phone) VALUES('child','ACTIVE','13900001234')");
+        f.jdbc.update("INSERT INTO user_profile VALUES('child','素材运营')");
+        f.jdbc.update("INSERT INTO tenant_member(tenant_id,user_id,member_role,status,membership_id) VALUES('a','child','OPERATOR','ACTIVE','child-member')");
+        f.tx.executeWithoutResult(s -> {
+            f.points.credit("a", "recharge:order-a", new BigDecimal("1000"), "a");
+            f.points.credit("a", "subscription:interval:PROFESSIONAL", new BigDecimal("100"));
+            f.points.reserve("a", "remake:task-a", null, "child", new BigDecimal("240"));
+            f.points.settle("a", "remake:task-a", new BigDecimal("180"));
+            f.points.refund("a", "remake:task-a");
+            f.points.credit("b", "recharge:order-b", new BigDecimal("2000"), "b");
+        });
+        f.jdbc.update("UPDATE tenant_member SET status='REMOVED' WHERE user_id='child'");
+        var ledger = new PointLedgerService(f.jdbc);
+        var auth = mock(AdminAuthService.class);
+        var audit = mock(AdminAccountStore.class);
+        var recharge = mock(WorkspacePointOrders.class);
+        var admin = new AdminPointService(auth, audit, f.jdbc, new WorkspaceFoundation(f.jdbc), recharge, f.points,
+                ledger, new com.fasterxml.jackson.databind.ObjectMapper());
+        var page = admin.history("a", "a", null, null, 1);
+        assertEquals(5, page.records().size());
+        assertEquals(List.of("a", "child"), page.accounts().stream().map(PointLedgerService.Account::userId).toList());
+        var charges = ledger.history("a", "child", PointLedgerService.Kind.SETTLE, 1).records();
+        assertEquals(1, charges.size());
+        var expense = charges.getFirst();
+        assertEquals(new PointLedgerService.Account("child", "素材运营", "1234", "OPERATOR"), expense.account());
+        assertEquals("180.0000", expense.amount());
+        assertEquals("60.0000", expense.availableChange());
+        assertEquals("remake:task-a", expense.reference());
+        var receipt = ledger.history("a", null, PointLedgerService.Kind.RECHARGE, 1).records().getFirst();
+        assertEquals("order-a", receipt.reference());
+        assertEquals("OWNER", receipt.account().role());
+        assertEquals("1000.0000", receipt.availableChange());
+        assertEquals(f.points.balance("a").available(), page.records().stream()
+                .map(item -> new BigDecimal(item.availableChange())).reduce(BigDecimal.ZERO, BigDecimal::add));
+        assertTrue(ledger.history("a", "b", null, 1).records().isEmpty());
+        assertThrows(BizException.class, () -> admin.history("a", "b", null, null, 1));
+        verifyNoInteractions(audit, recharge);
+
+        f.jdbc.update("UPDATE sys_user SET status='DELETED' WHERE id='child'");
+        var historical = ledger.history("a", "child", PointLedgerService.Kind.SETTLE, 1).records().getFirst().account();
+        assertEquals(new PointLedgerService.Account("child", null, null, "OPERATOR"), historical);
+        f.tx.executeWithoutResult(s -> {
+            for (int index = 0; index < 20; index++) f.points.credit("a", "additional:" + index, BigDecimal.ONE);
+        });
+        assertTrue(ledger.history("a", null, null, 1).hasMore());
+        assertEquals(5, ledger.history("a", null, null, 2).records().size());
+        assertFalse(ledger.history("a", null, null, 2).hasMore());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"MySQL","PostgreSQL"})
     void childGenerationRechargeAndAdminDeductionUseTheSameLockedWallet(String mode) throws Exception {
         var f = fixture(mode);
         for (String child : List.of("child-one", "child-two")) {
@@ -342,7 +396,7 @@ public class AccountSystemPersistenceTest {
         when(auth.require()).thenReturn(new AdminAccountStore.Account("admin", "operator", "平台管理员", "ACTIVE", null, null, false));
         var audit = mock(AdminAccountStore.class);
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
-        var admin = new AdminPointService(auth, audit, f.jdbc, foundation, recharge, f.points, json);
+        var admin = new AdminPointService(auth, audit, f.jdbc, foundation, recharge, f.points, new PointLedgerService(f.jdbc), json);
         var charges = new GenerationCharges(pricing, recharge, foundation, f.points, f.bindings, f.jdbc, json, subscriptions);
         f.tx.execute(s -> f.points.credit("a", "initial", new BigDecimal("400")));
         f.tx.execute(s -> charges.hold("a", "child-video-one", "video-one", "child-one", Map.of("video", 1)));

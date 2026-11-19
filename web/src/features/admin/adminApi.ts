@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { reactive } from 'vue';
+import type { PointLedgerPage, PointLedgerQuery } from '@/features/billing/pointLedger';
 export class AdminApiError extends Error {
   constructor(message: string, readonly code?: number) { super(message); }
 }
@@ -78,6 +79,8 @@ export interface AdjustPoints {
 }
 export const getAdminPointWallet = (id: string, tenantId: string) =>
   get<AdminPointWallet>(`/users/${encodeURIComponent(id)}/points`, { tenantId });
+export const getAdminPointHistory = (id: string, tenantId: string, query: PointLedgerQuery) =>
+  get<PointLedgerPage>(`/users/${encodeURIComponent(id)}/points/history`, { tenantId, ...query });
 export const adjustAdminPoints = (id: string, body: AdjustPoints) =>
   post<AdminPointWallet>(`/users/${encodeURIComponent(id)}/points/adjust`, body);
 export interface PhoneBlacklistEntry { phone: string; reason: string; updatedAt: string }

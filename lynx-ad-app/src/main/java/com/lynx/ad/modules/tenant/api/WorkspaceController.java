@@ -3,6 +3,7 @@ package com.lynx.ad.modules.tenant.api;
 import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.security.*;
 import com.lynx.ad.modules.tenant.application.*;
+import com.lynx.ad.modules.billing.application.PointLedgerService;
 import com.lynx.ad.modules.billing.application.PointWalletService;
 import java.util.*;
 import org.springframework.web.bind.annotation.*;
@@ -13,13 +14,30 @@ public class WorkspaceController {
     private final WorkspaceQueryService service;private final WorkspaceAccess access;private final PointWalletService points;private final ClientSpaceService clients;
     private final WorkspaceTeamService team;
     private final AuthCommandService auth;
-    public WorkspaceController(WorkspaceQueryService service,WorkspaceAccess access,PointWalletService points,ClientSpaceService clients,WorkspaceTeamService team,AuthCommandService auth) {this.service=service;this.access=access;this.points=points;this.clients=clients;this.team=team;this.auth=auth;}
+    private final PointLedgerService pointLedger;
+    public WorkspaceController(WorkspaceQueryService service, WorkspaceAccess access, PointWalletService points,
+                               ClientSpaceService clients, WorkspaceTeamService team, AuthCommandService auth,
+                               PointLedgerService pointLedger) {
+        this.service = service;
+        this.access = access;
+        this.points = points;
+        this.clients = clients;
+        this.team = team;
+        this.auth = auth;
+        this.pointLedger = pointLedger;
+    }
     @GetMapping public ApiResponse<?> list() {return ApiResponse.ok(service.list(TenantContext.userId().value()));}
     @PostMapping("/{id}/switch") public ApiResponse<?> switchTo(@PathVariable String id) {return ApiResponse.ok(service.switchTo(id,TenantContext.userId().value()));}
     @GetMapping("/current") public ApiResponse<?> current() {return ApiResponse.ok(service.overview());}
     @GetMapping("/current/accounts") public ApiResponse<?> accounts() {return ApiResponse.ok(service.bindings());}
     @GetMapping("/current/points") public ApiResponse<?> ledger(@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="20") int pageSize) {
         var member=access.require(MemberRole.OWNER,MemberRole.FINANCE);return ApiResponse.ok(points.ledger(member.tenantId(),page,pageSize));
+    }
+    @GetMapping("/current/points/history")
+    public ApiResponse<PointLedgerService.Page> pointHistory(@RequestParam(required = false) String account,
+            @RequestParam(required = false) PointLedgerService.Kind kind, @RequestParam(defaultValue = "1") int page) {
+        var member = access.require(MemberRole.OWNER, MemberRole.FINANCE);
+        return ApiResponse.ok(pointLedger.history(member.tenantId(), account, kind, page));
     }
     public record ClientRequest(String name) {}
     public record AssignRequest(String clientSpaceId) {}

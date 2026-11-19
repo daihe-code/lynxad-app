@@ -130,7 +130,7 @@ class PlatformAdminTest {
         when(tenantUsers.findById(new UserId("customer"))).thenReturn(Optional.of(new com.lynx.ad.modules.tenant.domain.model.User(
                 new UserId("customer"), new com.lynx.ad.common.domain.PhoneNumber("13900009801"), null, null)));
         String customer=jwt.issue(new UserId("customer"),Optional.of(new TenantId("tenant")),MemberRole.OWNER,SysRole.USER);
-        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist","/admin-phones","/users/one/points?tenantId=tenant"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
+        for(String path:List.of("/overview","/users","/users/one","/login-logs","/package-adjustments","/audit-logs","/auth/me","/phone-blacklist","/admin-phones","/users/one/points?tenantId=tenant","/users/one/points/history?tenantId=tenant"))assertTrue(mvc.perform(get("/api/v1/admin"+path).header("Authorization","Bearer "+customer)).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
         for (String path : List.of("/users/one/package/extend", "/users/one/package/change", "/users/one/points/adjust", "/users/one/delete", "/phone-blacklist", "/phone-blacklist/13900009801/unblock", "/admin-phones")) {
             assertTrue(mvc.perform(post("/api/v1/admin" + path).header("Authorization","Bearer " + customer)
                     .contentType(MediaType.APPLICATION_JSON).content("{}")).andReturn().getResponse().getContentAsString().contains("\"code\":403"));
@@ -155,6 +155,10 @@ class PlatformAdminTest {
         assertTrue(mvc.perform(get("/api/v1/admin/users/one/points").param("tenantId", "tenant").header("Authorization", "Bearer " + token))
                 .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
         verify(points).balance("one", "tenant");
+        assertTrue(mvc.perform(get("/api/v1/admin/users/one/points/history").param("tenantId", "tenant")
+                        .param("account", "child").param("kind", "SETTLE").param("page", "2").header("Authorization", "Bearer " + token))
+                .andReturn().getResponse().getContentAsString().contains("\"code\":0"));
+        verify(points).history("one", "tenant", "child", com.lynx.ad.modules.billing.application.PointLedgerService.Kind.SETTLE, 2);
         UUID requestId = UUID.randomUUID();
         assertTrue(mvc.perform(post("/api/v1/admin/users/one/points/adjust").header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON).content("""
