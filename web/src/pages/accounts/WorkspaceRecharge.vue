@@ -43,11 +43,11 @@
           </el-radio-group>
           <template v-if="selected === 'custom'">
             <div class="custom-amount">
-              <el-input v-model="amount" aria-label="自定义充值金额" :aria-invalid="!!amountError" :aria-describedby="amountError ? 'recharge-amount-error' : undefined"
+              <el-input v-model="amount" class="recharge-amount-input" size="large" aria-label="自定义充值金额" :aria-invalid="!!amountError" :aria-describedby="amountError ? 'recharge-amount-error' : undefined"
                 inputmode="decimal" placeholder="最低 ¥99" :disabled="busy" @input="clearQuote" @keyup.enter="calculate">
                 <template #prepend>¥</template>
               </el-input>
-              <el-button :disabled="!amount || busy" :loading="quoting" @click="calculate">计算积分</el-button>
+              <el-button class="recharge-calculate" type="primary" size="large" :disabled="!amount || busy" :loading="quoting" @click="calculate">计算积分</el-button>
             </div>
             <p v-if="amountError" id="recharge-amount-error" class="amount-error" role="alert">{{ amountError }}</p>
           </template>
@@ -58,10 +58,12 @@
             <div><dt>应付金额</dt><dd>{{ selectedOption ? `¥${number(selectedOption.priceFen / 100)}` : '—' }}</dd></div>
             <div><dt>到账积分</dt><dd class="summary-points">{{ selectedOption ? number(selectedOption.points) : '—' }}</dd></div>
           </dl>
-          <p v-if="order" class="payment-note">请先处理上方的待支付订单。</p>
-          <p v-else-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" class="payment-note">有生效的实付订阅后可支付。</p>
-          <el-button type="primary" :disabled="!selectedOption || !!order || availability !== 'AVAILABLE' || quoting"
-            :loading="busy && !quoting && !order" @click="checkout">去支付</el-button>
+          <div class="summary-action">
+            <p v-if="order" class="payment-note">请先处理上方的待支付订单。</p>
+            <p v-else-if="availability === 'PAID_SUBSCRIPTION_REQUIRED'" class="payment-note">有生效的实付订阅后可支付。</p>
+            <el-button type="primary" :disabled="!selectedOption || !!order || availability !== 'AVAILABLE' || quoting"
+              :loading="busy && !quoting && !order" @click="checkout">去支付</el-button>
+          </div>
         </div>
       </div>
     </section>
@@ -226,8 +228,8 @@ onBeforeUnmount(() => { active = false; });
 }
 .recharge-balance strong { color: rgb(var(--c-primary-ink)); font-size: 26px; font-variant-numeric: tabular-nums; }
 .balance-scope { margin-left: auto; color: var(--el-text-color-secondary); font-size: 13px; }
-.recharge-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: start; gap: 22px; margin-top: 20px; }
-.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr)); align-items: stretch; gap: 10px; }
+.recharge-grid { display: grid; gap: 20px; margin-top: 20px; }
+.options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 12px; }
 .options :deep(.el-radio) {
   display: flex; align-items: flex-start; height: auto; min-height: 100px; margin: 0; padding: 13px 11px;
   border-radius: 12px; white-space: normal;
@@ -239,25 +241,41 @@ onBeforeUnmount(() => { active = false; });
 .option-custom { font-size: 16px; }
 .option-points { margin-top: 7px; font-weight: 600; }
 .option-rate { margin-top: 5px; font-size: 12px; color: var(--el-text-color-secondary); }
-.recharge-summary { padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 14px; background: #f8f7fe; }
-.recharge-summary h3 { margin: 0; font-size: 15px; font-weight: 700; }
-.recharge-summary dl { display: grid; gap: 10px; margin: 16px 0; }
-.recharge-summary dl div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+.recharge-summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px 20px;
+  padding: 16px 20px; border: 1px solid var(--el-border-color-lighter); border-radius: 14px; background: #f8f7fe;
+}
+.recharge-summary h3 { grid-column: 1 / -1; margin: 0; font-size: 15px; font-weight: 700; }
+.recharge-summary dl { display: flex; flex-wrap: wrap; gap: 12px 36px; margin: 0; }
+.recharge-summary dl div { display: grid; gap: 4px; }
 .recharge-summary dt, .payment-note { color: var(--el-text-color-secondary); font-size: 13px; }
-.recharge-summary dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.recharge-summary dd { margin: 0; font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .summary-points { color: rgb(var(--c-primary-ink)); }
-.recharge-summary .el-button { width: 100%; }
-.payment-note { margin: 0 0 12px; line-height: 1.5; }
+.summary-action { display: grid; justify-items: end; gap: 8px; }
+.summary-action .el-button { min-width: 140px; }
+.payment-note { margin: 0; line-height: 1.5; }
 .recharge-state, .checkout { display: grid; gap: 12px; justify-items: start; }
 .recharge-state p, .checkout p { margin: 0; }
 .recharge-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .recharge-actions :deep(.el-button) { margin-left: 0; }
 .custom-amount { display: flex; gap: 8px; max-width: 420px; margin-top: 14px; }
+.recharge-amount-input { min-width: 0; --el-input-focus-border-color: #78829b; }
+.recharge-amount-input :deep(.el-input__inner:focus-visible) { outline: none; box-shadow: none; }
+.recharge-calculate {
+  padding-inline: 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  background-color: var(--el-button-bg-color); color: var(--el-button-text-color);
+}
+.recharge-calculate:not(:disabled):hover { background-color: var(--el-button-hover-bg-color); }
+.recharge-calculate:disabled { background-color: var(--el-button-disabled-bg-color); }
 .amount-error { color: var(--el-color-danger); margin: 8px 0 0; font-size: 13px; }
 .recharge-history h2 { margin-bottom: 16px; }
 .recharge-history :deep(.el-date-editor) { flex: 0 1 280px; }
 @media (max-width: 740px) {
-  .recharge-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .balance-scope { margin-left: 0; }
+}
+@media (max-width: 520px) {
+  .recharge-summary { grid-template-columns: minmax(0, 1fr); }
+  .summary-action { justify-items: stretch; }
 }
 </style>
