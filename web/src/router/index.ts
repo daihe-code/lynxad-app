@@ -77,7 +77,10 @@ const router = createRouter({
       path: "/subscription",
       component: () => import("@/layouts/AppLayout.vue"),
       meta: { auth: true },
-      children: [{ path: "", component: () => import("@/pages/subscription/Index.vue") }],
+      children: [
+        { path: "", component: () => import("@/pages/subscription/Index.vue") },
+        { path: "payment-result", name: 'payment-result', component: () => import("@/pages/subscription/PaymentResult.vue") },
+      ],
     },
     {
       path: "/analytics",
@@ -106,6 +109,9 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+  if (to.name === 'payment-result' && Object.keys(to.query).some(key => key !== 'order' && key !== 'kind')) {
+    return { name: 'payment-result', query: { order: to.query.order, kind: to.query.kind }, replace: true };
+  }
   if (to.meta.adminAuth || to.matched.some(r => r.meta.adminAuth)) {
     if (!hasAdminToken()) return '/admin/login';
     try { await loadAdminMe(); return true; }
@@ -129,7 +135,7 @@ router.beforeEach(async (to) => {
     }
     if (user.welcomeAcknowledged === null) await user.loadWelcome();
     if (!user.welcomeAcknowledged && to.path !== '/welcome') return '/welcome';
-    if (user.me?.memberRole === 'FINANCE' && !['/accounts','/subscription','/welcome'].includes(to.path)) return '/accounts?tab=workspace';
+    if (user.me?.memberRole === 'FINANCE' && to.name !== 'payment-result' && !['/accounts','/subscription','/welcome'].includes(to.path)) return '/accounts?tab=workspace';
     if (user.me?.memberRole === 'VIEWER') {
       if (to.meta.requireAweme || /\/(?:edit|transfer)$/.test(to.path)) return '/campaigns';
       if (!to.path.startsWith('/campaigns') && !['/accounts','/welcome'].includes(to.path)) return '/campaigns';

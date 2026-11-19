@@ -76,7 +76,7 @@ const showAdvertisingAccount = computed(() => ['/campaigns', '/creatives'].inclu
 watch([showAdvertisingAccount, () => advertisingAccounts.preferenceKey], ([visible]) => { if (visible) void advertisingAccounts.load(); }, { immediate: true });
 const isCreate = computed(() => route.path === "/campaigns/create");
 const isAsset = computed(() => route.path === "/creatives");
-const isAccount = computed(() => route.path === "/accounts" || route.path === "/subscription");
+const isAccount = computed(() => route.path === "/accounts" || route.path.startsWith("/subscription"));
 const isReference = computed(() => isCreate.value || isAsset.value || isAccount.value || route.path.startsWith('/campaigns/') || route.path.startsWith('/authorization') || route.path === '/oauth/callback' || route.path === '/analytics');
 // Navigation styling is shared independently of each page’s content layout.
 const usesReferenceHeader = computed(() => isReference.value || route.path.startsWith("/campaigns"));

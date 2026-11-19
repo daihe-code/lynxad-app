@@ -88,8 +88,9 @@ export function createPayment(orderId: string) {
   return apiPost<PaymentView>("/api/v1/billing/payments", { orderId });
 }
 
-export function checkOrderPayment(orderId: string) {
-  return apiPost<OrderView>(`/api/v1/billing/orders/${encodeURIComponent(orderId)}/check-payment`, {});
+export function checkOrderPayment(orderId: string, signal?: AbortSignal) {
+  return apiPost<OrderView>(`/api/v1/billing/orders/${encodeURIComponent(orderId)}/check-payment`, {},
+    signal ? { signal, headers: { 'X-Quiet-Request': 'true' } } : undefined);
 }
 
 export function alipayCheckoutUrl(payment?: PaymentView) {

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 class AlipayPaymentAdapterTest {
     private static final String PAYMENT_ID = "ali_0123456789abcdef0123456789abcdef";
+    private static final String ORDER_ID = "01234567-89ab-cdef-0123-456789abcdef";
     private static final String APP_ID = "2021000000000000";
     private static final String SELLER_ID = "2088000000000000";
     private static final String NOTIFY_URL = "https://checkout.example.com/lynx-ad/api/v1/billing/payments/alipay/notify";
@@ -41,7 +42,7 @@ class AlipayPaymentAdapterTest {
 
     @Test
     void officialCheckoutUsesTheStoredAmountAndOrderNumber() throws Exception {
-        var payment = new BillingPayment(PAYMENT_ID, new TenantId("workspace"), "order", PayChannel.ALIPAY,
+        var payment = new BillingPayment(PAYMENT_ID, new TenantId("workspace"), ORDER_ID, PayChannel.ALIPAY,
                 PaymentStatus.CREATED, 9900, null, null, Instant.parse("2026-11-17T02:00:00Z"), null);
         var url = URI.create(adapter().checkoutUrl(payment, "坤境智营积分充值", true));
         assertEquals("https", url.getScheme());
@@ -54,7 +55,8 @@ class AlipayPaymentAdapterTest {
         }
         assertEquals("alipay.trade.page.pay", params.get("method"));
         assertEquals(NOTIFY_URL, params.get("notify_url"));
-        assertEquals("https://checkout.example.com/accounts?tab=workspace", params.get("return_url"));
+        assertEquals("https://checkout.example.com/subscription/payment-result?order=" + ORDER_ID + "&kind=recharge",
+                params.get("return_url"));
         assertNotNull(params.get("sign"));
         var order = new ObjectMapper().readTree(params.get("biz_content"));
         assertEquals(PAYMENT_ID, order.path("out_trade_no").asText());

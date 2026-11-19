@@ -16,4 +16,6 @@
         <appender-ref ref="CONSOLE"/>
     </root>
     <logger name="com.lynx.ad" level="INFO"/>
+    <logger name="sdk.biz.err" level="OFF"/>
+    <logger name="sdk.comm.err" level="OFF"/>
 </configuration>

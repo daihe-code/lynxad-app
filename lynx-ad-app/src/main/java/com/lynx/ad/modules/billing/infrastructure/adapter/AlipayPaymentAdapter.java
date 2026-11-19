@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -42,10 +43,23 @@ public class AlipayPaymentAdapter {
     public record Trade(String paymentId, Status status, String tradeNo, Integer amountFen) {}
 
     private final LynxAdProperties.Alipay config;
+    private final boolean enabled;
     private AlipayClient client;
 
     public AlipayPaymentAdapter(LynxAdProperties properties) {
         this.config = properties.getPayment().getAlipay();
+        this.enabled = properties.getPayment().isAlipay();
+    }
+
+    @PostConstruct
+    void validateConfiguration() {
+        if (!enabled) return;
+        try {
+            client();
+            AlipaySignature.rsa256Sign("payment-configuration-check", key(config.getPrivateKey()), CHARSET);
+        } catch (AlipayApiException ex) {
+            throw new IllegalStateException("支付宝支付加签配置无效");
+        }
     }
 
     public boolean expired(BillingPayment payment, Instant now) {
@@ -65,7 +79,8 @@ public class AlipayPaymentAdapter {
         request.setBizModel(model);
         request.setNotifyUrl(config.getNotifyUrl());
         request.setReturnUrl(config.getReturnOrigin().replaceAll("/+$", "")
-                + (recharge ? "/accounts?tab=workspace" : "/subscription"));
+                + "/subscription/payment-result?order=" + payment.orderId()
+                + "&kind=" + (recharge ? "recharge" : "package"));
         try {
             return client().pageExecute(request, "GET").getBody();
         } catch (AlipayApiException ex) {
