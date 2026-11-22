@@ -70,6 +70,16 @@ export interface RemakeUpload {
   assetId?: string;
 }
 
+export interface RemakeLinkImport {
+  assetId: string;
+  durationSeconds: number;
+  width: number;
+  height: number;
+  sourceUrl: string;
+  sourcePlatform: string;
+  downloadMethod: string;
+}
+
 export const getRemakeCapability = () => apiGet<RemakeCapability>(root + '/capability', quiet);
 export const listRemakes = () => apiGet<RemakeTask[]>(root, quiet);
 export const getRemake = (id: string) => apiGet<RemakeTask>(root + '/' + encodeURIComponent(id), quiet);
@@ -81,6 +91,11 @@ export const confirmRemake = (id: string, title: string, shots: RemakeShot[], po
   }, quiet);
 export const saveRemake = (id: string) =>
   apiPost<{ assetId: string }>(root + '/' + encodeURIComponent(id) + '/save', null, { ...quiet, timeout: 90000 });
+
+/** 服务端从链接下载并校验视频，返回与本地上传相同的参考素材资产。 */
+export const importRemakeLink = (bindingId: string, requestId: string, url: string) =>
+  apiPost<RemakeLinkImport>(root + '/uploads/link', { requestId, url },
+    { ...quiet, params: { bindingId }, timeout: 180000 });
 
 export async function uploadRemakeMedia(session: RemakeUpload, kind: 'video' | 'image', bindingId: string,
                                         progress: (percent: number) => void) {
