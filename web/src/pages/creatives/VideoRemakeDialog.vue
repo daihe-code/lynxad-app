@@ -46,11 +46,26 @@
             <div v-if="setupStep === 0" class="remake-step-body">
               <h3>参考视频</h3>
               <p class="remake-muted">选择要参考镜头、构图和节奏的视频。</p>
-              <RemakeFilePicker kind="video" label="上传或拖入参考视频" :file="reference?.file" :disabled="busy"
-                :approval-required="!rights" @blocked="promptReferenceRights" @change="selectReference"
-                @metadata="referenceMetadata = $event" />
-              <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
-              <p v-else-if="referenceMetadata === null" class="remake-muted">当前浏览器无法预览，上传后会校验视频规格。</p>
+              <div class="remake-source-switch" role="group" aria-label="参考视频来源">
+                <button type="button" :aria-pressed="referenceSource === 'upload'" :disabled="busy" @click="switchReferenceSource('upload')">本地上传</button>
+                <button type="button" :aria-pressed="referenceSource === 'link'" :disabled="busy" @click="switchReferenceSource('link')">粘贴链接</button>
+              </div>
+              <template v-if="referenceSource === 'upload'">
+                <RemakeFilePicker kind="video" label="上传或拖入参考视频" :file="reference?.file" :disabled="busy"
+                  :approval-required="!rights" @blocked="promptReferenceRights" @change="selectReference"
+                  @metadata="referenceMetadata = $event" />
+                <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
+                <p v-else-if="referenceMetadata === null" class="remake-muted">当前浏览器无法预览，上传后会校验视频规格。</p>
+              </template>
+              <div v-else class="remake-link-import">
+                <label>抖音视频链接
+                  <input v-model.trim="referenceLinkUrl" type="url" inputmode="url" :disabled="busy"
+                    placeholder="粘贴抖音分享链接，例如 v.douyin.com/… 或 douyin.com/video/…">
+                </label>
+                <p class="remake-muted">支持抖音分享短链或视频页链接，仅支持公开视频。提交时由服务端下载并校验视频规格；链接无法访问、视频私密或已删除时会在此提示，请更换链接或改用本地上传。</p>
+                <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
+                <p v-else-if="referenceLinkAssetId && referenceMetadata" class="remake-muted" role="status">已获取参考视频：{{ referenceMetadata.width }} × {{ referenceMetadata.height }} · {{ Math.round(referenceMetadata.duration) }} 秒（来源：抖音）</p>
+              </div>
               <details class="remake-video-requirements">
                 <summary>查看视频要求</summary>
                 <ul>
@@ -354,7 +369,7 @@ import { storeToRefs } from 'pinia';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { creationProducts, type CreationProduct } from '@/features/delivery/creationApi';
 import {
-  confirmRemake, createRemake, getRemake, getRemakeCapability, listRemakes, saveRemake, uploadRemakeMedia,
+  confirmRemake, createRemake, getRemake, getRemakeCapability, importRemakeLink, listRemakes, saveRemake, uploadRemakeMedia,
   type RemakeCapability, type RemakeShot, type RemakeTask, type RemakeUpload, type RemakeVideoSpec,
 } from '@/features/creative/videoRemakeApi';
 import AssetIcon from './AssetIcon.vue';
@@ -371,6 +386,9 @@ const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProdu
 const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoading = ref(false), productsError = ref('');
 
 const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
+const referenceSource = ref<'upload' | 'link'>('upload');
+const referenceLinkUrl = ref('');
+const referenceLinkAssetId = ref('');
 const referenceMetadata = ref<{ duration: number; width: number; height: number } | null>();
 const referenceError = computed(() => {
   const media = referenceMetadata.value;
@@ -381,6 +399,16 @@ const referenceError = computed(() => {
     return '参考视频须为横屏 16:9 或竖屏 9:16，分辨率须在 720p 至 1440p 内。';
   }
   return '';
+});
+const linkFormatError = computed(() => {
+  const text = referenceLinkUrl.value.trim();
+  if (!text) return '';
+  const found = text.match(/https?:\/\/[^\s，。；]+/);
+  if (!found) return '请粘贴以 http 开头的抖音视频链接。';
+  let host = '';
+  try { host = new URL(found[0]).host.toLowerCase(); } catch { return '请粘贴有效的抖音视频链接。'; }
+  return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host)
+    ? '' : '仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。';
 });
 const referenceRights = ref<HTMLInputElement>();
 const portraitId = ref(''), portraitName = ref(''), facts = ref('');
@@ -554,6 +582,8 @@ watch(bindingId, () => {
     item.assetId = undefined;
     item.nextChunk = 0;
   }
+  referenceLinkAssetId.value = '';
+  if (referenceSource.value === 'link') referenceMetadata.value = undefined;
 });
 watch([bindingId, awemeId], () => {
   ++productRequest;
@@ -575,7 +605,7 @@ watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
 watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, adNotices, portraitId, portraitName, rights, portraitTerms], () => {
+  facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
@@ -585,8 +615,26 @@ function uploadSession(file?: File): RemakeUpload | undefined {
 }
 function selectReference(file?: File) {
   if (reference.value) rights.value = false;
+  referenceSource.value = 'upload';
+  referenceLinkUrl.value = '';
+  referenceLinkAssetId.value = '';
   reference.value = uploadSession(file);
   referenceMetadata.value = undefined;
+  furthestStep.value = 0;
+}
+function switchReferenceSource(next: 'upload' | 'link') {
+  if (busy.value || next === referenceSource.value) return;
+  referenceSource.value = next;
+  setupIssue.value = undefined;
+  setupError.value = '';
+  if (next === 'link') {
+    reference.value = undefined;
+    referenceMetadata.value = undefined;
+  } else {
+    referenceLinkUrl.value = '';
+    referenceLinkAssetId.value = '';
+    referenceMetadata.value = undefined;
+  }
   furthestStep.value = 0;
 }
 function promptReferenceRights() {
@@ -602,9 +650,11 @@ function validateStep(step: number) {
   const issues: { when: boolean; field: string; message: string }[][] = [
     [
       { when: !rights.value, field: 'rights', message: '请阅读并同意协议，确认参考视频的使用授权。' },
-      { when: !reference.value, field: 'reference', message: '请上传参考视频。' },
+      { when: referenceSource.value === 'upload' && !reference.value, field: 'reference', message: '请上传参考视频。' },
+      { when: referenceSource.value === 'link' && !referenceLinkUrl.value.trim(), field: 'reference', message: '请粘贴抖音视频链接。' },
+      { when: referenceSource.value === 'link' && !!linkFormatError.value, field: 'reference', message: linkFormatError.value },
       { when: !!referenceError.value, field: 'reference', message: referenceError.value },
-      { when: !!reference.value && referenceMetadata.value === undefined, field: 'reference', message: '正在读取视频规格，请稍候。' },
+      { when: referenceSource.value === 'upload' && !!reference.value && referenceMetadata.value === undefined, field: 'reference', message: '正在读取视频规格，请稍候。' },
     ],
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
@@ -636,6 +686,15 @@ function goToStep(next: number) {
   setupStep.value = next;
   furthestStep.value = Math.max(furthestStep.value, next);
 }
+async function importReferenceLink() {
+  uploadProgress.value = { label: '正在下载链接视频', percent: 50 };
+  const result = await importRemakeLink(bindingId.value, crypto.randomUUID(), referenceLinkUrl.value.trim());
+  referenceLinkAssetId.value = result.assetId;
+  referenceMetadata.value = { duration: result.durationSeconds, width: result.width, height: result.height };
+  if (referenceError.value) throw new Error(referenceError.value);
+  uploadProgress.value = { label: '正在校验链接视频', percent: 100 };
+  return result.assetId;
+}
 async function continueSetup() {
   if (busy.value || !sourceMatchingReady.value) return;
   if (setupStep.value < 2) { goToStep(setupStep.value + 1); return; }
@@ -643,7 +702,7 @@ async function continueSetup() {
     if (!validateStep(step)) { setupStep.value = step; return; }
   }
   const product = selectedProduct.value, video = reference.value, kling = useKling.value;
-  if (!product || !video) return;
+  if (!product) return;
   busy.value = true;
   setupError.value = '';
   const upload = (session: RemakeUpload, kind: 'video' | 'image', label: string) => {
@@ -653,7 +712,13 @@ async function continueSetup() {
     });
   };
   try {
-    const referenceId = await upload(video, 'video', '上传参考视频');
+    let referenceId: string;
+    if (referenceSource.value === 'link') {
+      referenceId = await importReferenceLink();
+    } else {
+      if (!video) return;
+      referenceId = await upload(video, 'video', '上传参考视频');
+    }
     const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined;
     const portraitImageId = kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
