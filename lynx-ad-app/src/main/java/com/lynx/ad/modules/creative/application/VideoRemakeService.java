@@ -10,19 +10,25 @@ import com.lynx.ad.modules.billing.application.GenerationCharges;
 import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient.RemakeEngineError;
+import com.lynx.ad.modules.creative.infrastructure.adapter.DouyinLinkVideoDownloader;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore.Task;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
 import com.lynx.ad.modules.identity.application.AccountBindingRegistry;
 import com.lynx.ad.modules.tenant.application.WorkspaceAccess;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,6 +49,15 @@ public class VideoRemakeService {
     private final AssetUploadService assets;
     private final TransactionTemplate tx;
     private final ObjectMapper json;
+
+    @Value("${lynx.ad.remake-link.download-api-base-url:}")
+    private String downloadApiBaseUrl = "";
+    @Value("${lynx.ad.remake-link.download-api-path:}")
+    private String downloadApiPath = "";
+    @Value("${lynx.ad.remake-link.download-api-key:}")
+    private String downloadApiKey = "";
+    @Value("${lynx.ad.remake-link.ffprobe-path:ffprobe}")
+    private String ffprobePath = "ffprobe";
 
     public VideoRemakeService(CreationEngineClient engine, CreationQianchuanGateway catalog,
             AccountBindingRegistry bindings, WorkspaceAccess access, GenerationCharges charges,
@@ -65,6 +80,7 @@ public class VideoRemakeService {
                              boolean kling4Available, BigDecimal availablePoints, boolean sourceMatchingHd,
                              boolean sourceMatchingAvailable, Map<String, BigDecimal> pointsPerSecond) {}
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
+    public record LinkImport(String requestId, String url) {}
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
                         String productImageId, String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
@@ -134,6 +150,48 @@ public class VideoRemakeService {
         String asset = identifier(result.path("id").asText(), "rpa_");
         store.finishUpload(tenant, id, asset);
         return asset;
+    }
+
+    /**
+     * 从抖音链接导入参考视频：服务端下载并用 ffprobe 校验后，走与本地上传相同的引擎上传
+     * （开始上传、分片、完成）与素材登记；下载失败时直接返回明确错误，不生成复刻任务。
+     */
+    public Map<String, Object> importLink(String tenant, String actor, String binding, LinkImport request) {
+        requireGeneration(tenant, actor, binding);
+        var downloaded = DouyinLinkVideoDownloader.download(json, request.url(), downloadApiBaseUrl,
+                downloadApiPath, downloadApiKey, ffprobePath);
+        Path file = downloaded.file();
+        try {
+            var initiated = upload(tenant, actor, binding,
+                    new Upload(request.requestId(), "video", downloaded.filename(), downloaded.size(),
+                            downloaded.sha256Hex()));
+            String id = String.valueOf(initiated.get("id"));
+            store.recordUploadSource(tenant, id, downloaded.sourceUrl(), downloaded.platform(),
+                    downloaded.downloadMethod());
+            try (var in = Files.newInputStream(file)) {
+                byte[] buffer = new byte[CHUNK_BYTES];
+                int index = 0;
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    byte[] data = read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
+                    chunk(tenant, actor, binding, id, index, data);
+                    index++;
+                }
+            } catch (IOException ex) {
+                throw new BizException(1402, "链接视频上传到引擎失败，请稍后重试。");
+            }
+            String asset = finishUpload(tenant, actor, binding, id);
+            return Map.of("assetId", asset, "durationSeconds", downloaded.probe().durationSeconds(),
+                    "width", downloaded.probe().width(), "height", downloaded.probe().height(),
+                    "sourceUrl", downloaded.sourceUrl(), "sourcePlatform", downloaded.platform(),
+                    "downloadMethod", downloaded.downloadMethod());
+        } finally {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException ignored) {
+                // 临时文件删除失败不影响已完成的入库结果。
+            }
+        }
     }
 
     public View create(String tenant, String actor, Start request) {
