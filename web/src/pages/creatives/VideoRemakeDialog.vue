@@ -56,6 +56,13 @@
                   @metadata="referenceMetadata = $event" />
                 <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
                 <p v-else-if="referenceMetadata === null" class="remake-muted">当前浏览器无法预览，上传后会校验视频规格。</p>
+                <details class="remake-video-requirements">
+                  <summary>查看视频要求</summary>
+                  <ul>
+                    <li>横屏 16:9 · 1280 × 720 至 2560 × 1440</li>
+                    <li>竖屏 9:16 · 720 × 1280 至 1440 × 2560</li>
+                  </ul>
+                </details>
               </template>
               <div v-else class="remake-link-import">
                 <label>抖音视频链接
@@ -66,13 +73,6 @@
                 <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
                 <p v-else-if="referenceLinkAssetId && referenceMetadata" class="remake-muted" role="status">已获取参考视频：{{ referenceMetadata.width }} × {{ referenceMetadata.height }} · {{ Math.round(referenceMetadata.duration) }} 秒（来源：抖音）</p>
               </div>
-              <details class="remake-video-requirements">
-                <summary>查看视频要求</summary>
-                <ul>
-                  <li>横屏 16:9 · 1280 × 720 至 2560 × 1440</li>
-                  <li>竖屏 9:16 · 720 × 1280 至 1440 × 2560</li>
-                </ul>
-              </details>
               <div class="remake-rights-row">
                 <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
                   :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频</label>
