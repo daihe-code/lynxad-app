@@ -12,8 +12,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class VideoRemakeStore {
     public record Task(String tenant, String id, String actor, String binding, String product, String engine,
-                       String phase, String request, String confirmation, String asset, String error,
-                       String lease, Instant createdAt) {}
+            String phase, String request, String confirmation, String asset, String error,
+            String lease, Instant createdAt) {}
 
     private final JdbcTemplate jdbc;
 
@@ -33,7 +33,7 @@ public class VideoRemakeStore {
     public int pending(String tenant, String actor) {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM creative_video_remake WHERE tenant_id=? AND actor_id=?
-                  AND phase IN ('CREATING','PLANNING','CONFIRMING','SENDING','GENERATING','NEEDS_ATTENTION')
+                AND phase IN ('CREATING','PLANNING','CONFIRMING','SENDING','GENERATING','NEEDS_ATTENTION')
                 """, Integer.class, tenant, actor);
     }
 
@@ -54,6 +54,16 @@ public class VideoRemakeStore {
         }
     }
 
+    /** 记录链接导入视频的来源：原始链接、来源平台与下载方式（H5 路由或备用下载接口）。 */
+    public void recordUploadSource(String tenant, String uploadId, String sourceUrl, String platform,
+            String method) {
+        jdbc.update("""
+                UPDATE creative_video_remake_upload
+                SET source_url=?, source_platform=?, download_method=?
+                WHERE tenant_id=? AND upload_id=?
+                """, sourceUrl, platform, method, tenant, uploadId);
+    }
+
     public boolean ownsUpload(String tenant, String actor, String binding, String id) {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM creative_video_remake_upload
@@ -62,71 +72,60 @@ public class VideoRemakeStore {
     }
 
     public void finishUpload(String tenant, String id, String asset) {
-        jdbc.update("UPDATE creative_video_remake_upload SET asset_id=? WHERE tenant_id=? AND upload_id=?",
-                asset, tenant, id);
+        jdbc.update("""
+                UPDATE creative_video_remake_upload SET asset_id=? WHERE tenant_id=? AND upload_id=?
+                """, asset, tenant, id);
     }
 
-    public boolean ownsAsset(String tenant, String actor, String binding, String asset, String kind) {
+    public void create(String tenant, String id, String actor, String binding, String product,
+            String engine, String request) {
+        jdbc.update("""
+                INSERT INTO creative_video_remake
+                    (tenant_id,id,actor_id,binding_id,product_id,engine_task_id,phase,request_json)
+                    VALUES (?,?,?,?,?,'CREATING',?)
+                """, tenant, id, actor, binding, product, engine, request);
+    }
+
+    public boolean ownsAsset(String tenant, String actor, String binding, String id, String kind) {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM creative_video_remake_upload
-                WHERE tenant_id=? AND asset_id=? AND actor_id=? AND binding_id=? AND media_type=?
-                """, Integer.class, tenant, asset, actor, binding, kind) == 1;
+                WHERE tenant_id=? AND upload_id=? AND asset_id=? AND actor_id=? AND binding_id=? AND media_type=?
+                """, Integer.class, tenant, id, id, actor, binding, kind) == 1;
     }
 
-    public void create(String tenant, String id, String actor, String binding, String product, String request) {
+    public Optional<Task> findByEngine(String tenant, String engine) {
+        return jdbc.query("SELECT * FROM creative_video_remake WHERE tenant_id=? AND engine_task_id=?",
+                this::task, tenant, engine).stream().findFirst();
+    }
+
+    public void updatePhase(String tenant, String id, String phase, String confirmation,
+            String asset, String error) {
+        update(tenant, id, phase, confirmation, asset, error, null);
+    }
+
+    public void update(String tenant, String id, String phase, String confirmation,
+            String asset, String error, String lease) {
         jdbc.update("""
-                INSERT INTO creative_video_remake (tenant_id,id,actor_id,binding_id,product_name,phase,request_json)
-                VALUES (?,?,?,?,?,'CREATING',?)
-                """, tenant, id, actor, binding, product, request);
-    }
-
-    public List<Task> history(String tenant, String actor) {
-        return jdbc.query("""
-                SELECT * FROM creative_video_remake WHERE tenant_id=? AND actor_id=?
-                ORDER BY created_at DESC,id DESC LIMIT 30
-                """, this::task, tenant, actor);
-    }
-
-    public List<Task> due() {
-        return jdbc.query("""
-                SELECT * FROM creative_video_remake WHERE next_check_at<=CURRENT_TIMESTAMP
-                  AND phase IN ('CREATING','PLANNING','CONFIRMING','SENDING','GENERATING','NEEDS_ATTENTION')
-                ORDER BY next_check_at,created_at LIMIT 4
-                """, this::task);
-    }
-
-    public boolean claim(Task task, String token) {
-        return jdbc.update("""
-                UPDATE creative_video_remake SET lease_token=?,next_check_at=?
-                WHERE tenant_id=? AND id=? AND phase=? AND next_check_at<=CURRENT_TIMESTAMP
-                """, token, Timestamp.from(Instant.now().plusSeconds(180)), task.tenant(), task.id(), task.phase()) == 1;
-    }
-
-    public boolean update(Task task, String token, String phase, String engine, String error, long delaySeconds) {
-        return jdbc.update("""
-                UPDATE creative_video_remake SET phase=?,engine_id=?,error_message=?,next_check_at=?,lease_token=NULL
-                WHERE tenant_id=? AND id=? AND lease_token=?
-                """, phase, engine, error, Timestamp.from(Instant.now().plusSeconds(delaySeconds)),
-                task.tenant(), task.id(), token) == 1;
-    }
-
-    public void queueConfirmation(Task task, String confirmation) {
-        jdbc.update("""
-                UPDATE creative_video_remake SET phase='CONFIRMING',confirmation_json=?,next_check_at=CURRENT_TIMESTAMP
+                UPDATE creative_video_remake
+                SET phase=?,confirmation_json=?,asset_id=?,error=?,lease_token=?
                 WHERE tenant_id=? AND id=?
-                """, confirmation, task.tenant(), task.id());
+                """, phase, confirmation, asset, error, lease, tenant, id);
     }
 
-    public void saved(Task task, String asset) {
-        jdbc.update("UPDATE creative_video_remake SET asset_id=? WHERE tenant_id=? AND id=?",
-                asset, task.tenant(), task.id());
+    public List<Task> listAll(String tenant, String actor, int limit, int offset) {
+        return jdbc.query("""
+                SELECT * FROM creative_video_remake
+                WHERE tenant_id=? AND actor_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?
+                """, this::task, tenant, actor, limit, offset);
     }
 
-    private Task task(ResultSet row, int index) throws SQLException {
-        return new Task(row.getString("tenant_id"), row.getString("id"), row.getString("actor_id"),
-                row.getString("binding_id"), row.getString("product_name"), row.getString("engine_id"),
-                row.getString("phase"), row.getString("request_json"), row.getString("confirmation_json"),
-                row.getString("asset_id"), row.getString("error_message"), row.getString("lease_token"),
-                row.getTimestamp("created_at").toInstant());
+    private Task task(ResultSet result, int row) throws SQLException {
+        return new Task(result.getString("tenant_id"), result.getString("id"),
+                result.getString("actor_id"), result.getString("binding_id"),
+                result.getString("product_id"), result.getString("engine_task_id"),
+                result.getString("phase"), result.getString("request_json"),
+                result.getString("confirmation_json"), result.getString("asset_id"),
+                result.getString("error"), result.getString("lease_token"),
+                result.getTimestamp("created_at").toInstant());
     }
 }
