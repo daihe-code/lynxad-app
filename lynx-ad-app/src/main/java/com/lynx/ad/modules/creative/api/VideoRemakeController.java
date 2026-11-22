@@ -61,6 +61,12 @@ public class VideoRemakeController {
         return ApiResponse.ok(Map.of("assetId", service.finishUpload(tenant(), actor(), bindingId, id)));
     }
 
+    @PostMapping("/uploads/link")
+    public ApiResponse<Map<String, Object>> importLink(@RequestParam String bindingId,
+            @RequestBody VideoRemakeService.LinkImport request) {
+        return ApiResponse.ok(service.importLink(tenant(), actor(), bindingId, request));
+    }
+
     private String tenant() { return TenantContext.requireTenantId().value(); }
     private String actor() { return TenantContext.userId().value(); }
 }
