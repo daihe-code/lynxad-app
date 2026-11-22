@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.exception.BizException;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +40,21 @@ class DouyinLinkVideoDownloaderTest {
     void normalizeShareUrlRejectsOtherDomains() {
         assertThrows(BizException.class,
                 () -> DouyinLinkVideoDownloader.normalizeShareUrl("https://www.bilibili.com/video/BV1xx411c7mD"));
+    }
+
+    @Test
+    void outgoingRequestsRequireHttpsSupportedHostsAndStandardPort() {
+        assertEquals("https://v.douyin.com/legacy/",
+                DouyinLinkVideoDownloader.normalizeShareUrl("http://v.douyin.com/legacy/"));
+        URI cdn = URI.create("https://v1.douyinvod.com/video/example");
+        assertEquals(cdn, DouyinLinkVideoDownloader.requireDouyinUrl(cdn, true));
+        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.requireDouyinUrl(cdn, false));
+        for (String invalid : new String[]{"https://v.douyin.com:8080/example",
+                "http://v1.douyinvod.com/video/example", "https://media.example.org/video/example",
+                "https://douyinvod.com.example.org/video/example"}) {
+            assertThrows(BizException.class,
+                    () -> DouyinLinkVideoDownloader.requireDouyinUrl(URI.create(invalid), true));
+        }
     }
 
     @Test
@@ -101,23 +117,23 @@ class DouyinLinkVideoDownloaderTest {
 
     @Test
     void validateSpecAcceptsPortraitAndLandscape() {
-        DouyinLinkVideoDownloader.validateSpec(720, 1280, 15.0);
-        DouyinLinkVideoDownloader.validateSpec(1280, 720, 15.0);
+        DouyinLinkVideoDownloader.validateSpec(15.0, 720, 1280);
+        DouyinLinkVideoDownloader.validateSpec(15.0, 1280, 720);
     }
 
     @Test
     void validateSpecRejectsTooShort() {
-        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(720, 1280, 3.0));
+        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(3.0, 720, 1280));
     }
 
     @Test
     void validateSpecRejectsSquare() {
-        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(800, 800, 15.0));
+        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(15.0, 800, 800));
     }
 
     @Test
     void validateSpecRejectsSmallShortEdge() {
-        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(360, 640, 15.0));
+        assertThrows(BizException.class, () -> DouyinLinkVideoDownloader.validateSpec(15.0, 360, 640));
     }
 
     @Test

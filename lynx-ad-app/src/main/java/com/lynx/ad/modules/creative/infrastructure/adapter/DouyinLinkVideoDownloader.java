@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -22,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +52,9 @@ public final class DouyinLinkVideoDownloader {
 
     private static final Set<String> SUPPORTED_HOSTS = Set.of(
             "v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com", "iesdouyin.com");
+    private static final Set<String> MEDIA_DOMAINS = Set.of("douyin.com", "iesdouyin.com", "douyinvod.com");
+    private static final Set<Integer> REDIRECT_CODES = Set.of(301, 302, 303, 307, 308);
+    private static final int MAX_SHARE_PAGE_BYTES = 4 * 1024 * 1024;
     private static final String USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) "
             + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s\"'<>，。；]+");
@@ -64,6 +69,7 @@ public final class DouyinLinkVideoDownloader {
     public record DownloadedVideo(Path file, long size, String sha256Hex, String sourceUrl,
                                   String platform, String downloadMethod, String filename,
                                   VideoProbe probe) {}
+    private record SharePage(URI uri, String body) {}
 
     private DouyinLinkVideoDownloader() {}
 
@@ -71,7 +77,7 @@ public final class DouyinLinkVideoDownloader {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL))
                 .build();
     }
@@ -79,21 +85,54 @@ public final class DouyinLinkVideoDownloader {
     /** 从粘贴的分享文本中取出第一个链接，并校验它属于抖音。 */
     public static String normalizeShareUrl(String raw) {
         String url = extractUrl(raw);
+        if (url.length() > 1024) throw input("抖音视频链接过长，请使用分享短链。");
         URI uri;
         try {
             uri = URI.create(url);
         } catch (IllegalArgumentException ex) {
             throw input("请粘贴抖音视频链接。");
         }
-        if (uri.getUserInfo() != null
-                || (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme()))) {
-            throw input("请粘贴抖音视频链接。");
+        if ("http".equalsIgnoreCase(uri.getScheme()) && uri.getPort() == -1) {
+            uri = URI.create("https" + url.substring(url.indexOf(':')));
         }
+        return requireDouyinUrl(uri, false).toString();
+    }
+
+    static URI requireDouyinUrl(URI uri, boolean media) {
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
-        if (!SUPPORTED_HOSTS.contains(host)) {
-            throw input("仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。");
+        boolean allowed = media ? MEDIA_DOMAINS.stream().anyMatch(domain -> host.equals(domain)
+                || host.endsWith("." + domain)) : SUPPORTED_HOSTS.contains(host);
+        if (!allowed || !"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null
+                || (uri.getPort() != -1 && uri.getPort() != 443)) {
+            throw input(media ? "视频地址不在受支持的抖音媒体域名内，请上传本地视频。"
+                    : "仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。");
         }
-        return url;
+        return uri;
+    }
+
+    private static HttpResponse<InputStream> sendDouyin(HttpClient http, URI uri, boolean media,
+            Function<URI, HttpRequest> request) throws IOException, InterruptedException {
+        for (int redirect = 0; redirect <= 5; redirect++) {
+            requireDouyinUrl(uri, media);
+            for (var address : InetAddress.getAllByName(uri.getHost())) {
+                if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isSiteLocalAddress()
+                        || address.isLinkLocalAddress() || address.isMulticastAddress()) {
+                    throw input("链接目标不是公网地址，请检查抖音视频链接。");
+                }
+            }
+            var response = http.send(request.apply(uri), HttpResponse.BodyHandlers.ofInputStream());
+            if (!REDIRECT_CODES.contains(response.statusCode())) return response;
+            try (var body = response.body()) {
+                String location = response.headers().firstValue("Location").orElseThrow(
+                        () -> input("视频链接跳转地址不可用，请重新粘贴抖音视频链接。"));
+                try {
+                    uri = uri.resolve(location);
+                } catch (IllegalArgumentException ex) {
+                    throw input("视频链接跳转地址无效，请重新粘贴抖音视频链接。");
+                }
+            }
+        }
+        throw input("视频链接跳转次数过多，请重新粘贴抖音视频链接。");
     }
 
     public static String extractUrl(String raw) {
@@ -237,13 +276,9 @@ public final class DouyinLinkVideoDownloader {
     private static DownloadedVideo downloadViaH5(HttpClient http, ObjectMapper json,
             String normalizedUrl, String ffprobePath) {
         URI shareUri = URI.create(normalizedUrl);
-        var first = fetchSharePage(http, shareUri);
+        var first = fetchSharePage(http, mobileSharePage(shareUri));
         // 第二次请求：Cookie 管理器会自动带上第一次取回的 ttwid 设备 Cookie。
-        var second = fetchSharePage(http, shareUri);
-        String host = second.uri().getHost();
-        if (host != null && host.contains("passport")) {
-            throw input("该视频需要登录后才能查看，请确认链接指向的是公开视频。");
-        }
+        var second = fetchSharePage(http, mobileSharePage(first.uri()));
         String html = second.body().isBlank() ? first.body() : second.body();
         if (html.contains("need_login")) {
             throw input("该视频需要登录后才能查看，请确认链接指向的是公开视频。");
@@ -256,28 +291,31 @@ public final class DouyinLinkVideoDownloader {
         return finish(file, normalizedUrl, PLATFORM_DOUYIN, METHOD_H5, json, ffprobePath);
     }
 
-    private static HttpResponse<String> fetchSharePage(HttpClient http, URI uri) {
-        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15))
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "zh-CN,zh;q=0.9")
-                .header("Referer", "https://www.douyin.com/")
-                .GET().build();
+    private static URI mobileSharePage(URI uri) {
+        String id = awemeId(uri.getPath());
+        return id == null ? uri : URI.create("https://www.iesdouyin.com/share/video/" + id + "/");
+    }
+
+    private static SharePage fetchSharePage(HttpClient http, URI uri) {
         try {
-            var response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            int status = response.statusCode();
-            if (status == 404) {
-                throw input("该视频可能已被删除或链接无效，请确认链接后重试。");
+            var response = sendDouyin(http, uri, false, url -> HttpRequest.newBuilder(url)
+                    .timeout(Duration.ofSeconds(15)).header("User-Agent", USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "zh-CN,zh;q=0.9")
+                    .header("Referer", "https://www.douyin.com/").GET().build());
+            try (var body = response.body()) {
+                int status = response.statusCode();
+                if (status == 404) throw input("该视频可能已被删除或链接无效，请确认链接后重试。");
+                if (status == 403 || status == 429) {
+                    throw input("抖音暂时拒绝了本次访问，请稍后再试或上传本地视频。");
+                }
+                if (status < 200 || status >= 300) {
+                    throw input("链接暂时无法访问（抖音返回 " + status + "），请稍后再试或上传本地视频。");
+                }
+                byte[] bytes = body.readNBytes(MAX_SHARE_PAGE_BYTES + 1);
+                if (bytes.length > MAX_SHARE_PAGE_BYTES) throw input("抖音分享页内容过大，暂时无法导入。");
+                return new SharePage(response.uri(), new String(bytes, StandardCharsets.UTF_8));
             }
-            if (status == 403 || status == 429) {
-                throw input("抖音暂时拒绝了本次访问，请稍后再试或上传本地视频。");
-            }
-            if (status < 200 || status >= 300) {
-                throw input("链接暂时无法访问（抖音返回 " + status + "），请稍后再试或上传本地视频。");
-            }
-            return response;
-        } catch (BizException ex) {
-            throw ex;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw input("链接访问被中断，请稍后重试。");
@@ -356,48 +394,41 @@ public final class DouyinLinkVideoDownloader {
         } catch (IOException ex) {
             throw input("服务器暂时无法保存链接视频，请稍后重试。");
         }
-        HttpRequest request = HttpRequest.newBuilder(URI.create(playUrl)).timeout(Duration.ofSeconds(120))
-                .header("User-Agent", USER_AGENT).header("Referer", "https://www.iesdouyin.com/")
-                .GET().build();
-        HttpResponse<InputStream> response;
         try {
-            response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            var response = sendDouyin(http, URI.create(playUrl), true, url -> HttpRequest.newBuilder(url)
+                    .timeout(Duration.ofSeconds(120)).header("User-Agent", USER_AGENT)
+                    .header("Referer", "https://www.iesdouyin.com/").GET().build());
+            try (InputStream in = response.body()) {
+                if (response.statusCode() != 200) {
+                    throw input("链接视频暂时无法下载（视频地址返回 " + response.statusCode() + "），请稍后再试或上传本地视频。");
+                }
+                String contentType = response.headers().firstValue("Content-Type").orElse("");
+                if (contentType.contains("text/html")) {
+                    throw input("下载到的不是视频文件，该视频可能为私密、已删除或需要登录。");
+                }
+                try (var out = Files.newOutputStream(temp)) {
+                    byte[] buffer = new byte[8192];
+                    long total = 0;
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        total += read;
+                        if (total > MAX_BYTES) throw input("链接视频超过 200 MB，请上传本地视频。");
+                        out.write(buffer, 0, read);
+                    }
+                }
+            }
+            return temp;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             deleteQuietly(temp);
             throw input("链接视频下载被中断，请稍后重试。");
+        } catch (BizException ex) {
+            deleteQuietly(temp);
+            throw ex;
         } catch (IOException | IllegalArgumentException ex) {
             deleteQuietly(temp);
             throw input("链接视频暂时无法下载，请稍后再试或上传本地视频。");
         }
-        if (response.statusCode() != 200) {
-            deleteQuietly(temp);
-            throw input("链接视频暂时无法下载（视频地址返回 " + response.statusCode() + "），请稍后再试或上传本地视频。");
-        }
-        String contentType = response.headers().firstValue("Content-Type").orElse("");
-        if (!contentType.isBlank() && contentType.contains("text/html")) {
-            deleteQuietly(temp);
-            throw input("下载到的不是视频文件，该视频可能为私密、已删除或需要登录。");
-        }
-        long total = 0;
-        try (InputStream in = response.body(); var out = Files.newOutputStream(temp)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                total += read;
-                if (total > MAX_BYTES) {
-                    throw input("链接视频超过 200 MB，请上传本地视频。");
-                }
-                out.write(buffer, 0, read);
-            }
-        } catch (BizException ex) {
-            deleteQuietly(temp);
-            throw ex;
-        } catch (IOException ex) {
-            deleteQuietly(temp);
-            throw input("链接视频下载失败，请稍后再试或上传本地视频。");
-        }
-        return temp;
     }
 
     private static DownloadedVideo finish(Path file, String sourceUrl, String platform, String method,
@@ -417,11 +448,16 @@ public final class DouyinLinkVideoDownloader {
             deleteQuietly(file);
             throw input("链接视频超过 200 MB，请上传本地视频。");
         }
-        String sha256 = sha256Hex(file);
-        VideoProbe probe = probe(file, ffprobePath, json);
-        String aweme = awemeId(sourceUrl);
-        String filename = "douyin-" + (aweme == null ? "video" : aweme) + ".mp4";
-        return new DownloadedVideo(file, size, sha256, sourceUrl, platform, method, filename, probe);
+        try {
+            String sha256 = sha256Hex(file);
+            VideoProbe probe = probe(file, ffprobePath, json);
+            String aweme = awemeId(sourceUrl);
+            String filename = "douyin-" + (aweme == null ? "video" : aweme) + ".mp4";
+            return new DownloadedVideo(file, size, sha256, sourceUrl, platform, method, filename, probe);
+        } catch (RuntimeException ex) {
+            deleteQuietly(file);
+            throw ex;
+        }
     }
 
     public static String sha256Hex(Path file) {
@@ -450,7 +486,8 @@ public final class DouyinLinkVideoDownloader {
         if (file == null || !Files.isRegularFile(file)) throw input("链接视频文件缺失，请重新粘贴链接。");
         Process process;
         try {
-            process = new ProcessBuilder(command, "-v", "error", "-select_streams", "v:0",
+            process = new ProcessBuilder(command, "-v", "error", "-protocol_whitelist", "file,pipe",
+                    "-f", "mov", "-select_streams", "v:0",
                     "-show_entries", "stream=width,height,duration",
                     "-show_entries", "format=duration", "-of", "json", file.toString())
                     .redirectErrorStream(true).start();

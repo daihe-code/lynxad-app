@@ -158,12 +158,13 @@ public class VideoRemakeService {
      */
     public Map<String, Object> importLink(String tenant, String actor, String binding, LinkImport request) {
         requireGeneration(tenant, actor, binding);
+        String requestId = uuid(request.requestId());
         var downloaded = DouyinLinkVideoDownloader.download(json, request.url(), downloadApiBaseUrl,
                 downloadApiPath, downloadApiKey, ffprobePath);
         Path file = downloaded.file();
         try {
             var initiated = upload(tenant, actor, binding,
-                    new Upload(request.requestId(), "video", downloaded.filename(), downloaded.size(),
+                    new Upload(requestId, "video", downloaded.filename(), downloaded.size(),
                             downloaded.sha256Hex()));
             String id = String.valueOf(initiated.get("id"));
             store.recordUploadSource(tenant, id, downloaded.sourceUrl(), downloaded.platform(),
@@ -172,7 +173,7 @@ public class VideoRemakeService {
                 byte[] buffer = new byte[CHUNK_BYTES];
                 int index = 0;
                 int read;
-                while ((read = in.read(buffer)) != -1) {
+                while ((read = in.readNBytes(buffer, 0, buffer.length)) > 0) {
                     byte[] data = read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
                     chunk(tenant, actor, binding, id, index, data);
                     index++;
