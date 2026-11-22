@@ -442,7 +442,7 @@ public final class DouyinLinkVideoDownloader {
 
     /**
      * 用 ffprobe 读取真实视频流并校验规格；与前端本地上传的校验口径一致
-     * （4–120 秒、9:16 竖屏、短边 720–1440 像素、长边不超过 2560 像素）。
+     * （4–120 秒、横屏 16:9 或竖屏 9:16、短边 720–1440 像素、长边不超过 2560 像素）。
      * ffprobe 不可用或校验失败时明确报错，不放行未校验的视频。
      */
     public static VideoProbe probe(Path file, String ffprobePath, ObjectMapper json) {
@@ -499,7 +499,9 @@ public final class DouyinLinkVideoDownloader {
         if (shortEdge < 720 || shortEdge > 1440 || longEdge > 2560) {
             throw input("参考视频短边须为 720–1440 像素，长边不超过 2560 像素。");
         }
-        if (Math.abs((double) width / height - 9.0 / 16.0) > 0.005) throw input("参考视频须为 9:16 竖屏。");
+        if (Math.abs((double) longEdge / shortEdge - 16.0 / 9.0) > 0.005) {
+            throw input("参考视频须为横屏 16:9 或竖屏 9:16。");
+        }
         return new VideoProbe(durationSeconds, width, height);
     }
 
