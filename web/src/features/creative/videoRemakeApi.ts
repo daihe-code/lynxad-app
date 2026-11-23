@@ -49,16 +49,13 @@ export interface RemakeInput {
   bindingId: string;
   awemeId: string;
   productId: string;
-  productImageId?: string;
   referenceId: string;
-  facts: string[];
   portraitId?: string;
   portraitName?: string;
   portraitImageId?: string;
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
   followSource: boolean;
-  adNotices?: string[];
 }
 
 export interface RemakeUpload {

@@ -149,7 +149,16 @@ public class CreationState {
     public record Product(String productId, String qcProductId, String name, BigDecimal price,
                           BigDecimal userPrice, String imageUrl, String category, Long stock,
                           List<String> tags, List<String> unavailableReasons,
-                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId, DraftReference draft, Long sales) {
+                          com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo, String channelId,
+                          DraftReference draft, Long sales, List<String> imageUrls) {
+        public Product {
+            imageUrls = imageUrls == null ? List.of() : List.copyOf(imageUrls);
+        }
+        public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
+                       String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
+                       com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId,DraftReference draft,Long sales) {
+            this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,draft,sales,List.of());
+        }
         public Product(String productId,String qcProductId,String name,BigDecimal price,BigDecimal userPrice,
                        String imageUrl,String category,Long stock,List<String> tags,List<String> unavailableReasons,
                        com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice priceInfo,String channelId,DraftReference draft) {
@@ -165,7 +174,7 @@ public class CreationState {
             this(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,null,null);
         }
         public Product withDraft(DraftReference usage) {
-            return new Product(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,usage,sales);
+            return new Product(productId,qcProductId,name,price,userPrice,imageUrl,category,stock,tags,unavailableReasons,priceInfo,channelId,usage,sales,imageUrls);
         }
     }
     public static class Material {

@@ -278,7 +278,7 @@ public class CreationWorkflowService {
             // A metadata refresh must never change the saved product membership.
             if(next!=null && next.stream().map(CreationState.Product::qcProductId).toList().equals(ids(state)))return next;
         }catch(BizException unavailable){/* Saved plans remain readable after authorization expires. */}
-        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId(),p.draft(),p.sales())).toList();
+        return state.products.stream().map(p->new CreationState.Product(p.productId(),p.qcProductId(),p.name(),p.price(),p.userPrice(),p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),p.priceInfo()==null?null:p.priceInfo().staleCopy(),p.channelId(),p.draft(),p.sales(),p.imageUrls())).toList();
     }
     public CreationState select(TenantId tenant,Selection requested) {
         var request=new Selection(sharedId(tenant,requested.planId,true),requested.revision,requested.accountId,requested.awemeId,requested.productIds);

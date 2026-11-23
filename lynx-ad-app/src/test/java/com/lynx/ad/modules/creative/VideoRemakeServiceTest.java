@@ -179,13 +179,19 @@ class VideoRemakeServiceTest {
     }
 
     @Test
-    void klingUsesTheCurrentActorsUploadedPortrait() throws Exception {
+    void remakeUsesCatalogImagesAndTheCurrentActorsUploadedPortrait() throws Exception {
         String reference = "rpa_" + "1".repeat(32);
         String portrait = "rpa_" + "2".repeat(32);
-        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", List.of("不锈钢"),
-                null, reference, null, null, true, true, 0, portrait, List.of(" 请按说明清洗 "), true);
-        var product = new Product("p", "123", "水杯", null, null, "https://example.com/product.png",
-                "家居>水杯", null, List.of(), List.of());
+        var request = json.readValue("""
+                {"requestId":"%s","bindingId":"binding","awemeId":"douyin","productId":"123","referenceId":"%s",
+                 "portraitImageId":"%s","rightsConfirmed":true,"portraitTermsConfirmed":true,"followSource":true,
+                 "productImageId":"legacy-upload","facts":["旧商品事实"],"adNotices":["旧补充提示语"]}
+                """.formatted(ID, reference, portrait), VideoRemakeService.Start.class);
+        var photos = java.util.stream.IntStream.rangeClosed(1, 7).mapToObj(i -> "https://example.com/cup"+i+".png").toList();
+        var gallery = new java.util.ArrayList<>(List.of(photos.getFirst(), "http://example.com/invalid.png"));
+        gallery.addAll(photos);
+        var product = new Product("p", "123", "水杯", null, null, photos.getFirst(),
+                "家居>水杯", null, List.of(), List.of(), null, null, null, null, gallery);
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
                 .thenReturn(List.of(product));
         when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
@@ -208,7 +214,29 @@ class VideoRemakeServiceTest {
         assertFalse(engineInput.has("duration_seconds"));
         assertFalse(engineInput.has("portrait"));
         assertEquals("家居>水杯", engineInput.at("/product/category").asText());
-        assertEquals("请按说明清洗", engineInput.at("/ad_notices/0").asText());
+        assertEquals(json.valueToTree(photos.subList(0, 6)), engineInput.at("/product/image_urls"));
+        assertEquals(json.valueToTree(List.of("水杯")), engineInput.at("/product/facts"));
+        assertFalse(engineInput.path("product").has("image_asset_ids"));
+        assertFalse(engineInput.has("ad_notices"));
+    }
+
+    @Test
+    void productWithoutAGalleryUsesItsCatalogCover() throws Exception {
+        String reference = "rpa_" + "1".repeat(32);
+        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123",
+                reference, "asset-portrait", "方舟人像", true, true, 15, null, false);
+        var product = new Product("p", "123", "水杯", null, null, "https://example.com/cover.png",
+                "家居>水杯", null, List.of(), List.of());
+        when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123"))).thenReturn(List.of(product));
+        when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+        when(store.find("tenant", ID, false)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(row("CREATING")));
+
+        service.create("tenant", "actor", request);
+
+        var payload = ArgumentCaptor.forClass(String.class);
+        verify(store).create(eq("tenant"), eq(ID), eq("actor"), eq("binding"), eq("水杯"), payload.capture());
+        assertEquals(json.valueToTree(List.of("https://example.com/cover.png")),
+                json.readTree(payload.getValue()).at("/product/image_urls"));
     }
 
     @Test

@@ -46,8 +46,12 @@ public class CreationQianchuanGateway {
         if(properties.getMock().isQianchuan()) throw new BizException(1524,"创建投放需要真实千川授权，模拟模式不可发布");
         return credentials.getUsableCredential(tenant,new AccountId(account));
     }
-    public record Page(List<Product> items,long total,int page,int pageSize,String nextCursor,boolean hasMore) {
+    public record Page(List<Product> items,long total,int page,int pageSize,String nextCursor,boolean hasMore,long totalPages) {
         public Page(List<Product> items,long total,int page,int pageSize){this(items,total,page,pageSize,null,false);}
+        public Page(List<Product> items,long total,int page,int pageSize,String nextCursor,boolean hasMore){
+            this(items,total,page,pageSize,nextCursor,hasMore,pageCount(total,pageSize));
+        }
+        private static long pageCount(long total,int pageSize){return total>0 && pageSize>0?1+(total-1)/pageSize:0;}
     }
     public boolean commodityCardTitle(TenantId tenant,String account,String aweme) {
         return accounts.findById(tenant,new AccountId(account)).orElseThrow(()->new BizException(1201,"授权账户不存在"))
@@ -118,10 +122,19 @@ public class CreationQianchuanGateway {
             if(quote==null)quote=com.lynx.ad.modules.catalog.domain.model.PlatformProductPrice.direct(p.path("price"),java.time.Instant.now());
             BigDecimal price=quote==null?null:quote.minPrice();
             var tags=strings(p.path("tag"));var reasons=strings(p.path("gray_reason"));
-            items.add(new Product(id,id,p.path("name").asText(),price,manual.get(id),p.path("img").asText(p.path("image_url").asText(null)),
-                    p.path("category_name").asText(""),p.path("stock_num").isNumber()?p.path("stock_num").longValue():null,tags,reasons,quote,p.path("channel_id").asText(null),null,sales(p.get("sell_num"))));
+            var gallery=new LinkedHashSet<String>();
+            for(var image:p.path("square_image_list")) {
+                String url=image.path("img_url").asText("").strip();
+                if(!url.isEmpty())gallery.add(url);
+            }
+            String cover=p.path("img").asText(p.path("image_url").asText(null));
+            if((cover==null || cover.isBlank()) && !gallery.isEmpty())cover=gallery.getFirst();
+            items.add(new Product(id,id,p.path("name").asText(),price,manual.get(id),cover,
+                    p.path("category_name").asText(""),p.path("stock_num").isNumber()?p.path("stock_num").longValue():null,tags,reasons,quote,p.path("channel_id").asText(null),null,sales(p.get("sell_num")),List.copyOf(gallery)));
         }
-        return new Page(items,info.path("total_number").asLong(items.size()),page,size,next,hasMore);
+        long total=info.path("total_number").asLong(items.size());
+        long totalPages=info.path("total_page").asLong(Page.pageCount(total,size));
+        return new Page(items,total,page,size,next,hasMore,totalPages);
     }
     private Set<String> unpromotedProductIds(Credential credential,String aweme,List<JsonNode> candidates) {
         var ids=candidates.stream().map(product->product.path("id").asText(product.path("product_id").asText()))
@@ -177,7 +190,7 @@ public class CreationQianchuanGateway {
             if(quote==null && p.priceInfo()!=null)quote=p.priceInfo().staleCopy();
             BigDecimal manual=p.priceInfo()==null && Objects.equals(p.price(),p.userPrice())?null:p.userPrice();
             if(savedManual.containsKey(p.qcProductId()))manual=savedManual.get(p.qcProductId());
-            return new Product(p.productId(),p.qcProductId(),p.name(),quote==null?p.price():quote.minPrice(),manual,p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),quote,p.channelId(),p.draft(),p.sales());
+            return new Product(p.productId(),p.qcProductId(),p.name(),quote==null?p.price():quote.minPrice(),manual,p.imageUrl(),p.category(),p.stock(),p.tags(),p.unavailableReasons(),quote,p.channelId(),p.draft(),p.sales(),p.imageUrls());
         }).toList();
     }
     private static Long sales(JsonNode value) {

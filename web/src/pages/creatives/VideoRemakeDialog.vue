@@ -113,14 +113,14 @@
                 </div>
                 <div class="remake-search">
                   <input v-model="keyword" type="search" aria-label="搜索目标商品" placeholder="商品名称 / ID" :disabled="busy"
-                    @keydown.enter.prevent="loadProducts(1)">
-                  <el-button :loading="productsLoading" :disabled="busy" @click="loadProducts(1)">搜索</el-button>
+                    @keydown.enter.prevent="searchProducts">
+                  <el-button :loading="productsLoading" :disabled="busy" @click="searchProducts">搜索</el-button>
                 </div>
                 <p v-if="productsError" class="remake-error" role="alert">{{ productsError }}</p>
                 <div v-if="products.length" class="remake-products" :aria-busy="productsLoading">
                   <button v-for="product in products" :key="product.qcProductId" type="button" class="remake-product"
                     :aria-pressed="selectedProduct?.qcProductId === product.qcProductId"
-                    :disabled="busy || productsLoading" @click="pickProduct(product)">
+                    :disabled="busy || productsLoading" @click="selectedProduct = product">
                     <span class="remake-product-image"><img v-if="product.imageUrl" :src="product.imageUrl" alt="" loading="lazy"><AssetIcon v-else name="image" /></span>
                     <span class="remake-product-meta"><strong :title="product.name">{{ product.name }}</strong><small>{{ product.qcProductId }}</small></span>
                     <AssetIcon v-if="selectedProduct?.qcProductId === product.qcProductId" name="check" />
@@ -129,30 +129,18 @@
                 <p v-else-if="productsLoading" class="remake-muted" role="status">正在加载商品…</p>
                 <p v-else-if="!productsError" class="remake-muted" role="status">没有符合条件的商品。</p>
                 <p v-if="fieldError('product')" class="remake-error" role="alert">{{ fieldError('product') }}</p>
-                <div v-if="productPage > 1 || hasMore" class="remake-pager">
-                  <el-button link :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">上一页</el-button>
-                  第 {{ productPage }} 页
-                  <el-button link :disabled="busy || !hasMore || productsLoading" @click="loadProducts(productPage + 1)">下一页</el-button>
-                </div>
+                <nav v-if="productTotalPages > 0" class="remake-pager" aria-label="商品分页">
+                  <el-button link class="remake-pager-arrow remake-pager-prev" aria-label="上一页"
+                    :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">
+                    <AssetIcon name="chevron-right" />
+                  </el-button>
+                  <span aria-live="polite">{{ productPage }}/{{ productTotalPages }}</span>
+                  <el-button link class="remake-pager-arrow" aria-label="下一页"
+                    :disabled="busy || productPage >= productTotalPages || productsLoading" @click="loadProducts(productPage + 1)">
+                    <AssetIcon name="chevron-right" />
+                  </el-button>
+                </nav>
               </div>
-
-              <template v-if="selectedProduct">
-                <div class="remake-field-title"><strong>商品参考图</strong><span v-if="selectedProduct.imageUrl && !productImage">默认使用商品封面</span></div>
-                <RemakeFilePicker kind="image" label="上传商品参考图" :file="productImage?.file" :disabled="busy"
-                  @change="productImage = uploadSession($event)" />
-                <p v-if="fieldError('productImage')" class="remake-error" role="alert">{{ fieldError('productImage') }}</p>
-                <label>商品事实
-                  <textarea v-model="facts" rows="3" maxlength="2412" :disabled="busy"
-                    placeholder="每行填写一条，例如：杯身为不锈钢、容量 500 mL" />
-                </label>
-                <div class="remake-count"><span>只填写可核实的规格、卖点和用法。</span><span>{{ cleanFacts.length }} / 12 条</span></div>
-                <p v-if="fieldError('facts')" class="remake-error" role="alert">{{ fieldError('facts') }}</p>
-                <label>补充成片提示语（选填）
-                  <textarea v-model="adNotices" rows="2" :disabled="busy" aria-describedby="remake-ad-notices-hint" />
-                </label>
-                <p v-if="fieldError('adNotices')" class="remake-error" role="alert">{{ fieldError('adNotices') }}</p>
-                <p id="remake-ad-notices-hint" class="remake-muted">按商品说明或已核准的广告样件填写，每行一条，最多 3 条，每条最多 60 字。</p>
-              </template>
             </div>
 
             <div v-else class="remake-step-body">
@@ -383,9 +371,10 @@ const bindingId = ref(''), awemeId = ref('');
 const selectedAccount = computed(() => activeAccounts.value.find(account => account.accountId === bindingId.value));
 const awemes = computed(() => selectedAccount.value?.awemes ?? []);
 const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProduct>();
-const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoading = ref(false), productsError = ref('');
+const keyword = ref(''), productPage = ref(1), productTotalPages = ref(0), productsLoading = ref(false), productsError = ref('');
+let productQuery = '';
 
-const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
+const reference = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
 const referenceSource = ref<'upload' | 'link'>('upload');
 const referenceLinkUrl = ref('');
 const referenceLinkAssetId = ref('');
@@ -411,12 +400,9 @@ const linkFormatError = computed(() => {
     ? '' : '仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。';
 });
 const referenceRights = ref<HTMLInputElement>();
-const portraitId = ref(''), portraitName = ref(''), facts = ref('');
-const adNotices = ref('');
+const portraitId = ref(''), portraitName = ref('');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
-const cleanFacts = computed(() => facts.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
-const cleanAdNotices = computed(() => adNotices.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
 const setupSteps = ['参考视频', '目标商品', '人物与成片'];
 const setupStep = ref(0), furthestStep = ref(0);
 const setupIssue = ref<{ field: string; message: string }>();
@@ -544,20 +530,26 @@ async function loadAccounts() {
   bindingId.value = activeAccounts.value.find(account => account.accountId === accountId.value)?.accountId
     ?? activeAccounts.value[0]?.accountId ?? '';
 }
-async function loadProducts(page: number) {
-  const revision = ++productRequest;
+async function loadProducts(page: number, query = productQuery) {
   if (!bindingId.value || !awemeId.value || busy.value) return;
+  const revision = ++productRequest;
   productsLoading.value = true;
   productsError.value = '';
   try {
     const pageSize = 6;
     const result = await creationProducts(bindingId.value, awemeId.value, {
-      page, pageSize, keyword: keyword.value.trim(), tab: 'ALL', unpromoted: false,
+      page, pageSize, keyword: query, tab: 'ALL', unpromoted: false,
     });
     if (revision !== productRequest || !alive) return;
+    const totalPages = Math.max(result.items.length ? 1 : 0, result.totalPages ?? Math.ceil(result.total / pageSize));
+    if (totalPages > 0 && page > totalPages) {
+      await loadProducts(totalPages, query);
+      return;
+    }
     products.value = result.items;
-    productPage.value = page;
-    hasMore.value = result.hasMore || page * pageSize < result.total;
+    productPage.value = totalPages > 0 ? page : 1;
+    productTotalPages.value = totalPages;
+    productQuery = query;
     const returnedSelection = result.items.find(item => item.qcProductId === selectedProduct.value?.qcProductId);
     if (returnedSelection) selectedProduct.value = returnedSelection;
   } catch (cause) {
@@ -566,13 +558,7 @@ async function loadProducts(page: number) {
     if (revision === productRequest && alive) productsLoading.value = false;
   }
 }
-function pickProduct(product: CreationProduct) {
-  if (product.qcProductId === selectedProduct.value?.qcProductId) return;
-  selectedProduct.value = product;
-  productImage.value = undefined;
-  facts.value = '';
-  adNotices.value = '';
-}
+function searchProducts() { void loadProducts(1, keyword.value.trim()); }
 watch(bindingId, () => {
   awemeId.value = awemes.value.find(aweme => aweme.isPrimary)?.awemeId ?? awemes.value[0]?.awemeId ?? '';
   for (const item of [reference.value, portraitImage.value]) {
@@ -588,13 +574,11 @@ watch(bindingId, () => {
 watch([bindingId, awemeId], () => {
   ++productRequest;
   keyword.value = '';
+  productQuery = '';
   products.value = [];
   selectedProduct.value = undefined;
-  productImage.value = undefined;
-  facts.value = '';
-  adNotices.value = '';
   productPage.value = 1;
-  hasMore.value = false;
+  productTotalPages.value = 0;
   productsLoading.value = false;
   productsError.value = '';
   furthestStep.value = Math.min(furthestStep.value, 1);
@@ -604,8 +588,8 @@ watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
-watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
+watch([reference, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
+  portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
@@ -659,11 +643,8 @@ function validateStep(step: number) {
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
       { when: !selectedProduct.value, field: 'product', message: '请选择目标商品。' },
-      { when: !selectedProduct.value?.imageUrl && !productImage.value, field: 'productImage', message: '请上传目标商品参考图。' },
-      { when: !cleanFacts.value.length || cleanFacts.value.length > 12 || cleanFacts.value.some(fact => countText(fact) > 200),
-        field: 'facts', message: '请填写 1 至 12 条商品事实，每条最多 200 字。' },
-      { when: cleanAdNotices.value.length > 3 || cleanAdNotices.value.some(notice => countText(notice) > 60 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(notice)),
-        field: 'adNotices', message: '最多填写 3 条成片提示语，每条须为 1 至 60 字的单行文字。' },
+      { when: !!selectedProduct.value && !selectedProduct.value.imageUrls?.length && !selectedProduct.value.imageUrl,
+        field: 'product', message: '所选商品没有可用的商品图，请重新选择。' },
     ],
     [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
@@ -719,13 +700,11 @@ async function continueSetup() {
       if (!video) return;
       referenceId = await upload(video, 'video', '上传参考视频');
     }
-    const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined;
     const portraitImageId = kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
-      productId: product.qcProductId, facts: cleanFacts.value, productImageId, referenceId,
+      productId: product.qcProductId, referenceId,
       portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
-      adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
       rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;

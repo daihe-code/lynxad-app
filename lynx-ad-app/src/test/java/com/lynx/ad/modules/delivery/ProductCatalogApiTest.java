@@ -39,7 +39,8 @@ class ProductCatalogApiTest {
             .thenReturn(new CreationQianchuanGateway.Page(List.of(),39,1,10));
         MockMvcBuilders.standaloneSetup(new CreationController(workflow,qc)).build()
             .perform(get("/api/v1/delivery/creation/products").param("accountId","account").param("awemeId","aweme"))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(39)).andExpect(jsonPath("$.data.hasMore").value(false));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(39))
+            .andExpect(jsonPath("$.data.totalPages").value(4)).andExpect(jsonPath("$.data.hasMore").value(false));
         verifyNoInteractions(workflow);
     }
 }
