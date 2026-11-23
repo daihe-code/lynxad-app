@@ -66,10 +66,10 @@
               </template>
               <div v-else class="remake-link-import">
                 <label>抖音视频链接
-                  <input v-model.trim="referenceLinkUrl" type="url" inputmode="url" :disabled="busy"
-                    placeholder="粘贴抖音分享链接，例如 v.douyin.com/… 或 douyin.com/video/…">
+                  <input v-model.trim="referenceLinkUrl" type="text" inputmode="url" :disabled="busy"
+                    placeholder="粘贴抖音分享内容或视频链接，例如 v.douyin.com/… 或 douyin.com/video/…" @paste="handleReferenceLinkPaste">
                 </label>
-                <p class="remake-muted">支持抖音分享短链或视频页链接，仅支持公开视频。提交时由服务端下载并校验视频规格；链接无法访问、视频私密或已删除时会在此提示，请更换链接或改用本地上传。</p>
+                <p class="remake-muted">{{ extractedReferenceLinkUrl ? '已识别链接：' + extractedReferenceLinkUrl : '支持抖音分享短链或视频页链接，也可直接粘贴整段抖音分享文案，会自动提取其中的视频链接；仅支持公开视频。提交时由服务端下载并校验视频规格；链接无法访问、视频私密或已删除时会在此提示，请更换链接或改用本地上传。' }}</p>
                 <p v-if="referenceError || fieldError('reference')" class="remake-error" role="alert">{{ referenceError || fieldError('reference') }}</p>
                 <p v-else-if="referenceLinkAssetId && referenceMetadata" class="remake-muted" role="status">已获取参考视频：{{ referenceMetadata.width }} × {{ referenceMetadata.height }} · {{ Math.round(referenceMetadata.duration) }} 秒（来源：抖音）</p>
               </div>
@@ -387,7 +387,7 @@ const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoa
 
 const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
 const referenceSource = ref<'upload' | 'link'>('upload');
-const referenceLinkUrl = ref('');
+const referenceLinkUrl = ref(''); const extractDouyinShareUrl = (text: string) => { const found = text.match(/https?:\/\/[^\s，。；]+/); if (!found) return ''; let host = ''; try { host = new URL(found[0]).host.toLowerCase(); } catch { return ''; } return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host) ? found[0].replace(/[)\]}.,;:!?]+$/, '') : ''; }; const extractedReferenceLinkUrl = computed(() => extractDouyinShareUrl(referenceLinkUrl.value)); function handleReferenceLinkPaste(event: ClipboardEvent) { const extracted = extractDouyinShareUrl(event.clipboardData?.getData('text') ?? ''); if (!extracted) return; event.preventDefault(); referenceLinkUrl.value = extracted; }
 const referenceLinkAssetId = ref('');
 const referenceMetadata = ref<{ duration: number; width: number; height: number } | null>();
 const referenceError = computed(() => {
@@ -404,7 +404,7 @@ const linkFormatError = computed(() => {
   const text = referenceLinkUrl.value.trim();
   if (!text) return '';
   const found = text.match(/https?:\/\/[^\s，。；]+/);
-  if (!found) return '请粘贴以 http 开头的抖音视频链接。';
+  if (!found) return '未在粘贴内容中找到链接，请粘贴包含 https://v.douyin.com/... 的分享内容';
   let host = '';
   try { host = new URL(found[0]).host.toLowerCase(); } catch { return '请粘贴有效的抖音视频链接。'; }
   return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host)
@@ -476,7 +476,7 @@ const labels: Record<RemakeTask['phase'], string> = {
 };
 const phaseLabel = (phase: RemakeTask['phase']) => labels[phase] ?? phase;
 const formatDate = (date: string) => new Date(date).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
-const message = (cause: unknown) => cause instanceof Error ? cause.message : '操作未完成，请稍后重试。';
+const message = (cause: unknown) => { const text = cause instanceof Error ? cause.message : '操作未完成，请稍后重试。'; const reason = (cause as { reason?: unknown } | null)?.reason; return typeof reason === 'string' && reason ? text + '（原因码：' + reason + '）' : text; };
 const countText = (value: string) => Array.from(value.trim()).length;
 
 function taskTone(phase: RemakeTask['phase']) {
@@ -688,7 +688,7 @@ function goToStep(next: number) {
 }
 async function importReferenceLink() {
   uploadProgress.value = { label: '正在下载链接视频', percent: 50 };
-  const result = await importRemakeLink(bindingId.value, crypto.randomUUID(), referenceLinkUrl.value.trim());
+  const extractedLinkUrl = extractDouyinShareUrl(referenceLinkUrl.value); if (!extractedLinkUrl) throw new Error('未在粘贴内容中找到链接，请粘贴包含 https://v.douyin.com/... 的分享内容'); referenceLinkUrl.value = extractedLinkUrl; const result = await importRemakeLink(bindingId.value, crypto.randomUUID(), extractedLinkUrl);
   referenceLinkAssetId.value = result.assetId;
   referenceMetadata.value = { duration: result.durationSeconds, width: result.width, height: result.height };
   if (referenceError.value) throw new Error(referenceError.value);
