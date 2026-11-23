@@ -211,8 +211,8 @@
             <dl>
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
-              <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : '匹配原视频' }}</dd></div>
-              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '分析后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
+              <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : capability?.sourceMatchingHd === false ? '720p' : '匹配原视频' }}</dd></div>
+              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '分析后计算' : `${formatPoints(estimatedPoints)} 积分起` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
               <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
               <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
@@ -293,7 +293,7 @@
                 <dl><div><dt>镜头数量</dt><dd>{{ plan.shots.length }} 个</dd></div><div><dt>计划时长</dt><dd>{{ planDuration }} 秒</dd></div>
                   <div><dt>画幅</dt><dd>{{ task.outputSpec ? orientationLabel(task.outputSpec) : '竖屏 9:16' }}</dd></div>
                   <div v-if="task.outputSpec"><dt>分辨率</dt><dd>{{ resolutionLabel(task.outputSpec) }}</dd></div>
-                  <div v-if="task.quote?.pointsPerSecond != null"><dt>每秒消耗</dt><dd>{{ formatPoints(task.quote.pointsPerSecond) }} 积分</dd></div>
+                  <div v-if="task.quote?.pointsPerSecond != null"><dt>视频每秒消耗</dt><dd>{{ formatPoints(task.quote.pointsPerSecond) }} 积分</dd></div>
                   <div v-if="task.quote"><dt>生成消耗</dt><dd>{{ formatPoints(task.quote.points) }} 积分</dd></div>
                 </dl>
                 <p v-if="quotedShortfall" class="remake-error" role="status">{{ quotedShortfall }}</p>
@@ -468,7 +468,7 @@ const estimatedPoints = computed(() => {
 function pointShortfall(points: number | undefined, estimated = false) {
   const available = capability.value?.availablePoints;
   if (points == null || available == null || available >= points) return '';
-  return `本次${estimated ? '预计' : '生成'}需 ${formatPoints(points)} 积分，还差 ${formatPoints(points - available)} 积分。`;
+  return `本次${estimated ? '至少' : '生成'}需 ${formatPoints(points)} 积分，还差 ${formatPoints(points - available)} 积分。`;
 }
 const estimatedShortfall = computed(() => pointShortfall(estimatedPoints.value, true));
 const orientationLabel = (spec: RemakeVideoSpec) => spec.height > spec.width ? '竖屏 9:16' : '横屏 16:9';

@@ -98,10 +98,14 @@ public class VideoRemakeService {
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
                        JsonNode outputSpec, RemakeQuote quote) {}
 
-    private record RemakeCharge(String kind, int quantity, BigDecimal rate) {
-        Map<String, Integer> units() { return Map.of(kind, quantity); }
+    private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
+        Map<String, Integer> units() {
+            return images > 0 ? Map.of(kind, quantity, WorkspacePricing.IMAGE_UNIT, images) : Map.of(kind, quantity);
+        }
+
         RemakeQuote quote() {
-            return new RemakeQuote(rate.multiply(BigDecimal.valueOf(quantity)), "video".equals(kind) ? null : rate);
+            var total = rate.multiply(BigDecimal.valueOf(quantity)).add(imageRate.multiply(BigDecimal.valueOf(images)));
+            return new RemakeQuote(total, "video".equals(kind) ? null : rate);
         }
     }
 
@@ -304,7 +308,7 @@ public class VideoRemakeService {
         var result = data.path("delivery");
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
-        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data.path("output_spec")) : null;
+        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data) : null;
         var quote = charge == null ? null : charge.quote();
         if (quote != null) charges.access(tenant, quote.points());
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
@@ -319,7 +323,7 @@ public class VideoRemakeService {
         if (!request.accepted() || request.points() == null)
             throw input("请重新核对分镜及本次生成所需积分");
         var data = detail(task);
-        var charge = remakeCharge(task, data.path("output_spec"));
+        var charge = remakeCharge(task, data);
         if (charge == null) throw input("成片规格尚未确认，请刷新后再试");
         if (charge.quote().points().compareTo(request.points()) != 0)
             throw input("生成积分已变化，请刷新后再确认");
@@ -352,15 +356,16 @@ public class VideoRemakeService {
         });
     }
 
-    private RemakeCharge remakeCharge(Task task, JsonNode spec) {
+    private RemakeCharge remakeCharge(Task task, JsonNode data) {
         var request = parse(task.request());
         if (!request.path("follow_source").asBoolean()) {
             if (request.path("_charge_by_second").asBoolean()) {
                 var kind = WorkspacePricing.REMAKE_720P_SECOND;
-                return new RemakeCharge(kind, request.path("duration_seconds").asInt(), pricing.rate(kind));
+                return new RemakeCharge(kind, request.path("duration_seconds").asInt(), pricing.rate(kind), 0, BigDecimal.ZERO);
             }
-            return new RemakeCharge("video", 1, pricing.rate("video"));
+            return new RemakeCharge("video", 1, pricing.rate("video"), 0, BigDecimal.ZERO);
         }
+        var spec = data.path("output_spec");
         var width = spec.path("width");
         var height = spec.path("height");
         var duration = spec.path("duration_seconds");
@@ -374,7 +379,17 @@ public class VideoRemakeService {
             case 1080 -> longEdge == 1920 ? WorkspacePricing.REMAKE_1080P_SECOND : null;
             default -> null;
         };
-        return kind == null ? null : new RemakeCharge(kind, duration.intValue(), pricing.rate(kind));
+        if (kind == null) return null;
+        // Older engine tasks have no image breakdown and retain their existing video quote.
+        var breakdown = data.path("points_breakdown");
+        int keyframes = Math.max(0, breakdown.path("keyframes").asInt(0));
+        int shotImages = Math.max(0, breakdown.path("shot_images").asInt(0));
+        var charge = new RemakeCharge(kind, duration.intValue(), pricing.rate(kind), keyframes + shotImages,
+                pricing.rate(WorkspacePricing.IMAGE_UNIT));
+        LOG.info("remake charge task={} scenes={} keyframes={} shot_images={} shots={} video_seconds={} units={} points={}",
+                task.id(), breakdown.path("scenes").asInt(0), keyframes, shotImages, breakdown.path("shots").asInt(0),
+                duration.intValue(), charge.units(), charge.quote().points());
+        return charge;
     }
 
     public String save(String tenant, String actor, String id) {
@@ -491,7 +506,10 @@ public class VideoRemakeService {
 
     private String error(JsonNode result, String fallback) {
         var message = result.path("error").asText("");
-        return message.isBlank() ? fallback : message.substring(0, Math.min(message.length(), 200));
+        if (message.isBlank()) return fallback;
+        if ("SCENE_BUDGET_EXCEEDED".equals(message))
+            return "参考视频在此前分析时镜头切换过多，请新建复刻任务重试（SCENE_BUDGET_EXCEEDED）";
+        return message.substring(0, Math.min(message.length(), 200));
     }
 
     private void requireGeneration(String tenant, String actor, String binding) {
