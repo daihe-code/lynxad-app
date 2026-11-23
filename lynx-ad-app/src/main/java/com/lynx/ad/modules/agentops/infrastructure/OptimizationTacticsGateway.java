@@ -77,17 +77,22 @@ public class OptimizationTacticsGateway {
             boolean supply=selected.size()==ids.size();
             int blockedProducts=0;
             for(var product:selected) {
-                boolean eligible=product.unavailableReasons().isEmpty() && product.stock()!=null && product.stock()>0;
+                // Catalog gray reasons describe eligibility to create a campaign, not its current delivery.
+                var reasons=product.unavailableReasons().stream()
+                    .filter(reason->!reason.strip().startsWith("该商品正在使用商品全域推广，暂不支持创建"))
+                    .toList();
+                Long stock=product.stock();
+                boolean inStock=stock!=null && stock>0;
+                boolean eligible=reasons.isEmpty() && inStock;
                 supply&=eligible;
                 var row=products.addObject().put("id",product.qcProductId()).put("name",product.name()).put("eligible",eligible);
-                if(product.stock()!=null)row.put("stock",product.stock());
-                row.set("reasons",json.valueToTree(product.unavailableReasons()));
-                if(eligible)cleared.add("PRODUCT:"+product.qcProductId());
-                else if(!product.unavailableReasons().isEmpty() || product.stock()!=null && product.stock()==0) {
+                if(stock!=null)row.put("stock",stock);
+                row.set("reasons",json.valueToTree(reasons));
+                if(inStock)cleared.add("PRODUCT:"+product.qcProductId());
+                else if(stock!=null && stock==0) {
                     blockedProducts++;
-                    var reason=product.unavailableReasons().isEmpty()?"库存为零":String.join("、", product.unavailableReasons());
                     deliveryIssues.addObject().put("object_type","PRODUCT").put("object_id",product.qcProductId())
-                        .put("title","商品不可投").put("evidence","商品「"+product.name()+"」："+reason+"。请核对商品状态。");
+                        .put("title","商品库存为零").put("evidence","商品「"+product.name()+"」的库存为零，请核对商品状态。");
                 }
             }
             n.put("all_products_blocked",!ids.isEmpty() && blockedProducts==ids.size());

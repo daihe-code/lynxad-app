@@ -32,6 +32,26 @@ class OptimizationTacticsTest {
     ObjectNode action(String kind){var n=json.createObjectNode().put("kind",kind).put("cause",kind.endsWith("REMOVE")?"ENTITY_LOSS":kind.endsWith("ADD")?"PROFITABLE_CANDIDATE":"PERSISTENT_PROFIT");if(kind.equals("BOOST"))n.put("budget","100").put("duration","1");else{n.put("product_id","111").put("entity_id",kind.startsWith("PRODUCT")?"111":"501");if(kind.startsWith("MATERIAL"))n.put("material_type","VIDEO");if(kind.endsWith("ADD"))n.put("source_plan_id","donor");}return n;}
     @BeforeEach void setup(){when(credentials.getUsableCredential(any(),any())).thenReturn(c);when(plans.findById(new TenantId("t"),new PlanId("p"))).thenReturn(Optional.of(p));when(plans.findById(new TenantId("t"),new PlanId("peer"))).thenReturn(Optional.of(peer));when(plans.findById(new TenantId("t"),new PlanId("donor"))).thenReturn(Optional.of(donor));when(plans.findByTenant(any())).thenReturn(List.of(p,peer,donor));when(transfers.group(any(),any())).thenReturn(new PlanTransferStore.Group("p","p","peer","p","optimization:event"));when(ads.detail(c,"11")).thenReturn(detail("11","111","222"));when(ads.detail(c,"12")).thenReturn(detail("12","111","222"));when(ads.detail(c,"13")).thenReturn(detail("13","111"));when(policies.economics(any())).thenReturn(List.of(new OptimizationPolicy.Economics("111",new BigDecimal(".4"),BigDecimal.ZERO,true),new OptimizationPolicy.Economics("222",new BigDecimal(".4"),BigDecimal.ZERO,true)));when(journal.extraBudgetToday(anyString(),anyString())).thenReturn(BigDecimal.ZERO);var product=mock(CreationState.Product.class);when(product.stock()).thenReturn(100L);when(catalog.selected(any(),anyString(),anyString(),any())).thenReturn(List.of(product));}
     @Test void oldPolicyDefaultsDoNotAuthorizeAnyNewAction()throws Exception {var old=json.readTree(json.writeValueAsString(OptimizationPolicy.defaults()));((ObjectNode)old).remove("tactics");assertFalse(json.treeToValue(old,OptimizationPolicy.class).tactics().active());}
+    @Test void duplicateCreationRestrictionDoesNotBlockAnExistingPlanButZeroStockDoes() {
+        when(ads.detail(c,"11")).thenReturn(detail("11","111"));
+        var product=mock(CreationState.Product.class);
+        when(product.qcProductId()).thenReturn("111");
+        when(product.name()).thenReturn("测试商品");
+        when(product.stock()).thenReturn(12L,0L);
+        when(product.unavailableReasons()).thenReturn(List.of("该商品正在使用商品全域推广，暂不支持创建或在同抖音号下不支持创建"));
+        when(catalog.restorable(p.tenantId(),"a","w",List.of("111"))).thenReturn(List.of(product));
+        var now=ZonedDateTime.parse("2026-11-23T10:30:00+08:00");
+
+        var existing=gateway.merchantContext(p,now);
+        assertTrue(existing.path("supply_ready").asBoolean());
+        assertTrue(existing.path("delivery_issues").isEmpty());
+        assertFalse(existing.path("all_products_blocked").asBoolean());
+        assertEquals("PRODUCT:111",existing.at("/verified_deliverable/0").asText());
+
+        var emptyStock=gateway.merchantContext(p,now.plusMinutes(11));
+        assertEquals("商品库存为零",emptyStock.at("/delivery_issues/0/title").asText());
+        assertTrue(emptyStock.path("all_products_blocked").asBoolean());
+    }
     @Test void zeroDeliveryRequiresExplicitCountersForEveryBoundProduct() {
         var day = LocalDate.of(2026, 11, 10);
         var ids = List.of("111", "222");
