@@ -120,7 +120,8 @@ class PlanTransferTest {
         var first = service.transfer(tenant, root, cost("first-key"));
         assertEquals("FAILED", first.status());
         assertTrue(first.platformTransferRequired());
-        assertTrue(first.message().contains("原计划已恢复"));
+        assertEquals("该商品已有投放计划，暂不支持切换投放方式。原计划状态已恢复。", first.message());
+        assertTrue(attempts.get("first-key").error().contains(rejection));
         assertEquals(PlanStatus.DELIVERING, physical.get("root").status());
         assertEquals(List.of("DISABLE 111", "ENABLE 111"), calls);
         when(store.lastRejectedCreation(tenant, root.value(), root)).thenReturn(Optional.of(attempts.get("first-key")));
@@ -128,9 +129,22 @@ class PlanTransferTest {
         var retry = service.transfer(tenant, root, cost("retry-key"));
         assertEquals("FAILED", retry.status());
         assertTrue(retry.platformTransferRequired());
+        assertEquals("该商品已有投放计划，暂不支持切换投放方式。", retry.message());
         assertTrue(calls.isEmpty());
         verify(gateway, times(1)).create(any(), any());
         assertFalse(attempts.containsKey("retry-key"));
+    }
+    @Test void productConflictDiagnosticsStayInternalWhileRecoveryIsPending() {
+        String rejection = "千川拒绝请求：商品全域投放互斥（错误码 40000，请求号 test）";
+        doThrow(new BizException(1406, rejection)).when(gateway).create(any(), any());
+        doThrow(new BizException(1523, "恢复结果待确认")).when(gateway).status(credential,"111",true);
+
+        var result = service.transfer(tenant, root, cost("pending-recovery"));
+
+        assertEquals("UNCERTAIN", result.status());
+        assertEquals("转投结果待核查，请稍后查询。", result.message());
+        assertEquals(result.message(), service.context(tenant, root).pendingError());
+        assertTrue(attempts.get("pending-recovery").error().contains(rejection));
     }
     @Test void savingModeNameAndScheduleCreatesOneTargetWithAllRequestedSettings() throws Exception {
         var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(12);

@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PlanTransferService {
+    private static final String PRODUCT_TRANSFER_BLOCKED = "该商品已有投放计划，暂不支持切换投放方式。";
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
                           boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
                           String pendingStatus,String pendingError,String targetName,String counterpartPlanId) {}
@@ -52,12 +53,12 @@ public class PlanTransferService {
         var target=targetId==null?null:require(tenant,targetId);
         String reason=null;
         if(current.qcPlanId().isEmpty() || !editable(current.status()))reason="仅已发布且投放中或暂停的计划支持转投";
-        else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，请在千川后台转投";
+        else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，暂时无法转投";
         Attempt a=g==null||g.requestKey()==null?null:store.attempt(tenant,g.requestKey()).orElse(null);
         if(g!=null&&g.requestKey()!=null)reason=g.requestKey().startsWith("settings:")?"计划修改正在处理或结果待核查，请先核查修改结果":"转投正在处理或结果待核查";
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
                 target==null?null:target.setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
-                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:a.error(),
+                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:result(a).message(),
                 transferName((target==null?current:target).name().text(),mode,target==null),targetId);
     }
     public JsonNode recommendations(TenantId tenant, PlanId id) {
@@ -71,7 +72,7 @@ public class PlanTransferService {
         var detail = gateway.detail(plan);
         checkMode(detail, plan.setting().bidType());
         var ids = productIds(detail);
-        if (ids.isEmpty()) throw new BizException(1403, "千川未返回计划商品，暂时无法获取推荐");
+        if (ids.isEmpty()) throw new BizException(1403, "暂时无法获取计划商品的推荐预算");
         return gateway.recommendations(plan, List.copyOf(ids), mode);
     }
     public Result transfer(TenantId tenant,PlanId id,PlanTransferRequest request) {
@@ -120,7 +121,7 @@ public class PlanTransferService {
         if(target!=null) {
             var d=gateway.detail(target);checkMode(d,mode);
             if(status(d)!=PlanStatus.PAUSED && !(request.existingOnly() && enabled(status(d))))
-                throw new BizException(1404,"待启用的计划状态已变化，请先核查千川计划");
+                throw new BizException(1404,"待启用的计划状态已变化，请刷新后重试");
             targetDetail=d;
             if(request.existingOnly()) {
                 var ds=QianchuanPlanMapping.setting(d);
@@ -149,7 +150,7 @@ public class PlanTransferService {
             if (previous != null && requiresPlatformTransfer(previous.error())
                     && request.smartBidType().equals(decode(previous.request()).smartBidType())
                     && ids.equals(productIds(parse(previous.payload())))) {
-                return new Result(source.id().value(), null, "FAILED", "千川要求在原计划上完成首次转投。请在千川设置新计划的日预算和名称，完成后同步结果。", true);
+                return new Result(source.id().value(), null, "FAILED", PRODUCT_TRANSFER_BLOCKED, true);
             }
             if (mode == SmartBidType.CONSERVATIVE) {
                 var recommendation = gateway.recommendations(source, List.copyOf(ids), mode);
@@ -289,7 +290,7 @@ public class PlanTransferService {
                 && groups.isArray() && !groups.isEmpty()) {plan.restoreLingtouSource();plans.save(plan);}
     }
     private ObjectNode payload(TenantId tenant,String root,AdPlan source,PlanTransferRequest request,JsonNode sourceDetail) {
-        var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，请在千川后台转投"));
+        var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，暂时无法转投"));
         if(!p.isObject() || !p.path("multi_product_creative_list").isArray() || p.path("multi_product_creative_list").isEmpty() || !p.path("aweme_id").asText().equals(source.awemeId().value()))
             throw new BizException(1403,"已发布素材配置不完整，无法转投");
         var result=(ObjectNode)p.deepCopy();result.remove("ad_id");
@@ -360,8 +361,13 @@ public class PlanTransferService {
     private boolean sameRequest(String saved,PlanTransferRequest req){var old=decode(saved);return old.existingOnly()==req.existingOnly()&&Objects.equals(old.expectedQcPlanId(),req.expectedQcPlanId())&&(req.existingOnly()||(Objects.equals(old.smartBidType(),req.smartBidType())&&equal(old.budget(),req.budget())&&equal(old.roi2Goal(),req.roi2Goal())&&Objects.equals(old.name(),req.name())&&Objects.equals(old.scheduleType(),req.scheduleType())&&Objects.equals(old.endDate(),req.endDate())));}
     private Result result(Attempt a) {
         boolean succeeded = "SUCCEEDED".equals(a.status());
-        boolean platformTransfer = "FAILED".equals(a.status()) && a.qcId() == null && requiresPlatformTransfer(a.error());
-        String message = succeeded ? "转投成功，原计划已暂停" : a.error() == null ? "转投正在处理，请稍后核查" : a.error();
+        boolean productConflict = a.qcId() == null && requiresPlatformTransfer(a.error());
+        boolean platformTransfer = productConflict && "FAILED".equals(a.status());
+        String message;
+        if (succeeded) message = "转投成功，原计划已暂停";
+        else if (platformTransfer) message = PRODUCT_TRANSFER_BLOCKED + (a.sourceEnabled() ? "原计划状态已恢复。" : "原计划保持暂停。");
+        else if (productConflict) message = "转投结果待核查，请稍后查询。";
+        else message = a.error() == null ? "转投正在处理，请稍后核查" : a.error();
         return new Result(succeeded ? a.target() : a.source(), a.qcId(), a.status(), message, platformTransfer);
     }
     private static boolean requiresPlatformTransfer(String error) {

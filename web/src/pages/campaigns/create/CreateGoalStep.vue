@@ -148,7 +148,7 @@
                         <span class="budget-tier__estimates"><span>预计ROI <strong>{{ option.roi }}</strong></span><span>订单量 <strong>{{ option.orders }}</strong></span></span>
                         <span v-if="option.badge" class="budget-tier__badge">{{ option.badge }}</span>
                       </button>
-                      <p v-if="!budgetOptions?.length" class="budget-tiers__empty">千川暂未提供推荐档位，可手动输入日预算</p>
+                      <p v-if="!budgetOptions?.length" class="budget-tiers__empty">{{ transfer ? '暂无推荐档位，可手动输入日预算' : '千川暂未提供推荐档位，可手动输入日预算' }}</p>
                       <p class="budget-tiers__note">平台预算预估，仅供参考，以实际投放结果为准</p>
                     </div>
                   </el-popover>
@@ -183,7 +183,7 @@
                   <input class="field-input__box" id="in-roi" type="text" inputmode="decimal" v-model="roi" :disabled="saving || readOnly"
                          autocomplete="off" @input="emit('roiInput')" @blur="roiTouched = true"
                          aria-describedby="msg-roi" :aria-invalid="roiTouched && !!roiError">
-                  <span class="guar ml-2">
+                  <span v-if="!transfer" class="guar ml-2">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
                     <span class="guar__copy"><span class="guar__label">可享千川平台保障</span><span class="guar__note">(详情以千川平台为准)</span></span>
                   </span>
@@ -206,19 +206,19 @@
 
 
               <div class="field est" data-field="estimate" v-else>
-                <p v-if="estimateStatus === 'empty' && !transferQuote" class="est__warning">
+                <p v-if="estimateStatus === 'empty' && !transfer" class="est__warning">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-alert-fill"/></svg>
                   <span>系统预估当前商品的竞争力较弱，ROI达成可能较低，且无法享受成本保障，建议优化商品。</span>
                 </p>
                 <p v-else-if="estimateStatus !== 'available'" class="est__placeholder" role="status">
-                  {{ estimateStatus === 'loading' ? '正在获取平台预估…' : estimateStatus === 'unmatched' ? '当前日预算暂无对应预估。' : estimateStatus === 'empty' ? '千川暂未返回 ROI 和订单预估。' : '暂时无法获取平台预估。' }}
-                  <button v-if="transferQuote && estimateStatus === 'unmatched' && budgetOptions?.length && !readOnly" class="estimate-action" type="button" :disabled="saving" @click="focusBudgetOptions">查看推荐档位</button>
-                  <button v-if="transferQuote && estimateStatus === 'unavailable' && !readOnly" class="estimate-action" type="button" :disabled="saving" @click="emit('retryEstimate')">重新获取</button>
+                  {{ estimateStatus === 'loading' ? '正在获取平台预估…' : estimateStatus === 'unmatched' ? '当前日预算暂无对应预估。' : estimateStatus === 'empty' ? '暂无 ROI 和订单预估。' : '暂时无法获取平台预估。' }}
+                  <button v-if="transfer && allowModeChange && mode !== disabledMode && estimateStatus === 'unmatched' && budgetOptions?.length && !readOnly" class="estimate-action" type="button" :disabled="saving" @click="focusBudgetOptions">查看推荐档位</button>
+                  <button v-if="transfer && allowModeChange && mode !== disabledMode && estimateStatus === 'unavailable' && !readOnly" class="estimate-action" type="button" :disabled="saving" @click="emit('retryEstimate')">重新获取</button>
                 </p>
                 <template v-else>
                 <div class="est__header">
                   <p class="est__title">所选日预算的平台预估：<span v-if="demoMode" class="estimate-demo">演示预估</span></p>
-                  <span class="guar">
+                  <span v-if="!transfer" class="guar">
                     <svg class="guar__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#goal-ic-shield-check"/></svg>
                     <span class="guar__copy"><span class="guar__label">可享千川平台保障</span><span class="guar__note">(详情以千川平台为准)</span></span>
                   </span>
@@ -318,7 +318,7 @@ import type { BudgetEstimateState, BudgetOption } from '@/features/delivery/crea
 import { COST_DAILY_BUDGET_HINT } from '@/features/delivery/budgetValidation';
 import { creationScheduleRecovery } from '@/features/delivery/creationSchedule';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string }
-const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateStatus: BudgetEstimateState; transferQuote?: boolean; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; disabledMode?: string; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ mode: string; saving: boolean; budgetError: string; budgetWarn: string; roiError: string; orderLo: number; orderHi: number; dateError?: string; estimateRoiHint?: string; estimateOrdersHint?: string; estimateStatus: BudgetEstimateState; transfer?: boolean; budgetOptions?: BudgetOption[]; budgetHint?: string; roiHint?: string; selectionWarning: string; demoMode: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; readOnly?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; settingsOnly?: boolean; allowModeChange?: boolean; disabledMode?: string; allowScheduleChange?: boolean; maxStep?: number; reachedStep?: number; planName?: string; draftSaveDisabled?: boolean }>();
 const budget = defineModel<string>('budget', { required: true });
 const roi = defineModel<string>('roi', { required: true });
 const duration = defineModel<'long' | 'custom'>('duration', { required: true });
