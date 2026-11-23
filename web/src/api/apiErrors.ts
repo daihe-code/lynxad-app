@@ -3,7 +3,7 @@ export type FailureKind = 'LOGIN' | 'AUTHORIZATION' | 'PERMISSION' | 'VALIDATION
 export type RecoveryAction = 'LOGIN' | 'ACCOUNTS' | 'EDIT' | 'REFRESH' | 'RETRY_READ' | 'VERIFY' | 'NONE';
 interface FailureResponse { status?: number; data?: unknown; headers?: unknown }
 interface FailureInput {
-  code?: unknown; message?: unknown; response?: FailureResponse; name?: string;
+  code?: unknown; message?: unknown; response?: FailureResponse; name?: string; reason?: unknown;
   config?: { method?: string; url?: string };
 }
 export interface RequestContext { method?: string; url?: string }
@@ -20,14 +20,14 @@ export function safeErrorMessage(value: unknown): string {
 
 /** Stable error contract for pages. A platform authorization error never expires the app session. */
 export class ApiRequestError extends Error {
-  kind: FailureKind; action: RecoveryAction; code?: number; status?: number; method: string;
+  kind: FailureKind; action: RecoveryAction; code?: number; status?: number; method: string; reason?: string;
   retryable: boolean; automaticRetry: boolean; notified = false; attempts = 1;
   response?: FailureResponse; retryAfterMs?: number;
   constructor(message: string, details: { kind: FailureKind; action: RecoveryAction; method: string;
-    code?: number; status?: number; retryable?: boolean; automaticRetry?: boolean; response?: FailureResponse; retryAfterMs?: number }) {
+    code?: number; status?: number; retryable?: boolean; automaticRetry?: boolean; response?: FailureResponse; retryAfterMs?: number; reason?: string }) {
     super(message); this.name = 'ApiRequestError';
     this.kind = details.kind; this.action = details.action; this.method = details.method;
-    this.code = details.code; this.status = details.status; this.response = details.response;
+    this.code = details.code; this.status = details.status; this.response = details.response; this.reason = details.reason;
     this.retryable = !!details.retryable; this.automaticRetry = !!details.automaticRetry;
     this.retryAfterMs = details.retryAfterMs;
   }
@@ -52,10 +52,11 @@ export function requestFailure(error: unknown, context: RequestContext = {}): Ap
   const business = code !== undefined;
   const transport = !!source.response || !!source.config || ['ERR_NETWORK','ECONNABORTED','ETIMEDOUT','ERR_BAD_RESPONSE','ERR_BAD_REQUEST'].includes(String(source.code));
   const detail = safeErrorMessage(body.message ?? source.message);
+  const reason = typeof body.reason === 'string' ? body.reason : typeof source.reason === 'string' ? source.reason : undefined;
   const make = (kind: FailureKind, action: RecoveryAction, fallback: string, retryable=false, automaticRetry=false) =>
     new ApiRequestError(fallback, { kind, action, method, code, status, retryable, automaticRetry,
       response: source.response ? {...source.response,data:{...body,message:fallback}} : undefined,
-      retryAfterMs: retryAfter(source.response?.headers) });
+      retryAfterMs: retryAfter(source.response?.headers), reason });
   if (source.code === 'ERR_CANCELED' || source.name === 'AbortError') return make('CANCELLED','NONE','请求已取消');
   if (code === 401 || (!business && status === 401)) return make('LOGIN','LOGIN','坤境登录已失效，请重新登录。');
   if ([1211,40102,40105].includes(code!)) return make('AUTHORIZATION','ACCOUNTS','千川授权已失效，请在账户管理中重新授权；当前填写内容已保留。');
