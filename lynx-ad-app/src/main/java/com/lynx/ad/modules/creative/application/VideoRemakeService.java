@@ -93,10 +93,10 @@ public class VideoRemakeService {
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
                        JsonNode outputSpec, RemakeQuote quote) {}
 
-    private record RemakeCharge(String kind, int quantity, BigDecimal rate) {
-        Map<String, Integer> units() { return Map.of(kind, quantity); }
+    private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
+        Map<String, Integer> units() { return images > 0 ? Map.of(kind, quantity, WorkspacePricing.IMAGE_UNIT, images) : Map.of(kind, quantity); }
         RemakeQuote quote() {
-            return new RemakeQuote(rate.multiply(BigDecimal.valueOf(quantity)), "video".equals(kind) ? null : rate);
+            return new RemakeQuote(rate.multiply(BigDecimal.valueOf(quantity)).add(imageRate.multiply(BigDecimal.valueOf(images))), "video".equals(kind) ? null : rate);
         }
     }
 
@@ -281,7 +281,7 @@ public class VideoRemakeService {
         var result = data.path("delivery");
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
-        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data.path("output_spec")) : null;
+        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data) : null;
         var quote = charge == null ? null : charge.quote();
         if (quote != null) charges.access(tenant, quote.points());
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
@@ -296,7 +296,7 @@ public class VideoRemakeService {
         if (!request.accepted() || request.points() == null)
             throw input("请重新核对分镜及本次生成所需积分");
         var data = detail(task);
-        var charge = remakeCharge(task, data.path("output_spec"));
+        var charge = remakeCharge(task, data);
         if (charge == null) throw input("成片规格尚未确认，请刷新后再试");
         if (charge.quote().points().compareTo(request.points()) != 0)
             throw input("生成积分已变化，请刷新后再确认");
@@ -329,18 +329,18 @@ public class VideoRemakeService {
         });
     }
 
-    private RemakeCharge remakeCharge(Task task, JsonNode spec) {
+    private RemakeCharge remakeCharge(Task task, JsonNode data) {
         var request = parse(task.request());
         if (!request.path("follow_source").asBoolean()) {
             if (request.path("_charge_by_second").asBoolean()) {
                 var kind = WorkspacePricing.REMAKE_720P_SECOND;
-                return new RemakeCharge(kind, request.path("duration_seconds").asInt(), pricing.rate(kind));
+                return new RemakeCharge(kind, request.path("duration_seconds").asInt(), pricing.rate(kind), 0, BigDecimal.ZERO);
             }
-            return new RemakeCharge("video", 1, pricing.rate("video"));
+            return new RemakeCharge("video", 1, pricing.rate("video"), 0, BigDecimal.ZERO);
         }
-        var width = spec.path("width");
-        var height = spec.path("height");
-        var duration = spec.path("duration_seconds");
+        var width = data.path("output_spec").path("width");
+        var height = data.path("output_spec").path("height");
+        var duration = data.path("output_spec").path("duration_seconds");
         if (!width.canConvertToExactIntegral() || !height.canConvertToExactIntegral()
                 || !width.canConvertToInt() || !height.canConvertToInt()
                 || !duration.isIntegralNumber() || !duration.canConvertToInt()
@@ -351,7 +351,17 @@ public class VideoRemakeService {
             case 1080 -> longEdge == 1920 ? WorkspacePricing.REMAKE_1080P_SECOND : null;
             default -> null;
         };
-        return kind == null ? null : new RemakeCharge(kind, duration.intValue(), pricing.rate(kind));
+        if (kind == null) return null;
+            // 2026-11-23 用户决定：积分消耗必须按实测数量逐项记录，不能少算。引擎在 points_breakdown
+    // 中给出每场景 1 张关键帧与每分镜的生图数；缺失时按 0 处理，报价与此前一致。
+            var breakdown = data.path("points_breakdown");
+    int images = Math.max(0, breakdown.path("keyframes").asInt(0)) + Math.max(0, breakdown.path("shot_images").asInt(0));
+            var charge = new RemakeCharge(kind, duration.intValue(), pricing.rate(kind), images, pricing.rate(WorkspacePricing.IMAGE_UNIT));
+    LOG.info("remake charge task={} scenes={} keyframes={} shot_images={} shots={} video_seconds={} units={} points={}",
+                         task.id(), breakdown.path("scenes").asInt(0), breakdown.path("keyframes").asInt(0),
+            breakdown.path("shot_images").asInt(0), breakdown.path("shots").asInt(0),
+                         breakdown.path("video_seconds").asInt(duration.intValue()), charge.units(), charge.quote().points());
+            return charge;                
     }
 
     public String save(String tenant, String actor, String id) {
