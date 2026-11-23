@@ -4,6 +4,7 @@ import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.security.TenantContext;
 import com.lynx.ad.modules.creative.application.VideoRemakeService;
+import com.lynx.ad.modules.creative.infrastructure.adapter.LinkImportFailure;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.List;
@@ -50,21 +51,25 @@ public class VideoRemakeController {
     public ApiResponse<Void> chunk(@RequestParam String bindingId, @PathVariable String id, @PathVariable int index,
             HttpServletRequest request) throws IOException {
         if (request.getContentLengthLong() > VideoRemakeService.CHUNK_BYTES)
-            throw new BizException(1402, "单个分片不能超过 1 MiB");
+            throw new BizException(1402, "单个分片不能超过 1 MiB。");
         byte[] data = request.getInputStream().readNBytes(VideoRemakeService.CHUNK_BYTES + 1);
         service.chunk(tenant(), actor(), bindingId, id, index, data);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/uploads/{id}/finish")
-    public ApiResponse<Map<String,String>> finish(@RequestParam String bindingId, @PathVariable String id) {
+    public ApiResponse<Map<String, String>> finish(@RequestParam String bindingId, @PathVariable String id) {
         return ApiResponse.ok(Map.of("assetId", service.finishUpload(tenant(), actor(), bindingId, id)));
     }
 
     @PostMapping("/uploads/link")
     public ApiResponse<Map<String, Object>> importLink(@RequestParam String bindingId,
             @RequestBody VideoRemakeService.LinkImport request) {
-        return ApiResponse.ok(service.importLink(tenant(), actor(), bindingId, request));
+        try {
+            return ApiResponse.ok(service.importLink(tenant(), actor(), bindingId, request));
+        } catch (LinkImportFailure ex) {
+            return ApiResponse.failWithReason(ex.code(), ex.getMessage(), ex.reason());
+        }
     }
 
     private String tenant() { return TenantContext.requireTenantId().value(); }
