@@ -146,8 +146,8 @@ export function getCampaignTrend(filters: PlanFilters) {
   return apiGet<CampaignStatisticsTrend>('/api/v1/delivery/plans/statistics/trend', { params: filters, timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
 }
 
-export function syncPlans(accountId?: string) {
-  return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000 });
+export function syncPlans(accountId?: string, quiet = false) {
+  return apiPost<{ accounts: { accountId: string; plans: number; warnings: string[] }[]; completedAt: string }>("/api/v1/delivery/plans/sync", undefined, { params: { accountId }, timeout: 120000, ...(quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}) });
 }
 export function syncPlanDetail(id: string, quiet = false) { return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/sync-detail`, undefined, { timeout: 60000, ...(quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}) }); }
 export function refreshPlanAudit(id:string){return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/audit-refresh`,undefined,{timeout:60000,headers:{'X-Quiet-Request':'true'}});}
@@ -162,8 +162,8 @@ export function verifyPlanSettings(id: string, expectedVersion: string, acceptCu
   return apiPost<PlanSettingsResult>(`/api/v1/delivery/plans/${id}/settings/reconcile`,{expectedVersion,acceptCurrent},{timeout:60000,headers:{'X-Quiet-Request':'true'}});
 }
 export interface PlanTransferContext {
-  planId: string; currentQcPlanId: string; targetMode: string; budget: number; roi2Goal?: number | null;
-  reuse: boolean; counterpartQcPlanId?: string | null; available: boolean; reason?: string | null;
+  planId: string; currentQcPlanId: string; targetMode: string; budget?: number | null; roi2Goal?: number | null; targetName?: string;
+  reuse: boolean; counterpartQcPlanId?: string | null; counterpartPlanId?: string | null; available: boolean; reason?: string | null;
   pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
 }
 export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number; name?: string; scheduleType?: 'FROM_NOW'|'DATE_RANGE'; endDate?: string }
@@ -177,6 +177,9 @@ export function switchTransferredPlan(id: string, body: { requestKey: string; ex
   return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/switch`, body, { timeout: 180000 });
 }
 export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } }); }
+export function associatePlanTransfer(id: string, currentQcPlanId: string) {
+  return apiPost<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer/association`, { currentQcPlanId }, { timeout: 60000, headers: { 'X-Quiet-Request': 'true' } });
+}
 export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
 export interface ControlTaskMaterial { material_id?: string | null; aweme_item_id?: string | null; title?: string | null; cover_image?: { image_url?: string | null; url?: string | null } | null; video_duration?: number | null }
 export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number | null; duration?: number | null; create_time?: string; material_list?: ControlTaskMaterial[] | null; metrics?: Record<string, number | null> | null }
