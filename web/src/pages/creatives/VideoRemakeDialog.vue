@@ -130,15 +130,25 @@
                 <p v-else-if="!productsError" class="remake-muted" role="status">没有符合条件的商品。</p>
                 <p v-if="fieldError('product')" class="remake-error" role="alert">{{ fieldError('product') }}</p>
                 <nav v-if="productTotalPages > 0" class="remake-pager" aria-label="商品分页">
-                  <el-button link class="remake-pager-arrow remake-pager-prev" aria-label="上一页"
-                    :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">
-                    <AssetIcon name="chevron-right" />
-                  </el-button>
-                  <span aria-live="polite">{{ productPage }}/{{ productTotalPages }}</span>
-                  <el-button link class="remake-pager-arrow" aria-label="下一页"
-                    :disabled="busy || productPage >= productTotalPages || productsLoading" @click="loadProducts(productPage + 1)">
-                    <AssetIcon name="chevron-right" />
-                  </el-button>
+                  <div class="remake-pager-pages">
+                    <el-button link class="remake-pager-arrow remake-pager-prev" aria-label="上一页"
+                      :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">
+                      <AssetIcon name="chevron-right" />
+                    </el-button>
+                    <span aria-live="polite">{{ productPage }}/{{ productTotalPages }}</span>
+                    <el-button link class="remake-pager-arrow" aria-label="下一页"
+                      :disabled="busy || productPage >= productTotalPages || productsLoading" @click="loadProducts(productPage + 1)">
+                      <AssetIcon name="chevron-right" />
+                    </el-button>
+                  </div>
+                  <div v-if="productTotalPages > 1" class="remake-pager-jump">
+                    <input v-model="productPageInput" type="text" inputmode="numeric" placeholder="页码" aria-label="跳转到第几页"
+                      :disabled="busy || productsLoading" :aria-invalid="!!productPageError"
+                      :aria-describedby="productPageError ? 'remake-page-error' : undefined"
+                      @input="productPageError = ''" @keydown.enter.prevent="jumpToProductPage">
+                    <el-button native-type="button" :disabled="busy || productsLoading || !productPageInput.trim()" @click="jumpToProductPage">跳转</el-button>
+                  </div>
+                  <p v-if="productPageError" id="remake-page-error" class="remake-error remake-pager-error" role="alert">{{ productPageError }}</p>
                 </nav>
               </div>
             </div>
@@ -379,6 +389,7 @@ const selectedAccount = computed(() => activeAccounts.value.find(account => acco
 const awemes = computed(() => selectedAccount.value?.awemes ?? []);
 const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProduct>();
 const keyword = ref(''), productPage = ref(1), productTotalPages = ref(0), productsLoading = ref(false), productsError = ref('');
+const productPageInput = ref(''), productPageError = ref('');
 let productQuery = '';
 
 const reference = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
@@ -546,6 +557,7 @@ async function loadProducts(page: number, query = productQuery) {
   const revision = ++productRequest;
   productsLoading.value = true;
   productsError.value = '';
+  productPageError.value = '';
   try {
     const pageSize = 6;
     const result = await creationProducts(bindingId.value, awemeId.value, {
@@ -560,6 +572,7 @@ async function loadProducts(page: number, query = productQuery) {
     products.value = result.items;
     productPage.value = totalPages > 0 ? page : 1;
     productTotalPages.value = totalPages;
+    productPageInput.value = '';
     productQuery = query;
     const returnedSelection = result.items.find(item => item.qcProductId === selectedProduct.value?.qcProductId);
     if (returnedSelection) selectedProduct.value = returnedSelection;
@@ -568,6 +581,20 @@ async function loadProducts(page: number, query = productQuery) {
   } finally {
     if (revision === productRequest && alive) productsLoading.value = false;
   }
+}
+function jumpToProductPage() {
+  const input = productPageInput.value.trim();
+  if (!input || busy.value || productsLoading.value) return;
+  const page = Number(input);
+  if (!/^\d+$/.test(input) || page < 1 || page > productTotalPages.value) {
+    productPageError.value = `请输入 1 至 ${productTotalPages.value} 的整数页码。`;
+    return;
+  }
+  if (page === productPage.value) {
+    productPageInput.value = '';
+    return;
+  }
+  void loadProducts(page);
 }
 function searchProducts() { void loadProducts(1, keyword.value.trim()); }
 watch(bindingId, () => {
@@ -590,6 +617,8 @@ watch([bindingId, awemeId], () => {
   selectedProduct.value = undefined;
   productPage.value = 1;
   productTotalPages.value = 0;
+  productPageInput.value = '';
+  productPageError.value = '';
   productsLoading.value = false;
   productsError.value = '';
   furthestStep.value = Math.min(furthestStep.value, 1);
