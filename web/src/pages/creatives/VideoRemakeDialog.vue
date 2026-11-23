@@ -75,7 +75,7 @@
               </div>
               <div class="remake-rights-row">
                 <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="sourcePeopleSupported">及其中人物的肖像</template></label>
+                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="productPeopleSupported">及本次使用的商品图与模特肖像</template></label>
                 <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
               </div>
@@ -144,12 +144,14 @@
             </div>
 
             <div v-else class="remake-step-body">
-              <h3>替换人物<template v-if="sourcePeopleSupported">（可选）</template></h3>
-              <div v-if="sourcePeopleSupported" class="remake-source-switch" role="group" aria-label="人物选择">
-                <button type="button" :aria-pressed="keepSourcePeople" :disabled="busy" @click="portraitMode = 'source'">保留原人物</button>
-                <button type="button" :aria-pressed="!keepSourcePeople" :disabled="busy" @click="portraitMode = 'replace'">替换人物</button>
+              <h3>替换人物<template v-if="productPeopleSupported">（可选）</template></h3>
+              <div v-if="productPeopleSupported" class="remake-source-switch" role="group" aria-label="人物选择">
+                <button type="button" :aria-pressed="portraitMode === 'auto'" :disabled="busy" @click="portraitMode = 'auto'">按商品图生成</button>
+                <button type="button" :aria-pressed="portraitMode === 'none'" :disabled="busy" @click="portraitMode = 'none'">仅展示商品</button>
+                <button type="button" :aria-pressed="portraitMode === 'replace'" :disabled="busy" @click="portraitMode = 'replace'">替换人物</button>
               </div>
-              <template v-if="!keepSourcePeople">
+              <p v-if="productPeopleMode === 'auto'" class="remake-muted">需要出镜时参考商品图中的已授权模特。</p>
+              <template v-if="!productPeopleMode">
                 <RemakeFilePicker v-if="useKling" kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
                   :disabled="busy" @change="selectPortrait" />
                 <template v-else>
@@ -344,7 +346,7 @@
         <section>
           <h3>人物肖像与声音授权</h3>
           <p>使用可识别真人的肖像或声音前，商家须向本人告知 AI 生成、编辑及广告投放等用途，并取得相应授权。涉及编辑人脸、人声等生物识别信息的，须依法取得本人的单独同意。使用预置虚拟人像的，须遵守相应许可条款。</p>
-          <p v-if="sourcePeopleSupported">保留原人物时，请确认参考视频中人物的肖像授权涵盖 AI 复刻及成片广告投放。</p>
+          <p v-if="productPeopleSupported">商品图中的模特亦须取得用于 AI 生成和商业广告投放的肖像授权。</p>
         </section>
         <section>
           <h3>责任承担</h3>
@@ -406,7 +408,7 @@ const linkFormatError = computed(() => {
 });
 const referenceRights = ref<HTMLInputElement>();
 const portraitId = ref(''), portraitName = ref('');
-const portraitMode = ref<'source' | 'replace'>('source');
+const portraitMode = ref<'auto' | 'none' | 'replace'>('auto');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
 const setupSteps = ['参考视频', '目标商品', '替换人物'];
@@ -418,8 +420,8 @@ let requestId = crypto.randomUUID();
 
 const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capabilityError = ref('');
 const useKling = computed(() => capability.value?.kling4Available === true);
-const sourcePeopleSupported = computed(() => capability.value?.sourcePeopleSupported === true);
-const keepSourcePeople = computed(() => sourcePeopleSupported.value && portraitMode.value === 'source');
+const productPeopleSupported = computed(() => capability.value?.productPeopleSupported === true);
+const productPeopleMode = computed(() => productPeopleSupported.value && portraitMode.value !== 'replace' ? portraitMode.value : undefined);
 const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
 const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
 const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
@@ -496,6 +498,7 @@ const filteredTasks = computed(() => {
 const stageLabels: Record<string, string> = {
   preparing_product_images: '正在准备商品参考图',
   importing_product_image: '正在读取商品参考图',
+  analyzing_product_people: '正在分析商品图中的模特',
   analyzing_reference: '正在拆解参考视频',
   analysis_partial: '正在分析镜头与节奏',
   understanding_reference: '正在分析镜头结构',
@@ -596,7 +599,7 @@ watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
-watch([reference, portraitImage, keepSourcePeople, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
+watch([reference, portraitImage, productPeopleMode, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
   portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
@@ -654,7 +657,7 @@ function validateStep(step: number) {
       { when: !!selectedProduct.value && !selectedProduct.value.imageUrls?.length && !selectedProduct.value.imageUrl,
         field: 'product', message: '所选商品没有可用的商品图，请重新选择。' },
     ],
-    keepSourcePeople.value ? [] : [
+    productPeopleMode.value ? [] : [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
         field: 'portrait', message: useKling.value ? '请上传已授权的成年人像图。' : '请填写有效的方舟人像 ID 和名称。' },
       { when: !portraitTerms.value, field: 'portraitTerms', message: '请确认人物素材的使用授权。' },
@@ -690,7 +693,7 @@ async function continueSetup() {
   for (let step = 0; step < setupSteps.length; step++) {
     if (!validateStep(step)) { setupStep.value = step; return; }
   }
-  const product = selectedProduct.value, video = reference.value, kling = useKling.value, keepPeople = keepSourcePeople.value;
+  const product = selectedProduct.value, video = reference.value, kling = useKling.value, peopleMode = productPeopleMode.value;
   if (!product) return;
   busy.value = true;
   setupError.value = '';
@@ -708,14 +711,14 @@ async function continueSetup() {
       if (!video) return;
       referenceId = await upload(video, 'video', '上传参考视频');
     }
-    const portraitImageId = !keepPeople && kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
+    const portraitImageId = !peopleMode && kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
       productId: product.qcProductId, referenceId,
-      portraitId: keepPeople || kling ? undefined : portraitId.value,
-      portraitName: keepPeople || kling ? undefined : portraitName.value, portraitImageId,
-      preserveSourcePeople: keepPeople, rightsConfirmed: rights.value,
-      portraitTermsConfirmed: !keepPeople && portraitTerms.value, followSource: true });
+      portraitId: peopleMode || kling ? undefined : portraitId.value,
+      portraitName: peopleMode || kling ? undefined : portraitName.value, portraitImageId,
+      productPeopleMode: peopleMode, rightsConfirmed: rights.value,
+      portraitTermsConfirmed: !peopleMode && portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;
     await openTask(result.id, result);

@@ -78,7 +78,7 @@ class VideoRemakeServiceTest {
         when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode()
                 .put("ready", true).put("review_worker_ready", true).put("kling_4_available", true)
                 .put("source_matching_available", true).put("source_matching_hd", true)
-                .put("source_people_supported", true));
+                .put("source_people_supported", true).put("product_people_supported", true));
 
         var capability = service.capability("tenant");
         assertEquals(available, capability.availablePoints());
@@ -87,6 +87,7 @@ class VideoRemakeServiceTest {
         assertTrue(capability.sourceMatchingAvailable());
         assertTrue(capability.sourceMatchingHd());
         assertTrue(capability.sourcePeopleSupported());
+        assertTrue(capability.productPeopleSupported());
         assertEquals(Map.of("720p", BigDecimal.valueOf(40), "1080p", BigDecimal.valueOf(60)), capability.pointsPerSecond());
     }
 
@@ -226,7 +227,7 @@ class VideoRemakeServiceTest {
     void productWithoutAGalleryUsesItsCatalogCover() throws Exception {
         String reference = "rpa_" + "1".repeat(32);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123",
-                reference, "asset-portrait", "方舟人像", true, true, 15, null, false, false);
+                reference, "asset-portrait", "方舟人像", true, true, 15, null, false, false, null);
         var product = new Product("p", "123", "水杯", null, null, "https://example.com/cover.png",
                 "家居>水杯", null, List.of(), List.of());
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123"))).thenReturn(List.of(product));
@@ -251,7 +252,7 @@ class VideoRemakeServiceTest {
         var engineCapabilities = json.createObjectNode().put("source_matching_available", true);
         when(engine.remake("GET", "/capabilities", null)).thenReturn(engineCapabilities);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123",
-                reference, null, null, true, false, 0, null, true, true);
+                reference, null, null, true, false, 0, null, true, true, null);
         assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
         verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
 
@@ -266,6 +267,35 @@ class VideoRemakeServiceTest {
         assertEquals(reference, engineInput.path("source_material_id").asText());
         assertFalse(engineInput.has("portrait"));
         assertFalse(engineInput.has("kling_portrait"));
+        verify(store, never()).ownsAsset(anyString(), anyString(), anyString(), anyString(), eq("image"));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"auto", "none"})
+    void productPeopleModesUseTheCatalogGalleryAndNeedNoPortrait(String mode) throws Exception {
+        var reference = "rpa_" + "1".repeat(32);
+        var gallery = List.of("https://example.com/model.jpg", "https://example.com/product.jpg");
+        var product = new Product("p", "123", "商品", null, null, gallery.getFirst(),
+                "类目", null, List.of(), List.of(), null, null, null, null, gallery);
+        when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123"))).thenReturn(List.of(product));
+        when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+        var capability = json.createObjectNode().put("source_matching_available", true);
+        when(engine.remake("GET", "/capabilities", null)).thenReturn(capability);
+        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", reference,
+                null, null, true, false, 0, null, true, false, mode);
+
+        assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
+        capability.put("product_people_supported", true);
+        when(store.find("tenant", ID, false)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(row("CREATING")));
+        service.create("tenant", "actor", request);
+
+        var captured = ArgumentCaptor.forClass(String.class);
+        verify(store).create(eq("tenant"), eq(ID), eq("actor"), eq("binding"), eq("商品"), captured.capture());
+        var payload = json.readTree(captured.getValue());
+        assertEquals(mode, payload.path("product_people_mode").asText());
+        assertEquals(json.valueToTree(gallery), payload.at("/product/image_urls"));
+        assertTrue(payload.path("require_plan_confirmation").asBoolean());
+        assertFalse(payload.has("portrait") || payload.has("kling_portrait") || payload.has("preserve_source_people"));
         verify(store, never()).ownsAsset(anyString(), anyString(), anyString(), anyString(), eq("image"));
     }
 

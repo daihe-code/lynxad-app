@@ -81,7 +81,7 @@ public class VideoRemakeService {
 
     public record Capability(boolean ready, boolean subscribed, String balanceStatus, BigDecimal points,
                              boolean kling4Available, BigDecimal availablePoints, boolean sourceMatchingHd,
-                             boolean sourceMatchingAvailable, boolean sourcePeopleSupported,
+                             boolean sourceMatchingAvailable, boolean sourcePeopleSupported, boolean productPeopleSupported,
                              Map<String, BigDecimal> pointsPerSecond) {}
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
     public record LinkImport(String requestId, String url) {}
@@ -89,7 +89,7 @@ public class VideoRemakeService {
     public record Start(String requestId, String bindingId, String awemeId, String productId,
                         String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
-                        String portraitImageId, boolean followSource, boolean preserveSourcePeople) {}
+                        String portraitImageId, boolean followSource, boolean preserveSourcePeople, String productPeopleMode) {}
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
     public record Confirm(String title, List<ShotEdit> shots, boolean accepted, BigDecimal points) {}
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
@@ -107,7 +107,7 @@ public class VideoRemakeService {
     public Capability capability(String tenant) {
         var membership = charges.access(tenant);
         var rate = pricing.rate("video");
-        if (!membership.enabled()) return new Capability(false, false, null, rate, false, null, false, false, false, Map.of());
+        if (!membership.enabled()) return new Capability(false, false, null, rate, false, null, false, false, false, false, Map.of());
         var pointsPerSecond = Map.of("720p", pricing.rate(WorkspacePricing.REMAKE_720P_SECOND),
                 "1080p", pricing.rate(WorkspacePricing.REMAKE_1080P_SECOND));
         try {
@@ -116,10 +116,10 @@ public class VideoRemakeService {
                     true, membership.balanceStatus().name(), rate, status.path("kling_4_available").asBoolean(),
                     membership.availablePoints(), status.path("source_matching_hd").asBoolean(),
                     status.path("source_matching_available").asBoolean(), status.path("source_people_supported").asBoolean(),
-                    pointsPerSecond);
+                    status.path("product_people_supported").asBoolean(), pointsPerSecond);
         } catch (RemakeEngineError ex) {
             return new Capability(false, true, membership.balanceStatus().name(), rate, false,
-                    membership.availablePoints(), false, false, false, pointsPerSecond);
+                    membership.availablePoints(), false, false, false, false, pointsPerSecond);
         }
     }
 
@@ -207,9 +207,15 @@ public class VideoRemakeService {
         if (existing.isPresent()) return summary(owned(tenant, actor, id));
         requireGeneration(tenant, actor, request.bindingId());
         if (!request.rightsConfirmed()) throw input("请确认参考视频的使用授权");
-        if (!request.preserveSourcePeople() && !request.portraitTermsConfirmed()) throw input("请确认替换人像的使用授权");
-        if (request.preserveSourcePeople() && Stream.of(request.portraitId(), request.portraitName(), request.portraitImageId())
-                .anyMatch(value -> value != null && !value.isBlank())) throw input("保留原人物时请勿同时选择替换人像");
+        String productPeopleMode = request.productPeopleMode();
+        if (productPeopleMode != null && !Set.of("auto", "none").contains(productPeopleMode)) {
+            throw input("请选择有效的人物设置");
+        }
+        boolean skipPortrait = productPeopleMode != null || request.preserveSourcePeople();
+        if (!skipPortrait && !request.portraitTermsConfirmed()) throw input("请确认替换人像的使用授权");
+        if ((productPeopleMode != null && request.preserveSourcePeople()) || (skipPortrait
+                && Stream.of(request.portraitId(), request.portraitName(), request.portraitImageId())
+                .anyMatch(value -> value != null && !value.isBlank()))) throw input("请只选择一种人物设置");
         if (!request.followSource() && !Set.of(15, 30).contains(request.durationSeconds())) throw input("请选择 15 秒或 30 秒");
         String productId = text(request.productId(), 19);
         var product = catalog.restorable(new TenantId(tenant), request.bindingId(), text(request.awemeId(), 128), List.of(productId))
@@ -229,12 +235,15 @@ public class VideoRemakeService {
                 .put("source_material_id", requireAsset(tenant, actor, request.bindingId(), request.referenceId(), "video"))
                 .put("max_shots", 4).put("rights_confirmed", true).put("costs_confirmed", true)
                 .put("require_plan_confirmation", true);
-        if (request.followSource() || request.preserveSourcePeople()) {
+        if (request.followSource() || skipPortrait) {
             var capability = engine.remake("GET", "/capabilities", null);
             if (request.followSource() && !capability.path("source_matching_available").asBoolean()) {
                 throw input("复刻服务暂不可用，请稍后重试");
             }
             if (request.preserveSourcePeople() && !capability.path("source_people_supported").asBoolean()) {
+                throw input("当前复刻服务暂时需要替换人物");
+            }
+            if (productPeopleMode != null && !capability.path("product_people_supported").asBoolean()) {
                 throw input("当前复刻服务暂时需要替换人物");
             }
         }
@@ -245,7 +254,9 @@ public class VideoRemakeService {
                     .put("_charge_by_second", true);
         }
         payload.set("product", target);
-        if (request.preserveSourcePeople()) {
+        if (productPeopleMode != null) {
+            payload.put("product_people_mode", productPeopleMode);
+        } else if (request.preserveSourcePeople()) {
             payload.put("preserve_source_people", true);
         } else if (request.portraitImageId() != null && !request.portraitImageId().isBlank()) {
             if (request.portraitId() != null && !request.portraitId().isBlank()) {
