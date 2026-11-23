@@ -30,7 +30,6 @@ public class PlanTransferGateway {
         return creation.recommendations(plan.tenantId(), plan.accountId().value(), plan.awemeId().value(),
                 productIds, targetMode, plan.qcPlanId().orElseThrow().value());
     }
-    public String create(AdPlan p,JsonNode payload) { return creation.create(p.tenantId(),p.accountId().value(),p.awemeId().value(),payload); }
     public void status(Credential c,String id,boolean enabled) {
         var body=json.createObjectNode();body.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));
         body.putArray("ad_ids").add(CreationQianchuanGateway.numericId(id));body.put("opt_status",enabled?"ENABLE":"DISABLE");

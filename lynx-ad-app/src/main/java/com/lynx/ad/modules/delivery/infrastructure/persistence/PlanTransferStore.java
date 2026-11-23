@@ -104,14 +104,6 @@ public class PlanTransferStore {
                 r.getString("root_plan_id"),r.getString("source_plan_id"),r.getString("target_plan_id"),r.getString("request_json"),r.getString("payload_json"),
                 r.getInt("source_enabled")==1,r.getString("qc_plan_id"),r.getString("status"),r.getString("phase"),r.getString("error_message"),r.getTimestamp("updated_at").toInstant()),tenant.value(),key).stream().findFirst();
     }
-    public Optional<Attempt> lastRejectedCreation(TenantId tenant, String root, PlanId source) {
-        return jdbc.queryForList("""
-                SELECT request_key FROM delivery_transfer_attempt
-                WHERE tenant_id=? AND root_plan_id=? AND source_plan_id=? AND status='FAILED' AND qc_plan_id IS NULL
-                  AND error_message LIKE '%互斥%'
-                ORDER BY updated_at DESC LIMIT 1
-                """,String.class,tenant.value(),root,source.value()).stream().findFirst().flatMap(key->attempt(tenant,key));
-    }
     public void claim(Attempt a) {
         claim(a,a.source());
     }
