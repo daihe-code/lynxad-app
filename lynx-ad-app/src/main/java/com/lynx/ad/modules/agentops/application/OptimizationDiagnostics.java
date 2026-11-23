@@ -14,10 +14,11 @@ public final class OptimizationDiagnostics {
         var findings = report.putArray("diagnostics");
         var coverage = report.putArray("coverage_gaps");
         if (!strategy.approved()) coverage.add("经营判断策略尚待校准，候选诊断仅供核对");
+        boolean ready = "READY".equals(report.path("state").asText());
         var recent = aggregate(report.path("roi_windows"), strategy, false);
         var baseline = aggregate(report.path("baseline_windows"), strategy, false);
         if (recent == null || baseline == null) coverage.add("缺少同口径的完整成熟对比窗口");
-        else {compare(findings, "PLAN", report.path("plan_id").asText(), null, recent, baseline, rules, strategy);refund(findings,report,recent,baseline,rules,strategy);}
+        else if (ready) {compare(findings, "PLAN", report.path("plan_id").asText(), null, recent, baseline, rules, strategy);refund(findings,report,recent,baseline,rules,strategy);}
         var entities = report.path("diagnostic_context").path("entities");
         if (entities.isEmpty()) coverage.add("商品及计划内素材分解数据暂不可用");
         BigDecimal total = BigDecimal.ZERO, largest = BigDecimal.ZERO; JsonNode leading = null;
@@ -28,9 +29,12 @@ public final class OptimizationDiagnostics {
             // Each side contains two distinct completed days; never mix asset-library totals into a plan.
             var a = aggregate(days.subList(days.size()-2, days.size()), strategy, true);
             var b = aggregate(days.subList(days.size()-4, days.size()-2), strategy, true);
-            if (a == null || b == null || !report.path("state").asText().equals("READY")) continue;
-            if(strategy.approved()&&report.path("complete").asBoolean()&&report.path("state").asText().equals("READY")&&report.path("diagnostic_context").path("complete").asBoolean()
-                    &&"MATERIAL".equals(entity.path("kind").asText())&&a.cost.compareTo(strategy.minSpend())>=0&&b.cost.compareTo(strategy.minSpend())>=0
+            if (a == null || b == null || !ready) continue;
+            if(strategy.approved()&&report.path("complete").asBoolean()&&report.path("diagnostic_context").path("complete").asBoolean()
+                    &&"MATERIAL".equals(entity.path("kind").asText())&&entity.path("eligible").asBoolean()
+                    &&sufficientCreativeSample(a,strategy)&&sufficientCreativeSample(b,strategy)
+                    &&a.orders!=null&&a.orders.compareTo(BigDecimal.valueOf(strategy.minOrders()))>=0
+                    &&b.orders!=null&&b.orders.compareTo(BigDecimal.valueOf(strategy.minOrders()))>=0
                     &&divide(a.net,a.cost).compareTo(rules.roiFloor())>=0&&divide(b.net,b.cost).compareTo(rules.roiFloor())>=0){
                 var n=((ArrayNode)report.path("recommendations")).addObject().put("type","GROWTH_CREATIVE").put("title","保留已验证素材，测试单一新变化")
                     .put("object_id",entity.path("id").asText()).put("object_type","MATERIAL").put("workflow","materials")
@@ -52,7 +56,7 @@ public final class OptimizationDiagnostics {
         if (!report.path("diagnostic_context").path("complete").asBoolean()) coverage.add("商品可投性或独立任务风险尚未核实，暂缓新增投入");
         boolean sampleReady=recent!=null&&recent.cost.compareTo(strategy.minSpend())>=0;
         boolean contextReady=report.path("diagnostic_context").path("complete").asBoolean();
-        boolean diagnosticsReady=strategy.approved() && sampleReady && report.path("state").asText().equals("READY");
+        boolean diagnosticsReady=strategy.approved() && sampleReady && ready;
         boolean growthReady=diagnosticsReady && report.path("complete").asBoolean() && contextReady && strategy.riskModelApproved() && report.path("diagnostic_context").path("ledger_verified").asBoolean();
         report.put("diagnostics_ready",diagnosticsReady).put("growth_ready",growthReady).put("business_ready",diagnosticsReady&&growthReady);
         if(!growthReady)coverage.add("新增投入账本、独立任务风险或预算瓶颈尚未完整核实");
@@ -120,14 +124,20 @@ public final class OptimizationDiagnostics {
         if(a.net.signum()==0)finding(out,"E4-03","成熟消耗尚无净成交",kind,id,entity,a,b,"核对商品可买状态、规格、详情与素材承诺，先限制新增投入","data",s);
         if(falls(roi,prior,s))finding(out,"E4-02",weak?"净成交ROI走弱且低于要求":"净成交ROI走弱，当前仍达到要求",kind,id,entity,a,b,"结合流量成本、点击和商品承接继续核对","data",s);
         var ctr=ratio(a.clicks,a.impressions,s.minImpressions());var oldCtr=ratio(b.clicks,b.impressions,s.minImpressions());
-        if(falls(ctr,oldCtr,s))finding(out,"E4-04","点击吸引力走弱",kind,id,entity,a,b,creativeHypothesis(entity),"materials",s);
+        boolean creativeReady=sufficientCreativeSample(a,s)&&sufficientCreativeSample(b,s);
+        if(creativeReady&&falls(ctr,oldCtr,s))finding(out,"E4-04","点击吸引力走弱",kind,id,entity,a,b,creativeHypothesis(entity),"materials",s);
         // 'orders' is overall paid orders in the present source. Never label this as net-order CVR.
         var cvr=ratio(a.orders,a.clicks,s.minClicks());var oldCvr=ratio(b.orders,b.clicks,s.minClicks());
         if(ctr!=null&&oldCtr!=null&&!falls(ctr,oldCtr,s)&&falls(cvr,oldCvr,s))finding(out,"E4-05","点击相对稳定，支付订单承接下降",kind,id,entity,a,b,"优先核对规格库存、价格优惠、商品详情及素材承诺；支付订单转化不等于净成交转化","data",s);
         var cpc=ratio(a.cost,a.clicks,s.minClicks());var oldCpc=ratio(b.cost,b.clicks,s.minClicks());
         if(cpc!=null&&oldCpc!=null&&oldCpc.signum()>0&&cpc.compareTo(oldCpc.multiply(BigDecimal.ONE.add(s.declineRatio())))>=0)
             finding(out,"E4-06",weak?"点击成本上升，净成交效率承压":"点击成本上升，净成交ROI仍达标",kind,id,entity,a,b,weak?"结合创意吸引力与商品承接核对，暂缓追加投入":"保持观察，不因成本单项变化停投","data",s);
-        if("MATERIAL".equals(kind)&&weak&&falls(ctr,oldCtr,s)&&falls(roi,prior,s))finding(out,"E4-08","主力素材存在疲劳线索",kind,id,entity,a,b,creativeHypothesis(entity)+"；保留原素材作为对照，核对流量分配及价格变化","materials",s);
+        if(creativeReady&&"MATERIAL".equals(kind)&&weak&&falls(ctr,oldCtr,s)&&falls(roi,prior,s))finding(out,"E4-08","主力素材存在疲劳线索",kind,id,entity,a,b,creativeHypothesis(entity)+"；保留原素材作为对照，核对流量分配及价格变化","materials",s);
+    }
+    private static boolean sufficientCreativeSample(Metrics sample,MonitoringStrategy.Parameters strategy) {
+        return sample.cost.compareTo(strategy.minSpend())>=0
+            && sample.impressions!=null && sample.impressions.compareTo(BigDecimal.valueOf(strategy.minImpressions()))>=0
+            && sample.clicks!=null && sample.clicks.compareTo(BigDecimal.valueOf(strategy.minClicks()))>=0;
     }
     private static String creativeHypothesis(JsonNode entity){
         String type=entity==null?"":entity.path("material_type").asText();

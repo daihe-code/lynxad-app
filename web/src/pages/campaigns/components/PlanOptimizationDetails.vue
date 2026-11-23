@@ -95,9 +95,10 @@
           <section v-if="tasks.length || taskError"><h3>{{ planDisplay.group === 'PAUSED' ? '独立任务仍有风险需要核对' : '独立调控任务' }}</h3><p v-if="taskError">{{ taskError }}</p><article v-for="task in tasks" :key="`${task.kind}:${task.id}`" class="task"><strong>{{ task.name || task.kind }} · {{ task.id }}</strong><span class="badge warning">{{ task.task_status === 'PROCESSING' ? '仍在运行' : '状态需核对' }}</span><div class="summary">任务预算 {{ money(task.budget) }} · 已消耗 {{ money(task.metrics?.cost) }}</div><button class="panel-link" @click="emit('data', 'controls')">查看任务并确认处理 ›</button></article><small>本计划的自动暂停授权不包含独立任务终止；计划整体报表中的消耗不再与任务消耗相加。</small></section>
           <template v-if="canShowCurrent">
             <div v-if="!restartAt" class="metrics current-metrics"><article><small>今日消耗</small><strong>{{ money(data.view.result?.daily_spend) }}</strong></article><article><small>成熟窗口净成交ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>最近检查</small><strong>{{ time(data.view.lastCheck, true) }}</strong></article></div>
+            <section v-if="watching"><h3>{{ watching.title }}</h3><p>{{ watching.evidence }}</p></section>
             <h3 v-if="risks.length">先看原因，再决定怎样调整</h3>
             <section v-for="(item, index) in risks" :key="index" class="risk"><h3>{{ item.title }}</h3><p>{{ item.evidence }}</p><template v-if="item.type === 'ROI_PROTECTION'"><div class="metrics"><article><small>成熟窗口ROI</small><strong>{{ number(data.view.result?.actual_net_roi) }}</strong></article><article><small>你的要求</small><strong>{{ number(data.view.policy.rules?.roiFloor) }}</strong></article><article><small>窗口消耗</small><strong>{{ money(data.view.result?.mature_spend) }}</strong></article></div><div v-if="data.view.result?.roi_windows?.length" class="windows"><div v-for="window in data.view.result.roi_windows" :key="window.window_end"><small>{{ time(window.window_start, true) }}—{{ time(window.window_end, true) }}</small><strong>ROI {{ windowRoi(window) }}</strong></div></div><p>根据真实的连续完整小时与成交回补判断；原因仍需结合商品、素材和流量数据核对。</p></template><div class="actions"><el-button v-if="item.action && eventFor(item)?.status === 'RECOMMENDED'" type="primary" :loading="deciding === eventFor(item)?.id" @click="preview(item)">查看并确认{{ item.action.kind === 'PAUSE' ? '暂停' : '预算调整' }}</el-button><el-button v-else type="primary" :loading="!!deciding" @click="handoff(item)">{{ item.workflow === 'materials' ? '调整对应素材' : '核对计划并处理' }}</el-button></div></section>
-            <section v-if="!restartAt && !risks.length"><h3>小灵正在观察，暂不急着调整</h3><p>{{ data.view.result?.reasons?.join('；') || '持续核对最新消耗与成交数据。没有合适机会时保持当前设置。' }}</p><div class="state-row"><strong>消耗检查</strong><span class="badge" :class="data.view.result?.complete && !data.view.stale ? 'success' : 'warning'">{{ data.view.result?.complete && !data.view.stale ? '数据可用' : '等待最新数据' }}</span></div><div class="state-row"><strong>ROI效果判断</strong><span>{{ data.view.result?.actual_net_roi ? '已取得成熟窗口' : '等待有效成交数据' }}</span></div></section>
+            <section v-if="!restartAt && !watching && !risks.length"><h3>小灵正在观察，暂不急着调整</h3><p>{{ data.view.result?.reasons?.join('；') || '持续核对最新消耗与成交数据。没有合适机会时保持当前设置。' }}</p><div class="state-row"><strong>消耗检查</strong><span class="badge" :class="data.view.result?.complete && !data.view.stale ? 'success' : 'warning'">{{ data.view.result?.complete && !data.view.stale ? '数据可用' : '等待最新数据' }}</span></div><div class="state-row"><strong>ROI效果判断</strong><span>{{ data.view.result?.actual_net_roi ? '已取得成熟窗口' : '等待有效成交数据' }}</span></div></section>
             <section v-if="growth.length"><h3>增长机会</h3><article v-for="(item, index) in growth" :key="index"><strong>{{ item.title }}</strong><p>{{ item.evidence }}</p><div class="summary">单次建议上限 {{ money(data.view.policy.rules?.maxAddition) }} · 每日累计建议上限 {{ money(data.view.policy.rules?.dailyAddition) }}</div><el-button type="primary" :loading="!!deciding" @click="item.action ? preview(item) : handoff(item)">{{ item.action ? '查看预算调整方案' : '查看素材调整方案' }}</el-button></article></section>
           </template>
           <section v-else-if="!restartAt && !paused && !planEnded && state.label !== '授权失效' && planDisplay.group !== 'PAUSED' && !data.pending.length"><h3>仅暂停受影响的判断</h3><p>{{ data.view.error || '等待最新可用数据；历史数值不能代表当前投放状态。' }}</p><el-button @click="load">刷新状态</el-button></section>
@@ -128,7 +129,7 @@
                       <p v-if="event.report?.activity === 'RESUME_CHECK' && event.report.plan_status">广告计划状态 {{ planStatusDisplay(event.report.plan_status).label }}</p>
                       <p v-if="event.report?.activity === 'ADVICE_EXPIRED'">失效的建议不可继续执行。</p>
                       <p v-if="event.report?.paused_at">暂停时段 {{ restartTime(event.report.paused_at) }} 至 {{ restartTime(event.createdAt) }}</p>
-                      <p v-if="event.kind !== 'RULES_CHANGE'">当前结果 {{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? '已记录建议，尚无已执行结果' : eventStatus(event.status) }}</p>
+                      <p v-if="event.kind !== 'RULES_CHANGE'">当前结果 {{ event.status === 'SUCCEEDED' ? '已回查确认生效' : event.status === 'RECOMMENDED' ? (event.kind === 'RULE_DELIVERY_OBSERVING' ? '继续观察' : '已记录建议，尚无已执行结果') : eventStatus(event.status) }}</p>
                       <el-button v-if="['EXECUTING','VERIFY_PENDING','UNKNOWN'].includes(event.status)" link type="primary" :loading="checking === event.id" @click="recheck(event)">只读回查结果</el-button>
                     </div>
                   </details>
@@ -221,7 +222,8 @@ const followingReviews = computed(() => data.value?.reviews?.some(review => foll
 const state = computed(() => error.value && !recoveryBlocked.value ? { label: '检查受限', tone: 'warning', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' } : data.value ? optimizationDetailState(data.value, planEnded.value ? 'FINISHED' : planDisplay.value.group, accountStatus.value, runningTasks.value.length) : { label: '加载中', tone: 'muted', reason: '' });
 const canShowCurrent = computed(() => !!data.value && !planEnded.value && !error.value && !data.value.pending.length && data.value.view.policy.enabled && !data.value.view.error && !data.value.view.stale && !data.value.view.holdReason && planDisplay.value.group === 'DELIVERING' && state.value.label !== '授权失效');
 const recommendations = computed(() => canShowCurrent.value ? data.value?.view.result?.recommendations || [] : []);
-const risks = computed(() => recommendations.value.filter(r => !r.type.includes('GROWTH'))), growth = computed(() => recommendations.value.filter(r => r.type.includes('GROWTH')));
+const watching = computed(() => recommendations.value.find(item => item.type === 'DELIVERY_OBSERVING'));
+const risks = computed(() => recommendations.value.filter(r => !r.type.includes('GROWTH') && r.type !== 'DELIVERY_OBSERVING')), growth = computed(() => recommendations.value.filter(r => r.type.includes('GROWTH')));
 const completed = computed(() => data.value?.history.records.filter(e => e.status === 'SUCCEEDED' && e.kind !== 'RULES_CHANGE') || []);
 const number = (value: unknown) => value == null || value === '' || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 const money = (value: unknown) => number(value) === '—' ? '—' : `¥${number(value)}`;
@@ -239,7 +241,8 @@ function ruleChangeText(event: OptimizationEvent) {
 function historyItem(event: OptimizationEvent) {
   const report = event.report;
   const rules = report?.rules;
-  const entry = { event, title: event.title, tag: eventStatus(event.status), description: event.evidence || '', subtitle: '' };
+  const tag = event.kind === 'RULE_DELIVERY_OBSERVING' && event.status === 'RECOMMENDED' ? '继续观察' : eventStatus(event.status);
+  const entry = { event, title: event.title, tag, description: event.evidence || '', subtitle: '' };
   if (event.kind !== 'RULES_CHANGE') return entry;
   entry.tag = report?.operator || '';
   const config = `配置 v${event.version}`;
@@ -309,7 +312,7 @@ async function confirmDecision() {
 async function handoff(item: MonitoringRecommendation) {
   if (deciding.value) return;
   const workflow = item.workflow || 'data';
-  const event = item.type !== 'DELIVERY_NO_ACTIVITY' && data.value?.view.result?.strategy_approved === true ? eventFor(item) : undefined;
+  const event = item.requires_confirmation !== false && data.value?.view.result?.strategy_approved === true ? eventFor(item) : undefined;
   if (!event && workflow !== 'materials') { emit('data', 'data'); return; }
   deciding.value = event?.id || workflow;
   try {

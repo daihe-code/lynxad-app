@@ -13,6 +13,21 @@ public final class OptimizationRulesEvaluator {
     static boolean planBudgetConstrained(String platformStatus) {
         return "OFFLINE_BUDGET".equals(platformStatus) || "PRE_OFFLINE_BUDGET".equals(platformStatus);
     }
+    static String platformBlock(String platformStatus) {
+        return switch (Objects.toString(platformStatus, "")) {
+            case "OFFLINE_AUDIT", "REJECTED" -> "计划审核未通过";
+            case "AUDIT_STATUS_ERROR" -> "计划审核异常";
+            case "ADVERTISER_OFFLINE_BUDGET" -> "账户预算已用尽";
+            case "CAMPAIGN_OFFLINE_BUDGET" -> "计划组预算不足";
+            case "OFFLINE_BALANCE" -> "广告账户余额不足";
+            case "OFFLINE_SHARED_WALLET_BALANCE" -> "共享钱包余额不足";
+            case "EXTERNAL_URL_DISABLE" -> "商品暂不可用";
+            case "AWEME_ACCOUNT_DISABLED" -> "抖音号不可用";
+            case "QUOTA_DISABLE" -> "在投计划配额超限";
+            case "SYSTEM_DISABLE", "ERROR" -> "千川投放异常";
+            default -> null;
+        };
+    }
     public static JsonNode evaluate(String payload,JsonNode previous,OptimizationPolicy policy) {
         try{return evaluate(JSON.readTree(payload),previous,policy);}catch(java.io.IOException e){throw new IllegalArgumentException("Invalid rule observation",e);}
     }
@@ -44,39 +59,45 @@ public final class OptimizationRulesEvaluator {
         BigDecimal spend=decimal(data,"daily_spend"),revenue=decimal(data,"daily_net_revenue");
         boolean pending=data.path("execution_pending").asBoolean();
         String platformStatus=data.path("platform_status").asText();
-        if(!pending && planBudgetConstrained(platformStatus)) {
+        boolean budgetConstrained=planBudgetConstrained(platformStatus);
+        if(budgetConstrained) {
             boolean exhausted="OFFLINE_BUDGET".equals(platformStatus);
             advice(advice,"BUDGET_CONSTRAINT",exhausted?"计划预算不足":"计划预算即将用尽",
                 "千川已报告该计划的预算限制，可核对预算与当日消耗。")
                 .put("requires_confirmation",false).put("workflow","data");
         }
-        if(!"DELIVERING".equals(data.path("plan_status").asText())){
+        String platformBlock=platformBlock(platformStatus);
+        if(platformBlock!=null) deliveryIssue(advice, "DELIVERY_BLOCKED", platformBlock,
+            "千川已确认该异常，请核对计划状态和平台给出的原因。");
+        boolean delivering="DELIVERING".equals(data.path("plan_status").asText());
+        boolean objectBlocked=false;
+        if(delivering) for(var issue:data.path("diagnostic_context").path("delivery_issues")) {
+            objectBlocked=true;
+            deliveryIssue(advice, "DELIVERY_BLOCKED", issue.path("title").asText(), issue.path("evidence").asText())
+                .put("object_type", issue.path("object_type").asText()).put("object_id", issue.path("object_id").asText());
+        }
+        boolean deliveryBlocked=platformBlock!=null
+            || data.path("diagnostic_context").path("all_products_blocked").asBoolean();
+        var startup=StartupDeliveryObservation.update(result, previous, observed, deliveryBlocked);
+        if(!delivering){
             result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;
         }
-        if(!data.path("execution_pending").asBoolean() && (spend==null || spend.signum()==0)) {
-            var since = zeroDeliverySince(data, previous, observed, restarted);
-            if (since != null) {
-                result.put("zero_delivery_since", since.toString());
-                var checkedAt = OffsetDateTime.parse(data.path("delivery_check").path("checked_at").asText());
-                if (!checkedAt.isBefore(since.plusHours(1))) {
-                    result.put("state", "NO_DELIVERY");
-                    boolean fromBaseline = since.toString().equals(data.path("delivery_history").path("baseline").asText());
-                    String period = fromBaseline
-                        ? "自本轮盯盘观察起，已核实无曝光、无消耗。"
-                        : "已核实持续至少 1 小时无曝光、无消耗。";
-                    advice(advice, "DELIVERY_NO_ACTIVITY", "持续无曝光",
-                        period+"请先核对商品可投性和素材审核状态。符合投放条件时，可补充一条不同卖点的素材测试。")
-                        .put("requires_confirmation", false).put("workflow", "materials");
-                }
-            }
+        if(!objectBlocked && !budgetConstrained && startup.investigate()) {
+            result.put("state", "NO_DELIVERY");
+            deliveryIssue(advice, "DELIVERY_NO_ACTIVITY", "持续未起量，请排查",
+                "已累计核实 4 个有效投放小时，仍无曝光和消耗。请核对商品库存和可投状态、素材审核、预算及投放设置。");
+        } else if(!objectBlocked && !budgetConstrained && startup.keepWatching()) {
+            deliveryIssue(advice, "DELIVERY_OBSERVING", "暂未起量，继续观察",
+                "已核实连续 1 小时无曝光和消耗。继续观察至累计满 4 个有效投放小时。");
         }
+        if(!startup.complete() && !deliveryBlocked) reasons.add("新计划前 4 个有效投放小时继续观察");
         if(previous!=null)for(var sample:previous.path("rule_samples")){
             try{var time=OffsetDateTime.parse(sample.path("at").asText());
                 if(time.toLocalDate().equals(observed.toLocalDate()) && !time.isAfter(observed) && time.isAfter(observed.minusMinutes(65))
                     && (restarted==null || !time.toInstant().isBefore(restarted)))history.add(sample.deepCopy());
             }catch(RuntimeException ignored){/* Unusable evidence never becomes a baseline. */}
         }
-        if(data.path("execution_pending").asBoolean()){reasons.add("正在核实已提交操作，不补执行旧建议");return result;}
+        if(pending){reasons.add("正在核实已提交操作，不补执行旧建议");return result;}
         var mature=new ArrayList<JsonNode>();
         for(var window:data.path("observations")){
             try {
@@ -96,7 +117,8 @@ public final class OptimizationRulesEvaluator {
             priorEnd=end;if(cost!=null)matureSpend=matureSpend.add(cost);if(net!=null)matureRevenue=matureRevenue.add(net);windows.add(window);
         }
         var expectedEnd=observed.minusMinutes(maturityMinutes).withMinute(0).withSecond(0).withNano(0);
-        if(priorEnd==null || !priorEnd.equals(expectedEnd) || matureSpend.signum()<=0)matureReady=false;
+        if(priorEnd==null || !priorEnd.equals(expectedEnd) || matureSpend.signum()<=0
+            || !startup.complete() || !startup.hadVolume() || deliveryBlocked)matureReady=false;
         if(matureReady){result.put("state","READY");result.put("actual_net_roi",matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP).toPlainString());result.put("mature_spend",matureSpend.toPlainString());result.put("mature_net_revenue",matureRevenue.toPlainString());result.put("window_count",windowHours);}
         else reasons.add("等待连续完整小时及成交回补，暂不判断ROI效果");
         var matureRoi=matureReady?matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP):null;
@@ -112,7 +134,7 @@ public final class OptimizationRulesEvaluator {
             if(revenue!=null && revenue.signum()>=0)sample.put("revenue",revenue.toPlainString());
         }
         if(history.size()>66){var trimmed=JSON.createArrayNode();for(int i=history.size()-66;i<history.size();i++)trimmed.add(history.get(i));result.set("rule_samples",trimmed);history=trimmed;}
-        result.put("window_end",observed.toLocalDate().toString()); // Daily deduplication for reminders/advice.
+        result.put("window_end",observed.toLocalDate().toString()); // Daily scope for spend measurements.
         boolean protection=spend.compareTo(rules.spendProtection())>=0;
         boolean runaway=false;
         if(protection){
@@ -149,31 +171,8 @@ public final class OptimizationRulesEvaluator {
         return result;
     }
 
-    private static OffsetDateTime zeroDeliverySince(JsonNode data, JsonNode previous, OffsetDateTime observed, Instant restarted) {
-        var check = data.path("delivery_check");
-        if (!"ZERO".equals(check.path("activity").asText())) return null;
-        var checkedAt = OffsetDateTime.parse(check.path("checked_at").asText());
-        if (checkedAt.isAfter(observed) || checkedAt.isBefore(observed.minusMinutes(10))
-            || !checkedAt.toLocalDate().equals(observed.toLocalDate())
-            || restarted != null && checkedAt.toInstant().isBefore(restarted)) return null;
-        var history = data.path("delivery_history");
-        if ("ZERO".equals(history.path("activity").asText())
-            && observed.toLocalDate().minusDays(1).toString().equals(history.path("through").asText())) {
-            var baseline = OffsetDateTime.parse(history.path("baseline").asText());
-            if (!baseline.isAfter(checkedAt)) return baseline;
-        }
-        if (previous != null && previous.hasNonNull("zero_delivery_since")
-            && data.path("plan_id").equals(previous.path("plan_id"))
-            && data.path("product_ids").equals(previous.path("product_ids"))) {
-            var previousObserved = OffsetDateTime.parse(previous.path("observed_at").asText());
-            var since = OffsetDateTime.parse(previous.path("zero_delivery_since").asText());
-            if (since.toLocalDate().equals(observed.toLocalDate()) && !since.isAfter(checkedAt)
-                && !previousObserved.isAfter(observed) && !previousObserved.isBefore(observed.minusMinutes(5))
-                && (!data.hasNonNull("delivery_baseline")
-                    || !since.isBefore(OffsetDateTime.parse(data.path("delivery_baseline").asText())))
-                && (restarted == null || !since.toInstant().isBefore(restarted))) return since;
-        }
-        return checkedAt;
+    private static ObjectNode deliveryIssue(ArrayNode advice, String type, String title, String evidence) {
+        return advice(advice, type, title, evidence).put("requires_confirmation",false).put("workflow","data");
     }
 
     private static ObjectNode advice(ArrayNode list,String type,String title,String evidence){var item=list.addObject();item.put("type",type).put("title",title).put("evidence",evidence).put("requires_confirmation",true).put("execution_allowed",false);return item;}

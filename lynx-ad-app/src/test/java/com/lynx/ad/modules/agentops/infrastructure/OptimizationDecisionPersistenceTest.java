@@ -96,22 +96,32 @@ class OptimizationDecisionPersistenceTest {
         assertEquals(first, journal.firstRuleEnabledAt("tenant", "plan"));
     }
 
-    @Test void zeroDeliveryAdviceFitsTheEventSchemaAndNotifiesOnce() {
+    @Test void startupNoticesAreDeduplicatedAcrossMidnightAndEscalateOnce() {
         var report = json.createObjectNode().put("rule_version","merchant-rules-v2").put("complete",true);
-        report.putObject("delivery_check").put("activity","ZERO");
-        report.putArray("recommendations").addObject().put("type","DELIVERY_NO_ACTIVITY").put("title","持续无曝光")
-            .put("evidence","可补充不同卖点的素材");
+        report.putObject("delivery_observation").put("had_volume",false);
+        report.put("daily_spend_date","2026-11-22");
+        report.putArray("recommendations").addObject().put("type","DELIVERY_OBSERVING").put("title","继续观察")
+            .put("evidence","确认连续 1 小时无量");
         journal.recordAdvice(state,report);
+        report.put("daily_spend_date","2026-11-23");
+        journal.recordAdvice(state,report);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE body LIKE '%继续观察%'",Integer.class));
+
+        report.put("state","NO_DELIVERY").putArray("recommendations").addObject()
+            .put("type","DELIVERY_NO_ACTIVITY").put("title","持续未起量，请排查").put("evidence","确认满 4 个有效投放小时");
+        journal.recordAdvice(state,report);
+        report.put("daily_spend_date","2026-11-24");
         journal.recordAdvice(state,report);
         assertEquals(1,journal.ruleHistory("tenant","plan","RISK",7,1,20).total());
-        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE body LIKE '%可补充不同卖点的素材%'",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE body LIKE '%确认满 4 个有效投放小时%'",Integer.class));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE kind='RULE_DELIVERY_OBSERVING' AND status='RESOLVED'",Integer.class));
         report.putArray("recommendations");
-        ((ObjectNode)report.path("delivery_check")).put("activity","UNKNOWN");
+        report.put("state","WAITING_DATA").put("complete",false);
         journal.recordAdvice(state,report);
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE status='RECOMMENDED'",Integer.class));
-        ((ObjectNode)report.path("delivery_check")).put("activity","ACTIVE");
+        ((ObjectNode)report.path("delivery_observation")).put("had_volume",true);
         journal.recordAdvice(state,report);
-        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE status='RESOLVED'",Integer.class));
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM optimization_event WHERE status='RESOLVED'",Integer.class));
     }
 
     @Test void pausedEditsAndLaterVerificationDoNotChangeTheSnapshot(){
