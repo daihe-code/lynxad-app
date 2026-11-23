@@ -81,6 +81,20 @@ class DouyinLinkVideoDownloaderTest {
     }
 
     @Test
+    void detailFallbackRequiresTheRequestedVideoIdentity() throws Exception {
+        var mapper = new ObjectMapper();
+        var response = mapper.readTree("""
+                {"aweme_detail":{"aweme_id":"7400000000000000000",
+                "video":{"play_addr":{"url_list":["https://v1.douyinvod.com/video/example"]}}}}
+                """);
+        assertEquals("https://v1.douyinvod.com/video/example",
+                DouyinLinkVideoDownloader.extractPlayUrlFromDetail(response, "7400000000000000000"));
+        assertNull(DouyinLinkVideoDownloader.extractPlayUrlFromDetail(response, "7500000000000000000"));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) response.path("aweme_detail")).remove("aweme_id");
+        assertNull(DouyinLinkVideoDownloader.extractPlayUrlFromDetail(response, "7400000000000000000"));
+    }
+
+    @Test
     void withoutWatermarkReplacesPlaywm() {
         assertEquals("https://v1.douyin.com/play/abc123",
                 DouyinLinkVideoDownloader.withoutWatermark("https://v1.douyin.com/playwm/abc123"));

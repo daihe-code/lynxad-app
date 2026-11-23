@@ -2,13 +2,13 @@ package com.lynx.ad.modules.creative.infrastructure.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lynx.ad.common.exception.BizException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,7 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -34,12 +36,22 @@ import java.util.regex.Pattern;
  * 设备 Cookie，第二次携带该 Cookie），从页面内嵌的 videoInfoRes JSON 中取出播放地址，把
  * playwm 换成 play 得到无水印播放地址，再下载并用 ffprobe 校验。
  *
+ * <p>兜底顺序：H5 路由失败后，先试 aweme 详情接口
+ * （{@code /aweme/v1/web/aweme/detail/}，只用链接或短链解析出的同一视频编号请求，
+ * 返回的编号不一致时不使用），再试自托管备用接口。失败时返回最明确的失败原因，不用其他视频替代。
+ *
  * <p>备用路由为自托管的 Evil0ctal Douyin_TikTok_Download_API 实例：仅在配置了
  * {@code lynx.ad.remake-link.download-api-base-url} 与
  * {@code lynx.ad.remake-link.download-api-path} 时启用；主路由失败后才尝试，两个路由都失败时
  * 返回主路由的错误，不静默替换为其他视频。备用接口的具体路径随自托管实例的版本而不同
  * （旧版为同步接口，新版默认返回异步任务），请按实例的 {@code /docs} 填写；若备用接口只返回
  * 异步任务而不直接返回视频地址，本方法会明确报错，不会等待或猜测任务结果。
+ *
+ * <p>搜索页链接（/search/…）没有单个视频地址：若带 modal_id，会先尝试打开该视频；否则直接
+ * 提示用户先打开视频再复制分享链接。
+ *
+ * <p>失败时抛出 {@link LinkImportFailure}，携带失败原因码与中文提示；原因码随错误响应返回，
+ * 细节只写服务端日志，不向用户暴露堆栈。
  *
  * <p>本类只做解析与下载，不登录抖音、不保存任何账号 Cookie；下载到的文件只写入临时文件，
  * 调用方负责在入库后删除。
@@ -48,21 +60,36 @@ public final class DouyinLinkVideoDownloader {
     public static final long MAX_BYTES = 200L * 1024 * 1024;
     public static final String PLATFORM_DOUYIN = "douyin";
     public static final String METHOD_H5 = "douyin-h5";
+    public static final String METHOD_DETAIL_API = "douyin-detail-api";
     public static final String METHOD_DOWNLOAD_API = "douyin-download-api";
 
     private static final Set<String> SUPPORTED_HOSTS = Set.of(
             "v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com", "iesdouyin.com");
-    private static final Set<String> MEDIA_DOMAINS = Set.of("douyin.com", "iesdouyin.com", "douyinvod.com");
+    /**
+     * 抖音视频播放地址所在的媒体域名（含字节跳动自有 CDN）。解析出的播放地址指向这里的域名时，
+     * 它就是抖音视频本身，不是外站视频。抖音返回了列表之外的新 CDN 主机时，被拒绝的错误会点名该
+     * 主机，便于在核对归属后补充到本列表；不要放行无法确认归属的域名。
+     */
+    private static final Set<String> MEDIA_DOMAINS = Set.of("douyin.com", "iesdouyin.com", "douyinvod.com",
+            "zjcdn.com", "snssdk.com", "pstatp.com", "bytecdn.cn");
     private static final Set<Integer> REDIRECT_CODES = Set.of(301, 302, 303, 307, 308);
     private static final int MAX_SHARE_PAGE_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_DETAIL_JSON_BYTES = 4 * 1024 * 1024;
     private static final String USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) "
             + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
-    private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s\"'<>，。；]+");
+    private static final Pattern DOUYIN_LINK_PATTERN = Pattern.compile(
+            "(?<![A-Za-z0-9.-])(?:https?://)?(?:[A-Za-z0-9-]+\\.)*(?:v\\.douyin\\.com|douyin\\.com|iesdouyin\\.com)(/[^\\s\"'<>，。；、！？]*)?",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern AWEME_PATTERN = Pattern.compile("/(?:share/)?video/(\\d+)");
     private static final Pattern URL_LIST_PATTERN =
             Pattern.compile("\"url_list\"\\s*:\\s*\\[\\s*\"([^\"]+)\"");
     private static final Pattern PLAY_URL_PATTERN =
             Pattern.compile("https?://[^\"'\\s\\\\]+play[^\"'\\s\\\\]*");
+    /** H5 路由失败后值得用详情接口再试一次的原因；规格失败等表示已拿到同一视频，不再重下。 */
+    private static final Set<String> DETAIL_RETRYABLE = Set.of(
+            LinkImportFailure.SHARE_PAGE_FETCH, LinkImportFailure.TTWID_MISSING,
+            LinkImportFailure.VIDEOINFO_MISSING, LinkImportFailure.PLAY_URL_EMPTY,
+            LinkImportFailure.DOWNLOAD_FAILED);
 
     public record VideoProbe(double durationSeconds, int width, int height) {}
 
@@ -82,15 +109,22 @@ public final class DouyinLinkVideoDownloader {
                 .build();
     }
 
-    /** 从粘贴的分享文本中取出第一个链接，并校验它属于抖音。 */
+    /** 从粘贴的分享文本中取出第一个抖音链接，并校验它属于抖音。 */
     public static String normalizeShareUrl(String raw) {
-        String url = extractUrl(raw);
-        if (url.length() > 1024) throw input("抖音视频链接过长，请使用分享短链。");
+        String url = extractDouyinLink(raw);
+        if (url == null) {
+            throw fail(LinkImportFailure.LINK_FORMAT,
+                    "未在粘贴内容中找到链接，请粘贴包含 https://v.douyin.com/... 的分享内容。",
+                    "no douyin link in pasted text");
+        }
+        if (url.length() > 1024) {
+            throw fail(LinkImportFailure.LINK_FORMAT, "抖音视频链接过长，请使用分享短链。", "url too long");
+        }
         URI uri;
         try {
             uri = URI.create(url);
         } catch (IllegalArgumentException ex) {
-            throw input("请粘贴抖音视频链接。");
+            throw fail(LinkImportFailure.LINK_FORMAT, "请粘贴抖音视频链接。", "invalid uri");
         }
         if ("http".equalsIgnoreCase(uri.getScheme()) && uri.getPort() == -1) {
             uri = URI.create("https" + url.substring(url.indexOf(':')));
@@ -98,14 +132,55 @@ public final class DouyinLinkVideoDownloader {
         return requireDouyinUrl(uri, false).toString();
     }
 
+    /**
+     * 从粘贴的分享文案中提取第一个抖音视频链接（可带标题、话题与多余文字，也可省略 https://）。
+     * 只认抖音域名；末尾的标点会被去掉，末尾的 / 保留（抖音短链本身以 / 结尾）。找不到时返回 null。
+     */
+    public static String extractDouyinLink(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        Matcher matcher = DOUYIN_LINK_PATTERN.matcher(raw);
+        while (matcher.find()) {
+            String found = matcher.group();
+            while (!found.isEmpty() && ")]}，。；、！？!?,;:.（）【】《》#".indexOf(found.charAt(found.length() - 1)) >= 0) {
+                found = found.substring(0, found.length() - 1);
+            }
+            if (found.isEmpty()) continue;
+            String url = found.regionMatches(true, 0, "http", 0, 4) ? found : "https://" + found;
+            URI uri;
+            try {
+                uri = URI.create(url);
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            if (!SUPPORTED_HOSTS.contains(host)) continue;
+            String path = uri.getPath();
+            if (path == null || path.isBlank() || "/".equals(path)) continue;
+            return url;
+        }
+        return null;
+    }
+
     static URI requireDouyinUrl(URI uri, boolean media) {
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
         boolean allowed = media ? MEDIA_DOMAINS.stream().anyMatch(domain -> host.equals(domain)
                 || host.endsWith("." + domain)) : SUPPORTED_HOSTS.contains(host);
-        if (!allowed || !"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null
+        if (!allowed) {
+            if (media) {
+                throw fail(LinkImportFailure.DOWNLOAD_FAILED,
+                        "视频地址的主机 " + host + " 不在受支持的抖音媒体域名内，请上传本地视频。",
+                        "rejected media host: " + host);
+            }
+            throw fail(LinkImportFailure.LINK_FORMAT,
+                    "链接域名 " + host + " 不受支持，仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。",
+                    "rejected link host: " + host);
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null
                 || (uri.getPort() != -1 && uri.getPort() != 443)) {
-            throw input(media ? "视频地址不在受支持的抖音媒体域名内，请上传本地视频。"
-                    : "仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。");
+            throw fail(media ? LinkImportFailure.DOWNLOAD_FAILED : LinkImportFailure.LINK_FORMAT,
+                    media ? "视频地址无效，请稍后重试或上传本地视频。"
+                            : "仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。",
+                    "rejected url scheme/port/userinfo");
         }
         return uri;
     }
@@ -117,33 +192,25 @@ public final class DouyinLinkVideoDownloader {
             for (var address : InetAddress.getAllByName(uri.getHost())) {
                 if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isSiteLocalAddress()
                         || address.isLinkLocalAddress() || address.isMulticastAddress()) {
-                    throw input("链接目标不是公网地址，请检查抖音视频链接。");
+                    throw fail(LinkImportFailure.LINK_FORMAT, "链接目标不是公网地址，请检查抖音视频链接。",
+                            "private address: " + uri.getHost());
                 }
             }
             var response = http.send(request.apply(uri), HttpResponse.BodyHandlers.ofInputStream());
             if (!REDIRECT_CODES.contains(response.statusCode())) return response;
             try (var body = response.body()) {
                 String location = response.headers().firstValue("Location").orElseThrow(
-                        () -> input("视频链接跳转地址不可用，请重新粘贴抖音视频链接。"));
+                        () -> fail(LinkImportFailure.SHORT_LINK_RESOLVE,
+                                "视频链接跳转地址不可用，请重新粘贴抖音视频链接。", "redirect without location"));
                 try {
                     uri = uri.resolve(location);
                 } catch (IllegalArgumentException ex) {
-                    throw input("视频链接跳转地址无效，请重新粘贴抖音视频链接。");
+                    throw fail(LinkImportFailure.SHORT_LINK_RESOLVE,
+                            "视频链接跳转地址无效，请重新粘贴抖音视频链接。", "bad redirect location: " + location);
                 }
             }
         }
-        throw input("视频链接跳转次数过多，请重新粘贴抖音视频链接。");
-    }
-
-    public static String extractUrl(String raw) {
-        if (raw == null || raw.isBlank()) throw input("请粘贴抖音视频链接。");
-        Matcher matcher = URL_PATTERN.matcher(raw.strip());
-        if (!matcher.find()) throw input("请粘贴抖音视频链接。");
-        String found = matcher.group();
-        while (!found.isEmpty() && ")]}，".indexOf(found.charAt(found.length() - 1)) >= 0) {
-            found = found.substring(0, found.length() - 1);
-        }
-        return found;
+        throw fail(LinkImportFailure.SHORT_LINK_RESOLVE, "视频链接跳转次数过多，请重新粘贴抖音视频链接。", "too many redirects");
     }
 
     /** 从视频页链接中取出视频编号；短链解析前可能取不到，返回 null。 */
@@ -151,6 +218,123 @@ public final class DouyinLinkVideoDownloader {
         if (normalizedUrl == null) return null;
         Matcher matcher = AWEME_PATTERN.matcher(normalizedUrl);
         return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /** 是否为抖音搜索页链接（/search/…），搜索页里没有单个视频地址。 */
+    public static boolean isSearchPage(String normalizedUrl) {
+        if (normalizedUrl == null) return false;
+        try {
+            String path = URI.create(normalizedUrl).getPath();
+            return path != null && (path.equals("/search") || path.startsWith("/search/"));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * 从搜索页链接中取出搜索弹窗里打开的视频编号（modal_id）；不是搜索页或没有 modal_id 时返回 null。
+     * modal_id 是用户在搜索页打开的那条视频，只能把它当作同一条视频来尝试，不能据此拼凑其他视频。
+     */
+    public static String searchVideoId(String normalizedUrl) {
+        if (!isSearchPage(normalizedUrl)) return null;
+        String query;
+        try {
+            query = URI.create(normalizedUrl).getRawQuery();
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+        if (query == null || query.isBlank()) return null;
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq < 0 || !"modal_id".equals(pair.substring(0, eq))) continue;
+            String value = pair.substring(eq + 1);
+            try {
+                value = URLDecoder.decode(value, StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException ex) {
+                return null;
+            }
+            return value.matches("\\d{6,20}") ? value : null;
+        }
+        return null;
+    }
+
+    /**
+     * 按分享页或接口返回的文字判断视频状态；只有文字明确说明时才区分私密、已删除或需登录，
+     * 否则返回 null（由调用方按“未找到视频信息”处理，不猜测）。
+     */
+    public static String classifyVideoState(String text) {
+        if (text == null || text.isBlank()) return null;
+        if (text.contains("need_login") || text.contains("login_required")
+                || text.contains("请登录后查看") || text.contains("登录后查看") || text.contains("请先登录")) {
+            return LinkImportFailure.LOGIN_REQUIRED;
+        }
+        if (text.contains("已被删除") || text.contains("视频不见了") || text.contains("视频不存在")
+                || text.contains("该视频已删除")) {
+            return LinkImportFailure.VIDEO_DELETED;
+        }
+        if (text.contains("仅自己可见") || text.contains("私密视频") || text.contains("仅作者可见")) {
+            return LinkImportFailure.VIDEO_PRIVATE;
+        }
+        return null;
+    }
+
+    private static String messageForReason(String reason) {
+        if (LinkImportFailure.VIDEO_PRIVATE.equals(reason)) {
+            return "该视频为私密视频，仅作者自己可见，无法导入。请选择一条公开视频，或改用本地上传。";
+        }
+        if (LinkImportFailure.VIDEO_DELETED.equals(reason)) {
+            return "该视频已被删除或不存在，请确认链接后重试，或选择其他公开视频。";
+        }
+        if (LinkImportFailure.LOGIN_REQUIRED.equals(reason)) {
+            return "该视频需要登录后才能查看，无法导入。请确认链接指向的是公开视频（在无痕浏览器中打开能正常播放），或改用本地上传。";
+        }
+        if (LinkImportFailure.PLAY_URL_EMPTY.equals(reason)) {
+            return "已找到该视频，但抖音未提供可下载的播放地址，请稍后再试或上传本地视频。";
+        }
+        return "未能从该链接解析出视频地址，请确认链接指向的是公开视频，或改用本地上传。";
+    }
+
+    /** aweme 详情接口地址：只用视频编号拼，不接受用户传入的主机或路径。 */
+    public static String detailApiUrl(String awemeId) {
+        return "https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=" + awemeId
+                + "&aid=1128&version_name=23.5.0&device_platform=webapp";
+    }
+
+    /**
+     * 从详情接口返回的 JSON 中取出播放地址。返回的视频编号与请求的不一致时返回 null，
+     * 绝不替用另一条视频。
+     */
+    public static String extractPlayUrlFromDetail(JsonNode root, String awemeId) {
+        if (root == null) return null;
+        JsonNode detail = root.path("aweme_detail");
+        if (detail.isMissingNode() || detail.isNull() || !detail.isObject()) return null;
+        String returned = detail.path("aweme_id").asText(null);
+        if (awemeId == null || !awemeId.equals(returned)) return null;
+        return findPlayUrl(detail);
+    }
+
+    /** 按详情接口的返回判断失败原因；未说明原因时返回 null，由调用方按播放地址缺失处理。 */
+    public static String detailFailureReason(JsonNode root, String awemeId) {
+        if (root == null) return LinkImportFailure.DETAIL_API_FAILED;
+        String state = classifyVideoState(root.path("status_msg").asText(""));
+        if (state != null) return state;
+        if (root.path("status_code").asInt(0) != 0) return LinkImportFailure.PLAY_URL_EMPTY;
+        JsonNode detail = root.path("aweme_detail");
+        if (detail.isMissingNode() || detail.isNull()) return LinkImportFailure.PLAY_URL_EMPTY;
+        String returned = detail.path("aweme_id").asText(null);
+        if (awemeId == null || !awemeId.equals(returned)) return LinkImportFailure.PLAY_URL_EMPTY;
+        return null;
+    }
+
+    static boolean hasTtwidCookie(CookieManager cookies) {
+        if (cookies == null) return false;
+        return cookies.getCookieStore().getCookies().stream()
+                .anyMatch(cookie -> "ttwid".equalsIgnoreCase(cookie.getName()));
+    }
+
+    private static CookieManager cookieManager(HttpClient http) {
+        return http.cookieHandler().filter(CookieManager.class::isInstance)
+                .map(CookieManager.class::cast).orElse(null);
     }
 
     /** 抖音已发布的无水印播放地址与有水印地址只差 playwm/play 一段。 */
@@ -167,7 +351,7 @@ public final class DouyinLinkVideoDownloader {
         String found = extractPlayUrlFromText(html.replace("\\/", "/"), json);
         if (found != null) return found;
         try {
-            String decoded = java.net.URLDecoder.decode(html, StandardCharsets.UTF_8).replace("\\/", "/");
+            String decoded = URLDecoder.decode(html, StandardCharsets.UTF_8).replace("\\/", "/");
             if (!decoded.equals(html)) return extractPlayUrlFromText(decoded, json);
         } catch (IllegalArgumentException ignored) {
             // 不是 URL 编码的正文，按原文处理即可。
@@ -250,45 +434,194 @@ public final class DouyinLinkVideoDownloader {
     }
 
     /**
-     * 主入口：先走 H5 路由；H5 路由失败且配置了备用接口时再走备用路由；
-     * 两个路由都失败时返回主路由的错误，不用其他视频替代。
+     * 主入口：先走 H5 路由；H5 路由失败且能确定视频编号时，先试 aweme 详情接口；
+     * 再走已配置的备用接口；都失败时返回最明确的失败原因，不用其他视频替代。
+     * 搜索页链接会先按 modal_id 尝试打开其中那条视频，失败时按搜索页报错。
      */
     public static DownloadedVideo download(ObjectMapper json, String rawInput,
             String downloadApiBaseUrl, String downloadApiPath, String downloadApiKey, String ffprobePath) {
         String normalized = normalizeShareUrl(rawInput);
+        if (isSearchPage(normalized) && searchVideoId(normalized) == null) {
+            throw fail(LinkImportFailure.SEARCH_PAGE,
+                    "这是抖音搜索页链接，搜索页里没有单个视频地址，无法直接导入。请先打开要参考的视频，点分享复制它的视频链接（v.douyin.com 短链或 douyin.com/video/…），再粘贴到这里；也可以改用本地上传。",
+                    "search page without modal_id");
+        }
+        String searchId = searchVideoId(normalized);
+        String effectiveUrl = searchId != null ? "https://www.douyin.com/video/" + searchId : normalized;
         HttpClient http = httpClient();
-        BizException h5Failure = null;
+        List<LinkImportFailure> failures = new ArrayList<>();
         try {
-            return downloadViaH5(http, json, normalized, ffprobePath);
-        } catch (BizException ex) {
-            h5Failure = ex;
+            return downloadViaH5(http, json, effectiveUrl, ffprobePath);
+        } catch (LinkImportFailure ex) {
+            if (isDefinitive(ex.reason())) throw ex;
+            failures.add(ex);
+        }
+        String aweme = awemeId(effectiveUrl);
+        if (aweme == null && !failures.isEmpty()) aweme = failures.get(0).awemeId();
+        if (aweme != null && DETAIL_RETRYABLE.contains(failures.get(0).reason())) {
+            try {
+                return downloadViaDetailApi(http, json, aweme, ffprobePath);
+            } catch (LinkImportFailure ex) {
+                if (isDefinitive(ex.reason())) throw ex;
+                failures.add(ex);
+            }
         }
         String base = downloadApiBaseUrl == null ? "" : downloadApiBaseUrl.strip();
         String path = downloadApiPath == null ? "" : downloadApiPath.strip();
-        if (base.isBlank() || path.isBlank()) throw h5Failure;
-        try {
-            return downloadViaDownloadApi(http, json, normalized, base, path, downloadApiKey, ffprobePath);
-        } catch (BizException ex) {
-            throw input(h5Failure.getMessage() + "备用下载接口也未能获取该视频，请稍后再试或上传本地视频。");
+        boolean backupTried = false;
+        if (!base.isBlank() && !path.isBlank()) {
+            backupTried = true;
+            try {
+                return downloadViaDownloadApi(http, json, effectiveUrl, base, path, downloadApiKey, ffprobePath);
+            } catch (LinkImportFailure ex) {
+                failures.add(ex);
+            }
         }
+        if (searchId != null) throw searchPageFailure(searchId, failures);
+        throw pickFailure(failures, backupTried);
     }
 
     private static DownloadedVideo downloadViaH5(HttpClient http, ObjectMapper json,
             String normalizedUrl, String ffprobePath) {
         URI shareUri = URI.create(normalizedUrl);
-        var first = fetchSharePage(http, mobileSharePage(shareUri));
-        // 第二次请求：Cookie 管理器会自动带上第一次取回的 ttwid 设备 Cookie。
-        var second = fetchSharePage(http, mobileSharePage(first.uri()));
+        String resolvedId = awemeId(normalizedUrl);
+        SharePage first;
+        try {
+            first = fetchSharePage(http, mobileSharePage(shareUri));
+        } catch (LinkImportFailure ex) {
+            throw ex.withAwemeId(resolvedId);
+        }
+        if (resolvedId == null) resolvedId = awemeId(first.uri().getPath());
+        SharePage second;
+        try {
+            second = fetchSharePage(http, mobileSharePage(first.uri()));
+        } catch (LinkImportFailure ex) {
+            throw ex.withAwemeId(resolvedId);
+        }
+        if (resolvedId == null) resolvedId = awemeId(second.uri().getPath());
         String html = second.body().isBlank() ? first.body() : second.body();
+        boolean ttwidMissing = !hasTtwidCookie(cookieManager(http));
         if (html.contains("need_login")) {
-            throw input("该视频需要登录后才能查看，请确认链接指向的是公开视频。");
+            throw fail(LinkImportFailure.LOGIN_REQUIRED, messageForReason(LinkImportFailure.LOGIN_REQUIRED),
+                    "share page need_login", resolvedId);
+        }
+        String state = classifyVideoState(html);
+        if (state != null) {
+            throw fail(state, messageForReason(state), "share page state signal: " + state, resolvedId);
         }
         String playUrl = extractPlayUrl(html, json);
         if (playUrl == null) {
-            throw input("未能从该链接解析出视频地址，该视频可能为私密、已删除或需要登录，请确认链接指向的是公开视频。");
+            if (ttwidMissing) {
+                throw fail(LinkImportFailure.TTWID_MISSING,
+                        "未能获取抖音设备标识，分享页未返回完整内容。请稍后重试，或改用 v.douyin.com 短链重新粘贴。",
+                        "ttwid missing after share page fetch", resolvedId);
+            }
+            if (html.contains("videoInfoRes")) {
+                throw fail(LinkImportFailure.PLAY_URL_EMPTY, messageForReason(LinkImportFailure.PLAY_URL_EMPTY),
+                        "videoInfoRes present but no play url", resolvedId);
+            }
+            throw fail(LinkImportFailure.VIDEOINFO_MISSING,
+                    "分享页中未找到视频信息。请确认链接指向的是公开视频：先在无痕浏览器中打开该链接，能正常播放再粘贴；也可以改用 v.douyin.com 短链。",
+                    "videoInfoRes missing", resolvedId);
+        }
+        try {
+            Path file = downloadToTempFile(http, withoutWatermark(playUrl));
+            return finish(file, normalizedUrl, PLATFORM_DOUYIN, METHOD_H5, json, ffprobePath);
+        } catch (LinkImportFailure ex) {
+            throw ex.withAwemeId(resolvedId);
+        }
+    }
+
+    /**
+     * aweme 详情接口兜底：用已确定的视频编号请求详情页，取 play_addr.url_list 的播放地址。
+     * 只下载编号一致的那条视频；接口拒绝或编号不一致时明确报错，不替用其他视频。
+     */
+    private static DownloadedVideo downloadViaDetailApi(HttpClient http, ObjectMapper json,
+            String awemeId, String ffprobePath) {
+        HttpResponse<InputStream> response;
+        try {
+            response = sendDouyin(http, URI.create(detailApiUrl(awemeId)), false, target -> HttpRequest.newBuilder(target)
+                    .timeout(Duration.ofSeconds(15)).header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json").header("Accept-Language", "zh-CN,zh;q=0.9")
+                    .header("Referer", "https://www.douyin.com/").GET().build());
+        } catch (LinkImportFailure ex) {
+            throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口暂时无法访问，请稍后再试或上传本地视频。",
+                    "detail api: " + ex.reason(), awemeId);
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口暂时无法访问，请稍后再试或上传本地视频。",
+                    "detail api io: " + ex.getMessage(), awemeId);
+        }
+        byte[] body;
+        try (InputStream in = response.body()) {
+            if (response.statusCode() != 200) {
+                throw fail(LinkImportFailure.DETAIL_API_FAILED,
+                        "抖音视频详情接口暂时无法访问（抖音返回 " + response.statusCode() + "），请稍后再试或上传本地视频。",
+                        "detail api HTTP " + response.statusCode(), awemeId);
+            }
+            body = in.readNBytes(MAX_DETAIL_JSON_BYTES + 1);
+        } catch (IOException ex) {
+            throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口返回内容无法读取，请稍后再试或上传本地视频。",
+                    "detail api read failed", awemeId);
+        }
+        if (body.length > MAX_DETAIL_JSON_BYTES) {
+            throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口返回内容过大，暂时无法导入。",
+                    "detail api too large", awemeId);
+        }
+        JsonNode root;
+        try {
+            root = json.readTree(body);
+        } catch (Exception ex) {
+            throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口返回内容无法解析，请稍后再试或上传本地视频。",
+                    "detail api parse failed", awemeId);
+        }
+        String reason = detailFailureReason(root, awemeId);
+        if (reason != null) {
+            throw fail(reason, messageForReason(reason), "detail api: " + reason, awemeId);
+        }
+        String playUrl = extractPlayUrlFromDetail(root, awemeId);
+        if (playUrl == null) {
+            throw fail(LinkImportFailure.PLAY_URL_EMPTY, messageForReason(LinkImportFailure.PLAY_URL_EMPTY),
+                    "detail api: no play url", awemeId);
         }
         Path file = downloadToTempFile(http, withoutWatermark(playUrl));
-        return finish(file, normalizedUrl, PLATFORM_DOUYIN, METHOD_H5, json, ffprobePath);
+        return finish(file, "https://www.douyin.com/video/" + awemeId, PLATFORM_DOUYIN, METHOD_DETAIL_API, json, ffprobePath);
+    }
+
+    private static LinkImportFailure pickFailure(List<LinkImportFailure> failures, boolean backupTried) {
+        LinkImportFailure chosen = null;
+        for (LinkImportFailure failure : failures) {
+            if (chosen == null) chosen = failure;
+            if (isDefinitive(failure.reason())) {
+                chosen = failure;
+                break;
+            }
+        }
+        if (chosen == null) throw new IllegalStateException("no link failure recorded");
+        if (!backupTried || LinkImportFailure.SPEC_FAILED.equals(chosen.reason())
+                || LinkImportFailure.VIDEO_TOO_LARGE.equals(chosen.reason())) {
+            return chosen;
+        }
+        return new LinkImportFailure(chosen.reason(),
+                chosen.getMessage() + "备用下载接口也未能获取该视频，请稍后再试或上传本地视频。",
+                chosen.detail(), chosen.awemeId());
+    }
+
+    private static boolean isDefinitive(String reason) {
+        return LinkImportFailure.VIDEO_PRIVATE.equals(reason) || LinkImportFailure.VIDEO_DELETED.equals(reason)
+                || LinkImportFailure.LOGIN_REQUIRED.equals(reason) || LinkImportFailure.SPEC_FAILED.equals(reason)
+                || LinkImportFailure.VIDEO_TOO_LARGE.equals(reason);
+    }
+
+    private static LinkImportFailure searchPageFailure(String searchId, List<LinkImportFailure> failures) {
+        List<String> reasons = new ArrayList<>();
+        for (LinkImportFailure failure : failures) {
+            if (!reasons.contains(failure.reason())) reasons.add(failure.reason());
+        }
+        return fail(LinkImportFailure.SEARCH_PAGE,
+                "这是抖音搜索页链接，搜索页里没有单个视频地址，无法直接导入。已尝试打开搜索页中打开的视频，仍未能获取该视频。"
+                        + "请先打开要参考的视频，点分享复制它的视频链接（v.douyin.com 短链或 douyin.com/video/…），再粘贴到这里；也可以改用本地上传。",
+                "search modal_id=" + searchId + "; attempts=" + String.join(",", reasons));
     }
 
     private static URI mobileSharePage(URI uri) {
@@ -305,22 +638,30 @@ public final class DouyinLinkVideoDownloader {
                     .header("Referer", "https://www.douyin.com/").GET().build());
             try (var body = response.body()) {
                 int status = response.statusCode();
-                if (status == 404) throw input("该视频可能已被删除或链接无效，请确认链接后重试。");
+                if (status == 404) {
+                    throw fail(LinkImportFailure.VIDEO_DELETED, messageForReason(LinkImportFailure.VIDEO_DELETED),
+                            "share page HTTP 404");
+                }
                 if (status == 403 || status == 429) {
-                    throw input("抖音暂时拒绝了本次访问，请稍后再试或上传本地视频。");
+                    throw fail(LinkImportFailure.SHARE_PAGE_FETCH, "抖音暂时拒绝了本次访问，请稍后再试或上传本地视频。",
+                            "share page HTTP " + status);
                 }
                 if (status < 200 || status >= 300) {
-                    throw input("链接暂时无法访问（抖音返回 " + status + "），请稍后再试或上传本地视频。");
+                    throw fail(LinkImportFailure.SHARE_PAGE_FETCH,
+                            "链接暂时无法访问（抖音返回 " + status + "），请稍后再试或上传本地视频。",
+                            "share page HTTP " + status);
                 }
                 byte[] bytes = body.readNBytes(MAX_SHARE_PAGE_BYTES + 1);
-                if (bytes.length > MAX_SHARE_PAGE_BYTES) throw input("抖音分享页内容过大，暂时无法导入。");
+                if (bytes.length > MAX_SHARE_PAGE_BYTES) {
+                    throw fail(LinkImportFailure.SHARE_PAGE_FETCH, "抖音分享页内容过大，暂时无法导入。", "share page too large");
+                }
                 return new SharePage(response.uri(), new String(bytes, StandardCharsets.UTF_8));
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw input("链接访问被中断，请稍后重试。");
+            throw fail(LinkImportFailure.SHARE_PAGE_FETCH, "链接访问被中断，请稍后重试。", "share page interrupted");
         } catch (IOException ex) {
-            throw input("链接暂时无法访问，请检查链接后重试。");
+            throw fail(LinkImportFailure.SHARE_PAGE_FETCH, "链接暂时无法访问，请检查链接后重试。", "share page io: " + ex.getMessage());
         }
     }
 
@@ -337,24 +678,29 @@ public final class DouyinLinkVideoDownloader {
             response = http.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw input("备用下载接口访问被中断，请稍后重试。");
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口访问被中断，请稍后重试。", "download api interrupted");
         } catch (IOException ex) {
-            throw input("备用下载接口暂时无法访问，未能获取该视频。");
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口暂时无法访问，未能获取该视频。",
+                    "download api io: " + ex.getMessage());
         }
         if (response.statusCode() != 200) {
-            throw input("备用下载接口返回 " + response.statusCode() + "，未能获取该视频。");
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口返回 " + response.statusCode() + "，未能获取该视频。",
+                    "download api HTTP " + response.statusCode());
         }
         JsonNode root;
         try {
             root = json.readTree(response.body());
         } catch (Exception ex) {
-            throw input("备用下载接口返回内容无法解析，未能获取该视频。");
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口返回内容无法解析，未能获取该视频。", "download api parse failed");
         }
         String playUrl = findVideoUrl(root);
         if (playUrl == null && root.hasNonNull("task_id")) {
-            throw input("备用下载接口为异步接口，未直接返回视频地址，请在自托管实例中确认任务状态后再试。");
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED,
+                    "备用下载接口为异步接口，未直接返回视频地址，请在自托管实例中确认任务状态后再试。", "download api async task only");
         }
-        if (playUrl == null) throw input("备用下载接口未返回视频地址，未能获取该视频。");
+        if (playUrl == null) {
+            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口未返回视频地址，未能获取该视频。", "download api no play url");
+        }
         Path file = downloadToTempFile(http, withoutWatermark(playUrl));
         return finish(file, normalizedUrl, PLATFORM_DOUYIN, METHOD_DOWNLOAD_API, json, ffprobePath);
     }
@@ -392,7 +738,7 @@ public final class DouyinLinkVideoDownloader {
         try {
             temp = Files.createTempFile("remake-link-", ".mp4");
         } catch (IOException ex) {
-            throw input("服务器暂时无法保存链接视频，请稍后重试。");
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "服务器暂时无法保存链接视频，请稍后重试。", "create temp file failed");
         }
         try {
             var response = sendDouyin(http, URI.create(playUrl), true, url -> HttpRequest.newBuilder(url)
@@ -400,11 +746,19 @@ public final class DouyinLinkVideoDownloader {
                     .header("Referer", "https://www.iesdouyin.com/").GET().build());
             try (InputStream in = response.body()) {
                 if (response.statusCode() != 200) {
-                    throw input("链接视频暂时无法下载（视频地址返回 " + response.statusCode() + "），请稍后再试或上传本地视频。");
+                    throw fail(LinkImportFailure.DOWNLOAD_FAILED,
+                            "链接视频暂时无法下载（视频地址返回 " + response.statusCode() + "），请稍后再试或上传本地视频。",
+                            "media HTTP " + response.statusCode());
                 }
                 String contentType = response.headers().firstValue("Content-Type").orElse("");
                 if (contentType.contains("text/html")) {
-                    throw input("下载到的不是视频文件，该视频可能为私密、已删除或需要登录。");
+                    String page = new String(in.readNBytes(MAX_SHARE_PAGE_BYTES + 1), StandardCharsets.UTF_8);
+                    String state = classifyVideoState(page);
+                    if (state != null) {
+                        throw fail(state, messageForReason(state), "media url returned html: " + state);
+                    }
+                    throw fail(LinkImportFailure.DOWNLOAD_FAILED, "下载到的不是视频文件，该视频可能为私密、已删除或需要登录。",
+                            "media url returned html");
                 }
                 try (var out = Files.newOutputStream(temp)) {
                     byte[] buffer = new byte[8192];
@@ -412,7 +766,9 @@ public final class DouyinLinkVideoDownloader {
                     int read;
                     while ((read = in.read(buffer)) != -1) {
                         total += read;
-                        if (total > MAX_BYTES) throw input("链接视频超过 200 MB，请上传本地视频。");
+                        if (total > MAX_BYTES) {
+                            throw fail(LinkImportFailure.VIDEO_TOO_LARGE, "链接视频超过 200 MB，请上传本地视频。", "media size exceeded");
+                        }
                         out.write(buffer, 0, read);
                     }
                 }
@@ -421,13 +777,14 @@ public final class DouyinLinkVideoDownloader {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             deleteQuietly(temp);
-            throw input("链接视频下载被中断，请稍后重试。");
-        } catch (BizException ex) {
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "链接视频下载被中断，请稍后重试。", "media download interrupted");
+        } catch (LinkImportFailure ex) {
             deleteQuietly(temp);
             throw ex;
         } catch (IOException | IllegalArgumentException ex) {
             deleteQuietly(temp);
-            throw input("链接视频暂时无法下载，请稍后再试或上传本地视频。");
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "链接视频暂时无法下载，请稍后再试或上传本地视频。",
+                    "media download io: " + ex.getMessage());
         }
     }
 
@@ -438,15 +795,15 @@ public final class DouyinLinkVideoDownloader {
             size = Files.size(file);
         } catch (IOException ex) {
             deleteQuietly(file);
-            throw input("下载到的视频文件无法读取，请稍后重试。");
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "下载到的视频文件无法读取，请稍后重试。", "read downloaded file failed");
         }
         if (size <= 0) {
             deleteQuietly(file);
-            throw input("下载到的视频文件为空，请确认链接指向的是有效视频。");
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "下载到的视频文件为空，请确认链接指向的是有效视频。", "downloaded file empty");
         }
         if (size > MAX_BYTES) {
             deleteQuietly(file);
-            throw input("链接视频超过 200 MB，请上传本地视频。");
+            throw fail(LinkImportFailure.VIDEO_TOO_LARGE, "链接视频超过 200 MB，请上传本地视频。", "downloaded size=" + size);
         }
         try {
             String sha256 = sha256Hex(file);
@@ -472,7 +829,7 @@ public final class DouyinLinkVideoDownloader {
             for (byte b : digest.digest()) hex.append(String.format("%02x", b));
             return hex.toString();
         } catch (Exception ex) {
-            throw input("无法校验下载到的视频文件，请稍后重试。");
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "无法校验下载到的视频文件，请稍后重试。", "sha256 failed");
         }
     }
 
@@ -483,7 +840,9 @@ public final class DouyinLinkVideoDownloader {
      */
     public static VideoProbe probe(Path file, String ffprobePath, ObjectMapper json) {
         String command = ffprobePath == null || ffprobePath.isBlank() ? "ffprobe" : ffprobePath.strip();
-        if (file == null || !Files.isRegularFile(file)) throw input("链接视频文件缺失，请重新粘贴链接。");
+        if (file == null || !Files.isRegularFile(file)) {
+            throw fail(LinkImportFailure.DOWNLOAD_FAILED, "链接视频文件缺失，请重新粘贴链接。", "file missing");
+        }
         Process process;
         try {
             process = new ProcessBuilder(command, "-v", "error", "-protocol_whitelist", "file,pipe",
@@ -492,31 +851,33 @@ public final class DouyinLinkVideoDownloader {
                     "-show_entries", "format=duration", "-of", "json", file.toString())
                     .redirectErrorStream(true).start();
         } catch (IOException ex) {
-            throw input("服务器未安装 ffprobe，暂时无法校验链接视频，请稍后重试或上传本地视频。");
+            throw fail(LinkImportFailure.FFPROBE_UNAVAILABLE, "服务器未安装 ffprobe，暂时无法校验链接视频，请稍后重试或上传本地视频。", "ffprobe start failed");
         }
         boolean finished;
         try {
             finished = process.waitFor(60, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw input("视频校验超时，请稍后重试。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "视频校验超时，请稍后重试。", "ffprobe timeout");
         }
         if (!finished) {
             process.destroyForcibly();
-            throw input("视频校验超时，请稍后重试。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "视频校验超时，请稍后重试。", "ffprobe timeout");
         }
         String output;
         try {
             output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException ex) {
-            throw input("无法读取视频校验结果，请稍后重试。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "无法读取视频校验结果，请稍后重试。", "ffprobe read failed");
         }
-        if (process.exitValue() != 0) throw input("无法校验该视频，请确认链接指向的是有效的视频文件。");
+        if (process.exitValue() != 0) {
+            throw fail(LinkImportFailure.SPEC_FAILED, "无法校验该视频，请确认链接指向的是有效的视频文件。", "ffprobe exit=" + process.exitValue());
+        }
         JsonNode root;
         try {
             root = json.readTree(output);
         } catch (Exception ex) {
-            throw input("无法校验该视频，请确认链接指向的是有效的视频文件。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "无法校验该视频，请确认链接指向的是有效的视频文件。", "ffprobe parse failed");
         }
         JsonNode stream = root.path("streams").path(0);
         int width = stream.path("width").asInt(0);
@@ -524,20 +885,22 @@ public final class DouyinLinkVideoDownloader {
         double duration = stream.path("duration").asDouble(Double.NaN);
         if (Double.isNaN(duration)) duration = root.path("format").path("duration").asDouble(Double.NaN);
         if (width <= 0 || height <= 0 || Double.isNaN(duration) || !Double.isFinite(duration)) {
-            throw input("无法读取该视频的时长与尺寸，请确认链接指向的是有效的视频文件。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "无法读取该视频的时长与尺寸，请确认链接指向的是有效的视频文件。", "ffprobe no stream info");
         }
         return validateSpec(duration, width, height);
     }
 
     public static VideoProbe validateSpec(double durationSeconds, int width, int height) {
-        if (durationSeconds < 3.98 || durationSeconds > 120.02) throw input("参考视频须为 4–120 秒。");
+        if (durationSeconds < 3.98 || durationSeconds > 120.02) {
+            throw fail(LinkImportFailure.SPEC_FAILED, "参考视频须为 4–120 秒。", "duration=" + durationSeconds);
+        }
         int shortEdge = Math.min(width, height);
         int longEdge = Math.max(width, height);
         if (shortEdge < 720 || shortEdge > 1440 || longEdge > 2560) {
-            throw input("参考视频短边须为 720–1440 像素，长边不超过 2560 像素。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "参考视频短边须为 720–1440 像素，长边不超过 2560 像素。", width + "x" + height);
         }
         if (Math.abs((double) longEdge / shortEdge - 16.0 / 9.0) > 0.005) {
-            throw input("参考视频须为横屏 16:9 或竖屏 9:16。");
+            throw fail(LinkImportFailure.SPEC_FAILED, "参考视频须为横屏 16:9 或竖屏 9:16。", width + "x" + height);
         }
         return new VideoProbe(durationSeconds, width, height);
     }
@@ -550,7 +913,15 @@ public final class DouyinLinkVideoDownloader {
         }
     }
 
-    private static BizException input(String message) {
-        return new BizException(1402, message);
+    private static LinkImportFailure fail(String reason, String message) {
+        return new LinkImportFailure(reason, message, null);
+    }
+
+    private static LinkImportFailure fail(String reason, String message, String detail) {
+        return new LinkImportFailure(reason, message, detail);
+    }
+
+    private static LinkImportFailure fail(String reason, String message, String detail, String awemeId) {
+        return new LinkImportFailure(reason, message, detail, awemeId);
     }
 }

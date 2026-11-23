@@ -12,6 +12,7 @@ import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient.RemakeEngineError;
 import com.lynx.ad.modules.creative.infrastructure.adapter.DouyinLinkVideoDownloader;
+import com.lynx.ad.modules.creative.infrastructure.adapter.LinkImportFailure;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore;
 import com.lynx.ad.modules.creative.infrastructure.persistence.VideoRemakeStore.Task;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.CreationQianchuanGateway;
@@ -165,8 +166,15 @@ public class VideoRemakeService {
     public Map<String, Object> importLink(String tenant, String actor, String binding, LinkImport request) {
         requireGeneration(tenant, actor, binding);
         String requestId = uuid(request.requestId());
-        var downloaded = DouyinLinkVideoDownloader.download(json, request.url(), downloadApiBaseUrl,
-                downloadApiPath, downloadApiKey, ffprobePath);
+        DouyinLinkVideoDownloader.DownloadedVideo downloaded;
+        try {
+            downloaded = DouyinLinkVideoDownloader.download(json, request.url(), downloadApiBaseUrl,
+                    downloadApiPath, downloadApiKey, ffprobePath);
+        } catch (LinkImportFailure ex) {
+            LOG.warn("link import failed tenant={} binding={} reason={} detail={} awemeId={}",
+                    tenant, binding, ex.reason(), ex.detail(), ex.awemeId());
+            throw ex;
+        }
         Path file = downloaded.file();
         try {
             var initiated = upload(tenant, actor, binding,

@@ -4,7 +4,7 @@ import { ApiRequestError, requestFailure } from './apiErrors';
 import { withReadRetry } from './readRetry';
 import { monitoringReviewHeader } from '@/features/delivery/optimizationDecisions';
 
-export interface ApiEnvelope<T> { code: number; message: string; data: T }
+export interface ApiEnvelope<T> { code: number; message: string; data: T; reason?: string | null }
 export interface ApiRequestConfig extends AxiosRequestConfig { readRetry?: boolean }
 const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/lynx-ad', timeout:20000 });
 const publicAuth = (url: string) => /\/tenant\/auth\/(sms|password)\//.test(url);
