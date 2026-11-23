@@ -96,7 +96,7 @@ public class VideoRemakeService {
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec, RemakeQuote quote) {}
+                       JsonNode outputSpec, RemakeQuote quote, List<String> productImageUrls) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate) {
         Map<String, Integer> units() { return Map.of(kind, quantity); }
@@ -310,7 +310,7 @@ public class VideoRemakeService {
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote);
+                quote, productImageUrls(task));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -520,7 +520,16 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null);
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, productImageUrls(task));
+    }
+
+    private List<String> productImageUrls(Task task) {
+        String request = task.request();
+        if (request == null || request.isBlank()) return List.of();
+        var urls = parse(request).path("product").path("image_urls");
+        if (!urls.isArray()) return List.of();
+        return urls.valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).map(String::strip)
+                .filter(VideoRemakeService::isProductImageUrl).distinct().limit(6).toList();
     }
 
     private JsonNode detail(Task task) {

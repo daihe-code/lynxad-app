@@ -32,6 +32,7 @@ export interface RemakeShot {
 export interface RemakeTask {
   id: string;
   product: string;
+  productImageUrls?: string[];
   phase: 'CREATING' | 'PLANNING' | 'REVIEW' | 'CONFIRMING' | 'SENDING' | 'GENERATING' | 'SUCCEEDED' | 'FAILED' | 'NEEDS_ATTENTION';
   stage?: string;
   error?: string;
