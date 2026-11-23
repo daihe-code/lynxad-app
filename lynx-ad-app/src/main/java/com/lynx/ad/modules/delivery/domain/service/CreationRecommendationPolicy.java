@@ -3,6 +3,7 @@ package com.lynx.ad.modules.delivery.domain.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lynx.ad.modules.delivery.domain.model.CreationState;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 
@@ -39,6 +40,21 @@ public final class CreationRecommendationPolicy {
         result.putObject("budget").set("budget",previous.path("budget").path("budget").deepCopy());
         result.put("budgetFromCache",true);result.put("budgetFetchedAt",fetched);
         return result;
+    }
+    public static void applyBudgetEstimate(ObjectNode setting, JsonNode recommendation, BigDecimal budget) {
+        if (recommendation == null || recommendation.hasNonNull("budgetError") || recommendation.path("budgetFromCache").asBoolean()) return;
+        for (JsonNode row : recommendation.path("budget").path("estimate_trans_cost_list")) {
+            var tier = row.path("budget");
+            if (!tier.isNumber() || tier.decimalValue().compareTo(budget) != 0) continue;
+            copyEstimate(setting, row, "min_estimate_convert", "min_estimate_convert");
+            copyEstimate(setting, row, "estimate_convert", "estimate_convert");
+            copyEstimate(setting, row, "estimate_roi", "estimate_roi_goal");
+            copyEstimate(setting, row, "min_estimate_roi", "min_estimate_roi_goal");
+            return;
+        }
+    }
+    private static void copyEstimate(ObjectNode target, JsonNode row, String from, String to) {
+        if (row.path(from).isNumber() && row.path(from).decimalValue().signum() >= 0) target.set(to, row.get(from));
     }
     private static boolean positive(JsonNode n) {try{return n!=null&&(n.isNumber()||n.isTextual())&&new java.math.BigDecimal(n.asText()).signum()>0;}catch(RuntimeException invalid){return false;}}
     private static long age(String timestamp,Instant now) {try{return java.time.Duration.between(Instant.parse(timestamp),now).toMillis();}catch(RuntimeException invalid){return -1;}}

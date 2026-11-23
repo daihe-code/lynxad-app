@@ -6,6 +6,7 @@ import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.common.http.*;
 import com.lynx.ad.modules.delivery.domain.model.CreationState.Product;
+import com.lynx.ad.modules.delivery.domain.model.SmartBidType;
 import com.lynx.ad.modules.delivery.domain.service.ProductCatalogPolicy;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.*;
@@ -202,13 +203,20 @@ public class CreationQianchuanGateway {
         return null;
     }
     public JsonNode recommendations(TenantId t,String a,String aw,List<String> ids) {
+        return recommendations(t,a,aw,ids,null,null);
+    }
+    public JsonNode recommendations(TenantId t,String a,String aw,List<String> ids,SmartBidType mode,String qcPlanId) {
         var c=credential(t,a,aw);var params=new LinkedHashMap<String,Object>();
         params.put("advertiser_id",c.advertiserId().value());params.put("aweme_id",aw);params.put("marketing_goal","VIDEO_PROM_GOODS");
         params.put("product_ids",encode(ids.stream().map(CreationQianchuanGateway::numericId).toList()));
+        if(qcPlanId!=null)params.put("ad_id",numericId(qcPlanId));
         var result=json.createObjectNode();
-        readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestBudgetUrl(),params,result,"budget");
-        params.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
-        readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params,result,"roi");
+        if(mode!=SmartBidType.CUSTOM)
+            readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestBudgetUrl(),params,result,"budget");
+        if(mode!=SmartBidType.CONSERVATIVE) {
+            params.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
+            readRecommendation(c,properties.getQianchuan().getDelivery().getSuggestRoiUrl(),params,result,"roi");
+        }
         result.put("fetchedAt",java.time.Instant.now().toString());
         result.put("accountId",a);result.put("awemeId",aw);
         result.set("productIds",json.valueToTree(ids));

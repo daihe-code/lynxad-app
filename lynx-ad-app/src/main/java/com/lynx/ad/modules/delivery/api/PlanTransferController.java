@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.delivery.api;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.api.ApiResponse;
 import com.lynx.ad.common.domain.Ids.PlanId;
 import com.lynx.ad.common.security.*;
@@ -26,6 +27,9 @@ public class PlanTransferController {
     }
     @GetMapping public ApiResponse<PlanTransferService.Context> context(@PathVariable String id) {
         return ApiResponse.ok(service.context(TenantContext.requireTenantId(),new PlanId(id)));
+    }
+    @GetMapping("/recommendations") public ApiResponse<JsonNode> recommendations(@PathVariable String id) {
+        return ApiResponse.ok(service.recommendations(TenantContext.requireTenantId(), new PlanId(id)));
     }
     @PostMapping @RequiresActiveTrial public ApiResponse<PlanTransferService.Result> transfer(@PathVariable String id,@RequestBody PlanTransferRequest request) {
         return ApiResponse.ok(service.transfer(TenantContext.requireTenantId(),new PlanId(id),request));

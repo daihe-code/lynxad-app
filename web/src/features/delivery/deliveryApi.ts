@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
+import type { CreationState } from './creationApi';
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
 import type { PlanReviewProgress } from './planReview';
 import type { PlanPauseReason } from './planPause';
@@ -166,13 +167,16 @@ export interface PlanTransferContext {
   pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
 }
 export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number; name?: string; scheduleType?: 'FROM_NOW'|'DATE_RANGE'; endDate?: string }
-export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string }
-export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`); }
-export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000 }); }
+export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string; platformTransferRequired?: boolean }
+export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`, { headers: { 'X-Quiet-Request': 'true' } }); }
+export function getPlanTransferRecommendations(id: string, signal: AbortSignal) {
+  return apiGet<NonNullable<CreationState['recommendations']>>(`/api/v1/delivery/plans/${id}/transfer/recommendations`, { signal, headers: { 'X-Quiet-Request': 'true' } });
+}
+export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000, headers: { 'X-Quiet-Request': 'true' } }); }
 export function switchTransferredPlan(id: string, body: { requestKey: string; expectedQcPlanId: string }) {
   return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/switch`, body, { timeout: 180000 });
 }
-export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000 }); }
+export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } }); }
 export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
 export interface ControlTaskMaterial { material_id?: string | null; aweme_item_id?: string | null; title?: string | null; cover_image?: { image_url?: string | null; url?: string | null } | null; video_duration?: number | null }
 export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number | null; duration?: number | null; create_time?: string; material_list?: ControlTaskMaterial[] | null; metrics?: Record<string, number | null> | null }

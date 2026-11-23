@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
 import com.lynx.ad.modules.delivery.domain.service.PlanSchedule;
 
@@ -29,7 +30,11 @@ public class PlanTransferService {
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
                           boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
                           String pendingStatus,String pendingError) {}
-    public record Result(String planId,String qcPlanId,String status,String message) {}
+    public record Result(String planId,String qcPlanId,String status,String message,boolean platformTransferRequired) {
+        public Result(String planId,String qcPlanId,String status,String message) {
+            this(planId,qcPlanId,status,message,false);
+        }
+    }
     private final AdPlanRepository plans;
     private final PlanTransferStore store;
     private final CreationStore creations;
@@ -54,6 +59,20 @@ public class PlanTransferService {
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
                 (target==null?current:target).setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
                 target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:a.error());
+    }
+    public JsonNode recommendations(TenantId tenant, PlanId id) {
+        var context = context(tenant, id);
+        if (!context.available()) throw new BizException(1403, context.reason());
+        var source = require(tenant, id.value());
+        var mode = opposite(source.setting().bidType());
+        var group = store.group(tenant, id);
+        var targetId = group == null ? null : group.target(mode);
+        var plan = targetId == null ? source : require(tenant, targetId);
+        var detail = gateway.detail(plan);
+        checkMode(detail, plan.setting().bidType());
+        var ids = productIds(detail);
+        if (ids.isEmpty()) throw new BizException(1403, "千川未返回计划商品，暂时无法获取推荐");
+        return gateway.recommendations(plan, List.copyOf(ids), mode);
     }
     public Result transfer(TenantId tenant,PlanId id,PlanTransferRequest request) {
         synchronized(remote) {return transferLocked(tenant,id,request);}
@@ -115,6 +134,19 @@ public class PlanTransferService {
             }
         }
         var payload=target==null?payload(tenant,root,source,request,sourceDetail):json.createObjectNode();
+        if (target == null) {
+            var ids = productIds(payload);
+            var previous = store.lastRejectedCreation(tenant, root, source.id()).orElse(null);
+            if (previous != null && requiresPlatformTransfer(previous.error())
+                    && request.smartBidType().equals(decode(previous.request()).smartBidType())
+                    && ids.equals(productIds(parse(previous.payload())))) {
+                return new Result(source.id().value(), null, "FAILED", "千川限制同一抖音号下的相同商品重复投放，请在千川后台使用原计划的转投功能。", true);
+            }
+            if (mode == SmartBidType.CONSERVATIVE) {
+                var recommendation = gateway.recommendations(source, List.copyOf(ids), mode);
+                CreationRecommendationPolicy.applyBudgetEstimate(payload.withObject("/delivery_setting"), recommendation, request.budget());
+            }
+        }
         if(targetId==null)targetId=UUID.randomUUID().toString();
         var g=store.ensure(source);
         Attempt a=new Attempt(tenant.value(),request.requestKey(),g.root(),source.id().value(),targetId,encode(request),payload.toString(),enabled(sourceStatus),
@@ -274,15 +306,6 @@ public class PlanTransferService {
         ObjectNode ds=result.withObject("/delivery_setting");ds.put("smart_bid_type",request.smartBidType());ds.put("budget",request.budget());
         ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
         if(request.smartBidType().endsWith("CUSTOM"))ds.put("roi2_goal",request.roi2Goal());
-        else {
-            var summary=creations.summariesByPlan(tenant.value(),List.of(root)).get(root);
-            if(summary!=null && summary.recommendations()!=null)for(var tier:summary.recommendations().path("budget").path("estimate_trans_cost_list")) {
-                if(!equal(QianchuanPlanMapping.number(tier,"budget"),request.budget()))continue;
-                for(String key:List.of("estimate_roi","min_estimate_roi","min_estimate_convert","estimate_convert")) {
-                    var value=QianchuanPlanMapping.number(tier,key);if(value!=null && value.signum()>=0)ds.put(key.endsWith("roi")?key+"_goal":key,value);
-                }break;
-            }
-        }
         LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var schedule=transferSchedule(source,request);
         if(schedule.endDate()!=null && schedule.endDate().isBefore(today))throw new BizException(1403,"计划已到期，无法转投");
         ds.put("video_schedule_type",schedule.type()==ScheduleType.FROM_NOW?"SCHEDULE_FROM_NOW":"SCHEDULE_START_END");
@@ -299,7 +322,8 @@ public class PlanTransferService {
     }
     private static boolean matches(JsonNode detail,PlanTransferRequest r) {
         var ds=QianchuanPlanMapping.setting(detail);
-        return equal(QianchuanPlanMapping.number(ds,"budget"),r.budget()) && (!r.smartBidType().endsWith("CUSTOM") || equal(QianchuanPlanMapping.number(ds,"roi2_goal"),r.roi2Goal()))
+        return r.smartBidType().equals(ds.path("smart_bid_type").asText())
+            && equal(QianchuanPlanMapping.number(ds,"budget"),r.budget()) && (!r.smartBidType().endsWith("CUSTOM") || equal(QianchuanPlanMapping.number(ds,"roi2_goal"),r.roi2Goal()))
             && (r.name()==null || new PlanName(r.name()).text().equals(QianchuanPlanMapping.info(detail).path("name").asText()))
             && (r.scheduleType()==null || PlanSchedule.complete(ds) && r.scheduleType().equals(PlanSchedule.type(ds).name()) && ("FROM_NOW".equals(r.scheduleType()) || r.endDate().equals(QianchuanPlanMapping.date(QianchuanPlanMapping.text(ds,"end_time")))));
     }
@@ -321,7 +345,23 @@ public class PlanTransferService {
     private static SmartBidType opposite(SmartBidType m){return m==SmartBidType.CUSTOM?SmartBidType.CONSERVATIVE:SmartBidType.CUSTOM;}
     private static boolean equal(BigDecimal a,BigDecimal b){return a==null?b==null:b!=null&&a.compareTo(b)==0;}
     private boolean sameRequest(String saved,PlanTransferRequest req){var old=decode(saved);return old.existingOnly()==req.existingOnly()&&Objects.equals(old.expectedQcPlanId(),req.expectedQcPlanId())&&(req.existingOnly()||(Objects.equals(old.smartBidType(),req.smartBidType())&&equal(old.budget(),req.budget())&&equal(old.roi2Goal(),req.roi2Goal())&&Objects.equals(old.name(),req.name())&&Objects.equals(old.scheduleType(),req.scheduleType())&&Objects.equals(old.endDate(),req.endDate())));}
-    private Result result(Attempt a){return new Result("SUCCEEDED".equals(a.status())?a.target():a.source(),a.qcId(),a.status(),"SUCCEEDED".equals(a.status())?"转投成功，原计划已暂停":a.error()==null?"转投正在处理，请稍后核查":a.error());}
+    private Result result(Attempt a) {
+        boolean succeeded = "SUCCEEDED".equals(a.status());
+        boolean platformTransfer = "FAILED".equals(a.status()) && a.qcId() == null && requiresPlatformTransfer(a.error());
+        String message = succeeded ? "转投成功，原计划已暂停" : a.error() == null ? "转投正在处理，请稍后核查" : a.error();
+        return new Result(succeeded ? a.target() : a.source(), a.qcId(), a.status(), message, platformTransfer);
+    }
+    private static boolean requiresPlatformTransfer(String error) {
+        return error != null && error.contains("错误码 40000") && error.contains("商品全域") && error.contains("互斥");
+    }
+    private static Set<String> productIds(JsonNode detail) {
+        Set<String> ids = new TreeSet<>();
+        for (var group : detail.path("multi_product_creative_list")) {
+            if (group.hasNonNull("product_id")) ids.add(group.path("product_id").asText());
+        }
+        if (ids.isEmpty()) for (var id : detail.path("product_ids")) ids.add(id.asText());
+        return ids;
+    }
     private String encode(Object value){try{return json.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException(e);}}
     private JsonNode parse(String value){try{return json.readTree(value);}catch(Exception e){throw new IllegalStateException(e);}}
     private PlanTransferRequest decode(String value){try{return json.readValue(value,PlanTransferRequest.class);}catch(Exception e){throw new IllegalStateException(e);}}

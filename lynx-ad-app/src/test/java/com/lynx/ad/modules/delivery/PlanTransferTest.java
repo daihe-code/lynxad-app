@@ -72,6 +72,52 @@ class PlanTransferTest {
     }
     JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status);var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
     PlanTransferRequest cost(String key){return new PlanTransferRequest(key,"111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.18"));}
+    @Test void volumeTransferReadsCurrentProductsAndUsesOnlyTheMatchingPlatformEstimate() throws Exception {
+        var source = physical.get("root");
+        var setting = source.setting();
+        source.updateSetting(new DeliverySetting(SmartBidType.CUSTOM, setting.dailyBudget(), Optional.of(new RoiGoal(new BigDecimal("4.96"))), setting.schedule(), setting.audience()));
+        var sourceDetail = (com.fasterxml.jackson.databind.node.ObjectNode) platform.get("111");
+        sourceDetail.withObject("/delivery_setting").put("smart_bid_type", "SMART_BID_CUSTOM");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) sourceDetail.path("multi_product_creative_list").get(0)).put("product_id", 102);
+        doAnswer(i -> {
+            group = new Group("root","root",null,"root",null);
+            return group;
+        }).when(store).ensure(source);
+        var quote = json.readTree("""
+                {"budget":{"budget":50,"estimate_trans_cost_list":[
+                  {"budget":30,"estimate_convert":2},
+                  {"budget":50,"estimate_convert":3,"min_estimate_convert":2,"estimate_roi":0.20,"min_estimate_roi":0.16}
+                ]}}
+                """);
+        when(gateway.recommendations(source, List.of("102"), SmartBidType.CONSERVATIVE)).thenReturn(quote);
+        assertEquals(quote, service.recommendations(tenant, root));
+        var request = new PlanTransferRequest("volume-quote", "111", "SMART_BID_CONSERVATIVE", new BigDecimal("50"), null);
+        assertEquals("SUCCEEDED", service.transfer(tenant, root, request).status());
+        assertEquals(List.of("DISABLE 111","CREATE","ENABLE 222"), calls);
+        var delivery = json.readTree(attempts.get("volume-quote").payload()).path("delivery_setting");
+        assertEquals(3, delivery.path("estimate_convert").asInt());
+        assertEquals(0.16, delivery.path("min_estimate_roi_goal").asDouble());
+        assertFalse(delivery.has("roi2_goal"));
+        verify(gateway, times(2)).recommendations(source, List.of("102"), SmartBidType.CONSERVATIVE);
+    }
+    @Test void productExclusivityFailureRestoresTheSourceAndStopsRepeatedWrites() {
+        String rejection = "千川拒绝请求：商品全域投放受互斥影响，暂不支持创建（错误码 40000，请求号 test）";
+        doThrow(new BizException(1406, rejection)).when(gateway).create(any(), any());
+        var first = service.transfer(tenant, root, cost("first-key"));
+        assertEquals("FAILED", first.status());
+        assertTrue(first.platformTransferRequired());
+        assertTrue(first.message().contains("原计划已恢复"));
+        assertEquals(PlanStatus.DELIVERING, physical.get("root").status());
+        assertEquals(List.of("DISABLE 111", "ENABLE 111"), calls);
+        when(store.lastRejectedCreation(tenant, root.value(), root)).thenReturn(Optional.of(attempts.get("first-key")));
+        calls.clear();
+        var retry = service.transfer(tenant, root, cost("retry-key"));
+        assertEquals("FAILED", retry.status());
+        assertTrue(retry.platformTransferRequired());
+        assertTrue(calls.isEmpty());
+        verify(gateway, times(1)).create(any(), any());
+        assertFalse(attempts.containsKey("retry-key"));
+    }
     @Test void savingModeNameAndScheduleCreatesOneTargetWithAllRequestedSettings() throws Exception {
         var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(12);
         var request=new PlanTransferRequest("edit-fields","111","SMART_BID_CUSTOM",new BigDecimal("400"),new BigDecimal("4.2"),false,"修改后的计划","DATE_RANGE",end);
