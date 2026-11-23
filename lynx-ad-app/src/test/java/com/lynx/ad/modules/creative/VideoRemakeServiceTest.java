@@ -77,7 +77,8 @@ class VideoRemakeServiceTest {
         when(charges.access("tenant")).thenReturn(new GenerationCharges.Access(true, GenerationCharges.BalanceStatus.LOW, available));
         when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode()
                 .put("ready", true).put("review_worker_ready", true).put("kling_4_available", true)
-                .put("source_matching_available", true).put("source_matching_hd", true));
+                .put("source_matching_available", true).put("source_matching_hd", true)
+                .put("source_people_supported", true));
 
         var capability = service.capability("tenant");
         assertEquals(available, capability.availablePoints());
@@ -85,6 +86,7 @@ class VideoRemakeServiceTest {
         assertTrue(capability.ready());
         assertTrue(capability.sourceMatchingAvailable());
         assertTrue(capability.sourceMatchingHd());
+        assertTrue(capability.sourcePeopleSupported());
         assertEquals(Map.of("720p", BigDecimal.valueOf(40), "1080p", BigDecimal.valueOf(60)), capability.pointsPerSecond());
     }
 
@@ -224,7 +226,7 @@ class VideoRemakeServiceTest {
     void productWithoutAGalleryUsesItsCatalogCover() throws Exception {
         String reference = "rpa_" + "1".repeat(32);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123",
-                reference, "asset-portrait", "方舟人像", true, true, 15, null, false);
+                reference, "asset-portrait", "方舟人像", true, true, 15, null, false, false);
         var product = new Product("p", "123", "水杯", null, null, "https://example.com/cover.png",
                 "家居>水杯", null, List.of(), List.of());
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123"))).thenReturn(List.of(product));
@@ -237,6 +239,34 @@ class VideoRemakeServiceTest {
         verify(store).create(eq("tenant"), eq(ID), eq("actor"), eq("binding"), eq("水杯"), payload.capture());
         assertEquals(json.valueToTree(List.of("https://example.com/cover.png")),
                 json.readTree(payload.getValue()).at("/product/image_urls"));
+    }
+
+    @Test
+    void retainingSourcePeopleRequiresOnlyTheAuthorizedReferenceVideo() throws Exception {
+        String reference = "rpa_" + "1".repeat(32);
+        var product = new Product("p", "123", "水杯", null, null, "https://example.com/cover.png",
+                "家居>水杯", null, List.of(), List.of());
+        when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123"))).thenReturn(List.of(product));
+        when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+        var engineCapabilities = json.createObjectNode().put("source_matching_available", true);
+        when(engine.remake("GET", "/capabilities", null)).thenReturn(engineCapabilities);
+        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123",
+                reference, null, null, true, false, 0, null, true, true);
+        assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
+        verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+
+        engineCapabilities.put("source_people_supported", true);
+        when(store.find("tenant", ID, false)).thenReturn(Optional.empty(), Optional.empty(), Optional.of(row("CREATING")));
+        service.create("tenant", "actor", request);
+        var payload = ArgumentCaptor.forClass(String.class);
+        verify(store).create(eq("tenant"), eq(ID), eq("actor"), eq("binding"), eq("水杯"), payload.capture());
+        var engineInput = json.readTree(payload.getValue());
+        assertTrue(engineInput.path("preserve_source_people").asBoolean());
+        assertTrue(engineInput.path("require_plan_confirmation").asBoolean());
+        assertEquals(reference, engineInput.path("source_material_id").asText());
+        assertFalse(engineInput.has("portrait"));
+        assertFalse(engineInput.has("kling_portrait"));
+        verify(store, never()).ownsAsset(anyString(), anyString(), anyString(), anyString(), eq("image"));
     }
 
     @Test

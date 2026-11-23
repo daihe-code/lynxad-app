@@ -26,7 +26,7 @@
             <span class="remake-access-icon"><AssetIcon :name="capability?.subscribed === false ? 'video' : 'info-line'" /></span>
             <h3>{{ capability?.subscribed === false ? '开通套餐后即可开始复刻' : '复刻服务暂不可用' }}</h3>
             <p v-if="capabilityError" role="alert">{{ capabilityError }}</p>
-            <p v-else-if="capability?.subscribed === false">从参考视频提取镜头节奏，更换商品与人物，生成可保存到素材库的新视频。</p>
+            <p v-else-if="capability?.subscribed === false">参考原视频的镜头节奏，替换目标商品，生成可保存到素材库的新视频。</p>
             <p v-else>服务恢复后可以继续新建复刻，已有任务可在任务记录中查看。</p>
             <router-link v-if="capability?.subscribed === false" class="el-button el-button--primary remake-cta"
               to="/subscription" @click="emit('close')">查看套餐</router-link>
@@ -75,7 +75,7 @@
               </div>
               <div class="remake-rights-row">
                 <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频</label>
+                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="sourcePeopleSupported">及其中人物的肖像</template></label>
                 <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
               </div>
@@ -144,29 +144,33 @@
             </div>
 
             <div v-else class="remake-step-body">
-              <h3>替换人物与成片设置</h3>
-              <template v-if="useKling">
-                <RemakeFilePicker kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
-                  :disabled="busy" @change="selectPortrait" />
-              </template>
-              <template v-else>
-                <div class="remake-row">
-                  <label>方舟预置虚拟人像 ID<input v-model.trim="portraitId" placeholder="asset-…" maxlength="136" :disabled="busy"></label>
-                  <label>人物名称<input v-model.trim="portraitName" placeholder="输入人像名称" maxlength="80" :disabled="busy"></label>
-                </div>
-                <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library"
-                  target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
-              </template>
-              <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
-              <div class="remake-rights-row">
-                <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
-                  useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
-                }}</label>
-                <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
-                  @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+              <h3>替换人物<template v-if="sourcePeopleSupported">（可选）</template></h3>
+              <div v-if="sourcePeopleSupported" class="remake-source-switch" role="group" aria-label="人物选择">
+                <button type="button" :aria-pressed="keepSourcePeople" :disabled="busy" @click="portraitMode = 'source'">保留原人物</button>
+                <button type="button" :aria-pressed="!keepSourcePeople" :disabled="busy" @click="portraitMode = 'replace'">替换人物</button>
               </div>
-              <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
+              <template v-if="!keepSourcePeople">
+                <RemakeFilePicker v-if="useKling" kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
+                  :disabled="busy" @change="selectPortrait" />
+                <template v-else>
+                  <div class="remake-row">
+                    <label>方舟预置虚拟人像 ID<input v-model.trim="portraitId" placeholder="asset-…" maxlength="136" :disabled="busy"></label>
+                    <label>人物名称<input v-model.trim="portraitName" placeholder="输入人像名称" maxlength="80" :disabled="busy"></label>
+                  </div>
+                  <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library"
+                    target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
+                </template>
+                <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
+                <div class="remake-rights-row">
+                  <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
+                    :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
+                    useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
+                  }}</label>
+                  <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
+                    @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+                </div>
+                <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
+              </template>
             </div>
 
             <p v-if="setupError" class="remake-inline-error" role="alert">{{ setupError }}</p>
@@ -185,7 +189,7 @@
           <section class="remake-side-card">
             <h3>复刻流程</h3>
             <ol class="remake-workflow">
-              <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品和新人物</small></div></li>
+              <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品与可选人像</small></div></li>
               <li><span><AssetIcon name="note" /></span><div><strong>确认分镜</strong><small>检查并编辑画面、旁白和字幕</small></div></li>
               <li><span><AssetIcon name="sparkle" /></span><div><strong>生成与入库</strong><small>生成后预览，合适即可保存</small></div></li>
             </ol>
@@ -340,6 +344,7 @@
         <section>
           <h3>人物肖像与声音授权</h3>
           <p>使用可识别真人的肖像或声音前，商家须向本人告知 AI 生成、编辑及广告投放等用途，并取得相应授权。涉及编辑人脸、人声等生物识别信息的，须依法取得本人的单独同意。使用预置虚拟人像的，须遵守相应许可条款。</p>
+          <p v-if="sourcePeopleSupported">保留原人物时，请确认参考视频中人物的肖像授权涵盖 AI 复刻及成片广告投放。</p>
         </section>
         <section>
           <h3>责任承担</h3>
@@ -401,9 +406,10 @@ const linkFormatError = computed(() => {
 });
 const referenceRights = ref<HTMLInputElement>();
 const portraitId = ref(''), portraitName = ref('');
+const portraitMode = ref<'source' | 'replace'>('source');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
-const setupSteps = ['参考视频', '目标商品', '人物与成片'];
+const setupSteps = ['参考视频', '目标商品', '替换人物'];
 const setupStep = ref(0), furthestStep = ref(0);
 const setupIssue = ref<{ field: string; message: string }>();
 const setupError = ref('');
@@ -412,6 +418,8 @@ let requestId = crypto.randomUUID();
 
 const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capabilityError = ref('');
 const useKling = computed(() => capability.value?.kling4Available === true);
+const sourcePeopleSupported = computed(() => capability.value?.sourcePeopleSupported === true);
+const keepSourcePeople = computed(() => sourcePeopleSupported.value && portraitMode.value === 'source');
 const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
 const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
 const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
@@ -588,7 +596,7 @@ watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
-watch([reference, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
+watch([reference, portraitImage, keepSourcePeople, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
   portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
@@ -646,7 +654,7 @@ function validateStep(step: number) {
       { when: !!selectedProduct.value && !selectedProduct.value.imageUrls?.length && !selectedProduct.value.imageUrl,
         field: 'product', message: '所选商品没有可用的商品图，请重新选择。' },
     ],
-    [
+    keepSourcePeople.value ? [] : [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
         field: 'portrait', message: useKling.value ? '请上传已授权的成年人像图。' : '请填写有效的方舟人像 ID 和名称。' },
       { when: !portraitTerms.value, field: 'portraitTerms', message: '请确认人物素材的使用授权。' },
@@ -682,7 +690,7 @@ async function continueSetup() {
   for (let step = 0; step < setupSteps.length; step++) {
     if (!validateStep(step)) { setupStep.value = step; return; }
   }
-  const product = selectedProduct.value, video = reference.value, kling = useKling.value;
+  const product = selectedProduct.value, video = reference.value, kling = useKling.value, keepPeople = keepSourcePeople.value;
   if (!product) return;
   busy.value = true;
   setupError.value = '';
@@ -700,12 +708,14 @@ async function continueSetup() {
       if (!video) return;
       referenceId = await upload(video, 'video', '上传参考视频');
     }
-    const portraitImageId = kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
+    const portraitImageId = !keepPeople && kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
       productId: product.qcProductId, referenceId,
-      portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
-      rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, followSource: true });
+      portraitId: keepPeople || kling ? undefined : portraitId.value,
+      portraitName: keepPeople || kling ? undefined : portraitName.value, portraitImageId,
+      preserveSourcePeople: keepPeople, rightsConfirmed: rights.value,
+      portraitTermsConfirmed: !keepPeople && portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;
     await openTask(result.id, result);

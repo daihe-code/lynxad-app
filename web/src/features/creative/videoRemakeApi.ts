@@ -12,6 +12,7 @@ export interface RemakeCapability {
   kling4Available?: boolean;
   sourceMatchingAvailable?: boolean;
   sourceMatchingHd?: boolean;
+  sourcePeopleSupported?: boolean;
 }
 
 export interface RemakeVideoSpec {
@@ -56,6 +57,7 @@ export interface RemakeInput {
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
   followSource: boolean;
+  preserveSourcePeople?: boolean;
 }
 
 export interface RemakeUpload {
