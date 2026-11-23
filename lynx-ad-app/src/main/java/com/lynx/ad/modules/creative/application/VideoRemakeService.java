@@ -468,7 +468,7 @@ public class VideoRemakeService {
 
     private String error(JsonNode result, String fallback) {
         var message = result.path("error").asText("");
-        return message.isBlank() ? fallback : message.substring(0, Math.min(message.length(), 200));
+        return message.isBlank() ? fallback : ("SCENE_BUDGET_EXCEEDED".equals(message) ? "参考视频镜头切换过多，超过单次分析上限 30 个分镜，请换一个镜头较少的参考视频，或截取其中一段重试（SCENE_BUDGET_EXCEEDED）" : message.substring(0, Math.min(message.length(), 200)));
     }
 
     private void requireGeneration(String tenant, String actor, String binding) {
