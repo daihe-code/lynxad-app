@@ -57,6 +57,12 @@ class PlanTransferTest {
         when(gateway.create(any(),any())).thenAnswer(i->{creates++;calls.add("CREATE");if(createRejected)throw new BizException(1406,"same product rejected");if(createUnknown)throw new BizException(1523,"transport uncertain");
             JsonNode p=i.getArgument(1);var d=p.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)d).put("ad_id","222").put("status","PENDING_AUDIT");platform.put("222",d);return "222";});
         doAnswer(i->{calls.add("UPDATE "+i.getArgument(1));if(updateRejected)throw new BizException(1406,"update rejected");var ds=(com.fasterxml.jackson.databind.node.ObjectNode)platform.get(i.getArgument(1)).path("delivery_setting");BigDecimal budget=i.getArgument(2);if(budget!=null)ds.put("budget",budget);BigDecimal roi=i.getArgument(3);if(roi!=null)ds.put("roi2_goal",roi);return null;}).when(gateway).settings(eq(credential),anyString(),any(),nullable(BigDecimal.class));
+        doAnswer(i -> {
+            String id = i.getArgument(1), name = i.getArgument(2);
+            calls.add("DETAILS " + id);
+            if (name != null) ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get(id)).put("name", name);
+            return null;
+        }).when(gateway).details(eq(credential), anyString(), nullable(String.class), nullable(String.class), nullable(LocalDate.class));
         var payload=json.readTree("""
           {"advertiser_id":123,"aweme_id":999,"name":"原计划","product_ids":[101],"marketing_goal":"VIDEO_PROM_GOODS",
            "delivery_setting":{"smart_bid_type":"SMART_BID_CONSERVATIVE","budget":100,"estimate_roi_goal":0.24,"estimate_convert":3,"video_schedule_type":"SCHEDULE_FROM_NOW"},
@@ -70,17 +76,85 @@ class PlanTransferTest {
         return new AdPlan(new PlanId(id),tenant,new AccountId("account"),new AwemeId("999"),new PlanName("逻辑计划"),status,PlanSource.LINGTOU,
                 new DeliverySetting(mode,Money.ofYuan(new BigDecimal(budget)),roi==null?Optional.empty():Optional.of(new RoiGoal(new BigDecimal(roi))),Schedule.fromNow(),AudienceJson.empty()),List.of(new QcProductId("101")),new QcPlanId(qc),status.name(),null,1,null,List.of());
     }
-    JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status);var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
+    JsonNode detail(AdPlan p,String status){var d=json.createObjectNode();d.put("ad_id",p.qcPlanId().orElseThrow().value()).put("status",status).put("name",p.name().text());var s=d.putObject("delivery_setting");s.put("smart_bid_type",p.setting().bidType().oceanValue()).put("budget",p.setting().dailyBudget().amount());p.setting().roi2Goal().ifPresent(r->s.put("roi2_goal",r.value()));return d;}
     PlanTransferRequest cost(String key){return new PlanTransferRequest(key,"111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.18"));}
+    @Test void volumeTransferReadsCurrentProductsAndUsesOnlyTheMatchingPlatformEstimate() throws Exception {
+        var source = physical.get("root");
+        var setting = source.setting();
+        source.updateSetting(new DeliverySetting(SmartBidType.CUSTOM, setting.dailyBudget(), Optional.of(new RoiGoal(new BigDecimal("4.96"))), setting.schedule(), setting.audience()));
+        var sourceDetail = (com.fasterxml.jackson.databind.node.ObjectNode) platform.get("111");
+        sourceDetail.withObject("/delivery_setting").put("smart_bid_type", "SMART_BID_CUSTOM");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) sourceDetail.path("multi_product_creative_list").get(0)).put("product_id", 102);
+        doAnswer(i -> {
+            group = new Group("root","root",null,"root",null);
+            return group;
+        }).when(store).ensure(source);
+        var quote = json.readTree("""
+                {"budget":{"budget":50,"estimate_trans_cost_list":[
+                  {"budget":30,"estimate_convert":2},
+                  {"budget":50,"estimate_convert":3,"min_estimate_convert":2,"estimate_roi":0.20,"min_estimate_roi":0.16}
+                ]}}
+                """);
+        when(gateway.recommendations(source, List.of("102"), SmartBidType.CONSERVATIVE)).thenReturn(quote);
+        var context = service.context(tenant, root);
+        assertNull(context.budget());
+        assertFalse(context.reuse());
+        assertEquals("逻辑计划_转投放量", context.targetName());
+        assertEquals(quote, service.recommendations(tenant, root));
+        var request = new PlanTransferRequest("volume-quote", "111", "SMART_BID_CONSERVATIVE", new BigDecimal("50"), null);
+        assertEquals("SUCCEEDED", service.transfer(tenant, root, request).status());
+        assertEquals(List.of("DISABLE 111","CREATE","ENABLE 222"), calls);
+        assertEquals(PlanStatus.PAUSED, source.status());
+        var payload = json.readTree(attempts.get("volume-quote").payload());
+        assertEquals(context.targetName(), payload.path("name").asText());
+        var delivery = payload.path("delivery_setting");
+        assertEquals(50, delivery.path("budget").asInt());
+        assertEquals(3, delivery.path("estimate_convert").asInt());
+        assertEquals(0.16, delivery.path("min_estimate_roi_goal").asDouble());
+        assertFalse(delivery.has("roi2_goal"));
+        verify(gateway, times(2)).recommendations(source, List.of("102"), SmartBidType.CONSERVATIVE);
+    }
+    @Test void productExclusivityFailureRestoresTheSourceAndStopsRepeatedWrites() {
+        String rejection = "千川拒绝请求：商品全域投放受互斥影响，暂不支持创建（错误码 40000，请求号 test）";
+        doThrow(new BizException(1406, rejection)).when(gateway).create(any(), any());
+        var first = service.transfer(tenant, root, cost("first-key"));
+        assertEquals("FAILED", first.status());
+        assertTrue(first.platformTransferRequired());
+        assertEquals("该商品已有投放计划，暂不支持切换投放方式。原计划状态已恢复。", first.message());
+        assertTrue(attempts.get("first-key").error().contains(rejection));
+        assertEquals(PlanStatus.DELIVERING, physical.get("root").status());
+        assertEquals(List.of("DISABLE 111", "ENABLE 111"), calls);
+        when(store.lastRejectedCreation(tenant, root.value(), root)).thenReturn(Optional.of(attempts.get("first-key")));
+        calls.clear();
+        var retry = service.transfer(tenant, root, cost("retry-key"));
+        assertEquals("FAILED", retry.status());
+        assertTrue(retry.platformTransferRequired());
+        assertEquals("该商品已有投放计划，暂不支持切换投放方式。", retry.message());
+        assertTrue(calls.isEmpty());
+        verify(gateway, times(1)).create(any(), any());
+        assertFalse(attempts.containsKey("retry-key"));
+    }
+    @Test void productConflictDiagnosticsStayInternalWhileRecoveryIsPending() {
+        String rejection = "千川拒绝请求：商品全域投放互斥（错误码 40000，请求号 test）";
+        doThrow(new BizException(1406, rejection)).when(gateway).create(any(), any());
+        doThrow(new BizException(1523, "恢复结果待确认")).when(gateway).status(credential,"111",true);
+
+        var result = service.transfer(tenant, root, cost("pending-recovery"));
+
+        assertEquals("UNCERTAIN", result.status());
+        assertEquals("转投结果待核查，请稍后查询。", result.message());
+        assertEquals(result.message(), service.context(tenant, root).pendingError());
+        assertTrue(attempts.get("pending-recovery").error().contains(rejection));
+    }
     @Test void savingModeNameAndScheduleCreatesOneTargetWithAllRequestedSettings() throws Exception {
         var end=LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(12);
         var request=new PlanTransferRequest("edit-fields","111","SMART_BID_CUSTOM",new BigDecimal("400"),new BigDecimal("4.2"),false,"修改后的计划","DATE_RANGE",end);
         var source=physical.get("root");String originalName=source.name().text();var originalSchedule=source.setting().schedule();
         var result=service.transfer(tenant,root,request);assertEquals("SUCCEEDED",result.status());
         var payload=json.readTree(attempts.get(request.requestKey()).payload());var ds=payload.path("delivery_setting");
-        assertEquals("修改后的计划",payload.path("name").asText());assertEquals("SCHEDULE_START_END",ds.path("video_schedule_type").asText());
+        assertEquals("修改后的计划_转投控成本",payload.path("name").asText());assertEquals("SCHEDULE_START_END",ds.path("video_schedule_type").asText());
         assertEquals(end.toString(),ds.path("end_time").asText());assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")).toString(),ds.path("start_time").asText());
-        var target=physical.get(result.planId());assertEquals("修改后的计划",target.name().text());assertEquals(end,target.setting().schedule().endDate());
+        var target=physical.get(result.planId());assertEquals("修改后的计划_转投控成本",target.name().text());assertEquals(end,target.setting().schedule().endDate());
         assertEquals(originalName,source.name().text());assertEquals(originalSchedule,source.setting().schedule());
         int writes=calls.size();assertEquals("SUCCEEDED",service.transfer(tenant,root,request).status());assertEquals(writes,calls.size());assertEquals(1,creates);
         assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest(request.requestKey(),"111",request.smartBidType(),request.budget(),request.roi2Goal(),false,request.name(),"DATE_RANGE",end.plusDays(1))));
@@ -92,13 +166,14 @@ class PlanTransferTest {
         var request=new PlanTransferRequest("edit-existing","222","SMART_BID_CONSERVATIVE",new BigDecimal("150"),null,false,"更新放量计划","DATE_RANGE",end);
         var result=service.transfer(tenant,new PlanId(group.custom()),request);
         assertEquals("SUCCEEDED",result.status());assertEquals(List.of("UPDATE 111","DETAILS 111","DISABLE 222","ENABLE 111"),calls);
-        assertEquals("更新放量计划",physical.get("root").name().text());assertEquals(end,physical.get("root").setting().schedule().endDate());assertEquals(1,creates);
+        assertEquals("更新放量计划_转投放量",physical.get("root").name().text());assertEquals(end,physical.get("root").setting().schedule().endDate());assertEquals(1,creates);
     }
     @Test void unconfirmedExtraSettingsNeverPauseOrEnableAnotherPlanAndRecoveryDoesNotResendThem() {
         service.transfer(tenant,root,cost("first-key"));calls.clear();
+        doNothing().when(gateway).details(credential,"111","待确认的名称_转投放量",null,null);
         var request=new PlanTransferRequest("pending-fields","222","SMART_BID_CONSERVATIVE",new BigDecimal("100"),null,false,"待确认的名称",null,null);
         assertEquals("UNCERTAIN",service.transfer(tenant,new PlanId(group.custom()),request).status());assertTrue(calls.isEmpty());
-        verify(gateway,times(1)).details(credential,"111","待确认的名称",null,null);
+        verify(gateway,times(1)).details(credential,"111","待确认的名称_转投放量",null,null);
         assertEquals("FAILED",service.reconcile(tenant,new PlanId(group.custom())).status());assertTrue(calls.isEmpty());
         verify(gateway,times(1)).details(any(),anyString(),any(),any(),any());assertEquals(1,creates);
     }
@@ -115,7 +190,7 @@ class PlanTransferTest {
         var request=new PlanTransferRequest("verify-name","111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.2"),false,"请求保存的名称",null,null);
         assertEquals("UNCERTAIN",service.transfer(tenant,root,request).status());
         assertEquals("UNCERTAIN",service.reconcile(tenant,root).status());assertNotNull(group.requestKey());assertEquals(1,creates);
-        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("name",request.name());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("name","请求保存的名称_转投控成本");
         assertEquals("SUCCEEDED",service.reconcile(tenant,root).status());assertNull(group.requestKey());assertEquals(1,creates);
         verify(gateway,times(1)).status(credential,"222",true);
     }
@@ -212,7 +287,7 @@ class PlanTransferTest {
         assertEquals("SUCCEEDED",service.transfer(tenant,new PlanId(group.custom()),back).status());assertEquals("root",group.active());assertTrue(physical.get("root").setting().roi2Goal().isEmpty());
         var context=service.context(tenant,root);assertTrue(context.reuse());assertEquals(new BigDecimal("4.18"),context.roi2Goal());assertEquals(0,new BigDecimal("300").compareTo(context.budget()));
         assertEquals("SUCCEEDED",service.transfer(tenant,root,cost("third-key")).status());assertEquals(1,creates);assertEquals(2,physical.size());
-        assertEquals(List.of("DISABLE 111","CREATE","ENABLE 222","UPDATE 111","DISABLE 222","ENABLE 111","DISABLE 111","ENABLE 222"),calls);
+        assertEquals(List.of("DISABLE 111","CREATE","ENABLE 222","UPDATE 111","DETAILS 111","DISABLE 222","ENABLE 111","DISABLE 111","ENABLE 222"),calls);
     }
     @Test void repeatedKeyReplaysWithoutAnyAdditionalWrites(){var req=cost("first-key");service.transfer(tenant,root,req);var before=List.copyOf(calls);assertEquals("SUCCEEDED",service.transfer(tenant,root,req).status());assertEquals(before,calls);}
     @Test void changedParametersOnSameKeyAreRejected(){service.transfer(tenant,root,cost("first-key"));assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest("first-key","111","SMART_BID_CUSTOM",new BigDecimal("400"),new BigDecimal("5"))));assertEquals(1,creates);}
@@ -226,10 +301,12 @@ class PlanTransferTest {
     @Test void tenantCannotReadOrTransferAnothersPlan(){assertThrows(BizException.class,()->service.transfer(new TenantId("other"),root,cost("first-key")));assertTrue(calls.isEmpty());verifyNoInteractions(gateway);}
     @Test void targetUpdateRejectionKeepsSourceRunning(){service.transfer(tenant,root,cost("first-key"));calls.clear();updateRejected=true;assertEquals("FAILED",service.transfer(tenant,new PlanId(group.custom()),new PlanTransferRequest("second-key","222","SMART_BID_CONSERVATIVE",new BigDecimal("150"),null)).status());assertFalse(calls.contains("DISABLE 222"));assertEquals(1,creates);}
     @Test void uncertainCreateWithNoSearchMatchKeepsLock(){createUnknown=true;service.transfer(tenant,root,cost("first-key"));when(gateway.findCreated(any(),any(),anyString())).thenReturn(List.of());assertEquals("UNCERTAIN",service.reconcile(tenant,root).status());assertNotNull(group.requestKey());assertEquals(1,creates);}
-    @Test void returningToUnchangedBudgetOnlyPausesAndEnablesExistingPlan(){
+    @Test void returningToUnchangedBudgetLabelsTheTargetOnceAndDoesNotRewriteBudget(){
         service.transfer(tenant,root,cost("first-key"));calls.clear();
         assertEquals("SUCCEEDED",service.transfer(tenant,new PlanId(group.custom()),new PlanTransferRequest("second-key","222","SMART_BID_CONSERVATIVE",new BigDecimal("100"),null)).status());
-        assertEquals(List.of("DISABLE 222","ENABLE 111"),calls);verifyNoMoreInteractionsAfterSettings();
+        assertEquals(List.of("DETAILS 111","DISABLE 222","ENABLE 111"),calls);
+        assertEquals("逻辑计划_转投放量", physical.get("root").name().text());
+        verifyNoMoreInteractionsAfterSettings();
     }
     private void verifyNoMoreInteractionsAfterSettings(){verify(gateway,never()).settings(any(),anyString(),any(),any());}
     @Test void changedRoiDoesNotResubmitAnUnchangedBudget(){
@@ -268,6 +345,7 @@ class PlanTransferTest {
         assertEquals("111",volumeContext.currentQcPlanId());assertEquals("222",costContext.currentQcPlanId());
         assertEquals("SMART_BID_CUSTOM",volumeContext.targetMode());assertEquals("SMART_BID_CONSERVATIVE",costContext.targetMode());
         assertEquals("111",costContext.counterpartQcPlanId());assertEquals(costId.value(),costContext.planId());
+        assertEquals(root.value(),costContext.counterpartPlanId());assertEquals(0,new BigDecimal("100").compareTo(costContext.budget()));
     }
     @Test void pausedNonActiveRowCanInitiateSwitchAndReuseTheOtherPlan(){
         service.transfer(tenant,root,cost("first-key"));calls.clear();

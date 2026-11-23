@@ -5,7 +5,7 @@
         <div class="ad-banner__head">
           <h1 class="ad-banner__title">坤境广告投放</h1>
           <span class="ad-banner__tag"
-            ><ReferenceIcon name="mountain" />抖音巨量千川 · 商品全域投放</span
+            ><ReferenceIcon name="mountain" />{{ transfer ? '商品全域投放' : '抖音巨量千川 · 商品全域投放' }}</span
           >
         </div>
         <p class="ad-banner__sub">
@@ -45,6 +45,7 @@ import ReferenceIcon from "./ReferenceIcon.vue";
 import AwemeAccountPicker from '@/components/AwemeAccountPicker.vue';
 defineProps<{
   step: number;
+  transfer?: boolean;
   account?: { key?: string; awemeName: string; awemeId: string; avatar?: string | null } | null;
   accounts?: { key: string; awemeName: string; awemeId: string }[];
   accountSwitchDisabled?: boolean;

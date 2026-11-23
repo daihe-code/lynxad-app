@@ -260,6 +260,29 @@ class CreationGatewayTest {
         assertFalse(retried.has("budgetError"));assertEquals(100,retried.path("budget").path("budget").asInt());
         assertEquals(0.19,retried.path("budget").path("estimate_trans_cost_list").get(0).path("min_estimate_roi").asDouble());
     }
+    @Test void volumeTransferBudgetRecommendationIncludesThePlatformPlanId() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var queries = new java.util.ArrayList<String>();
+        server.createContext("/budget/", e -> {
+            queries.add(URLDecoder.decode(e.getRequestURI().getRawQuery(), StandardCharsets.UTF_8));
+            byte[] bytes = "{\"code\":0,\"data\":{\"budget\":50}}".getBytes(StandardCharsets.UTF_8);
+            e.sendResponseHeaders(200, bytes.length);
+            e.getResponseBody().write(bytes);
+            e.close();
+        });
+        server.start();
+        var delivery = p.getQianchuan().getDelivery();
+        var base = "http://127.0.0.1:" + server.getAddress().getPort();
+        delivery.setSuggestBudgetUrl(base + "/budget/");
+        delivery.setSuggestRoiUrl(base + "/roi/");
+        var result = gateway.recommendations(new TenantId("t"), "a", "123", List.of("9007199254740995"),
+                com.lynx.ad.modules.delivery.domain.model.SmartBidType.CONSERVATIVE, "9007199254740997");
+        assertEquals(50, result.path("budget").path("budget").asInt());
+        assertFalse(result.has("roi") || result.has("roiError"));
+        assertEquals(1, queries.size());
+        assertTrue(queries.getFirst().contains("ad_id=9007199254740997"));
+        assertTrue(queries.getFirst().contains("product_ids=[9007199254740995]"));
+    }
     @Test void successfulEmptyForecastAndRateLimitHaveDifferentStatusCodesAndRequestIds() throws Exception {
         var calls=new AtomicInteger();
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",e->{

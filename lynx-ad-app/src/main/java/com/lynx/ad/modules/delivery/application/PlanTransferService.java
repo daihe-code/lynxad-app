@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
 import com.lynx.ad.modules.delivery.domain.service.PlanSchedule;
 
@@ -17,7 +18,6 @@ import com.lynx.ad.modules.delivery.infrastructure.adapter.*;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.*;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.*;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -26,10 +26,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PlanTransferService {
+    private static final String PRODUCT_TRANSFER_BLOCKED = "该商品已有投放计划，暂不支持切换投放方式。";
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
                           boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
-                          String pendingStatus,String pendingError) {}
-    public record Result(String planId,String qcPlanId,String status,String message) {}
+                          String pendingStatus,String pendingError,String targetName,String counterpartPlanId) {}
+    public record Result(String planId,String qcPlanId,String status,String message,boolean platformTransferRequired) {
+        public Result(String planId,String qcPlanId,String status,String message) {
+            this(planId,qcPlanId,status,message,false);
+        }
+    }
     private final AdPlanRepository plans;
     private final PlanTransferStore store;
     private final CreationStore creations;
@@ -48,12 +53,27 @@ public class PlanTransferService {
         var target=targetId==null?null:require(tenant,targetId);
         String reason=null;
         if(current.qcPlanId().isEmpty() || !editable(current.status()))reason="仅已发布且投放中或暂停的计划支持转投";
-        else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，请在千川后台转投";
+        else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，暂时无法转投";
         Attempt a=g==null||g.requestKey()==null?null:store.attempt(tenant,g.requestKey()).orElse(null);
         if(g!=null&&g.requestKey()!=null)reason=g.requestKey().startsWith("settings:")?"计划修改正在处理或结果待核查，请先核查修改结果":"转投正在处理或结果待核查";
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
-                (target==null?current:target).setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
-                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:a.error());
+                target==null?null:target.setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
+                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:result(a).message(),
+                transferName((target==null?current:target).name().text(),mode,target==null),targetId);
+    }
+    public JsonNode recommendations(TenantId tenant, PlanId id) {
+        var context = context(tenant, id);
+        if (!context.available()) throw new BizException(1403, context.reason());
+        var source = require(tenant, id.value());
+        var mode = opposite(source.setting().bidType());
+        var group = store.group(tenant, id);
+        var targetId = group == null ? null : group.target(mode);
+        var plan = targetId == null ? source : require(tenant, targetId);
+        var detail = gateway.detail(plan);
+        checkMode(detail, plan.setting().bidType());
+        var ids = productIds(detail);
+        if (ids.isEmpty()) throw new BizException(1403, "暂时无法获取计划商品的推荐预算");
+        return gateway.recommendations(plan, List.copyOf(ids), mode);
     }
     public Result transfer(TenantId tenant,PlanId id,PlanTransferRequest request) {
         synchronized(remote) {return transferLocked(tenant,id,request);}
@@ -89,8 +109,6 @@ public class PlanTransferService {
         SmartBidType mode=request.existingOnly()?opposite(source.setting().bidType()):SmartBidType.fromOcean(request.smartBidType());
         if(mode!=opposite(source.setting().bidType()))throw new BizException(1402,"请选择另一种投放方式");
         String targetId=group==null?null:group.target(mode);var target=targetId==null?null:require(tenant,targetId);
-        if(request.name()!=null && plans.existsUnfinishedName(tenant,source.awemeId(),new PlanName(request.name()),Optional.of(target==null?source.id():target.id())))
-            throw new BizException(1401,"同一抖音号存在同名计划");
         if(request.existingOnly() && target==null)throw new BizException(1403,"尚无另一种投放方式的计划，请先在设置页面完成首次转投");
         if(target!=null && (!source.accountId().equals(target.accountId()) || !source.awemeId().equals(target.awemeId()) || target.qcPlanId().isEmpty()))
             throw new BizException(1404,"转投关联的账户信息不一致，请先核查计划");
@@ -103,7 +121,7 @@ public class PlanTransferService {
         if(target!=null) {
             var d=gateway.detail(target);checkMode(d,mode);
             if(status(d)!=PlanStatus.PAUSED && !(request.existingOnly() && enabled(status(d))))
-                throw new BizException(1404,"待启用的计划状态已变化，请先核查千川计划");
+                throw new BizException(1404,"待启用的计划状态已变化，请刷新后重试");
             targetDetail=d;
             if(request.existingOnly()) {
                 var ds=QianchuanPlanMapping.setting(d);
@@ -114,7 +132,31 @@ public class PlanTransferService {
                 if(mode==SmartBidType.CUSTOM && !equal(QianchuanPlanMapping.number(QianchuanPlanMapping.setting(d),"roi2_goal"),request.roi2Goal()))updateRoi=request.roi2Goal();
             }
         }
+        String existingName = target == null ? null
+                : QianchuanPlanMapping.info(targetDetail).path("name").asText(target.name().text());
+        String targetName = null;
+        if (!request.existingOnly()) {
+            targetName = request.name() != null ? transferName(new PlanName(request.name()).text(),mode,false)
+                    : transferName(target == null ? source.name().text() : existingName,mode,target == null);
+        }
+        boolean renameTarget = targetName != null && !targetName.equals(existingName);
+        if(renameTarget && plans.existsUnfinishedName(tenant,source.awemeId(),PlanName.fromPlatform(targetName),Optional.ofNullable(targetId).map(PlanId::new)))
+            throw new BizException(1401,"同一抖音号存在同名计划，请修改转投计划名称");
         var payload=target==null?payload(tenant,root,source,request,sourceDetail):json.createObjectNode();
+        if (targetName != null) payload.put("name",targetName);
+        if (target == null) {
+            var ids = productIds(payload);
+            var previous = store.lastRejectedCreation(tenant, root, source.id()).orElse(null);
+            if (previous != null && requiresPlatformTransfer(previous.error())
+                    && request.smartBidType().equals(decode(previous.request()).smartBidType())
+                    && ids.equals(productIds(parse(previous.payload())))) {
+                return new Result(source.id().value(), null, "FAILED", PRODUCT_TRANSFER_BLOCKED, true);
+            }
+            if (mode == SmartBidType.CONSERVATIVE) {
+                var recommendation = gateway.recommendations(source, List.copyOf(ids), mode);
+                CreationRecommendationPolicy.applyBudgetEstimate(payload.withObject("/delivery_setting"), recommendation, request.budget());
+            }
+        }
         if(targetId==null)targetId=UUID.randomUUID().toString();
         var g=store.ensure(source);
         Attempt a=new Attempt(tenant.value(),request.requestKey(),g.root(),source.id().value(),targetId,encode(request),payload.toString(),enabled(sourceStatus),
@@ -122,17 +164,16 @@ public class PlanTransferService {
         store.claim(a,g.active());
         try {
             if(target!=null) {
-                if(updateBudget!=null || updateRoi!=null || request.name()!=null || request.scheduleType()!=null) {
+                if(updateBudget!=null || updateRoi!=null || renameTarget || request.scheduleType()!=null) {
                     store.phase(tenant,a.key(),"UPDATING",target.qcPlanId().orElseThrow().value());
                     if(updateBudget!=null || updateRoi!=null)gateway.settings(credential,target.qcPlanId().orElseThrow().value(),updateBudget,updateRoi);
-                    if(request.name()!=null || request.scheduleType()!=null) {
-                        gateway.details(credential,target.qcPlanId().orElseThrow().value(),request.name()==null?null:new PlanName(request.name()).text(),request.scheduleType(),request.endDate());
-                        targetDetail=gateway.detail(target);
-                        if(!matches(targetDetail,request))throw new BizException(1523,"计划修改结果尚未确认，请核查后继续");
-                    }
+                    if(renameTarget || request.scheduleType()!=null)
+                        gateway.details(credential,target.qcPlanId().orElseThrow().value(),renameTarget?targetName:null,request.scheduleType(),request.endDate());
+                    targetDetail=gateway.detail(target);
+                    if(!matches(targetDetail,request,targetName))throw new BizException(1523,"目标计划设置尚未确认，请核查后继续转投");
                 }
                 if(request.existingOnly())applyDetail(target,targetDetail);
-                else {target.updateSetting(setting(target,request));if(request.name()!=null)target.rename(new PlanName(request.name()));}
+                else {target.updateSetting(setting(target,request));if(renameTarget)target.rename(PlanName.fromPlatform(targetName));}
                 plans.save(target);
             }
             store.phase(tenant,a.key(),"PAUSING",target==null?null:target.qcPlanId().orElseThrow().value());
@@ -151,7 +192,7 @@ public class PlanTransferService {
             if(targetDetail==null || !enabled(status(targetDetail)))gateway.status(credential,target.qcPlanId().orElseThrow().value(),true);
             store.phase(tenant,a.key(),"ENABLED",target.qcPlanId().orElseThrow().value());
             confirmEnabled(target);
-            if(!request.existingOnly() && !matches(gateway.detail(target),request))throw new BizException(1523,"计划修改结果尚未确认，请核查后继续");
+            if(!request.existingOnly() && !matches(gateway.detail(target),request,targetName))throw new BizException(1523,"计划修改结果尚未确认，请核查后继续");
             store.finish(tenant,a.key(),"SUCCEEDED",null);
         } catch(RuntimeException error) {
             var latest=store.attempt(tenant,a.key()).orElseThrow();
@@ -186,9 +227,13 @@ public class PlanTransferService {
                 // Only phases preceding CREATE are safe to roll back without an unknown target.
                 var d=gateway.detail(source);if(a.sourceEnabled() && status(d)==PlanStatus.PAUSED)gateway.status(credential,source.qcPlanId().orElseThrow().value(),true);
                 refresh(source);if(a.sourceEnabled()&&!enabled(source.status()))return pending(tenant,a,"原计划恢复投放的状态尚未确认，请稍后核查");
-                store.finish(tenant,a.key(),"FAILED","转投未创建新计划，原计划状态已恢复");return result(store.attempt(tenant,a.key()).orElseThrow());
+                String message = requiresPlatformTransfer(a.error()) ? "千川拒绝创建目标计划，商品全域投放互斥（错误码 40000）"
+                        : "转投未创建新计划";
+                message += a.sourceEnabled() ? "，原计划状态已恢复" : "，原计划保持暂停";
+                store.finish(tenant,a.key(),"FAILED",message);return result(store.attempt(tenant,a.key()).orElseThrow());
             }
             var target=register(tenant,a,source,req);var td=gateway.detail(target);var sd=gateway.detail(source);checkMode(td,SmartBidType.fromOcean(req.smartBidType()));
+            String targetName = parse(a.payload()).path("name").asText(req.name());
             if("ROLLING_BACK".equals(a.phase())) {
                 gateway.status(credential,a.qcId(),false);confirmPaused(target);
                 if(a.sourceEnabled())gateway.status(credential,source.qcPlanId().orElseThrow().value(),true);
@@ -202,12 +247,12 @@ public class PlanTransferService {
             if(status(sd)!=PlanStatus.PAUSED)return pending(tenant,a,"原计划未暂停，请在千川后台核查两套计划的启停状态");
             if(status(td)==PlanStatus.PAUSED) {
                 // Recovery proceeds only when requested settings are confirmed, never by resending CREATE.
-                if(!req.existingOnly() && !matches(td,req))
+                if(!req.existingOnly() && !matches(td,req,targetName))
                     return pending(tenant,a,"计划修改值尚未全部确认，请核查后继续");
                 store.phase(tenant,a.key(),"ENABLING",a.qcId());gateway.status(credential,a.qcId(),true);td=gateway.detail(target);
             }
             if(status(td)!=PlanStatus.DELIVERING && status(td)!=PlanStatus.PENDING_AUDIT)return pending(tenant,a,"目标计划状态尚未确认，请稍后核查");
-            if(!req.existingOnly() && !matches(td,req))return pending(tenant,a,"计划修改值尚未全部确认，请核查后继续");
+            if(!req.existingOnly() && !matches(td,req,targetName))return pending(tenant,a,"计划修改值尚未全部确认，请核查后继续");
             applyDetail(target,td);plans.save(target);remote.detail(tenant,target.id().value(),td);paused(source);
             store.finish(tenant,a.key(),"SUCCEEDED",null);return result(store.attempt(tenant,a.key()).orElseThrow());
         }
@@ -245,7 +290,7 @@ public class PlanTransferService {
                 && groups.isArray() && !groups.isEmpty()) {plan.restoreLingtouSource();plans.save(plan);}
     }
     private ObjectNode payload(TenantId tenant,String root,AdPlan source,PlanTransferRequest request,JsonNode sourceDetail) {
-        var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，请在千川后台转投"));
+        var p=creations.publishedPayload(tenant.value(),root).orElseThrow(()->new BizException(1403,"缺少已发布的商品与素材配置，暂时无法转投"));
         if(!p.isObject() || !p.path("multi_product_creative_list").isArray() || p.path("multi_product_creative_list").isEmpty() || !p.path("aweme_id").asText().equals(source.awemeId().value()))
             throw new BizException(1403,"已发布素材配置不完整，无法转投");
         var result=(ObjectNode)p.deepCopy();result.remove("ad_id");
@@ -265,24 +310,9 @@ public class PlanTransferService {
         var channels=sourceDetail.has("product_channel_info")?sourceDetail.path("product_channel_info"):p.path("product_channel_info");
         result.remove("product_channel_info");
         if(channels.isArray()) {var current=result.putArray("product_channel_info");for(var channel:channels)if(allowed.contains(channel.path("product_id").asText()))current.add(channel.deepCopy());}
-        if(request.name()!=null)result.put("name",new PlanName(request.name()).text());
-        else {
-            String suffix="_转投_"+(request.smartBidType().endsWith("CUSTOM")?"控成本":"放量")+"_"+UUID.randomUUID().toString().replace("-","").substring(0,12);
-            String base=source.name().text();while((base+suffix).getBytes(StandardCharsets.UTF_8).length>100)base=base.substring(0,base.offsetByCodePoints(base.length(),-1));
-            result.put("name",base+suffix);
-        }
         ObjectNode ds=result.withObject("/delivery_setting");ds.put("smart_bid_type",request.smartBidType());ds.put("budget",request.budget());
         ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
         if(request.smartBidType().endsWith("CUSTOM"))ds.put("roi2_goal",request.roi2Goal());
-        else {
-            var summary=creations.summariesByPlan(tenant.value(),List.of(root)).get(root);
-            if(summary!=null && summary.recommendations()!=null)for(var tier:summary.recommendations().path("budget").path("estimate_trans_cost_list")) {
-                if(!equal(QianchuanPlanMapping.number(tier,"budget"),request.budget()))continue;
-                for(String key:List.of("estimate_roi","min_estimate_roi","min_estimate_convert","estimate_convert")) {
-                    var value=QianchuanPlanMapping.number(tier,key);if(value!=null && value.signum()>=0)ds.put(key.endsWith("roi")?key+"_goal":key,value);
-                }break;
-            }
-        }
         LocalDate today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var schedule=transferSchedule(source,request);
         if(schedule.endDate()!=null && schedule.endDate().isBefore(today))throw new BizException(1403,"计划已到期，无法转投");
         ds.put("video_schedule_type",schedule.type()==ScheduleType.FROM_NOW?"SCHEDULE_FROM_NOW":"SCHEDULE_START_END");
@@ -297,11 +327,19 @@ public class PlanTransferService {
         if(r.scheduleType()!=null && type==ScheduleType.DATE_RANGE && (end==null || end.isBefore(LocalDate.now(ZoneId.of("Asia/Shanghai"))) || old.startDate()!=null && end.isBefore(old.startDate())))throw new BizException(1402,"结束日期不得早于今天或原计划开始日期");
         return new Schedule(type,old.startDate(),end);
     }
-    private static boolean matches(JsonNode detail,PlanTransferRequest r) {
+    private static boolean matches(JsonNode detail,PlanTransferRequest r,String targetName) {
         var ds=QianchuanPlanMapping.setting(detail);
-        return equal(QianchuanPlanMapping.number(ds,"budget"),r.budget()) && (!r.smartBidType().endsWith("CUSTOM") || equal(QianchuanPlanMapping.number(ds,"roi2_goal"),r.roi2Goal()))
-            && (r.name()==null || new PlanName(r.name()).text().equals(QianchuanPlanMapping.info(detail).path("name").asText()))
+        return r.smartBidType().equals(ds.path("smart_bid_type").asText())
+            && equal(QianchuanPlanMapping.number(ds,"budget"),r.budget()) && (!r.smartBidType().endsWith("CUSTOM") || equal(QianchuanPlanMapping.number(ds,"roi2_goal"),r.roi2Goal()))
+            && (targetName==null || targetName.equals(QianchuanPlanMapping.info(detail).path("name").asText()))
             && (r.scheduleType()==null || PlanSchedule.complete(ds) && r.scheduleType().equals(PlanSchedule.type(ds).name()) && ("FROM_NOW".equals(r.scheduleType()) || r.endDate().equals(QianchuanPlanMapping.date(QianchuanPlanMapping.text(ds,"end_time")))));
+    }
+    private static String transferName(String base,SmartBidType mode,boolean firstDefault) {
+        if (!firstDefault && base.contains("转投")) return base;
+        String suffix = mode == SmartBidType.CUSTOM ? "_转投控成本" : "_转投放量";
+        int end = Math.min(base.length(),DeliveryInputPolicy.RULES.nameMaxLength() - suffix.length());
+        if (end < base.length() && Character.isHighSurrogate(base.charAt(end - 1))) end--;
+        return base.substring(0,end).stripTrailing() + suffix;
     }
     private void paused(AdPlan p){p.apply(PlanStatus.PAUSED);p.syncPlatformStatus("DISABLE");plans.save(p);}
     private void refresh(AdPlan p){var d=gateway.detail(p);applyDetail(p,d);plans.save(p);remote.detail(p.tenantId(),p.id().value(),d);}
@@ -321,7 +359,28 @@ public class PlanTransferService {
     private static SmartBidType opposite(SmartBidType m){return m==SmartBidType.CUSTOM?SmartBidType.CONSERVATIVE:SmartBidType.CUSTOM;}
     private static boolean equal(BigDecimal a,BigDecimal b){return a==null?b==null:b!=null&&a.compareTo(b)==0;}
     private boolean sameRequest(String saved,PlanTransferRequest req){var old=decode(saved);return old.existingOnly()==req.existingOnly()&&Objects.equals(old.expectedQcPlanId(),req.expectedQcPlanId())&&(req.existingOnly()||(Objects.equals(old.smartBidType(),req.smartBidType())&&equal(old.budget(),req.budget())&&equal(old.roi2Goal(),req.roi2Goal())&&Objects.equals(old.name(),req.name())&&Objects.equals(old.scheduleType(),req.scheduleType())&&Objects.equals(old.endDate(),req.endDate())));}
-    private Result result(Attempt a){return new Result("SUCCEEDED".equals(a.status())?a.target():a.source(),a.qcId(),a.status(),"SUCCEEDED".equals(a.status())?"转投成功，原计划已暂停":a.error()==null?"转投正在处理，请稍后核查":a.error());}
+    private Result result(Attempt a) {
+        boolean succeeded = "SUCCEEDED".equals(a.status());
+        boolean productConflict = a.qcId() == null && requiresPlatformTransfer(a.error());
+        boolean platformTransfer = productConflict && "FAILED".equals(a.status());
+        String message;
+        if (succeeded) message = "转投成功，原计划已暂停";
+        else if (platformTransfer) message = PRODUCT_TRANSFER_BLOCKED + (a.sourceEnabled() ? "原计划状态已恢复。" : "原计划保持暂停。");
+        else if (productConflict) message = "转投结果待核查，请稍后查询。";
+        else message = a.error() == null ? "转投正在处理，请稍后核查" : a.error();
+        return new Result(succeeded ? a.target() : a.source(), a.qcId(), a.status(), message, platformTransfer);
+    }
+    private static boolean requiresPlatformTransfer(String error) {
+        return error != null && error.contains("错误码 40000") && error.contains("商品全域") && error.contains("互斥");
+    }
+    private static Set<String> productIds(JsonNode detail) {
+        Set<String> ids = new TreeSet<>();
+        for (var group : detail.path("multi_product_creative_list")) {
+            if (group.hasNonNull("product_id")) ids.add(group.path("product_id").asText());
+        }
+        if (ids.isEmpty()) for (var id : detail.path("product_ids")) ids.add(id.asText());
+        return ids;
+    }
     private String encode(Object value){try{return json.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException(e);}}
     private JsonNode parse(String value){try{return json.readTree(value);}catch(Exception e){throw new IllegalStateException(e);}}
     private PlanTransferRequest decode(String value){try{return json.readValue(value,PlanTransferRequest.class);}catch(Exception e){throw new IllegalStateException(e);}}

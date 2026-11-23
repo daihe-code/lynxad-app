@@ -45,8 +45,7 @@ export function budgetEstimateState(data: Recommendations, budget: string, loadi
   if (!data || data.budgetFromCache || data.budgetError || data.budgetCode != null && data.budgetCode !== 0
     || ['RATE_LIMITED', 'AUTH_REQUIRED', 'UNAVAILABLE'].includes(data.budgetStatus || '')) return 'unavailable';
   const selected = positive(budget), estimates = rows(data);
-  if (selected === undefined) return 'unmatched';
-  if (estimates.some(row => positive(row.budget) === selected && hasRoiEstimate(row))) return 'available';
+  if (selected !== undefined && estimates.some(row => positive(row.budget) === selected && hasRoiEstimate(row))) return 'available';
   if (estimates.some(row => positive(row.budget) !== undefined && hasRoiEstimate(row))) return 'unmatched';
   return data.budget || ['EMPTY', 'NO_ESTIMATE'].includes(data.budgetStatus || '') ? 'empty' : 'unavailable';
 }
