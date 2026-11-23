@@ -28,7 +28,7 @@ public class PlanTransferGateway {
     public JsonNode detail(AdPlan p) { return creation.detail(p.tenantId(),p.accountId().value(),p.awemeId().value(),p.qcPlanId().orElseThrow().value()); }
     public JsonNode recommendations(AdPlan plan, List<String> productIds, SmartBidType targetMode) {
         return creation.recommendations(plan.tenantId(), plan.accountId().value(), plan.awemeId().value(),
-                productIds, targetMode, plan.qcPlanId().orElseThrow().value());
+                productIds, targetMode, targetMode==plan.setting().bidType()?plan.qcPlanId().orElseThrow().value():null);
     }
     public void status(Credential c,String id,boolean enabled) {
         var body=json.createObjectNode();body.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));

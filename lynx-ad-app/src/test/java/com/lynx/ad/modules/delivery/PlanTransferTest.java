@@ -101,13 +101,17 @@ class PlanTransferTest {
         attempts.put(attempt.key(),attempt);
         group=new Group("root","root","root",null,"FAILED".equals(status)?null:attempt.key());
     }
-    @Test void unpairedPlanIsBlockedBeforeRecommendationsOrAnyPlatformWrite() {
+    @Test void unpairedPlanCanPrepareButCannotSubmitAnyPlatformWrite() {
         removeCounterpart();
         var context=service.context(tenant,root);
         assertFalse(context.available());
+        assertTrue(context.canPrepare());
         assertFalse(context.reuse());
-        assertEquals("暂无另一种投放方式的关联计划，无法转投。",context.reason());
-        assertThrows(BizException.class,()->service.recommendations(tenant,root));
+        assertEquals("SMART_BID_CUSTOM",context.targetMode());
+        assertTrue(context.targetName().contains("转投"));
+        assertNull(context.budget());
+        assertNull(context.roi2Goal());
+        assertEquals("首次转投暂不可提交。",context.reason());
         assertEquals(context.reason(),assertThrows(BizException.class,()->service.transfer(tenant,root,cost("first-key"))).getMessage());
 
         group=new Group("root","root","root",null,null);
@@ -115,6 +119,19 @@ class PlanTransferTest {
         assertEquals(PlanStatus.DELIVERING,physical.get(root.value()).status());
         assertTrue(attempts.isEmpty());
         verifyNoInteractions(gateway);
+        verify(store,never()).claim(any(),anyString());
+    }
+    @Test void firstTransferRecommendationsUseSourceProductsAndTargetMode() throws Exception {
+        removeCounterpart();
+        var source=physical.get(root.value());
+        var detail=(com.fasterxml.jackson.databind.node.ObjectNode)platform.get("111");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)detail.path("multi_product_creative_list").get(0)).put("product_id",102);
+        var quote=json.readTree("{\"roi\":{\"ecp_roi2_goal\":4.18}}");
+        when(gateway.recommendations(source,List.of("102"),SmartBidType.CUSTOM)).thenReturn(quote);
+
+        assertEquals(quote,service.recommendations(tenant,root));
+        verify(gateway).recommendations(source,List.of("102"),SmartBidType.CUSTOM);
+        assertTrue(calls.isEmpty());
         verify(store,never()).claim(any(),anyString());
     }
     @Test void transferRecommendationsUseTheExistingTargetsLiveProducts() throws Exception {
@@ -147,6 +164,7 @@ class PlanTransferTest {
 
         var context=service.context(tenant,root);
         assertEquals(request.requestKey(),context.pendingKey());
+        assertFalse(context.canPrepare());
         assertEquals("转投结果待核查，请稍后查询。",context.pendingError());
         assertEquals("FAILED",service.reconcile(tenant,root).status());
         assertEquals(List.of("ENABLE 111"),calls);

@@ -9,18 +9,39 @@
         <RequestFailureNotice :failure="contextFailure" context="历史计划的抖音号与商品信息暂未补全。" :busy="loading" @retry="load" />
       </div>
 
+      <main v-if="transferring && (transferNotice || transferPending)" class="ad-main workspace-settings-feedback">
+        <div class="container-page" aria-live="polite">
+          <p v-if="transferNotice" :class="{ 'workspace-error': !transferPending && !preparingTransfer }">{{ transferNotice }}</p>
+          <button v-if="transferPending" class="transfer-feedback-action" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '查询转投结果' }}</button>
+          <button v-else-if="!transferContext" class="transfer-feedback-action" type="button" :disabled="saving" @click="load">重新加载</button>
+        </div>
+      </main>
+
       <KeepAlive v-if="contentDraftId" :max="1">
         <Create v-if="contentDraftId && (step === 1 || step === 3)" :key="contentDraftId" :ref="rememberContentEditor" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="step" :initial-material-product="contentTitleProduct" :initial-material-tab="contentTitleEditing ? contentMaterialTab : undefined" :adjust-products-on-open="adjustProductsOnOpen" published-workspace :on-published-saved="finishContentSave" @navigate="navigate" />
       </KeepAlive>
-      <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
+      <main v-if="pairedTransfer" class="ad-main workspace-switch">
+        <div class="container-page"><section class="panel" aria-labelledby="switch-title"><div class="panel__pad">
+          <h2 id="switch-title" class="panel__title">转投为{{ BID_TYPE[transferContext?.targetMode || ''] }}</h2>
+          <dl class="workspace-result">
+            <div><dt>暂停计划</dt><dd>{{ plan.name }} · {{ plan.qcPlanId }}</dd></div>
+            <div><dt>启用计划</dt><dd>{{ transferContext?.targetName }} · {{ transferContext?.counterpartQcPlanId }}</dd></div>
+          </dl>
+          <div class="workspace-switch-actions">
+            <button class="btn-cancel-edit" type="button" :disabled="saving" @click="backToPlans">返回列表</button>
+            <button v-if="canEdit && !transferPending" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !transferAllowed" @click="submitSwitch">{{ saving ? '切换中…' : '确认切换' }}</button>
+          </div>
+        </div></section></div>
+      </main>
+      <Create v-else-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else-if="!contentDraftId || step === 2 || step === 4">
-        <CreationFrame :transfer="transferring" :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
+        <CreationFrame :transfer="transferring" :step="step" :reached-step="reachedStep" :max-step="transferring || plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? lastStep : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :account-switch-disabled="transferring" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" :content-editing="!!plan.qcPlanId" read-only embedded />
         <CreateGoalStep
           v-else-if="step === 2"
           :budget="budget" @update:budget="updateBudget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end"
-          :mode="bidType" :saving="saving" :read-only="!editing || !canEdit || transferring && transferPending"
-          settings-only embedded :allow-mode-change="transferring && !!transferAllowed"
+          :mode="bidType" :saving="saving" :read-only="!editing || !canEdit || transferring && !preparingTransfer"
+          settings-only embedded :allow-mode-change="transferring"
           :disabled-mode="transferring ? plan.smartBidType : undefined" :allow-schedule-change="editing && canEdit"
           :date-error="dateError || settingsFieldErrors.schedule || ''" :budget-error="visibleBudgetError"
           budget-warn="" :roi-error="roiError || settingsFieldErrors.roi || ''" :order-lo="0" :order-hi="0"
@@ -29,13 +50,13 @@
           :estimate-status="budgetEstimateState(activeRecommendations, budget, transferring ? transferQuoteLoading : saving)"
           :budget-hint="budgetHint" :roi-hint="workspaceRoiHint" selection-warning="" :demo-mode="false"
           :account="account" :accounts="[]" :account-chips="accountChips"
-          @mode="changeTransferMode" @retry-estimate="transferQuoteVersion++"
+          @retry-estimate="transferQuoteVersion++"
         />
         <template v-else-if="step === 3">
           <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
           <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
-          <main class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">{{ transferring ? '转投计划名称' : '投放计划名称' }}</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError || settingsFieldErrors.name" class="workspace-error" role="alert">{{ nameError || settingsFieldErrors.name }}</p></div></section></div></main>
+          <main class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">{{ transferring ? '转投计划名称' : '投放计划名称' }}</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit || transferring && !preparingTransfer" aria-label="计划名称" /><p v-if="nameError || settingsFieldErrors.name" class="workspace-error" role="alert">{{ nameError || settingsFieldErrors.name }}</p></div></section></div></main>
         </template>
         <main v-else-if="completedResult" class="ad-main workspace-audit"><div class="container-page"><PlanCompletedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="terminatedResult" class="ad-main workspace-audit"><div class="container-page"><PlanTerminatedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
@@ -48,21 +69,14 @@
           <p v-if="settingsPending" role="status">正在确认保存结果。<button type="button" :disabled="saving || settingsChecking" @click="verifySettingsResult()">{{ settingsChecking ? '确认中…' : '查询结果' }}</button><button v-if="canAcceptCurrent" type="button" :disabled="saving || settingsChecking" @click="acceptCurrentSettings">采用当前设置</button></p>
           <p v-else-if="settingsFailure" class="workspace-error" role="alert">{{ settingsFailure.kind === 'CONFLICT' ? '本次未保存，请再次点击保存修改。' : settingsFailure.message }}</p>
         </div></main>
-        <main v-if="transferring && (transferNotice || transferPending)" class="ad-main workspace-settings-feedback">
-          <div class="container-page" aria-live="polite">
-            <p v-if="transferNotice" :class="{ 'workspace-error': !transferPending }">{{ transferNotice }}</p>
-            <button v-if="transferPending" class="transfer-feedback-action" type="button" :disabled="saving" @click="reconcileTransfer">{{ saving ? '核查中…' : '查询转投结果' }}</button>
-            <button v-else-if="!transferContext" class="transfer-feedback-action" type="button" :disabled="saving" @click="load">重新加载</button>
-          </div>
-        </main>
         <CreationFooter v-if="step !== 4 || auditResult || deliveryResult || pausedResult || terminatedResult || completedResult || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy || resultActionBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
           <template #previous>
             <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy || resultActionBusy" @click="navigate(step - 1)">上一步</button>
           </template>
           <button v-if="!editing && step === 4 && deliveryView?.canPause" class="btn-prev btn-pause" type="button" :disabled="deliveryView.actionDisabled" @click="deliveryView.openPause()"><ReferenceIcon name="pause" />暂停投放</button>
           <button v-if="!editing && step === 4 && pausedView?.canRestore" class="btn-next-primary" type="button" :disabled="pausedView.actionDisabled" @click="pausedView.openRestore()"><ReferenceIcon name="play" />恢复投放</button>
-          <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
-          <button v-if="transferring && canEdit && !transferPending" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !changedMode || !transferAllowed || !!transferResult?.platformTransferRequired || !!nameError || !!budgetError || !!roiError || !!dateError" @click="submitTransfer">{{ saving ? '转投中…' : '确认转投' }}</button>
+          <button v-if="step < lastStep" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
+          <button v-if="preparingTransfer" class="btn-next-primary" type="button" disabled>确认转投</button>
           <button v-else-if="!transferring && editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
           <button v-if="editing" class="btn-cancel-edit" type="button" :disabled="saving || materialBusy" @click="backToPlans">{{ transferring ? '取消转投' : '取消修改' }}</button>
         </CreationFooter>
@@ -83,7 +97,7 @@ import { canRebasePlan, rebasePlanInputs, type PlanEditInputs } from '@/features
 import { conflictingSettings, savePlanSettingsWithRecovery, type SettingsField } from '@/features/delivery/planSettingsSave';
 import { requestFailure, type ApiRequestError } from '@/api/apiErrors';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
-import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, getPlanTransferRecommendations, transferPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
+import { getPlan, updatePlanSettings, refreshPlanSettings, verifyPlanSettings, updateDraft, getPlanTransfer, getPlanTransferRecommendations, switchTransferredPlan, reconcilePlanTransfer, type PlanVo, type PlanTransferContext, type PlanTransferSwitchRequest, type PlanTransferResult } from '@/features/delivery/deliveryApi';
 import { beginContentEdit, creationAdd, creationAddition, type CreationAdditionBody, creationGet, creationProductTitles, creationRegenerateTitle, creationFeedback, creationResolveVersion, creationRetrySync, type CreationProduct, type CreationState } from '@/features/delivery/creationApi';
 import type { MaterialFeedback } from '@/features/creative/creativeApi';
 import CreationActionDialog from './create/CreationActionDialog.vue';
@@ -94,7 +108,7 @@ import { productSelectionLocked } from '@/features/delivery/generationSelection'
 import { publishedSchedule, publishedScheduleError } from '@/features/delivery/publishedSchedule';
 import { listAccounts, type AccountVo } from '@/features/identity/oauthApi';
 import { useUserStore } from '@/stores/user';
-import { planStatusLabel } from '@/utils/labels';
+import { BID_TYPE, planStatusLabel } from '@/utils/labels';
 import { dateText } from './reference/planPresentation';
 import CreationFrame from './reference/CreationFrame.vue';
 import CreationFooter from './create/CreationFooter.vue';
@@ -232,13 +246,15 @@ const name = ref(''), budget = ref(''), roi = ref(''), duration = ref<'long' | '
 let loadNumber = 0;
 const transferring = computed(() => props.mode === 'transfer');
 const editing = computed(() => props.mode !== 'view');
-const transferContext = ref<PlanTransferContext>(), transferMode = ref('');
+const transferContext = ref<PlanTransferContext>();
 const transferResult = ref<PlanTransferResult>();
 const transferQuotes = ref<CreationState['recommendations']>();
 const transferQuoteLoading = ref(false), transferQuoteVersion = ref(0);
 const transferBudgetEdited = ref(false);
 const pendingSubmission = ref(false);
-let submission: PlanTransferRequest | undefined;
+let submission: PlanTransferSwitchRequest | undefined;
+const pairedTransfer = computed(() => transferring.value && !!transferContext.value?.reuse);
+const preparingTransfer = computed(() => transferring.value && canEdit.value && !!transferContext.value?.canPrepare && !settingsBlocked.value);
 const transferAllowed = computed(() => canEdit.value && !!plan.value?.qcPlanId && transferContext.value?.available && !pendingSubmission.value);
 const transferPending = computed(() => pendingSubmission.value || !!transferContext.value?.pendingKey);
 const transferNotice = computed(() => {
@@ -251,7 +267,8 @@ const transferNotice = computed(() => {
   return message || (transferPending.value ? '转投结果待核查，请稍后查询。' : '');
 });
 const initialViewStep = ref(1);
-const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : transferring.value ? 2 : initialViewStep.value; });
+const lastStep = computed(() => transferring.value ? 3 : 4);
+const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= lastStep.value ? value : transferring.value ? 2 : initialViewStep.value; });
 const draftInitialStep = computed(() => route.query.step == null ? undefined : step.value);
 const boundAccount = computed(() => accounts.value.find(a => a.accountId === plan.value?.accountId));
 const account = computed(() => {
@@ -271,7 +288,8 @@ const footerHint = computed(() => {
   if (transferring.value) return '';
   return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '';
 });
-const bidType = computed(() => transferring.value ? transferMode.value : plan.value?.smartBidType || (creation.value?.smartBidType ? `SMART_BID_${creation.value.smartBidType}` : ''));
+const bidType = computed(() => (transferring.value ? transferContext.value?.targetMode : undefined)
+  || plan.value?.smartBidType || (creation.value?.smartBidType ? `SMART_BID_${creation.value.smartBidType}` : ''));
 const isCost = computed(() => bidType.value === 'SMART_BID_CUSTOM');
 const products = computed<CreationProduct[]>(() => (plan.value?.products || []).map(p => {
   const original = creation.value?.products.find(x => x.qcProductId === p.id);
@@ -317,8 +335,12 @@ function resetForm() {
   const schedule=publishedSchedule(p);duration.value=schedule.duration;
   start.value = p.startDate || creation.value?.startDate || ''; end.value = schedule.end;
   if (transferring.value) {
-    transferMode.value = p.smartBidType || '';
     transferBudgetEdited.value = false;
+    if (changedMode.value) {
+      name.value = transferContext.value?.targetName ?? p.name;
+      budget.value = '';
+      roi.value = '';
+    }
   }
 }
 async function load() {
@@ -351,17 +373,8 @@ async function load() {
   scheduleMaterialPoll();
   if (settingsPending.value && !transferring.value) void verifySettingsResult();
 }
-function navigate(value: number) { if (!saving.value && !resultActionBusy.value && value >= 1 && value <= 4) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
+function navigate(value: number) { if (!saving.value && !resultActionBusy.value && value >= 1 && value <= lastStep.value) { void router.replace({ path: route.path, query: { ...route.query, step: String(value) } }); window.scrollTo(0, 0); } }
 function backToPlans() { if (!saving.value && !materialBusy.value && !resultActionBusy.value) void router.push('/campaigns'); }
-function changeTransferMode(value: string) {
-  const target = transferContext.value;
-  if (!transferring.value || !transferAllowed.value || saving.value || !target || value !== target.targetMode || value === transferMode.value) return;
-  transferMode.value = value;
-  transferBudgetEdited.value = false;
-  budget.value = target.reuse && target.budget != null ? String(target.budget) : '';
-  roi.value = target.reuse && target.roi2Goal != null ? String(target.roi2Goal) : '';
-  name.value = target.targetName ?? name.value;
-}
 function updateBudget(value: string) {
   budget.value = value;
   if (changedMode.value) transferBudgetEdited.value = true;
@@ -370,23 +383,23 @@ async function finishTransfer(result: PlanTransferResult) {
   transferResult.value = result;
   if (result.status === 'SUCCEEDED') {
     submission = undefined; pendingSubmission.value = false; ElMessage.success(result.message);
-    await router.replace({ path: `/campaigns/${result.planId}/edit`, query: { step: String(step.value) } });
+    await router.replace('/campaigns');
   } else {
     pendingSubmission.value = ['RUNNING', 'UNCERTAIN'].includes(result.status);
     if (!pendingSubmission.value) submission = undefined;
     try { transferContext.value = await getPlanTransfer(String(route.params.id)); } catch { /* Keep the confirmed submission result visible. */ }
   }
 }
-async function submitTransfer() {
+async function submitSwitch() {
   const p = plan.value;
-  if (!p?.qcPlanId || !transferAllowed.value || saving.value || settingsBlocked.value || transferResult.value?.platformTransferRequired || nameError.value || budgetError.value || roiError.value || dateError.value || !changedMode.value) return;
+  if (!p?.qcPlanId || !pairedTransfer.value || !transferAllowed.value || saving.value || settingsBlocked.value) return;
   transferResult.value = undefined;
   settingsFailure.value = undefined;
-  submission ||= { requestKey: crypto.randomUUID(), expectedQcPlanId: p.qcPlanId, smartBidType: bidType.value, budget: Number(budget.value), ...(isCost.value ? { roi2Goal: Number(roi.value) } : {}), ...(name.value.trim() !== initialName.value ? {name:name.value.trim()} : {}), ...(changedSchedule.value ? {scheduleType:duration.value==='long'?'FROM_NOW' as const:'DATE_RANGE' as const,...(duration.value==='custom'?{endDate:end.value}:{})} : {}) };
+  submission ||= { requestKey: crypto.randomUUID(), expectedQcPlanId: p.qcPlanId };
   saving.value = true;
-  try { await finishTransfer(await transferPlan(p.planId, submission)); }
+  try { await finishTransfer(await switchTransferredPlan(p.planId, submission)); }
   catch (error) {
-    // A browser timeout is not evidence that CREATE failed. Do not allow a fresh request.
+    // Keep the request key until the switch outcome is known.
     const code = Number((error as { code?: number })?.code);
     pendingSubmission.value = ![1201, 1401, 1402, 1403, 1404, 1405].includes(code);
     settingsFailure.value = requestFailure(error,{method:'POST'});
@@ -402,7 +415,7 @@ async function reconcileTransfer() {
   try {
     // Replaying the exact request only when no server attempt exists also covers pre-validation failures.
     const context = await getPlanTransfer(plan.value.planId);
-    if (!context.pendingKey && submission) await finishTransfer(await transferPlan(plan.value.planId, submission));
+    if (!context.pendingKey && submission) await finishTransfer(await switchTransferredPlan(plan.value.planId, submission));
     else { await finishTransfer(await reconcilePlanTransfer(plan.value.planId)); if (!context.pendingKey) { pendingSubmission.value = false; submission = undefined; } }
   } catch(error) { settingsFailure.value = requestFailure(error,{method:'GET'}); }
   finally { saving.value = false; }
@@ -514,7 +527,7 @@ async function acceptCurrentSettings() {
 
 watch(() => route.params.id, load, { immediate: true });
 watch(() => props.mode, () => { submission = undefined; pendingSubmission.value = false; void load(); });
-watch([() => !loading.value && transferAllowed.value && changedMode.value ? plan.value?.planId : undefined, transferQuoteVersion],
+watch([() => !loading.value && preparingTransfer.value ? plan.value?.planId : undefined, transferQuoteVersion],
   async ([id], _previous, onCleanup) => {
     transferQuotes.value = undefined;
     transferQuoteLoading.value = !!id;
@@ -525,7 +538,7 @@ watch([() => !loading.value && transferAllowed.value && changedMode.value ? plan
       const quotes = await getPlanTransferRecommendations(id, controller.signal);
       if (!controller.signal.aborted) {
         transferQuotes.value = quotes;
-        if (bidType.value === 'SMART_BID_CONSERVATIVE' && !transferContext.value?.reuse && !transferBudgetEdited.value) {
+        if (bidType.value === 'SMART_BID_CONSERVATIVE' && !transferBudgetEdited.value) {
           const amount = recommendedBudget(quotes);
           budget.value = amount != null && !budgetInputError(String(amount), bidType.value) ? String(amount) : '';
         }
@@ -575,4 +588,6 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 <style scoped>
 .workspace-settings-feedback{padding-top:0}.workspace-settings-feedback p{font-size:13px;line-height:1.7}.workspace-settings-feedback button{margin-left:12px;font:inherit;color:#575cf6}.workspace-settings-feedback button:disabled{opacity:.45}
 .workspace-settings-feedback .transfer-feedback-action{display:inline-block;margin:8px 0 0;color:#575cf6;font-size:13px;text-decoration:underline}
+.workspace-switch .container-page { max-width: 780px; }
+.workspace-switch-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 </style>

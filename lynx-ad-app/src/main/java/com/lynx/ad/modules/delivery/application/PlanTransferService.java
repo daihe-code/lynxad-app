@@ -25,9 +25,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class PlanTransferService {
     private static final String PRODUCT_TRANSFER_BLOCKED = "该商品已有投放计划，暂不支持切换投放方式。";
-    private static final String NO_COUNTERPART = "暂无另一种投放方式的关联计划，无法转投。";
+    private static final String FIRST_TRANSFER_UNAVAILABLE = "首次转投暂不可提交。";
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
-                          boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
+                          boolean reuse,String counterpartQcPlanId,boolean available,boolean canPrepare,String reason,String pendingKey,
                           String pendingStatus,String pendingError,String targetName,String counterpartPlanId) {}
     public record Result(String planId,String qcPlanId,String status,String message,boolean platformTransferRequired) {
         public Result(String planId,String qcPlanId,String status,String message) {
@@ -51,19 +51,21 @@ public class PlanTransferService {
         var target=targetId==null?null:require(tenant,targetId);
         String reason=null;
         if(current.qcPlanId().isEmpty() || !editable(current.status()))reason="仅已发布且投放中或暂停的计划支持转投";
-        else if(target==null)reason=NO_COUNTERPART;
         Attempt a=g==null||g.requestKey()==null?null:store.attempt(tenant,g.requestKey()).orElse(null);
         if(g!=null&&g.requestKey()!=null)reason=g.requestKey().startsWith("settings:")?"计划修改正在处理或结果待核查，请先核查修改结果":"转投正在处理或结果待核查";
+        boolean available=reason==null && target!=null;
+        boolean canPrepare=reason==null && target==null;
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
                 target==null?null:target.setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
-                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:result(a).message(),
-                target==null?null:transferName(target.name().text(),mode),targetId);
+                target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),available,canPrepare,
+                canPrepare?FIRST_TRANSFER_UNAVAILABLE:reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:result(a).message(),
+                target==null?transferName(current.name().text(),mode):target.name().text(),targetId);
     }
     public JsonNode recommendations(TenantId tenant, PlanId id) {
         var context = context(tenant, id);
-        if (!context.available()) throw new BizException(1403, context.reason());
+        if (!context.available() && !context.canPrepare()) throw new BizException(1403, context.reason());
         var mode = SmartBidType.fromOcean(context.targetMode());
-        var plan = require(tenant, context.counterpartPlanId());
+        var plan = require(tenant, context.reuse() ? context.counterpartPlanId() : id.value());
         var detail = gateway.detail(plan);
         checkMode(detail, plan.setting().bidType());
         var ids = productIds(detail);
@@ -104,7 +106,7 @@ public class PlanTransferService {
         SmartBidType mode=request.existingOnly()?opposite(source.setting().bidType()):SmartBidType.fromOcean(request.smartBidType());
         if(mode!=opposite(source.setting().bidType()))throw new BizException(1402,"请选择另一种投放方式");
         String targetId=group==null?null:group.target(mode);
-        if(targetId==null)throw new BizException(1403,NO_COUNTERPART);
+        if(targetId==null)throw new BizException(1403,FIRST_TRANSFER_UNAVAILABLE);
         var target=require(tenant,targetId);
         if(!source.accountId().equals(target.accountId()) || !source.awemeId().equals(target.awemeId()) || target.qcPlanId().isEmpty())
             throw new BizException(1404,"转投关联的账户信息不一致，请先核查计划");
