@@ -150,6 +150,36 @@ class VideoRemakeServiceTest {
         assertEquals("CONFIRMING", result.phase());
         verify(charges).hold("tenant", "remake:" + ID, "binding", "actor", units);
     }
+    @ParameterizedTest    
+    @CsvSource({"60,1260", "30,810"})
+    void remakeChargeCountsKeyframesPerScene(int scenes, long points) throws Exception {
+                var review = row("REVIEW", "{\"follow_source\":true}");
+        var expected = BigDecimal.valueOf(points);
+        var units = Map.of("remake_720p_second", 9, "image_unit", scenes);
+        when(store.find("tenant", ID, false)).thenReturn(Optional.of(review), Optional.of(review),
+                Optional.of(row("CONFIRMING")));
+        when(store.find("tenant", ID, true)).thenReturn(Optional.of(review));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.readTree("""
+                                                                                                  {"id":"%s","store_id":"tenant","status":"awaiting_confirmation",
+                "output_spec":{"width":720,"height":1280,"duration_seconds":9},
+                "points_breakdown":{"scenes":%s,"keyframes":%s,"sampled_keyframes":12,"shots":4,
+                "shot_images":0,"video_seconds":9,"short_edge":720,"width":720,"height":1280},"plan":{
+                "title":"原分镜","shots":[{"duration":3},{"duration":3},{"duration":2},{"duration":1}]}}
+                """.formatted(ENGINE, scenes, scenes)));
+        when(charges.quote("tenant", "remake:" + ID)).thenReturn(
+                new GenerationCharges.Quote(null, units, Map.of("remake_720p_second", BigDecimal.valueOf(40), "image_unit", BigDecimal.valueOf(15))));
+
+        var quote = service.get("tenant", "actor", ID).quote();
+        assertEquals(expected, quote.points());
+        assertEquals(BigDecimal.valueOf(40), quote.pointsPerSecond());
+        var shots = List.of(new VideoRemakeService.ShotEdit("镜头缓慢从杯口移到杯身的把手", "新台词一", "新字幕一",
+                new VideoRemakeService.ShotEdit("镜头转向桌面的水杯并拉近", "新台词二", "新字幕二",
+                new VideoRemakeService.ShotEdit("镜头拉近水杯的杯身细节", "新台词三", "新字幕三",
+                new VideoRemakeService.ShotEdit("镜头定格在桌面的水杯上", "新台词四", "新字幕四"));
+        var result = service.confirm("tenant", "actor", ID, new VideoRemakeService.Confirm("成片", shots, true, expected));
+        assertEquals("CONFIRMING", result.phase());
+        verify(charges).hold("tenant", "remake:" + ID, "binding", "actor", units);
+    }
 
     @Test
     void sourceMatchingRequiresMeasuredSpecificationBeforeCharging() {
