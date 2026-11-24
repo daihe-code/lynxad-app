@@ -257,6 +257,4 @@
   background: #fff;
   font: inherit;
 }
-.remake-link-import .remake-muted {
-  margin: 0 0 8px;
-}
+.remake-link-import .remake-muted { margin: 0 0 8px; } .remake-progress-steps { list-style: none; padding: 0; margin: 0; } .remake-progress-steps ol { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; } .remake-progress-steps li { display: grid; gap: 3px; padding: 9px 10px; border-radius: 8px; background: #f4f5fa; color: var(--remake-muted); font-size: 13px; } .remake-progress-steps li .remake-step-index { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 6px; background: #e9ebf3; font-weight: 700; color: var(--remake-ink); } .remake-progress-steps li small { display: block; color: var(--remake-muted); font-size: 12px; line-height: 1.4; } .remake-progress-steps li.done { background: #eef7f0; color: #156747; } .remake-progress-steps li.done .remake-step-index { background: #156747; color: #fff; } .remake-progress-steps li.current { background: #edebff; color: #433bb5; font-weight: 700; } .remake-progress-steps li.current .remake-step-index { background: var(--remake-accent); color: #fff; }
