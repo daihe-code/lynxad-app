@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
  *
  * <p>主路由为免登录 H5 路由：解析分享短链后，两次请求 iesdouyin 分享页（第一次取回 ttwid
  * 设备 Cookie，第二次携带该 Cookie），从页面内嵌的 videoInfoRes JSON 中取出播放地址，把
- * playwm 换成 play 得到无水印播放地址，再下载并用 ffprobe 校验。
+ * playwm 换成 play 得到无水印播放地址；取不到时再直取 www.douyin.com 视频页（iesdouyin 现会 302 到该页），并对双重转义的内嵌 JSON 做反转义后提取；再下载并用 ffprobe 校验。
  *
  * <p>兜底顺序：H5 路由失败后，先试 aweme 详情接口
  * （{@code /aweme/v1/web/aweme/detail/}，只用链接或短链解析出的同一视频编号请求，
@@ -348,11 +348,11 @@ public final class DouyinLinkVideoDownloader {
      */
     public static String extractPlayUrl(String html, ObjectMapper json) {
         if (html == null || html.isBlank()) return null;
-        String found = extractPlayUrlFromText(html.replace("\\/", "/"), json);
+        String found = extractPlayUrlFromEscaped(html.replace("\\/", "/"), json);
         if (found != null) return found;
         try {
             String decoded = URLDecoder.decode(html, StandardCharsets.UTF_8).replace("\\/", "/");
-            if (!decoded.equals(html)) return extractPlayUrlFromText(decoded, json);
+            if (!decoded.equals(html)) return extractPlayUrlFromEscaped(decoded, json);
         } catch (IllegalArgumentException ignored) {
             // 不是 URL 编码的正文，按原文处理即可。
         }
@@ -509,7 +509,7 @@ public final class DouyinLinkVideoDownloader {
         if (state != null) {
             throw fail(state, messageForReason(state), "share page state signal: " + state, resolvedId);
         }
-        String playUrl = extractPlayUrl(html, json);
+        String playUrl = extractPlayUrlOrWebPage(html, http, json, resolvedId);
         if (playUrl == null) {
             if (ttwidMissing) {
                 throw fail(LinkImportFailure.TTWID_MISSING,
@@ -923,5 +923,203 @@ public final class DouyinLinkVideoDownloader {
 
     private static LinkImportFailure fail(String reason, String message, String detail, String awemeId) {
         return new LinkImportFailure(reason, message, detail, awemeId);
+    }
+
+    // www.douyin.com 视频页直链前缀：iesdouyin 分享页现会 302 跳转到该页，
+    // 分享页路由拿到的本来就是这份 HTML；解析不到播放地址时再直取一次该页，
+    // 既少一次跳转，也避开跳转带上的 previous_page 等参数导致的不同页面形态。
+    private static final String WEB_VIDEO_URL_PREFIX = "https://www.douyin.com/video/";
+
+    /**
+     * 先按原有逻辑从分享页 HTML 提取播放地址；取不到且视频编号已知时，
+     * 再直取 www.douyin.com 视频页并同样提取一次。直取失败返回 null，
+     * 由调用方按原有原因码（VIDEOINFO_MISSING 等）报错，不改变错误面。
+     */
+    static String extractPlayUrlOrWebPage(String html, HttpClient http, ObjectMapper json, String resolvedId) {
+        String found = extractPlayUrl(html, json);
+        if (found != null || resolvedId == null || resolvedId.isBlank()) {
+            return found;
+        }
+        try {
+            URI webUri = requireDouyinUrl(URI.create(WEB_VIDEO_URL_PREFIX + resolvedId), false);
+            SharePage page = fetchSharePage(http, webUri);
+            return extractPlayUrl(page.body(), json);
+        } catch (RuntimeException ignored) {
+            // www 视频页也没能取到可用内容：返回 null，让调用方报原有的错。
+            return null;
+        }
+    }
+
+    /**
+     * 从分享页 HTML 中提取播放地址（增强版）。
+     * www.douyin.com 视频页把视频数据嵌在 JS 字符串字面量（如 RSC self.__next_f）
+     * 里，JSON 会被双重转义，原有提取逻辑只能处理单层转义斜杠与 URL 编码，
+     * 会全部错过；这里先做多轮反转义再提取，并在 videoInfoRes 不可用时直接从
+     * play_addr 对象取播放地址。
+     */
+    static String extractPlayUrlFromEscaped(String html, ObjectMapper json) {
+        if (html == null || html.isBlank()) {
+            return null;
+        }
+        String found = extractPlayUrlFromText(html.replace("\\/", "/"), json);
+        if (found != null) {
+            return found;
+        }
+        found = extractFromVideoInfoString(html, json);
+        if (found != null) {
+            return found;
+        }
+        String unescaped = unescapeEmbeddedJson(html);
+        if (!unescaped.equals(html)) {
+            found = extractPlayUrlFromText(unescaped, json);
+            if (found != null) {
+                return found;
+            }
+        }
+        return extractFromPlayAddr(unescaped, json);
+    }
+
+    /**
+     * 反转义页面内嵌的 JSON 字符串：多轮处理转义斜杠、转义引号、转义反斜杠与
+     * unicode 转义，直到稳定或达到轮数上限；输入已是普通文本时原样返回。
+     */
+    static String unescapeEmbeddedJson(String text) {
+        String current = text;
+        for (int round = 0; round < 4; round++) {
+            String next = unescapeEmbeddedJsonOnce(current);
+            if (next.equals(current)) {
+                return current;
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    static String unescapeEmbeddedJsonOnce(String text) {
+        String result = text.replace("\\\\", "\\").replace("\\/", "/").replace("\\\"", "\"");
+        return decodeUnicodeEscapes(result);
+    }
+
+    static String decodeUnicodeEscapes(String text) {
+        if (text.indexOf("\\u") < 0) {
+            return text;
+        }
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\' && i + 5 < text.length() && text.charAt(i + 1) == 'u') {
+                int code = parseHex4(text, i + 2);
+                if (code >= 0) {
+                    out.append((char) code);
+                    i += 5;
+                    continue;
+                }
+            }
+            out.append(c);
+        }
+        return out.toString();
+    }
+
+    static int parseHex4(String text, int from) {
+        int value = 0;
+        for (int i = 0; i < 4; i++) {
+            int digit = Character.digit(text.charAt(from + i), 16);
+            if (digit < 0) {
+                return -1;
+            }
+            value = value * 16 + digit;
+        }
+        return value;
+    }
+
+    /**
+     * 直接从 play_addr 对象取播放地址：即使外层 videoInfoRes 被改名或移走，
+     * 只要播放地址对象还在，就能拿到无水印播放地址。
+     */
+    static String extractFromPlayAddr(String text, ObjectMapper json) {
+        int searchFrom = 0;
+        while (true) {
+            int key = text.indexOf("\"play_addr\"", searchFrom);
+            if (key < 0) {
+                return null;
+            }
+            int brace = text.indexOf('{', key);
+            if (brace < 0) {
+                return null;
+            }
+            String object = balancedObject(text, brace);
+            if (object != null) {
+                try {
+                    JsonNode playAddr = json.readTree(object);
+                    JsonNode urlList = playAddr.path("url_list");
+                    if (urlList.isArray()) {
+                        for (JsonNode url : urlList) {
+                            if (url.isTextual() && !url.asText().isBlank()) {
+                                return url.asText();
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // 不是合法 JSON 对象，继续找下一个 play_addr。
+                }
+            }
+            searchFrom = brace + 1;
+        }
+    }
+
+    /**
+     * 处理 videoInfoRes 的值本身就是一段 JSON 字符串的情况
+     * （外层载荷再包一层字符串时会出现）：解开字符串后再解析取播放地址。
+     */
+    static String extractFromVideoInfoString(String text, ObjectMapper json) {
+        int searchFrom = 0;
+        while (true) {
+            int key = text.indexOf("\"videoInfoRes\"", searchFrom);
+            if (key < 0) {
+                return null;
+            }
+            int colon = text.indexOf(':', key + 14);
+            if (colon < 0) {
+                return null;
+            }
+            int value = colon + 1;
+            while (value < text.length() && Character.isWhitespace(text.charAt(value))) {
+                value++;
+            }
+            if (value >= text.length()) {
+                return null;
+            }
+            if (text.charAt(value) == '"') {
+                String inner = quotedString(text, value);
+                if (inner != null) {
+                    try {
+                        String found = findPlayUrl(json.readTree(unescapeEmbeddedJson(inner)));
+                        if (found != null) {
+                            return found;
+                        }
+                    } catch (Exception ignored) {
+                        // 字符串里不是合法 JSON，继续找下一个 videoInfoRes。
+                    }
+                }
+            }
+            searchFrom = value + 1;
+        }
+    }
+
+    static String quotedString(String text, int openQuote) {
+        StringBuilder out = new StringBuilder();
+        for (int i = openQuote + 1; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\' && i + 1 < text.length()) {
+                out.append(c).append(text.charAt(i + 1));
+                i++;
+                continue;
+            }
+            if (c == '"') {
+                return out.toString();
+            }
+            out.append(c);
+        }
+        return null;
     }
 }
