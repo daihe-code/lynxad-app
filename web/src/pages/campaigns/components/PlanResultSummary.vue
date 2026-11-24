@@ -10,9 +10,10 @@
     <div class="transfer-history">
       <p v-if="historyError" role="status">历史投放数据暂未读取。<button type="button" @click="loadHistory">重试</button></p>
       <table v-if="instances.length">
-        <thead><tr><th>原投放计划 ID</th><th>转投时间</th><th>统计日期</th><th>消耗</th><th>成交金额</th><th>ROI</th><th>订单数</th></tr></thead>
+        <caption>初始计划 ID <strong>{{ initialPlanId }}</strong></caption>
+        <thead><tr><th>转投时间</th><th>统计日期</th><th>消耗</th><th>成交金额</th><th>ROI</th><th>订单数</th></tr></thead>
         <tbody><tr v-for="instance in instances" :key="instance.qcPlanId">
-          <td>{{ instance.qcPlanId }}</td><td>{{ reviewTime(instance.archivedAt) }}</td><td>{{ instance.statisticsStartDate && instance.statisticsStartDate !== instance.statisticsDate ? instance.statisticsStartDate + ' 至 ' : '' }}{{ instance.statisticsDate || '—' }}</td>
+          <td>{{ reviewTime(instance.archivedAt) }}</td><td>{{ instance.statisticsStartDate && instance.statisticsStartDate !== instance.statisticsDate ? instance.statisticsStartDate + ' 至 ' : '' }}{{ instance.statisticsDate || '—' }}</td>
           <td>{{ money(instance.costYuan) }}</td><td>{{ money(instance.gmvYuan) }}</td><td>{{ instance.roi ?? '—' }}</td><td>{{ instance.orders ?? '—' }}</td>
         </tr></tbody>
       </table>
@@ -28,6 +29,8 @@ import { reviewTime } from '@/features/delivery/planReview';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 const props = defineProps<{ plan: PlanListVo; awemeName?: string }>();
 const instances = ref<PlanTransferHistory[]>([]), historyError = ref(false);
+// History is returned newest first within this logical plan.
+const initialPlanId = computed(() => instances.value.at(-1)?.qcPlanId);
 const money = (value?: number | null) => value == null ? '—' : `¥${Number(value).toFixed(2)}`;
 let historyRead = 0;
 async function loadHistory() {
@@ -68,6 +71,7 @@ const brief = computed(() => {
 .plan-result-summary dd{margin:0;text-align:right;font-weight:600;overflow-wrap:anywhere}
 .transfer-history{overflow:auto;padding:0 24px 20px}
 .transfer-history table{width:100%;border-collapse:collapse;text-align:left;font-size:13px;white-space:nowrap}
+.transfer-history caption{padding:0 8px 12px;text-align:left;color:#646881}
 .transfer-history th,.transfer-history td{padding:10px 8px;border-top:1px solid #eeeff6}
 .transfer-history th{color:#646881;font-weight:600}
 .transfer-history button{margin-left:8px;color:#575cf6}
