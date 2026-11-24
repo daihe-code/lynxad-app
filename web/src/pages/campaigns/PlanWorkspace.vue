@@ -1,8 +1,10 @@
 <template>
-  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--submission': step === 4 && submissionPhase && !editing, 'plan-workspace--audit': step === 4 && (auditResult || deliveryResult || pausedResult || terminatedResult || completedResult) }">
+  <div class="campaign-reference creative-workspace wizard plan-workspace" :class="{ 'plan-workspace--view': !editing, 'plan-workspace--audit': step === 4 && (auditResult || deliveryResult || pausedResult || terminatedResult || completedResult) }">
     <div v-if="loading" class="workspace-loading" role="status">正在加载计划…</div>
     <div v-else-if="loadError" class="workspace-loading"><RequestFailureNotice :failure="loadFailure" :busy="loading" @retry="load" /><router-link to="/campaigns">返回投放列表</router-link></div>
-    <template v-else-if="plan">
+    <div v-else-if="plan" ref="workspaceContent" class="plan-workspace__content"
+      :tabindex="editing ? undefined : 0" :role="editing ? undefined : 'region'"
+      :aria-label="editing ? undefined : '投放计划详情'">
       <div v-if="!draftEditor" class="workspace-feedback container-page">
         <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
         <PlanReviewNotice v-if="!(step === 4 && auditResult)" :plan="plan" auto-read @updated="plan = $event" />
@@ -13,7 +15,7 @@
         <Create v-if="contentDraftId && (step === 1 || step === 3)" :key="contentDraftId" :ref="rememberContentEditor" :initial-plan-id="contentDraftId" :published-edit-target="plan.planId" :initial-step="step" :initial-material-product="contentTitleProduct" :initial-material-tab="contentTitleEditing ? contentMaterialTab : undefined" :adjust-products-on-open="adjustProductsOnOpen" published-workspace :on-published-saved="finishContentSave" @navigate="navigate" />
       </KeepAlive>
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
-      <template v-else-if="!contentDraftId || step === 2 || step === 4">
+      <template v-else-if="showWorkspaceFrame">
         <CreationFrame :transfer="transferring" :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" :content-editing="!!plan.qcPlanId" read-only embedded />
         <CreateGoalStep
@@ -39,7 +41,7 @@
         </template>
         <main v-else-if="completedResult" class="ad-main workspace-audit"><div class="container-page"><PlanCompletedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="terminatedResult" class="ad-main workspace-audit"><div class="container-page"><PlanTerminatedResult :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
-        <main v-else-if="pausedResult" class="ad-main workspace-audit"><div class="container-page"><PlanPausedResult ref="pausedView" :show-footer="false" :read-only="!canEdit" inline-footer :restore-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
+        <main v-else-if="pausedResult" class="ad-main workspace-audit"><div class="container-page"><PlanPausedResult ref="pausedView" :show-footer="false" :read-only="!canEdit && !canRestoreArchived" inline-footer :restore-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="deliveryResult" class="ad-main workspace-audit"><div class="container-page"><PlanDeliveryResult ref="deliveryView" :show-footer="false" :read-only="!canEdit" inline-footer :pause-disabled="editing && (dirty || settingsBlocked || saving || materialBusy)" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="auditResult" class="ad-main workspace-audit"><div class="container-page"><PlanAuditResult :read-only="!editing || !canEdit" :show-footer="false" :plan="plan" :aweme-name="account?.awemeName" @updated="plan = $event" /></div></main>
         <main v-else-if="submissionPhase" class="ad-main workspace-submission" :class="{ 'workspace-submission--editing': editing }"><div class="container-page"><PlanSubmissionCard :phase="submissionPhase" :summary="submissionSummary" :error="creation?.publishError" :recovery="creation?.publishRecovery" @recover="recoverFailedPlan" @back="backToPlans" /></div></main>
@@ -55,20 +57,21 @@
             <button v-else-if="!transferContext" class="transfer-feedback-action" type="button" :disabled="saving" @click="load">重新加载</button>
           </div>
         </main>
-        <CreationFooter v-if="step !== 4 || auditResult || deliveryResult || pausedResult || terminatedResult || completedResult || !submissionPhase || editing" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy || resultActionBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
-          <template #previous>
-            <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy || resultActionBusy" @click="navigate(step - 1)">上一步</button>
-          </template>
-          <button v-if="!editing && step === 4 && deliveryView?.canPause" class="btn-prev btn-pause" type="button" :disabled="deliveryView.actionDisabled" @click="deliveryView.openPause()"><ReferenceIcon name="pause" />暂停投放</button>
-          <button v-if="!editing && step === 4 && pausedView?.canRestore" class="btn-next-primary" type="button" :disabled="pausedView.actionDisabled" @click="pausedView.openRestore()"><ReferenceIcon name="play" />恢复投放</button>
-          <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
-          <button v-if="transferring && canEdit && !transferPending" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !changedMode || !transferAllowed || !!transferResult?.platformTransferRequired || !!nameError || !!budgetError || !!roiError || !!dateError" @click="submitTransfer">{{ saving ? '转投中…' : '确认转投' }}</button>
-          <button v-else-if="!transferring && editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
-          <button v-if="editing" class="btn-cancel-edit" type="button" :disabled="saving || materialBusy" @click="backToPlans">{{ transferring ? '取消转投' : '取消修改' }}</button>
-        </CreationFooter>
       </template>
-      <CreationActionDialog v-if="materialAction" :action="materialAction.kind" :error="mediaFailure?.message" :material="creation?.materials.find(m => m.id === materialAction?.id)" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
-    </template>
+    </div>
+    <CreationFooter v-if="!loading && !loadError && plan && showWorkspaceFrame && (step !== 4 || auditResult || deliveryResult || pausedResult || terminatedResult || completedResult || !submissionPhase || editing)"
+      class="workspace-footer" :plan-name="name" :plan-status="plan.status" :qc-status="plan.qcStatus" :busy="saving || materialBusy || resultActionBusy" :show-draft-save="false" :hint="footerHint" @back="backToPlans">
+      <template #previous>
+        <button v-if="step > 1" class="btn-prev" type="button" :disabled="saving || materialBusy || resultActionBusy" @click="navigate(step - 1)">上一步</button>
+      </template>
+      <button v-if="!editing && step === 4 && deliveryView?.canPause" class="btn-prev btn-pause" type="button" :disabled="deliveryView.actionDisabled" @click="deliveryView.openPause()"><ReferenceIcon name="pause" />暂停投放</button>
+      <button v-if="!editing && step === 4 && pausedView?.canRestore" class="btn-next-primary" type="button" :disabled="pausedView.actionDisabled" @click="pausedView.openRestore()"><ReferenceIcon name="play" />恢复投放</button>
+      <button v-if="step < 4" :class="editing && canEdit ? 'btn-prev' : 'btn-next-primary'" type="button" :disabled="saving || materialBusy" @click="navigate(step + 1)">下一步</button>
+      <button v-if="transferring && canEdit && !transferPending" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || !changedMode || !transferAllowed || !!transferResult?.platformTransferRequired || !!nameError || !!budgetError || !!roiError || !!dateError" @click="submitTransfer">{{ saving ? '转投中…' : '确认转投' }}</button>
+      <button v-else-if="!transferring && editing && canEdit" class="btn-next-primary" type="button" :disabled="saving || settingsBlocked || (!dirty && !contentDraftId) || !!nameError || !!budgetError || !!roiError || !!dateError" @click="save">{{ saving ? '保存中…' : '保存修改' }}</button>
+      <button v-if="editing" class="btn-cancel-edit" type="button" :disabled="saving || materialBusy" @click="backToPlans">{{ transferring ? '取消转投' : '取消修改' }}</button>
+    </CreationFooter>
+    <CreationActionDialog v-if="!loading && !loadError && plan && materialAction" :action="materialAction.kind" :error="mediaFailure?.message" :material="creation?.materials.find(m => m.id === materialAction?.id)" :busy="materialBusy" :retry-at="creation?.regenerationRetryAt" published @close="materialAction = undefined" @confirm="submitMaterialAction" />
   </div>
 </template>
 
@@ -252,6 +255,8 @@ const transferNotice = computed(() => {
 });
 const initialViewStep = ref(1);
 const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : transferring.value ? 2 : initialViewStep.value; });
+const workspaceContent = ref<HTMLElement>();
+watch(step, () => { if (!editing.value && workspaceContent.value) workspaceContent.value.scrollTop = 0; }, { flush: 'post' });
 const draftInitialStep = computed(() => route.query.step == null ? undefined : step.value);
 const boundAccount = computed(() => accounts.value.find(a => a.accountId === plan.value?.accountId));
 const account = computed(() => {
@@ -262,9 +267,11 @@ const account = computed(() => {
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
 const canEdit = computed(() => user.me?.memberRole !== 'VIEWER' && user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
+const canRestoreArchived = computed(() => plan.value?.qcStatus === 'TRANSFER_ARCHIVED' && user.me?.memberRole !== 'VIEWER' && boundAccount.value?.status === 'ACTIVE');
 const productAdjustmentAvailable = computed(() => editing.value && !transferring.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
 const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
 const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
+const showWorkspaceFrame = computed(() => !draftEditor.value && (!contentDraftId.value || step.value === 2 || step.value === 4));
 const footerHint = computed(() => {
   if (!editing.value || !canEdit.value) return '';
   if (!plan.value?.qcPlanId) return '保存修改后更新草稿';
@@ -374,7 +381,11 @@ async function finishTransfer(result: PlanTransferResult) {
   } else {
     pendingSubmission.value = ['RUNNING', 'UNCERTAIN'].includes(result.status);
     if (!pendingSubmission.value) submission = undefined;
-    try { transferContext.value = await getPlanTransfer(String(route.params.id)); } catch { /* Keep the confirmed submission result visible. */ }
+    const id = String(route.params.id);
+    try {
+      transferContext.value = await getPlanTransfer(id);
+      if (result.status === 'FAILED' && result.qcPlanId && result.qcPlanId !== plan.value?.qcPlanId) plan.value = await getPlan(id);
+    } catch { /* Keep the confirmed submission result visible. */ }
   }
 }
 async function submitTransfer() {
@@ -563,13 +574,27 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 
 <style scoped>
 .plan-workspace { padding-bottom: 132px; }
-.plan-workspace.plan-workspace--submission { padding-bottom: 0; }
+.plan-workspace__content { display: contents; }
 .plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
 .workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
 .workspace-plan-settings{padding-top:0}.workspace-plan-settings .panel__pad{padding-top:20px;padding-bottom:24px}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
 @media(max-width:767px){.plan-workspace{padding-bottom:220px}}
+.plan-workspace.plan-workspace--view {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding-bottom: 0;
+}
+.plan-workspace--view .plan-workspace__content {
+  display: block;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.plan-workspace--view .workspace-footer { position: static; }
 </style>
 
 <style scoped>

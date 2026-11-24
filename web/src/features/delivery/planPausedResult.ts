@@ -5,7 +5,7 @@ import { deliveryMetricCards } from './planDeliveryResult.ts';
 import { PLAN_PAUSE_REASONS } from './planPause.ts';
 import { shiftDay } from './statisticsRange.ts';
 
-type PausePlan = { planId: string; status: string; qcPlanId?: string; createdAt?: string | null; startDate?: string | null; smartBidType?: string | null; roi2Goal?: number | null };
+type PausePlan = { planId: string; status: string; qcPlanId?: string; qcStatus?: string | null; createdAt?: string | null; startDate?: string | null; smartBidType?: string | null; roi2Goal?: number | null };
 export type PauseAction = AgentActionVo & { automation?: { eventId: string; cause: string; evidence: string } };
 const controlTypes: Record<string,string> = { MANUAL_DISABLE:'手动暂停投放', MANUAL_ENABLE:'恢复投放', MANUAL_FINISH:'结束计划', QC_ABNORMAL_PAUSE:'平台异常暂停', AUTOMATIC_DISABLE:'系统自动暂停投放', AUTOMATIC_ENABLE:'系统自动恢复投放' };
 
@@ -47,7 +47,9 @@ export function automaticPauseAdvice(cause: string) {
   if (cause === 'LOSS') return '建议先核对商品成本、退款预留和投放表现，调整投放目标或素材后，再决定是否恢复。';
   return '建议先查看自动调控记录，核对触发原因和投放设置后，再决定是否恢复。';
 }
-export function hasPlanPausedResult(plan?: Pick<PausePlan,'status'|'qcPlanId'> | null) { return !!plan?.qcPlanId && plan.status === 'PAUSED'; }
+export function hasPlanPausedResult(plan?: Pick<PausePlan,'status'|'qcPlanId'|'qcStatus'> | null) {
+  return plan?.status === 'PAUSED' && (!!plan.qcPlanId || plan.qcStatus === 'TRANSFER_ARCHIVED');
+}
 export function pauseTimestamp(value?: string | null) {
   if (!value) return NaN;
   return Date.parse(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value) ? `${value.replace(' ', 'T')}+08:00` : value);

@@ -45,6 +45,12 @@ public class PlanRemoteStore {
         if (changed == 0) jdbc.update("INSERT INTO qc_plan_metadata(plan_id,tenant_id,oauth_account_id,qc_plan_id,payload,synced_at) VALUES(?,?,?,?,?,?)",
                 planId, tenant.value(), account.value(), qcId, payload.toString(), java.sql.Timestamp.from(Instant.now()));
     }
+    /** Previous metadata has already been copied to transfer history in the same workflow. */
+    public void replaceInstance(TenantId tenant, AccountId account, String qcId, String planId, JsonNode payload) {
+        jdbc.update("DELETE FROM qc_plan_metadata WHERE tenant_id=? AND oauth_account_id=? AND plan_id=?",
+                tenant.value(),account.value(),planId);
+        save(tenant,account,qcId,planId,payload);
+    }
     public void detail(TenantId tenant, String planId, JsonNode detail) {
         jdbc.update("UPDATE qc_plan_metadata SET detail=? WHERE tenant_id=? AND plan_id=?", detail.toString(), tenant.value(), planId);
         if(materialUsage!=null)materialUsage.observe(tenant.value(),planId,detail);
@@ -74,6 +80,15 @@ public class PlanRemoteStore {
         if(insights!=null)insights.observeGuarantee(tenant,planId,status,null,null);
     }
     public void report(TenantId tenant, String planId, JsonNode today, JsonNode yesterday, java.time.LocalDate day, Instant ts) {
+        writeReport(tenant,planId,today,yesterday,day,ts);
+    }
+    @org.springframework.transaction.annotation.Transactional
+    public void reportInstance(TenantId tenant, AccountId account, String planId, String qcId, JsonNode today, JsonNode yesterday, LocalDate day, Instant ts) {
+        var ids=jdbc.queryForList("SELECT qc_plan_id FROM qc_plan_metadata WHERE tenant_id=? AND oauth_account_id=? AND plan_id=? FOR UPDATE",
+                String.class,tenant.value(),account.value(),planId);
+        if(ids.contains(qcId))writeReport(tenant,planId,today,yesterday,day,ts);
+    }
+    private void writeReport(TenantId tenant, String planId, JsonNode today, JsonNode yesterday, LocalDate day, Instant ts) {
         // A successful empty daily report must not erase a paused plan's last available statistics.
         JsonNode last=validReport(today)?today:validReport(yesterday)?yesterday:null;
         LocalDate lastDay=validReport(today)?day:day.minusDays(1);

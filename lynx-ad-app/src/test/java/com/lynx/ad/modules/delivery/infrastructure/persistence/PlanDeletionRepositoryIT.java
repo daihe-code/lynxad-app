@@ -89,6 +89,26 @@ class PlanDeletionRepositoryIT {
         tx.executeWithoutResult(s->command.deletePlan(tenant,root.id()));
         verify(platform,times(1)).updateStatus(any(),any(),eq(PlanAction.DELETE));
     }
+    @Test void archivedAndRebuiltPlanKeepsItsLocalIdAndRejectsStalePhysicalUpdates() {
+        var plan=plan("root","111",SmartBidType.CONSERVATIVE);
+        plans.save(plan);
+        var stale=plans.findById(tenant,plan.id()).orElseThrow();
+        plan.archiveForTransfer();
+        tx.executeWithoutResult(s->plans.saveTransferInstance(plan,"111"));
+        assertTrue(plans.findById(tenant,plan.id()).orElseThrow().transferArchived());
+        assertTrue(plans.findByQcPlanId(tenant,new QcPlanId("111")).isEmpty());
+        stale.apply(PlanStatus.DELIVERING);
+        plans.save(stale);
+        assertTrue(plans.findById(tenant,plan.id()).orElseThrow().qcPlanId().isEmpty());
+
+        plan.rebuildForTransfer(new QcPlanId("222"));
+        plan.apply(PlanStatus.DELIVERING);
+        plan.syncPlatformStatus("DELIVERY_OK");
+        tx.executeWithoutResult(s->plans.saveTransferInstance(plan,null));
+        plans.save(stale);
+        assertEquals(plan.id(),plans.findByQcPlanId(tenant,new QcPlanId("222")).orElseThrow().id());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM ad_plan",Integer.class));
+    }
     @Test void platformRejectionRollsBackDeleteAndKeepsSelectedPlan() {
         var root=plan("root","111",SmartBidType.CONSERVATIVE);plans.save(root);
         doThrow(new BizException(1406,"平台拒绝删除")).when(platform).updateStatus(any(),any(),eq(PlanAction.DELETE));

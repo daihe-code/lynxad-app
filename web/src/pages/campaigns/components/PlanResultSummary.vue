@@ -5,14 +5,41 @@
       <section v-for="column in summary" :key="column.title"><h4>{{ column.title }}</h4><dl><div v-for="[label, value] in column.rows" :key="label"><dt>{{ label }}</dt><dd>{{ value }}</dd></div></dl></section>
     </div>
   </details>
+  <details v-if="instances.length || historyError" class="plan-result-summary" :open="plan.qcStatus === 'TRANSFER_ARCHIVED' || undefined">
+    <summary><h3>历史投放数据</h3><span class="plan-result-summary__brief">{{ instances.length }} 次投放</span><ReferenceIcon class="plan-result-summary__caret" name="caret" /></summary>
+    <div class="transfer-history">
+      <p v-if="historyError" role="status">历史投放数据暂未读取。<button type="button" @click="loadHistory">重试</button></p>
+      <table v-if="instances.length">
+        <thead><tr><th>原投放计划 ID</th><th>转投时间</th><th>统计日期</th><th>消耗</th><th>成交金额</th><th>ROI</th><th>订单数</th></tr></thead>
+        <tbody><tr v-for="instance in instances" :key="instance.qcPlanId">
+          <td>{{ instance.qcPlanId }}</td><td>{{ reviewTime(instance.archivedAt) }}</td><td>{{ instance.statisticsStartDate && instance.statisticsStartDate !== instance.statisticsDate ? instance.statisticsStartDate + ' 至 ' : '' }}{{ instance.statisticsDate || '—' }}</td>
+          <td>{{ money(instance.costYuan) }}</td><td>{{ money(instance.gmvYuan) }}</td><td>{{ instance.roi ?? '—' }}</td><td>{{ instance.orders ?? '—' }}</td>
+        </tr></tbody>
+      </table>
+    </div>
+  </details>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { PlanListVo } from '@/features/delivery/deliveryApi';
+import { computed, ref, watch } from 'vue';
+import { listPlanTransferHistory, type PlanListVo, type PlanTransferHistory } from '@/features/delivery/deliveryApi';
 import { planSubmissionSummary } from '@/features/delivery/planSubmissionPresentation';
+import { reviewTime } from '@/features/delivery/planReview';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 const props = defineProps<{ plan: PlanListVo; awemeName?: string }>();
+const instances = ref<PlanTransferHistory[]>([]), historyError = ref(false);
+const money = (value?: number | null) => value == null ? '—' : `¥${Number(value).toFixed(2)}`;
+let historyRead = 0;
+async function loadHistory() {
+  const request = ++historyRead;
+  instances.value = []; historyError.value = false;
+  if (props.plan.source !== 'LINGTOU' || (!props.plan.qcPlanId && props.plan.qcStatus !== 'TRANSFER_ARCHIVED')) return;
+  try {
+    const history = await listPlanTransferHistory(props.plan.planId);
+    if (request === historyRead && Array.isArray(history)) instances.value = history;
+  } catch { if (request === historyRead) historyError.value = true; }
+}
+watch(() => [props.plan.planId, props.plan.qcPlanId, props.plan.qcStatus], loadHistory, { immediate: true });
 const summary = computed(() => planSubmissionSummary(props.plan, props.awemeName));
 const brief = computed(() => {
   const fields = Object.fromEntries(summary.value.flatMap(column => column.rows));
@@ -39,5 +66,10 @@ const brief = computed(() => {
 .plan-result-summary dl div:last-child{border-bottom:0}
 .plan-result-summary dt{flex:none;color:#81849f}
 .plan-result-summary dd{margin:0;text-align:right;font-weight:600;overflow-wrap:anywhere}
+.transfer-history{overflow:auto;padding:0 24px 20px}
+.transfer-history table{width:100%;border-collapse:collapse;text-align:left;font-size:13px;white-space:nowrap}
+.transfer-history th,.transfer-history td{padding:10px 8px;border-top:1px solid #eeeff6}
+.transfer-history th{color:#646881;font-weight:600}
+.transfer-history button{margin-left:8px;color:#575cf6}
 @media(max-width:767px){.plan-result-summary summary{padding:18px;flex-wrap:wrap;gap:10px}.plan-result-summary h3{flex:1}.plan-result-summary__brief{order:3;width:100%;text-align:left;margin-left:17px}.plan-result-summary__columns{grid-template-columns:1fr;padding:20px 18px;gap:22px}.plan-result-summary dl div{font-size:13px;gap:10px}}
 </style>

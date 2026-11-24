@@ -43,6 +43,8 @@ public class PlanManagementService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore transferRebuilds;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     private com.lynx.ad.modules.creative.application.AssetUploadService assets;
     @org.springframework.beans.factory.annotation.Autowired public void assetUploadService(com.lynx.ad.modules.creative.application.AssetUploadService value) { assets=value; }
@@ -109,7 +111,7 @@ public class PlanManagementService {
             editable(plan);validateSettings(plan,request);
             var c=credentials.getUsableCredential(tenant,plan.accountId());
             var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
-            PlanEditVersion.platformUnchanged(plan,detail,request.scheduleType()!=null);
+            PlanEditVersion.platformUnchanged(plan,logicalPlatformDetail(tenant,plan,detail),request.scheduleType()!=null);
             if(request.scheduleType()!=null && !com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(detail.path("delivery_setting")))
                 throw new BizException(1406,"千川未返回完整投放日期，暂不提交修改");
             if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
@@ -158,7 +160,7 @@ public class PlanManagementService {
             boolean applied=matches(target,actual),canAccept=pending.startedAt()!=null&&!pending.startedAt().plusSeconds(180).isAfter(Instant.now());
             if(!applied && request.acceptCurrent() && !canAccept)throw new BizException(1523,"请等待原修改请求完成后再采用平台当前设置");
             // Accept only the values the user reviewed; a newer console edit needs another comparison.
-            if(!applied && request.acceptCurrent())PlanEditVersion.platformUnchanged(plan,actual);
+            if(!applied && request.acceptCurrent())PlanEditVersion.platformUnchanged(plan,logicalPlatformDetail(tenant,plan,actual));
             if(applied || request.acceptCurrent()) {
                 settingsEdits.complete(pending,()->{cacheDetail(tenant,plan,actual);record(tenant,id,applied?"核查计划修改成功":"核查并采用千川当前设置",applied?"已确认全部请求值":"用户接受平台当前设置，不代表原修改全部成功");});
                 return new SettingsResult(query.get(tenant,id),applied?"CONFIRMED":"ACCEPTED_CURRENT",applied?"已确认全部修改，计划设置已同步":"已采用千川当前设置，可核对后重新编辑；本次未重新发送修改请求",false);
@@ -182,12 +184,18 @@ public class PlanManagementService {
         if(!plan.qcPlanId().orElseThrow().value().equals(detail.path("ad_id").asText())||!detail.hasNonNull("name")||!detail.hasNonNull("status")||!PlanEditVersion.validMode(ds)||QianchuanPlanMapping.number(ds,"budget")==null||SmartBidType.fromOcean(ds.path("smart_bid_type").asText())==SmartBidType.CUSTOM&&!ds.has("roi2_goal"))
             throw new BizException(1406,"千川未返回完整计划设置，请稍后核查");
     }
+    private JsonNode logicalPlatformDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
+        if(transferRebuilds==null || !detail.hasNonNull("name"))return detail;
+        var platformName=detail.path("name").asText();
+        var name=transferRebuilds.logicalName(tenant,plan.id().value(),plan.qcPlanId().orElseThrow().value(),platformName);
+        return name.equals(platformName)?detail:((com.fasterxml.jackson.databind.node.ObjectNode)detail.deepCopy()).put("name",name);
+    }
     private void cacheDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
         // Read-only sync may also see old mock responses without business settings.
         if(!detail.has("delivery_setting"))return;
         plan.restorePlatformAweme(QianchuanPlanMapping.text(detail,"aweme_id"));
         var setting=detail.path("delivery_setting");
-        if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(detail.path("name").asText()));
+        if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(logicalPlatformDetail(tenant,plan,detail).path("name").asText()));
         if(detail.hasNonNull("status")){plan.syncPlatformStatus(detail.path("status").asText());plan.apply(PlanEditVersion.platformStatus(detail));}
         var mode=setting.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(setting.path("smart_bid_type").asText()):plan.setting().bidType();
         var budget=QianchuanPlanMapping.number(setting,"budget");

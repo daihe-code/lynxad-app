@@ -33,6 +33,8 @@ public class PlanSyncService {
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanOriginStore origins;
     @org.springframework.beans.factory.annotation.Autowired public void originStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanOriginStore value) { origins=value; }
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore rebuilds;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     @org.springframework.beans.factory.annotation.Autowired
     public void configuration(com.lynx.ad.common.config.LynxAdProperties properties) {
@@ -65,8 +67,9 @@ public class PlanSyncService {
                 for(var plan:plans.findByTenant(tenant)) if(plan.accountId().equals(account.id())) plan.qcPlanId().ifPresent(q->local.put(q.value(),plan));
                 var pending=transfers==null?List.<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.Attempt>of():transfers.pending(tenant);
                 Map<String,String> ids=new LinkedHashMap<>();
+                var guard=rebuilds==null?null:rebuilds.syncGuard(tenant,account.id());
                 for(var row:rows) {
-                    if(row.payload()==null) continue;
+                    if(row.payload()==null || guard!=null && guard.excludes(row.qcPlanId(),row.name())) continue;
                     var info=QianchuanPlanMapping.info(row.payload()); var setting=QianchuanPlanMapping.setting(row.payload());
                     AdPlan existing=local.get(row.qcPlanId());
                     if(existing!=null && existing.status()==PlanStatus.DELETED) continue;
@@ -86,7 +89,8 @@ public class PlanSyncService {
                                 new QcPlanId(row.qcPlanId()),row.status(),null,0,null,List.of());
                     } else {
                         existing.apply(QianchuanPlanMapping.status(row.status())); existing.syncPlatformStatus(row.status());
-                        existing.rename(PlanName.fromPlatform(row.name())); existing.updateSetting(delivery);
+                        var name=rebuilds==null?row.name():rebuilds.logicalName(tenant,id,row.qcPlanId(),row.name());
+                        existing.rename(PlanName.fromPlatform(name)); existing.updateSetting(delivery);
                     }
                     existing.restorePlatformAweme(QianchuanPlanMapping.awemeId(row.payload()));
                     JsonNode identityDetail=null;
@@ -102,11 +106,18 @@ public class PlanSyncService {
                     if(published.contains(row.qcPlanId()))existing.restoreLingtouSource();
                     AdPlan plan=existing;
                     JsonNode confirmedDetail=identityDetail;
-                    transaction.executeWithoutResult(s->{
+                    boolean saved=Boolean.TRUE.equals(transaction.execute(s->{
+                        if(rebuilds!=null) {
+                            var stored=plans.findByIdForUpdate(tenant,plan.id());
+                            if(stored.isPresent() && stored.get().qcPlanId().map(QcPlanId::value).filter(row.qcPlanId()::equals).isEmpty()
+                                    || rebuilds.excludesCurrentRow(tenant,account.id(),row.qcPlanId(),row.name()))return false;
+                        }
                         plans.save(plan); store.save(tenant,account.id(),row.qcPlanId(),physicalId,row.payload());
                         if(confirmedDetail!=null) store.detail(tenant,physicalId,confirmedDetail);
                         if(transfers!=null && plan.status()==PlanStatus.DELETED) transfers.detachDeleted(tenant,plan.id());
-                    });
+                        return true;
+                    }));
+                    if(!saved)continue;
                     ids.put(row.qcPlanId(),id); count++;
                 }
                 if(!ids.isEmpty()) {
@@ -116,7 +127,10 @@ public class PlanSyncService {
                     try {
                         LocalDate day=LocalDate.now(ZoneId.of("Asia/Shanghai"));
                         var today=reports(management.report(credential,day)); var yesterday=reports(management.report(credential,day.minusDays(1)));
-                        Instant now=Instant.now(); ids.forEach((qc,id)->store.report(tenant,id,today.get(qc),yesterday.get(qc),day,now));
+                        Instant now=Instant.now(); ids.forEach((qc,id)->{
+                            if(rebuilds==null)store.report(tenant,id,today.get(qc),yesterday.get(qc),day,now);
+                            else store.reportInstance(tenant,account.id(),id,qc,today.get(qc),yesterday.get(qc),day,now);
+                        });
                     } catch(RuntimeException ex) {
                         warnings.add(ex instanceof com.lynx.ad.common.exception.BizException failure &&
                                 (failure.code()==1211 || com.lynx.ad.common.http.Qianchuan401ReplayCodes.isAuthExpired(failure))

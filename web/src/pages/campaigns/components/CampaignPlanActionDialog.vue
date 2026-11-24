@@ -33,7 +33,7 @@
     </template>
     <template v-else-if="action === 'restore'">
       <p class="plan-confirm-impact">恢复后将沿用以上预算{{ plan?.smartBidType === 'SMART_BID_CUSTOM' ? '和目标' : '' }}，可能产生广告消耗。</p>
-      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>如有关联的转投计划，恢复时将暂停另一种投放方式的关联计划。</p></div></div>
+      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>{{ plan?.qcStatus === 'TRANSFER_ARCHIVED' ? '恢复时将暂停当前关联计划，并按保留设置重新创建本计划。新计划可能需要重新审核。' : '如有关联的转投计划，恢复时将切换到当前选择的投放方式。' }}</p></div></div>
       <p v-if="blockedReason" class="plan-confirm-blocked" role="alert">{{ blockedReason }}</p>
     </template>
     <template v-else>
@@ -63,10 +63,11 @@ const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason] }>();
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
-const draft = computed(() => !props.plan?.qcPlanId);
+const draft = computed(() => props.plan?.status === 'DRAFT' && !props.plan.qcPlanId);
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
 const state = computed(() => {
   const display = planStatusDisplay(props.plan?.status, props.plan?.qcStatus);
+  if (props.plan?.qcStatus === 'TRANSFER_ARCHIVED') return { ...display, label: '因转投暂停' };
   return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
 });
 const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');

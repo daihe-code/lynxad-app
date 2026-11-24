@@ -119,6 +119,7 @@ public class PlanQueryService {
         }
         List<PlanListVo> result=new ArrayList<>();
         for(var row:rows) {
+            if(AdPlan.TRANSFER_ARCHIVED.equals(row.qcStatus())) { result.add(row); continue; }
             var report=reports.get(row.accountId());
             var m=report==null || row.qcPlanId()==null?null:report.forPlan(row.qcPlanId());
             var previousReport=previousReports.get(row.accountId());
@@ -171,7 +172,7 @@ public class PlanQueryService {
         String detailAweme=r==null?null:QianchuanPlanMapping.awemeId(r.detail());
         if(detailAweme!=null)aweme=detailAweme;
         var goods=row.products();
-        if(live && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
+        if(live && !plan.transferArchived() && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
             // Imported history has no local creation snapshot. Read existing products without
             // applying new-plan eligibility checks, or dropping products no longer in the catalog.
             if(catalog!=null)try {
@@ -273,6 +274,9 @@ public class PlanQueryService {
             PlanListVo.MetricComparison comparison=r==null?comparison(pair):current?comparison(report,r.yesterdayReport(),r.reportDate()):null;
             boolean canEdit=plan.qcPlanId().isPresent() && authorized.contains(plan.accountId().value()) &&
                     (plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED);
+            boolean paired=group!=null && group.custom()!=null && group.conservative()!=null;
+            boolean canTransfer=plan.transferArchived()?authorized.contains(plan.accountId().value()) && (paired || group!=null && group.requestKey()!=null):
+                    canEdit && (paired || plan.status()==PlanStatus.DELIVERING && plan.source()==PlanSource.LINGTOU && creationSummary!=null);
             BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
             String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
             if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());
@@ -287,7 +291,7 @@ public class PlanQueryService {
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,
                     canEdit && plan.status()==PlanStatus.DELIVERING,
                     plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
-                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
+                    canTransfer,statistics==null?null:statistics.day(),plan.transferArchived() || statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
                     aweme,materialCover,null,null,null,awemeName,awemeAvatar));
         }
         return result;
@@ -372,11 +376,12 @@ public class PlanQueryService {
         rows.sort(comparator.thenComparing(PlanListVo::planId));
     }
     private static Summary overviewSummary(List<PlanListVo> rows,PlanMetricTemplate template,PlanStatisticsRange range) {
-        var current=summary(rows,template);
+        var current=summary(rows.stream().filter(row->!AdPlan.TRANSFER_ARCHIVED.equals(row.qcStatus())).toList(),template);
         if(range==null)return current;
         Map<String,PlanStatisticsService.Metrics> previous=new LinkedHashMap<>();Set<String> currentIds=new HashSet<>();
         boolean failed=false;
         for(var row:rows) {
+            if(AdPlan.TRANSFER_ARCHIVED.equals(row.qcStatus()))continue;
             if(row.costYuan()!=null && (template==PlanMetricTemplate.NET || row.gmvYuan()!=null && row.convert()!=null))currentIds.add(row.planId());
             var comparison=row.comparison();if(comparison==null)continue;
             if("对比报表获取失败，请刷新重试".equals(comparison.unavailableReason()))failed=true;
