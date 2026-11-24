@@ -398,10 +398,10 @@ public class VideoRemakeService {
                 }
             } catch (RuntimeException ex) {
                 LOG.warn("Video remake checkpoint unavailable for task {} ({})", task.id(), ex.getClass().getSimpleName());
-            }
                             store.update(task, token, task.phase(), task.engine(), "暂未取得最新进度，系统会重试", 30);
             }
         }
+    }
     
     private void advance(Task task, String token) {
         if ("CREATING".equals(task.phase())) {
