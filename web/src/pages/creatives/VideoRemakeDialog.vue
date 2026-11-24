@@ -252,7 +252,14 @@
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
           <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p>
-                    <section v-if="task.auditIssues?.length" class="remake-ad-notices">
+                    <section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
+          <h3>生成视频一致性/文字安全检查未通过（阻断）</h3>
+          <ul>
+            <li v-for="issue in task.consistencyIssues" :key="issue">{{ issue }}</li>
+          </ul>
+          <p class="remake-muted">生成视频抽帧检查未通过：采样帧商品与参考图不一致，或画面含生成字幕/水印等内嵌文字。请调整分镜或重新生成。</p>
+        </section>
+        <section v-if="task.auditIssues?.length" class="remake-ad-notices">
                     <h3>与商品事实矛盾（未通过）</h3>
                     <ul>
                     <li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li>
