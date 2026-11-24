@@ -6,7 +6,7 @@ import type { PlanPauseReason } from './planPause';
 
 export interface PlanVo {
   review?: PlanReviewProgress | null;
-  settingsEdit?: { version: string; status: 'IDLE' | 'PREPARING' | 'SENDING' | 'VERIFYING' | 'UNCERTAIN'; message?: string | null } | null;
+  settingsEdit?: { version: string; status: 'IDLE' | 'PREPARING' | 'SENDING' | 'VERIFYING' | 'UNCERTAIN'; message?: string | null; editable?: boolean | null } | null;
   statisticsDate?: string | null;
   historicalMetrics?: boolean;
   planId: string;

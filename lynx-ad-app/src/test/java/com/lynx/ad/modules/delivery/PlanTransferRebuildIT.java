@@ -62,6 +62,7 @@ class PlanTransferRebuildIT {
     private boolean loseCreateReceipt;
     private boolean loseDeleteReceipt;
     private boolean omitCardsInDetail;
+    private boolean loseSettingsReceipt;
 
     @BeforeAll static void schema() throws Exception {
         ds=new DriverManagerDataSource(System.getenv("LYNXAD_TRANSFER_TEST_URL"),"root",System.getenv("LYNXAD_TRANSFER_TEST_PASSWORD"));
@@ -93,6 +94,22 @@ class PlanTransferRebuildIT {
         service.rebuildStore(rebuilds);
         when(management.insightReport(eq(credential),anyString(),any(),any(),eq(true)))
                 .thenReturn(new AdManagementPort.InsightReport(json.createObjectNode(),List.of(),"stat_time_day",Map.of(),null));
+        when(management.detail(eq(credential),anyString())).thenAnswer(i->upstream.get(i.<String>getArgument(1)).deepCopy());
+        doAnswer(i->{
+            var detail=upstream.get(i.<String>getArgument(1));
+            String name=i.getArgument(2);BigDecimal budget=i.getArgument(3);
+            if(name!=null)detail.put("name",name);
+            if(budget!=null)detail.withObject("/delivery_setting").put("budget",budget);
+            if(loseSettingsReceipt){loseSettingsReceipt=false;throw new BizException(1406,"修改响应超时");}
+            return null;
+        }).when(management).settings(eq(credential),anyString(),nullable(String.class),nullable(BigDecimal.class),isNull());
+        doAnswer(i->{
+            var ds=upstream.get(i.<String>getArgument(1)).withObject("/delivery_setting");
+            String type=i.getArgument(2);LocalDate end=i.getArgument(3);
+            ds.put("video_schedule_type","DATE_RANGE".equals(type)?"SCHEDULE_START_END":"SCHEDULE_FROM_NOW");
+            if(end!=null)ds.put("start_time",today.toString()).put("end_time",end.toString());
+            return null;
+        }).when(management).schedule(eq(credential),anyString(),anyString(),nullable(LocalDate.class));
 
         var published=(ObjectNode)json.readTree("""
                 {"advertiser_id":123,"aweme_id":999,"name":"控成本测试计划","marketing_goal":"VIDEO_PROM_GOODS","product_ids":[101],
@@ -298,10 +315,7 @@ class PlanTransferRebuildIT {
         shared.put("video_id","updated-video").put("video_cover_id","updated-cover");
 
         var settings=new PlanSettingsEditStore(jdbc,json,plans,transfers,new DataSourceTransactionManager(ds));
-        var editor=new PlanManagementService(plans,management,mock(com.lynx.ad.modules.identity.application.QianchuanCredentialFacade.class),
-                remote,mock(PlanQueryService.class),mock(BillingTrialService.class),mock(com.lynx.ad.modules.audit.application.AuditRecorder.class),jdbc,json);
-        editor.settingsEdits(settings);
-        editor.transferStore(transfers);
+        var editor=planEditor(settings);
         var version=settings.state(local.get(root.value())).version();
         var update=new PlanSettingsRequest("修改后的控成本计划",BigDecimal.valueOf(650),new BigDecimal("5.20"),version);
         TenantContext.set(new TenantPrincipal(new UserId("editor"),Optional.of(tenant),Optional.empty(),SysRole.USER));
@@ -310,7 +324,8 @@ class PlanTransferRebuildIT {
             assertThrows(BizException.class,()->editor.settings(tenant,root,update));
         } finally { TenantContext.clear(); }
         assertEquals(List.of("DELETE:101","CREATE:SMART_BID_CONSERVATIVE"),writes);
-        assertEquals(0,BigDecimal.valueOf(50).compareTo(upstream.get("201").at("/delivery_setting/budget").decimalValue()));
+        assertEquals(0,BigDecimal.valueOf(650).compareTo(upstream.get("201").at("/delivery_setting/budget").decimalValue()));
+        assertEquals("修改后的控成本计划_转投",upstream.get("201").path("name").asText());
 
         var restored=service.enableExisting(tenant,root);
         assertEquals("SUCCEEDED",restored.status(),restored.message());
@@ -322,6 +337,63 @@ class PlanTransferRebuildIT {
         assertTrue(local.get(volume.planId()).transferArchived());
         assertEquals(1,deliveryCount());
         assertArchivedHistoryRetained(root,"101");
+    }
+
+    @Test void linkedEditFromReviewingPlanUpdatesArchivedBudgetAndScheduleWithoutMixingRoi() {
+        var volume=service.transfer(tenant,root,volume("edit-reviewing-plan"));
+        assertEquals("SUCCEEDED",volume.status(),volume.message());
+        var plan=local.get(volume.planId());
+        plan.apply(PlanStatus.PENDING_AUDIT);
+        upstream.get("201").put("status","AUDIT");
+        assertEquals(PlanStatus.PENDING_AUDIT,com.lynx.ad.modules.delivery.domain.service.PlanEditVersion.platformStatus(upstream.get("201")));
+        var store=new PlanSettingsEditStore(jdbc,json,plans,transfers,new DataSourceTransactionManager(ds));
+        var editor=planEditor(store);
+        var end=today.plusDays(3);
+        var update=new PlanSettingsRequest("更新计划_转投",BigDecimal.valueOf(700),null,store.state(plan).version(),"DATE_RANGE",end);
+        TenantContext.set(new TenantPrincipal(new UserId("editor"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+        try { editor.settings(tenant,plan.id(),update); }
+        finally { TenantContext.clear(); }
+        var archived=local.get(root.value());
+        assertTrue(archived.transferArchived());
+        assertEquals("更新计划",archived.name().text());
+        assertEquals(0,BigDecimal.valueOf(700).compareTo(archived.setting().dailyBudget().amount()));
+        assertEquals(end,archived.setting().schedule().endDate());
+        assertEquals(end,plan.setting().schedule().endDate());
+        assertEquals(new BigDecimal("4.96"),archived.setting().roi2Goal().orElseThrow().value());
+        assertTrue(plan.setting().roi2Goal().isEmpty());
+        assertArchivedHistoryRetained(root,"101");
+    }
+
+    @Test void receiptTimeoutCanBeVerifiedFromArchivedEditorWithoutResendingPlatformWrite() {
+        var volume=service.transfer(tenant,root,volume("editable-receipt"));
+        assertEquals("SUCCEEDED",volume.status());
+        var store=new PlanSettingsEditStore(jdbc,json,plans,transfers,new DataSourceTransactionManager(ds));
+        var editor=planEditor(store);
+        var archived=local.get(root.value());
+        var patch=new PlanSettingsRequest(null,BigDecimal.valueOf(680),null,store.state(archived).version());
+        loseSettingsReceipt=true;
+        TenantContext.set(new TenantPrincipal(new UserId("editor"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+        try {
+            assertEquals(1406,assertThrows(BizException.class,()->editor.settings(tenant,root,patch)).code());
+            assertEquals("UNCERTAIN",store.state(archived).status());
+            assertEquals(0,BigDecimal.valueOf(500).compareTo(archived.setting().dailyBudget().amount()));
+            var result=editor.verifySettings(tenant,root,new PlanManagementService.SettingsVerification(store.state(archived).version(),false));
+            assertEquals("CONFIRMED",result.status());
+            assertEquals("IDLE",store.state(archived).status());
+            assertEquals(0,BigDecimal.valueOf(680).compareTo(archived.setting().dailyBudget().amount()));
+            verify(management,times(1)).settings(credential,"201",null,BigDecimal.valueOf(680),null);
+        } finally { TenantContext.clear(); }
+    }
+
+    private PlanManagementService planEditor(PlanSettingsEditStore settings) {
+        var credentials=mock(com.lynx.ad.modules.identity.application.QianchuanCredentialFacade.class);
+        when(credentials.getUsableCredential(tenant,account)).thenReturn(credential);
+        var editor=new PlanManagementService(plans,management,credentials,
+                remote,mock(PlanQueryService.class),mock(BillingTrialService.class),mock(com.lynx.ad.modules.audit.application.AuditRecorder.class),jdbc,json);
+        editor.settingsEdits(settings);
+        editor.transferStore(transfers);
+        org.springframework.test.util.ReflectionTestUtils.setField(editor,"transferRebuilds",rebuilds);
+        return editor;
     }
 
     @Test void unavailableArchiveReportLeavesOriginalInstanceRunning() {

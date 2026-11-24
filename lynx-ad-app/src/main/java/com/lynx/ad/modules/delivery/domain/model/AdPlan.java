@@ -167,6 +167,13 @@ public class AdPlan {
 
     public boolean transferArchived() { return status == PlanStatus.PAUSED && TRANSFER_ARCHIVED.equals(qcStatus); }
 
+    public boolean linkedSettingsEditable() {
+        return transferArchived() || qcPlanId != null && switch (status) {
+            case DELIVERING, PAUSED, PENDING_AUDIT, REJECTED -> true;
+            default -> false;
+        };
+    }
+
     public void archiveForTransfer() {
         qcPlanId = null;
         status = PlanStatus.PAUSED;

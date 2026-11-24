@@ -223,7 +223,8 @@ public class PlanQueryService {
         return new PlanVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.smartBidType(),row.budget(),aweme,
                 plan.rejectReason(),row.lingtou(),row.guarantee(),row.coverUrl(),row.costYuan(),row.gmvYuan(),row.roi(),
                 plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),goods,row.comparison(),
-                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail(),row.statisticsDate(),row.historicalMetrics(),settingsEdits==null?null:settingsEdits.state(plan),row.review());
+                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null || plan.transferArchived()?null:r.detail(),row.statisticsDate(),row.historicalMetrics(),
+                settingsEdits==null?null:settingsEdits.state(plan).withEditability(row.canEdit()),row.review());
     }
     private List<PlanListVo> rows(TenantId tenant,AdPlan only) {
         return rows(tenant,only,false);
@@ -316,10 +317,10 @@ public class PlanQueryService {
                 }
             }
             boolean paired=group!=null && group.custom()!=null && group.conservative()!=null;
-            boolean canEdit=authorized.contains(plan.accountId().value()) &&
-                    (plan.transferArchived() ? paired : plan.qcPlanId().isPresent() && (plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED));
+            boolean runningOrPaused=plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED;
+            boolean canEdit=authorized.contains(plan.accountId().value()) && (paired?plan.linkedSettingsEditable():plan.qcPlanId().isPresent() && runningOrPaused);
             boolean canTransfer=plan.transferArchived()?authorized.contains(plan.accountId().value()) && (paired || group!=null && group.requestKey()!=null):
-                    canEdit && (paired || plan.status()==PlanStatus.DELIVERING && plan.source()==PlanSource.LINGTOU && creationSummary!=null);
+                    canEdit && runningOrPaused && (paired || plan.status()==PlanStatus.DELIVERING && plan.source()==PlanSource.LINGTOU && creationSummary!=null);
             BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
             String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
             if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());

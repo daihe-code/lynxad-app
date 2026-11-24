@@ -18,9 +18,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Repository
 public class PlanSettingsEditStore {
-    public record State(String version,String status,String message) {}
+    public record State(String version,String status,String message,Boolean editable) {
+        public State(String version,String status,String message){this(version,status,message,null);}
+        public State withEditability(boolean canEdit){return new State(version,status,message,canEdit);}
+    }
     public record Pending(String tenant,String planId,long revision,String status,String key,String root,String request,String verificationKey,Instant startedAt,Instant updatedAt) {}
     public record Claim(AdPlan plan,Pending pending) {}
+    public record LinkedTarget(String planId,String qcPlanId,PlanSettingsRequest settings) {}
+    public record LinkedEdit(List<LinkedTarget> targets) {}
     private final JdbcTemplate jdbc;private final ObjectMapper json;private final AdPlanRepository plans;
     private final PlanTransferStore transfers;private final TransactionTemplate tx;
     public PlanSettingsEditStore(JdbcTemplate jdbc,ObjectMapper json,AdPlanRepository plans,PlanTransferStore transfers,PlatformTransactionManager manager){
@@ -72,6 +77,20 @@ public class PlanSettingsEditStore {
         // Advance before the first possible platform mutation, even if its response is later lost.
         if(jdbc.update("UPDATE delivery_plan_settings_edit SET revision=revision+1,status='SENDING',started_at=?,updated_at=? WHERE tenant_id=? AND plan_id=? AND request_key=? AND status='PREPARING'",now(),now(),p.tenant(),p.planId(),p.key())!=1)
             throw new BizException(1523,"计划修改归属已变化，请核查处理结果");
+    }
+    public void prepareLinked(Pending p,List<LinkedTarget> targets) {
+        String payload;
+        try { payload=json.writeValueAsString(new LinkedEdit(targets)); }
+        catch(com.fasterxml.jackson.core.JsonProcessingException failure) { throw new IllegalArgumentException(failure); }
+        if(jdbc.update("UPDATE delivery_plan_settings_edit SET request_json=?,updated_at=? WHERE tenant_id=? AND plan_id=? AND request_key=? AND status='PREPARING'",
+                payload,now(),p.tenant(),p.planId(),p.key())!=1)
+            throw new BizException(1523,"计划修改归属已变化，请核查处理结果");
+    }
+    public Optional<LinkedEdit> linked(Pending p) {
+        try {
+            var stored=json.readTree(p.request());
+            return stored.has("targets")?Optional.of(json.treeToValue(stored,LinkedEdit.class)):Optional.empty();
+        } catch(com.fasterxml.jackson.core.JsonProcessingException failure) { throw new IllegalStateException("Invalid saved settings request",failure); }
     }
     public void uncertain(Pending p){jdbc.update("UPDATE delivery_plan_settings_edit SET status='UNCERTAIN',updated_at=? WHERE tenant_id=? AND plan_id=? AND request_key=? AND (verification_key=? OR verification_key IS NULL AND ? IS NULL)",now(),p.tenant(),p.planId(),p.key(),p.verificationKey(),p.verificationKey());}
     public void complete(Pending p,Runnable apply) {
