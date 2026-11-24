@@ -208,13 +208,13 @@
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
               <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : '匹配原视频' }}</dd></div>
-              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '分析后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
+              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '选择参考视频后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
               <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
               <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
             </dl>
             <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
-            <p v-if="sourceMatchingReady" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
+            <p v-if="sourceMatchingReady" class="remake-muted">提交后自动开始生成，生成时预占积分。</p>
           </section>
         </aside>
       </div>
@@ -437,7 +437,7 @@ const previewFailed = ref(false), previewVersion = ref(0), busy = ref(false);
 
 let productRequest = 0, taskRequest = 0, capabilityRequest = 0, alive = true;
 let poll: ReturnType<typeof setTimeout> | undefined;
-const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'CONFIRMING', 'SENDING', 'GENERATING']);
+const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'REVIEW', 'CONFIRMING', 'SENDING', 'GENERATING']);
 const labels: Record<RemakeTask['phase'], string> = {
   CREATING: '正在生成', PLANNING: '正在生成', REVIEW: '正在生成', CONFIRMING: '正在生成',
   SENDING: '正在生成', GENERATING: '正在生成', SUCCEEDED: '已完成', FAILED: '失败', NEEDS_ATTENTION: '待核对',
