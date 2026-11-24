@@ -91,7 +91,7 @@ public class VideoRemakeService {
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings, List<String> consistencyIssues) {}
+                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings, List<String> consistencyIssues, List<String> generationWarnings, List<VideoRemakeGeneration.ShotRetry> shotRetries, List<String> progressSteps) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
         Map<String, Integer> units() { return images > 0 ? Map.of(kind, quantity, WorkspacePricing.IMAGE_UNIT, images) : Map.of(kind, quantity); }
@@ -288,7 +288,7 @@ public class VideoRemakeService {
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote, auditIssues(data), auditWarnings(data), consistencyIssues(data));
+                quote, auditIssues(data), auditWarnings(data), consistencyIssues(data), VideoRemakeGeneration.generationWarnings(data), VideoRemakeGeneration.shotRetries(data), VideoRemakeGeneration.progressSteps(data));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -519,7 +519,7 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(), List.of());
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     // 失败任务：拉取引擎详情，把商品事实审核的 blocking/warnings 带回 View；拉取失败时回退到摘要。
@@ -528,11 +528,11 @@ public class VideoRemakeService {
             var data = detail(task);
             var issues = auditIssues(data);
             var warnings = auditWarnings(data);
-        var consistency = consistencyIssues(data);
-            if (issues.isEmpty() && warnings.isEmpty() && consistency.isEmpty()) return summary(task);
+        var consistency = consistencyIssues(data); var generationWarnings = VideoRemakeGeneration.generationWarnings(data); var shotRetries = VideoRemakeGeneration.shotRetries(data);
+            if (issues.isEmpty() && warnings.isEmpty() && consistency.isEmpty() && generationWarnings.isEmpty() && shotRetries.isEmpty()) return summary(task);
             return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null),
                             error(data, task.error()), task.createdAt(), task.asset(), null, null, null, List.of(),
-                            null, null, issues, warnings, consistency);
+                            null, null, issues, warnings, consistency, generationWarnings, shotRetries, VideoRemakeGeneration.progressSteps(data));
         } catch (RuntimeException ex) {
             return summary(task);
         }
