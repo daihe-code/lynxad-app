@@ -131,8 +131,11 @@ export function discardDraft(id: string) {
 }
 
 export interface PlanFilters { keyword?: string; status?: string; platform?: string; bidType?: string; createdWithin?: number | null; accountId?: string; sortField?: string; descending?: boolean; startDate?: string; endDate?: string; refreshStatistics?: boolean; metricTemplate?: PlanMetricTemplate }
-export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}) {
-  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", { params: { pageNum, pageSize, ...filters }, timeout: 120000 });
+export function listPlans(pageNum = 1, pageSize = 20, filters: PlanFilters = {}, signal?: AbortSignal) {
+  return apiGet<PageResult<PlanListVo>>("/api/v1/delivery/plans", {
+    params: { pageNum, pageSize, ...filters }, timeout: 120000, signal,
+    ...(signal ? { headers: { 'X-Quiet-Request': 'true' } } : {}),
+  });
 }
 export interface CampaignStatisticsTrend {
   points: { time: string; metrics: PlanMetricValues }[];

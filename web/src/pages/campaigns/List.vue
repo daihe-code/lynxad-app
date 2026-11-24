@@ -198,15 +198,20 @@ const optimizationStatuses = ref<Record<string, PlanOptimizationStatus>>({});
 const optimizationLoading = ref(false), optimizationFailed = ref(false);
 let optimizationRevision = 0;
 function optimizationPresentation(row: PlanListVo) { return planOptimizationPresentation(row, optimizationStatuses.value[row.planId], optimizationLoading.value, optimizationFailed.value); }
-async function loadOptimizationStatuses(rows: PlanListVo[]) {
+async function loadOptimizationStatuses(rows: PlanListVo[], signal?: AbortSignal) {
   const revision = ++optimizationRevision;
   const ids = rows.filter(hasPlanOptimization).map(row => row.planId);
-  optimizationStatuses.value = {}; optimizationFailed.value = false; optimizationLoading.value = !!ids.length;
+  if (!signal || !ids.length) {
+    optimizationStatuses.value = {}; optimizationFailed.value = false; optimizationLoading.value = !!ids.length;
+  }
   if (!ids.length) return;
   try {
-    const states = await getOptimizationStatuses(ids);
-    if (revision === optimizationRevision) optimizationStatuses.value = Object.fromEntries(states.map(state => [state.planId, state]));
-  } catch { if (revision === optimizationRevision) optimizationFailed.value = true; }
+    const states = await getOptimizationStatuses(ids, signal);
+    if (revision === optimizationRevision && !signal?.aborted) {
+      optimizationStatuses.value = Object.fromEntries(states.map(state => [state.planId, state]));
+      optimizationFailed.value = false;
+    }
+  } catch { if (revision === optimizationRevision && !signal) optimizationFailed.value = true; }
   finally { if (revision === optimizationRevision) optimizationLoading.value = false; }
 }
 function openOptimization(row: PlanListVo) {
@@ -335,13 +340,42 @@ const canSwitchDraft = (row: PlanListVo) => !readOnlyRole.value && user.trialAct
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
 const pagedRows = computed(() => records.value);
+const AUTO_REFRESH_MS = 30_000;
 let loadTimer: ReturnType<typeof setTimeout> | undefined;
-let draftRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let autoRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+let autoRefreshController: AbortController | undefined;
 let requestVersion = 0;
-function scheduleLoad() { clearTimeout(loadTimer); loadTimer = setTimeout(() => void load(), 250); }
-watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { requestVersion++; pageNum.value = 1; scheduleLoad(); });
+let unmounted = false;
+function scheduleLoad() {
+  requestVersion++;
+  clearTimeout(autoRefreshTimer);
+  autoRefreshController?.abort();
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(() => void load(), 250);
+}
+function scheduleAutoRefresh() {
+  clearTimeout(autoRefreshTimer);
+  if (!unmounted) autoRefreshTimer = setTimeout(refreshInBackground, AUTO_REFRESH_MS);
+}
+async function refreshInBackground() {
+  if (document.visibilityState !== 'visible' || syncing.value || resizingColumn.value ||
+      actingId.value || transferringId.value || deletingId.value || operationOpen.value ||
+      confirmOpen.value || deleteOpen.value || quickReportOpen.value || insightsPlanId.value || optimizationPlanId.value) {
+    scheduleAutoRefresh();
+    return;
+  }
+  const controller = new AbortController();
+  autoRefreshController = controller;
+  try { await load(false, controller.signal); }
+  finally { if (autoRefreshController === controller) autoRefreshController = undefined; }
+}
+watch([keyword, status, deliveryPlatform, bidType, createdWithin, pageSize, accountId, sortField, sortDescending, statisticsRange, metricTemplate], () => { pageNum.value = 1; scheduleLoad(); });
 watch(pageNum, scheduleLoad);
-onUnmounted(() => { clearTimeout(loadTimer); clearInterval(draftRefreshTimer); requestVersion++; trendSerial++; optimizationRevision++; });
+onUnmounted(() => {
+  unmounted = true;
+  clearTimeout(loadTimer); clearTimeout(autoRefreshTimer); autoRefreshController?.abort();
+  requestVersion++; trendSerial++; optimizationRevision++;
+});
 function toggleSort(field: SortField | 'name') { sortDescending.value = sortField.value === field ? !sortDescending.value : field !== 'name'; sortField.value = field; }
 function remainingDays(date: string) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -349,34 +383,44 @@ function remainingDays(date: string) {
   return days < 0 ? '投放时间已结束' : days === 0 ? '今日结束' : `剩余 ${days} 天`;
 }
 function openOperation(title: string, row: PlanListVo) { operationKind.value = title; operationPlan.value = row; operationOpen.value = true; }
-async function load(refreshStatistics = false) {
+async function load(refreshStatistics = false, signal?: AbortSignal) {
+  if (unmounted) return;
+  clearTimeout(autoRefreshTimer);
+  if (!signal) autoRefreshController?.abort();
   const version = ++requestVersion;
+  const isCurrent = () => version === requestVersion && !signal?.aborted;
   const requestedTemplate = metricTemplate.value;
   const filters = queryFilters();
-  loading.value = true; summaryLoading.value = true; loadFailed.value = false;
+  if (!signal) { loading.value = true; summaryLoading.value = true; loadFailed.value = false; }
   const plansTask = (async () => {
     try {
-      const result = await listPlans(pageNum.value, pageSize.value, { ...filters, refreshStatistics });
-      if (version !== requestVersion) return;
+      const result = await listPlans(pageNum.value, pageSize.value, { ...filters, refreshStatistics }, signal);
+      if (!isCurrent()) return;
       if ((result.metricTemplate || 'PAYMENT') !== requestedTemplate) throw new Error('指标模板与报表不匹配');
       if (!displayedFilters.value || campaignTrendScope(displayedFilters.value) !== campaignTrendScope(filters) || refreshStatistics) clearCampaignTrend(refreshStatistics);
       displayedFilters.value = filters;
       records.value = result.records; total.value = result.total; summary.value = result.summary;
-      if (!readOnlyRole.value) void loadOptimizationStatuses(result.records);
+      loadFailed.value = false;
       displayedMetricTemplate.value = requestedTemplate;
       try { if (templateStorageKey.value) localStorage.setItem(templateStorageKey.value, requestedTemplate); } catch { /* Storage is optional. */ }
       if (result.statisticsRange) displayedRange.value = [result.statisticsRange.startDate, result.statisticsRange.endDate];
-    } catch { if (version === requestVersion) loadFailed.value = true; }
-    finally { if (version === requestVersion) { loading.value = false; summaryLoading.value = false; } }
+      if (!readOnlyRole.value) {
+        const statusesTask = loadOptimizationStatuses(result.records, signal);
+        if (signal) await statusesTask;
+      }
+    } catch { if (isCurrent() && !signal) loadFailed.value = true; }
+    finally { if (isCurrent() && !signal) { loading.value = false; summaryLoading.value = false; } }
   })();
   const alertsTask = (async () => {
     if (readOnlyRole.value) return;
-    const actions = await listActions().catch(() => []);
+    const actions = await listActions(signal).catch(() => signal ? undefined : []);
+    if (!isCurrent() || !actions) return;
     const grouped: Record<string, string[]> = {};
     for (const row of actions) if (row.open) { const list = grouped[row.planId] ||= []; if (!list.includes(row.type)) list.push(row.type); }
-    if (version === requestVersion) openByPlan.value = grouped;
+    openByPlan.value = grouped;
   })();
-  await Promise.all([plansTask, alertsTask]);
+  try { await Promise.all([plansTask, alertsTask]); }
+  finally { if (isCurrent()) scheduleAutoRefresh(); }
 }
 function queryFilters() { return { keyword: keyword.value, status: status.value, platform: deliveryPlatform.value, bidType: bidType.value, createdWithin: createdWithin.value, accountId: accountId.value, sortField: sortField.value, descending: sortDescending.value, startDate: statisticsRange.value[0], endDate: statisticsRange.value[1], metricTemplate: metricTemplate.value }; }
 async function syncRemote(notify = true) {
@@ -534,13 +578,10 @@ async function exportRows() {
   ElMessage.success(`已导出 ${rows.length} 条计划`);
 }
 onMounted(async () => {
-  draftRefreshTimer=setInterval(()=>{
-    if(document.visibilityState==='visible' && records.value.some(isDraft) && !loading.value && !actingId.value && !transferringId.value && !operationOpen.value)void load();
-  },60000);
   await nextTick();
   clearTimeout(loadTimer);
   await load();
-  if (!readOnlyRole.value && accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
+  if (!unmounted && !readOnlyRole.value && accounts.value.some(a => a.status === 'ACTIVE')) await syncRemote(false);
 });
 </script>
 
