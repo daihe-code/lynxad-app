@@ -531,7 +531,6 @@ const filteredTasks = computed(() => {
   });
 });
 
-const retryReasonLabel = (reason: string) => reason === 'product_mismatch' ? '商品与参考图不一致' : reason === 'fake_brand' ? '伪造或替换品牌' : reason === 'garbled_text' ? '乱码或伪文字' : '视频一致性检查未通过'; const retryStatusLabel = (status: string) => status === 'passed' ? '重试后通过' : status === 'failed' ? '重试后仍未通过' : '重试中';
 const stageLabels: Record<string, string> = {
   preparing_product_images: '正在准备商品参考图',
   importing_product_image: '正在读取商品参考图',
