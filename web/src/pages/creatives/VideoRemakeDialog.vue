@@ -253,14 +253,14 @@
           </div>
           <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p>
                     <section v-if="task.auditIssues?.length" class="remake-ad-notices">
-                    <h3>未通过的商品事实</h3>
+                    <h3>与商品事实矛盾（未通过）</h3>
                     <ul>
                     <li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li>
                   </ul>
-                    <p class="remake-muted">请核对商品事实或调整复刻要求后重试。</p>
+                    <p class="remake-muted">这些事实与商品事实矛盾，导致复刻失败。请核对商品事实或调整复刻要求后重试。</p>
                   </section>
                     <section v-if="task.auditWarnings?.length" class="remake-ad-notices">
-                    <h3>需注意的商品事实</h3>
+                    <h3>无法确认的商品事实（需注意）</h3>
                     <ul>
                     <li v-for="warning in task.auditWarnings" :key="warning">{{ warning }}</li>
                   </ul>
