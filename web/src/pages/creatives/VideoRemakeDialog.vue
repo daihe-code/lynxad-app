@@ -212,10 +212,7 @@
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
               <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : capability?.sourceMatchingHd === false ? '720p' : '匹配原视频' }}</dd></div>
-              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '分析后计算' : `${formatPoints(estimatedPoints)} 积分起` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
-              <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
-              <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
             </dl>
             <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
             <p v-if="sourceMatchingReady" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
