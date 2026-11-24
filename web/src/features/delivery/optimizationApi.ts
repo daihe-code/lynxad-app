@@ -113,8 +113,8 @@ export interface OptimizationResumePreview {
   planStatus: string;
   qcStatus?: string | null;
   outcome: 'BELOW_LIMIT' | 'LIMIT_PAUSE' | 'LIMIT_REMINDER' | 'PLAN_NOT_DELIVERING';
-  spend: number;
-  fetchedAt: string;
+  spend?: number | null;
+  fetchedAt?: string | null;
   committed: number;
   rules: OptimizationRules;
 }

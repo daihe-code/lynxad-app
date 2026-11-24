@@ -86,12 +86,13 @@ const pauseLog = ref<InsightLog>();
 const pauseDetails = computed(() => pauseLog.value ? `${reviewTime(pauseLog.value.time, '—')} · ${pauseLog.value.actor?.trim() || '—'}` : '—');
 watch(() => props.modelValue && manualPause.value ? props.preview : undefined, async (preview, _, onCleanup) => {
   pauseLog.value = undefined;
-  if (!preview) return;
+  if (!preview?.fetchedAt) return;
+  const checkedAt = preview.fetchedAt;
   let current = true;
   onCleanup(() => { current = false; });
   try {
     const logs = await insightLogs(props.planId, [shiftDay(preview.day, -29), preview.day], 'PLATFORM', 1);
-    if (current) pauseLog.value = manualPlanPauseLog(logs.records, preview.fetchedAt);
+    if (current) pauseLog.value = manualPlanPauseLog(logs.records, checkedAt);
   } catch {
     // Pause history is supplementary to the live status and spend verification.
   }
@@ -99,11 +100,11 @@ watch(() => props.modelValue && manualPause.value ? props.preview : undefined, a
 const autoPause = computed(() => props.preview?.outcome === 'LIMIT_PAUSE');
 const remind = computed(() => props.preview?.outcome === 'LIMIT_REMINDER');
 const automatic = computed(() => props.preview?.rules.protectionAction === 'AUTO_PAUSE');
-const fetchedAt = computed(() => props.preview ? new Date(props.preview.fetchedAt).toLocaleString('zh-CN', {
+const fetchedAt = computed(() => props.preview?.fetchedAt ? new Date(props.preview.fetchedAt).toLocaleString('zh-CN', {
   timeZone: 'Asia/Shanghai', hour12: false,
 }) : '');
 const amount = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', currencyDisplay: 'narrowSymbol' });
-const money = (value: string | number) => amount.format(Number(value));
+const money = (value?: string | number | null) => value == null ? '—' : amount.format(Number(value));
 </script>
 
 <style scoped>

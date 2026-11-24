@@ -1,5 +1,14 @@
 [
   {
+    "name": "转投暂停与手动暂停同组",
+    "status": "PAUSED",
+    "qcStatus": "TRANSFER_ARCHIVED",
+    "group": "PAUSED",
+    "label": "手动暂停",
+    "include": ["PAUSED", "DISABLE", "TRANSFER_ARCHIVED"],
+    "exclude": ["DELIVERING", "DRAFT", "DELETED"]
+  },
+  {
     "name": "投放中",
     "status": "DELIVERING",
     "qcStatus": "DELIVERY_OK",

@@ -1,6 +1,6 @@
 <template>
   <section :key="plan.planId" class="paused-result" :class="{ 'paused-result--inline': inlineFooter }" aria-label="已暂停计划的投放结果">
-    <header class="paused-result__heading"><span class="paused-result__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span><h2>已暂停</h2><p>{{ archived ? '因转投暂停。恢复时将按保留配置重建本计划。' : '广告计划已暂停投放，恢复前请核对暂停原因与投放设置。' }}</p><span v-if="elapsed" class="paused-result__elapsed"><ReferenceIcon name="pause" />{{ elapsed }}</span></header>
+    <header class="paused-result__heading"><span class="paused-result__icon" aria-hidden="true"><ReferenceIcon name="pause" /></span><h2>已暂停</h2><p>广告计划已暂停投放，恢复前请核对投放设置。</p><span v-if="elapsed" class="paused-result__elapsed"><ReferenceIcon name="pause" />{{ elapsed }}</span></header>
     <template v-if="!archived">
     <details class="paused-fold paused-reason" open>
       <summary><h3>暂停原因</h3><span class="paused-fold__brief">{{ pauseRecord?.automatic ? '系统自动暂停 · 无需选择原因' : pauseRecord?.manual ? pauseRecord.reason || '历史记录未填写具体原因' : pauseRecord ? '平台异常暂停' : '暂停原因待核对' }}</span><ReferenceIcon class="paused-fold__caret" name="caret" /></summary>

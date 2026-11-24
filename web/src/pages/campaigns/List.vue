@@ -72,7 +72,7 @@
                 <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) && !readOnlyRole ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
-              <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
+              <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="planStatusLabel(row.status, row.qcStatus)"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
               <td class="settings-cell">
                 <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
@@ -133,7 +133,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { campaignTableColumns, columnWidthsPreferenceKey, maximumColumnWidth } from '@/features/delivery/campaignTableColumns';
 import { useCampaignColumnResize } from '@/features/delivery/useCampaignColumnResize';
 import { getOptimizationStatuses, type PlanOptimizationStatus } from '@/features/delivery/optimizationApi';
-import { planOptimizationPresentation } from '@/features/delivery/planOptimizationStatus';
+import { hasPlanOptimization, planOptimizationPresentation } from '@/features/delivery/planOptimizationStatus';
 import PlanOptimization from './components/PlanOptimization.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
@@ -196,7 +196,7 @@ let optimizationRevision = 0;
 function optimizationPresentation(row: PlanListVo) { return planOptimizationPresentation(row, optimizationStatuses.value[row.planId], optimizationLoading.value, optimizationFailed.value); }
 async function loadOptimizationStatuses(rows: PlanListVo[]) {
   const revision = ++optimizationRevision;
-  const ids = rows.filter(row => row.qcPlanId && !isDeleted(row) && !isDraft(row)).map(row => row.planId);
+  const ids = rows.filter(hasPlanOptimization).map(row => row.planId);
   optimizationStatuses.value = {}; optimizationFailed.value = false; optimizationLoading.value = !!ids.length;
   if (!ids.length) return;
   try {
