@@ -432,8 +432,8 @@ public class VideoRemakeService {
         boolean paid = !"PLANNING".equals(task.phase());
         switch (remote) {
             case "awaiting_confirmation" -> {
-                if (paid) throw input("引擎确认记录待核对");
-                store.update(task, token, "REVIEW", task.engine(), null, 0);
+                if (!"PLANNING".equals(task.phase()) && !"REVIEW".equals(task.phase())) throw input("引擎确认记录待核对");
+                autoConfirm(task, token, current);
             }
             case "succeeded" -> {
                 if (!paid || !current.path("delivery").path("typography_passed").asBoolean()
@@ -451,7 +451,46 @@ public class VideoRemakeService {
         }
     }
 
-    private void dispatch(Task task, String token) {
+    // Plan confirmation is automatic on the server: when the engine reports
+// awaiting_confirmation, the scheduler confirms the plan it produced,
+// holds the quoted points and queues the confirmation. The user never
+// sees the plan, the shots or the checks; they only see the task
+// progress (generating / done / failed). Diagnostics stay in the task
+// record and the logs.
+  private void autoConfirm(Task task, String token, JsonNode data) {
+    var charge = remakeCharge(task, data);
+    var plan = data.path("plan");
+    if (charge == null || !plan.isObject() || !plan.path("shots").isArray()) {
+      store.update(task, token, task.phase(), task.engine(), null, 8);
+      return;
+    }
+    var payload = json.createObjectNode().put("store_id", task.tenant()).put("request_id", task.id());
+    payload.set("plan", plan);
+    try {
+      tx.execute(status -> {
+        store.lockWorkspace(task.tenant());
+        var locked = store.find(task.tenant(), task.id(), true).orElseThrow();
+        if (!"PLANNING".equals(locked.phase()) && !"REVIEW".equals(locked.phase())) return null;
+        if (store.pending(task.tenant(), task.actor()) > 3) {
+          store.update(task, token, locked.phase(), task.engine(), null, 30);
+          return null;
+        }
+        charges.hold(task.tenant(), chargeKey(locked), locked.binding(), task.actor(), charge.units());
+        var quote = charges.quote(task.tenant(), chargeKey(locked));
+        if (quote == null || !quote.requested().equals(charge.units())) {
+          throw input("Remake points verification failed");
+        }
+        store.queueConfirmation(locked, payload.toString());
+        return null;
+      });
+    } catch (BizException ex) {
+      LOG.warn("Video remake auto-confirm failed for task {} ({})", task.id(), ex.getMessage());
+      complete(task, token, "FAILED", ex.getMessage(), false, false);
+      return;
+    }
+    LOG.info("Video remake auto-confirmed task {} points {} shots {}", task.id(), charge.points(), plan.path("shots").size());
+  }
+  private void dispatch(Task task, String token) {
         try {
             charges.validate(task.tenant(), chargeKey(task));
         } catch (BizException ex) {
