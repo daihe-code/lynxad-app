@@ -20,12 +20,30 @@ test('verification never appears as confirmed, even when monitoring was closed',
   const data = fixture(); data.pending = [{ status: 'VERIFY_PENDING' }]; data.view.policy.enabled = false;
   assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '正在核实');
 });
-test('waiting, missing net revenue, stale and authorization loss remain distinct', () => {
-  const data = fixture(); assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '盯盘中');
-  data.view.result.daily_net_revenue = null; assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '部分受限');
-  data.view.stale = true; assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '检查受限');
-  assert.equal(optimizationDetailState(data, 'DELIVERING', 'EXPIRED').label, '授权失效');
-  data.view.result = undefined; assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '等待数据');
+test('incomplete or temporarily unavailable monitoring data shows a neutral waiting state', () => {
+  for (const change of [
+    { result: { state: 'WAITING_DATA', complete: true, daily_spend: '0', daily_net_revenue: null, strategy_approved: false, business_ready: false } },
+    { result: { ...fixture().view.result, complete: false } },
+    { result: { ...fixture().view.result, business_ready: false } },
+    { result: undefined },
+    { stale: true },
+    { error: '暂时无法获取最新投放数据，系统会自动重试。' },
+  ]) {
+    const data = fixture();
+    Object.assign(data.view, change);
+    const state = optimizationDetailState(data, 'DELIVERING', 'ACTIVE');
+    assert.equal(state.label, '等待数据');
+    assert.equal(state.tone, 'muted');
+    assert.equal(optimizationDetailState(data, 'DELIVERING', 'EXPIRED').label, '授权失效');
+  }
+});
+test('ready results show active monitoring even while the strategy is being calibrated', () => {
+  const data = fixture();
+  assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '盯盘中');
+  data.view.result.strategy_approved = false;
+  assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '盯盘中');
+  data.view.result.state = 'NO_DELIVERY';
+  assert.equal(optimizationDetailState(data, 'DELIVERING', 'ACTIVE').label, '持续无曝光');
 });
 test('paused plans with running independent tasks are not presented as fully handled', () => {
   assert.equal(optimizationDetailState(fixture(), 'PAUSED', 'ACTIVE', 1).label, '部分生效');

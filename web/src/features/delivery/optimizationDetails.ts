@@ -16,16 +16,16 @@ export function optimizationDetailState(data: OptimizationDetails, planStatus?: 
   if (data.view.holdReason === 'REVISION_REQUIRED' || data.view.pendingRules) return { label: '规则待生效', tone: 'warning', reason: '已保存新规则，核对当天消耗后生效。' };
   if (planStatus === 'PAUSED') return runningTasks ? { label: '部分生效', tone: 'warning', reason: '主计划已暂停，独立调控任务仍需核对。' } : { label: '等待投放', tone: 'muted', reason: '规则已开启，广告恢复投放后继续经营判断。' };
   if (data.view.holdReason) return { label: '需核对规则', tone: 'warning', reason: data.view.holdReason };
-  if (data.view.error) return { label: '检查受限', tone: 'warning', reason: data.view.error };
+  if (data.view.error) return { label: '等待数据', tone: 'muted', reason: data.view.error };
   if (!data.view.result && !data.view.lastSuccess) return { label: '等待数据', tone: 'muted', reason: '规则已开启，正在积累可用于判断的数据。' };
-  if (data.view.stale) return { label: '检查受限', tone: 'warning', reason: '等待最新投放数据，历史结果不作为实时判断。' };
-  if (data.view.result?.state === 'NO_DELIVERY') return { label: '持续无曝光', tone: 'warning', reason: '' };
-  if (data.view.result?.state === 'READY' && data.view.result.complete === false) return { label: '部分受限', tone: 'warning', reason: '当天消耗待核实，暂缓消耗保护与新增投入判断。' };
-  if (data.view.result?.daily_spend != null && data.view.result.daily_net_revenue == null) return { label: '部分受限', tone: 'warning', reason: '净成交数据未齐，基于可用的消耗数据继续检查。' };
-  if (data.view.result?.strategy_approved === false) return { label: '部分受限', tone: 'warning', reason: '消耗保护继续运行，经营判断策略仍在校准。' };
-  if (data.view.result?.state === 'READY' && data.view.result?.business_ready === false) return { label: '部分受限', tone: 'warning', reason: '消耗检查继续运行，部分经营判断的数据仍待核实。' };
-  if (data.view.result?.state !== 'READY') return { label: '等待数据', tone: 'muted', reason: '正在积累完整小时和成交回补数据，暂不贸然调整。' };
-  return { label: '盯盘中', tone: 'success', reason: '' };
+  if (data.view.stale) return { label: '等待数据', tone: 'muted', reason: '等待最新投放数据，历史结果不作为实时判断。' };
+  const result = data.view.result;
+  if (result?.state === 'NO_DELIVERY') return { label: '持续无曝光', tone: 'warning', reason: '' };
+  if (result?.state === 'READY' && result.complete === false) return { label: '等待数据', tone: 'muted', reason: '当天消耗待核实，暂缓消耗保护与新增投入判断。' };
+  if (result?.daily_spend != null && result.daily_net_revenue == null) return { label: '等待数据', tone: 'muted', reason: '净成交数据未齐，基于可用的消耗数据继续检查。' };
+  if (result?.state !== 'READY') return { label: '等待数据', tone: 'muted', reason: '正在积累完整小时和成交回补数据，暂不贸然调整。' };
+  if (result.business_ready === false) return { label: '等待数据', tone: 'muted', reason: '消耗检查继续运行，部分经营判断的数据仍待核实。' };
+  return { label: '盯盘中', tone: 'success', reason: result.strategy_approved === false ? '消耗保护继续运行，经营判断策略仍在校准。' : '' };
 }
 export function monitoringDuration(seconds: number) {
   if (!seconds) return '—';
