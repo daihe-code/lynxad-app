@@ -182,6 +182,63 @@ class PlanTransferRebuildIT {
         System.out.printf("ROUND TRIP cost 101 → volume 201 → cost 202; archives %s, %s; one active%n",historical.qcPlanId(),service.history(tenant,volume).getFirst().qcPlanId());
     }
 
+    @Test void restoringVolumeRecoversTheEstimateForTheSameBudgetFromAnOlderArchive() throws Exception {
+        var recommendation=json.readTree("""
+                {"budget":{"budget":50,"estimate_trans_cost_list":[{"budget":50,"min_estimate_convert":3,"estimate_convert":5,
+                    "min_estimate_roi":0.15,"estimate_roi":0.19}]}}
+                """);
+        when(platform.recommendations(eq(tenant),eq(account.value()),eq(aweme.value()),anyList(),eq(SmartBidType.CONSERVATIVE),anyString()))
+            .thenReturn(recommendation,json.createObjectNode());
+        var first=service.transfer(tenant,root,volume("volume-estimate-first"));
+        assertEquals("SUCCEEDED",first.status(),first.message());
+        var volumeId=new PlanId(first.planId());
+        assertEquals("SUCCEEDED",service.enableExisting(tenant,root).status());
+        jdbc.update("""
+                UPDATE delivery_transfer_history SET snapshot=JSON_REMOVE(snapshot,
+                  '$.createPayload.delivery_setting.min_estimate_convert', '$.createPayload.delivery_setting.estimate_convert',
+                  '$.createPayload.delivery_setting.min_estimate_roi_goal', '$.createPayload.delivery_setting.estimate_roi_goal')
+                WHERE tenant_id=? AND plan_id=?
+                """,tenant.value(),volumeId.value());
+        var restored=service.enableExisting(tenant,volumeId);
+        assertEquals("SUCCEEDED",restored.status(),restored.message());
+        var settings=upstream.get(restored.qcPlanId()).path("delivery_setting");
+        assertEquals(3,settings.path("min_estimate_convert").asInt());
+        assertEquals(5,settings.path("estimate_convert").asInt());
+        assertEquals(0.15,settings.path("min_estimate_roi_goal").asDouble());
+        assertEquals(0.19,settings.path("estimate_roi_goal").asDouble());
+        assertEquals(1,deliveryCount());
+    }
+
+    @Test void changedRecommendedBudgetRequiresItsOwnEstimateBeforeDeletingTheActivePlan() throws Exception {
+        var atFifty=json.readTree("""
+                {"budget":{"budget":50,"estimate_trans_cost_list":[{"budget":50,"min_estimate_convert":3,"estimate_convert":5,
+                    "min_estimate_roi":0.15,"estimate_roi":0.19}]}}
+                """);
+        var emptyAtHundred=json.readTree("{\"budget\":{\"budget\":100,\"estimate_trans_cost_list\":[]}}");
+        var atHundred=json.readTree("""
+                {"budget":{"budget":100,"estimate_trans_cost_list":[{"budget":100,"min_estimate_convert":6,"estimate_convert":8,
+                    "min_estimate_roi":0.17,"estimate_roi":0.25}]}}
+                """);
+        when(platform.recommendations(eq(tenant),eq(account.value()),eq(aweme.value()),anyList(),eq(SmartBidType.CONSERVATIVE),anyString()))
+            .thenReturn(atFifty,emptyAtHundred,atHundred);
+        var first=service.transfer(tenant,root,volume("volume-estimate-budget"));
+        assertEquals("SUCCEEDED",first.status(),first.message());
+        var volumeId=new PlanId(first.planId());
+        assertEquals("SUCCEEDED",service.enableExisting(tenant,root).status());
+        var plan=local.get(volumeId.value());
+        var old=plan.setting();
+        plan.updateSetting(new DeliverySetting(old.bidType(),Money.ofYuan(100),old.roi2Goal(),old.schedule(),old.audience()));
+        int before=writes.size();
+        assertEquals(1403,assertThrows(BizException.class,()->service.enableExisting(tenant,volumeId)).code());
+        assertEquals(before,writes.size());
+        var restored=service.enableExisting(tenant,volumeId);
+        assertEquals("SUCCEEDED",restored.status(),restored.message());
+        var settings=upstream.get(restored.qcPlanId()).path("delivery_setting");
+        assertEquals(100,settings.path("budget").asInt());
+        assertEquals(8,settings.path("estimate_convert").asInt());
+        assertEquals(0.25,settings.path("estimate_roi_goal").asDouble());
+    }
+
     @Test void fullDefaultNameSurvivesRebuildAndPlatformNamesOnlyMatchTheirOwnReceipts() {
         String originalName = "2026-11-22_商品全域投放_10:37:01_e8b";
         String expectedName = originalName + "_转投";

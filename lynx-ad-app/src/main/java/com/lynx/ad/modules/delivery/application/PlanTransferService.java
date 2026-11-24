@@ -28,7 +28,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PlanTransferService {
+    private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(PlanTransferService.class);
     private static final String PRODUCT_TRANSFER_BLOCKED = "该商品已有投放计划，暂不支持切换投放方式。";
+    private static final List<String> BUDGET_ESTIMATES=List.of("min_estimate_convert","estimate_convert","estimate_roi_goal","min_estimate_roi_goal");
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
                           boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
                           String pendingStatus,String pendingError,String targetName,String counterpartPlanId) {}
@@ -63,7 +65,7 @@ public class PlanTransferService {
                 var detail=gateway.detail(current);
                 if(!enabled(status(detail)))throw new BizException(1403,"请先恢复当前计划投放，再切换投放方式");
                 rebuildSnapshot(tenant,g==null?id.value():g.root(),current,detail);
-                if(target!=null) archivedPayload(tenant,target);
+                if(target!=null) archivedPayload(tenant,g.root(),target);
             } catch(BizException unavailable) { reason=unavailable.getMessage(); }
         }
         else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，暂时无法转投";
@@ -298,8 +300,8 @@ public class PlanTransferService {
         String targetId=target==null?UUID.randomUUID().toString():target.id().value();
         if(plans.existsUnfinishedName(tenant,source.awemeId(),PlanName.fromPlatform(displayName),Optional.of(new PlanId(targetId))))
             throw new BizException(1401,"同一抖音号存在同名计划，请修改转投计划名称");
-        if(target!=null) {
-            var archived=archivedPayload(tenant,target);
+        var archived=target==null?null:archivedPayload(tenant,root,target);
+        if(archived!=null) {
             if(!archived.path("advertiser_id").asText().equals(original.path("advertiser_id").asText())
                     || !archived.path("aweme_id").asText().equals(original.path("aweme_id").asText()))
                 throw new BizException(1404,"待恢复计划的账户绑定与当前计划不一致");
@@ -311,8 +313,17 @@ public class PlanTransferService {
         ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
         desired.roi2Goal().ifPresent(roi->ds.put("roi2_goal",roi.value()));
         writeSchedule(ds,desired.schedule().type().name(),desired.schedule().endDate());
-        if(mode==SmartBidType.CONSERVATIVE && !request.existingOnly())
-            CreationRecommendationPolicy.applyBudgetEstimate(ds,gateway.recommendations(source,List.copyOf(productIds(targetPayload)),mode),request.budget());
+        if(mode==SmartBidType.CONSERVATIVE) {
+            var recommendation=gateway.recommendations(source,List.copyOf(productIds(targetPayload)),mode);
+            CreationRecommendationPolicy.applyBudgetEstimate(ds,recommendation,desired.dailyBudget().amount());
+            if(!completeBudgetEstimate(ds)) {
+                ds.remove(BUDGET_ESTIMATES);
+                if(archived!=null)copyVerifiedBudgetEstimate(archived,targetPayload);
+                if(request.existingOnly() && !completeBudgetEstimate(ds) && recommendation!=null
+                        && equal(desired.dailyBudget().amount(),QianchuanPlanMapping.number(recommendation.path("budget"),"budget")))
+                    throw new BizException(1403,"暂未取得该放量预算的完整预估，原计划保持投放，请稍后再恢复");
+            }
+        }
         validateRebuildPayload(targetPayload);
         String sourceQc=source.qcPlanId().orElseThrow().value();
         String targetName=instanceName(displayName,tenant,request.requestKey(),"target");
@@ -361,6 +372,7 @@ public class PlanTransferService {
         for(String field:List.of("deep_external_action","qcpx_mode","budget_mode")) {
             if(ds.hasNonNull(field))saved.withObject("/delivery_setting").set(field,ds.get(field).deepCopy());
         }
+        copyVerifiedBudgetEstimate(base.orElseThrow(),saved);
         saved.put("name",displayName(source));
         validateRebuildPayload(saved);
         return saved;
@@ -410,11 +422,33 @@ public class PlanTransferService {
         return proof;
     }
 
-    private ObjectNode archivedPayload(TenantId tenant,AdPlan target) {
-        var saved=rebuilds.savedPayload(tenant,target.id().value()).orElseThrow(()->new BizException(1403,"缺少恢复所需的计划快照"));
+    private ObjectNode archivedPayload(TenantId tenant,String root,AdPlan target) {
+        var instance=rebuilds.savedInstance(tenant,target.id().value()).orElseThrow(()->new BizException(1403,"缺少恢复所需的计划快照"));
+        var saved=instance.createPayload();
         if(!saved.isObject() || !saved.path("delivery_setting").isObject())
             throw new BizException(1403,"缺少恢复所需的投放设置");
-        return (ObjectNode)saved.deepCopy();
+        var payload=(ObjectNode)saved.deepCopy();
+        if(target.setting().bidType()==SmartBidType.CONSERVATIVE && !completeBudgetEstimate(payload.path("delivery_setting")))
+            rebuilds.submittedPayload(tenant,target.id().value(),instance.qcPlanId())
+                .or(()->creations.publishedInstancePayload(tenant.value(),root,instance.qcPlanId()))
+                .ifPresent(accepted->copyVerifiedBudgetEstimate(accepted,payload));
+        return payload;
+    }
+
+    private static boolean completeBudgetEstimate(JsonNode setting) {
+        return BUDGET_ESTIMATES.stream().allMatch(field->setting.path(field).isNumber() && setting.path(field).decimalValue().signum()>=0);
+    }
+
+    private static void copyVerifiedBudgetEstimate(JsonNode accepted,ObjectNode payload) {
+        var old=accepted.path("delivery_setting");
+        var current=payload.withObject("/delivery_setting");
+        if(!SmartBidType.CONSERVATIVE.oceanValue().equals(current.path("smart_bid_type").asText())
+                || !current.path("smart_bid_type").asText().equals(old.path("smart_bid_type").asText())
+                || !equal(QianchuanPlanMapping.number(old,"budget"),QianchuanPlanMapping.number(current,"budget"))
+                || !accepted.path("advertiser_id").asText().equals(payload.path("advertiser_id").asText())
+                || !accepted.path("aweme_id").asText().equals(payload.path("aweme_id").asText())
+                || !productIds(accepted).equals(productIds(payload)) || !completeBudgetEstimate(old))return;
+        BUDGET_ESTIMATES.forEach(field->current.set(field,old.get(field)));
     }
 
     private static void validateRebuildPayload(JsonNode payload) {
@@ -532,6 +566,7 @@ public class PlanTransferService {
             if("REBUILD_PREPARED".equals(phase) || !checking && "REBUILD_DELETING".equals(phase) && rejected(failure))
                 return failBeforeDelete(tenant,a,phase,"转投未提交，原计划保持原状态"+(failure instanceof BizException?"。"+failure.getMessage():""));
             if("REBUILD_DELETED".equals(phase) && failure instanceof BizException || !checking && "REBUILD_CREATING".equals(phase) && rejected(failure)) {
+                LOG.warn("transfer rebuild rejected key={} target={} phase={} reason={}",a.key(),a.target(),phase,failure.getMessage());
                 tx.executeWithoutResult(s->{
                     store.phase(tenant,a.key(),"REBUILD_RESTORE_READY",null);
                     store.finish(tenant,a.key(),"UNCERTAIN","目标计划未创建，正在恢复原投放");

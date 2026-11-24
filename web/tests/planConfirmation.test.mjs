@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { restoreUnavailableReason, restoreResultFeedback } from '../src/features/delivery/planConfirmation.ts';
+import { restoreUnavailableReason, restoreResultFeedback, transferredRestoreFeedback } from '../src/features/delivery/planConfirmation.ts';
+
+test('恢复核查区分处理中、已回退和已恢复投放', () => {
+  const paused = { status: 'PAUSED', qcStatus: 'TRANSFER_ARCHIVED' };
+  assert.equal(transferredRestoreFeedback(paused, { status: 'UNCERTAIN' }).pending, true);
+  assert.deepEqual(transferredRestoreFeedback(paused, { status: 'FAILED', message: '目标计划创建失败，原投放已恢复' }),
+    { pending: false, type: 'warning', message: '目标计划创建失败，原投放已恢复' });
+  assert.equal(transferredRestoreFeedback(paused).type, 'warning');
+  assert.equal(transferredRestoreFeedback({ status: 'DELIVERING', qcStatus: 'DELIVERY_OK' }).type, 'success');
+});
 
 test('恢复前核对排期，结束当天仍可恢复，结束后必须先处理排期', () => {
   const plan = { status: 'PAUSED', qcStatus: 'DISABLE', scheduleType: 'DATE_RANGE', endDate: '2026-10-25' };

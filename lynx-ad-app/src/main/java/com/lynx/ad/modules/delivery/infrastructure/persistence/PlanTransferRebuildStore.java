@@ -21,6 +21,7 @@ public class PlanTransferRebuildStore {
     public record History(String qcPlanId, Instant archivedAt, LocalDate statisticsStartDate, LocalDate statisticsDate,
                           BigDecimal costYuan, BigDecimal gmvYuan, BigDecimal roi, BigDecimal orders) {}
     public record ArchivedReport(String qcPlanId, Instant archivedAt, JsonNode snapshot) {}
+    public record ArchivedInstance(String qcPlanId, JsonNode createPayload) {}
     public record SyncGuard(Set<String> ids, Set<String> names) {
         public boolean excludes(String id, String name) { return ids.contains(id) || names.contains(name); }
     }
@@ -57,10 +58,14 @@ public class PlanTransferRebuildStore {
     }
 
     public Optional<JsonNode> savedPayload(TenantId tenant, String planId) {
+        return savedInstance(tenant,planId).map(ArchivedInstance::createPayload);
+    }
+
+    public Optional<ArchivedInstance> savedInstance(TenantId tenant, String planId) {
         return jdbc.query("""
-                SELECT snapshot FROM delivery_transfer_history WHERE tenant_id=? AND plan_id=?
+                SELECT qc_plan_id,snapshot FROM delivery_transfer_history WHERE tenant_id=? AND plan_id=?
                 ORDER BY archived_at DESC LIMIT 1
-                """,(r,n)->parse(r.getString(1)).path("createPayload"),tenant.value(),planId).stream().findFirst();
+                """,(r,n)->new ArchivedInstance(r.getString(1),parse(r.getString(2)).path("createPayload")),tenant.value(),planId).stream().findFirst();
     }
 
     public Map<String,List<ArchivedReport>> reports(TenantId tenant, Set<String> planIds) {
