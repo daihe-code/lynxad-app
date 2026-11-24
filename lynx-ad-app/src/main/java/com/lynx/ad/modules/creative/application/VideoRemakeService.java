@@ -24,6 +24,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -86,7 +87,7 @@ public class VideoRemakeService {
                              Map<String, BigDecimal> pointsPerSecond) {}
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
     public record LinkImport(String requestId, String url) {}
-    @JsonIgnoreProperties({"facts", "productImageId", "adNotices"})
+    @JsonIgnoreProperties({"facts", "productImageId", "productImageIds", "productImages", "adNotices"})
     public record Start(String requestId, String bindingId, String awemeId, String productId,
                         String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
@@ -97,7 +98,8 @@ public class VideoRemakeService {
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
                        JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings,
-                       List<String> productImageUrls) {}
+                       List<String> productImageUrls, List<String> consistencyIssues, List<String> generationWarnings,
+                       List<VideoRemakeGeneration.ShotRetry> shotRetries, List<String> progressSteps) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
         Map<String, Integer> units() {
@@ -239,7 +241,8 @@ public class VideoRemakeService {
         // The engine requires a verified fact. The authorized catalog supplies the exact product name.
         target.putArray("facts").add(productName);
         if (product.category() != null && !product.category().isBlank()) target.put("category", product.category().strip());
-        var productImages = Stream.concat(product.imageUrls().stream(), Stream.ofNullable(product.imageUrl()))
+        var productImages = Stream.concat(Stream.ofNullable(product.imageUrl()), product.imageUrls().stream())
+                .filter(java.util.Objects::nonNull)
                 .map(String::strip).filter(VideoRemakeService::isProductImageUrl).distinct().limit(6).toList();
         if (productImages.isEmpty()) throw input("所选商品没有可用的商品图，请重新选择");
         var imageUrls = target.putArray("image_urls");
@@ -311,12 +314,15 @@ public class VideoRemakeService {
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
         var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data) : null;
-        var quote = charge == null ? null : charge.quote();
+        var reserved = charge != null || task.confirmation() == null ? null : charges.quote(tenant, chargeKey(task));
+        var quote = reserved != null ? new RemakeQuote(reserved.total(), null) : charge == null ? null : charge.quote();
         if (quote != null) charges.access(tenant, quote.points());
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote, auditIssues(data), auditWarnings(data), productImageUrls(task));
+                quote, auditIssues(data), auditWarnings(data), productImageUrls(task), consistencyIssues(data),
+                VideoRemakeGeneration.generationWarnings(data), VideoRemakeGeneration.shotRetries(data),
+                VideoRemakeGeneration.progressSteps(data));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -457,11 +463,11 @@ public class VideoRemakeService {
             dispatch(task, token);
             return;
         }
-        boolean paid = !"PLANNING".equals(task.phase());
+        boolean paid = !Set.of("PLANNING", "REVIEW").contains(task.phase());
         switch (remote) {
             case "awaiting_confirmation" -> {
-                if (paid) throw input("引擎确认记录待核对");
-                store.update(task, token, "REVIEW", task.engine(), null, 0);
+                if (!"PLANNING".equals(task.phase()) && !"REVIEW".equals(task.phase())) throw input("引擎确认记录待核对");
+                autoConfirm(task, token, current);
             }
             case "succeeded" -> {
                 if (!paid || !current.path("delivery").path("typography_passed").asBoolean()
@@ -471,11 +477,44 @@ public class VideoRemakeService {
                 complete(task, token, "SUCCEEDED", null, true, true);
             }
             case "failed" -> complete(task, token, "FAILED", error(current, "复刻任务执行失败"), paid, false);
-            case "needs_attention" -> store.update(task, token, "NEEDS_ATTENTION", task.engine(),
-                    error(current, "生成结果待核对，积分仍在预占中"), 60);
+            case "needs_attention" -> store.update(task, token, paid ? "NEEDS_ATTENTION" : task.phase(), task.engine(),
+                    error(current, paid ? "生成结果待核对，积分仍在预占中" : "分析结果待核对"), 60);
             case "review_queued", "review_processing" -> store.update(task, token,
                     paid ? "GENERATING" : "PLANNING", task.engine(), error(current, null), 8);
             default -> throw input("复刻任务状态待核对");
+        }
+    }
+
+    private void autoConfirm(Task task, String token, JsonNode data) {
+        var charge = remakeCharge(task, data);
+        var plan = data.path("plan");
+        if (charge == null || !plan.isObject() || !plan.path("shots").isArray() || plan.path("shots").isEmpty()) {
+            store.update(task, token, task.phase(), task.engine(), null, 8);
+            return;
+        }
+        var payload = json.createObjectNode().put("store_id", task.tenant()).put("request_id", task.id());
+        payload.set("plan", plan);
+        try {
+            var queued = tx.execute(status -> {
+                store.lockWorkspace(task.tenant());
+                var locked = store.find(task.tenant(), task.id(), true).orElseThrow();
+                if (!token.equals(locked.lease()) || !Set.of("PLANNING", "REVIEW").contains(locked.phase())) return null;
+                // A waiting review predates this worker and has not yet taken an active slot.
+                if ("REVIEW".equals(locked.phase()) && store.pending(task.tenant(), task.actor()) >= 3) {
+                    store.update(locked, token, locked.phase(), locked.engine(), null, 30);
+                    return null;
+                }
+                charges.hold(locked.tenant(), chargeKey(locked), locked.binding(), locked.actor(), charge.units());
+                var quote = charges.quote(locked.tenant(), chargeKey(locked));
+                if (quote == null || !quote.requested().equals(charge.units())
+                        || quote.total().compareTo(charge.quote().points()) != 0)
+                    throw input("生成积分已变化，请重新发起复刻");
+                store.queueConfirmation(locked, payload.toString());
+                return quote.total();
+            });
+            if (queued != null) LOG.info("Video remake auto-confirmed task {} points {} shots {}", task.id(), queued, plan.path("shots").size());
+        } catch (BizException ex) {
+            complete(task, token, "FAILED", ex.getMessage(), false, false);
         }
     }
 
@@ -544,7 +583,8 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(), productImageUrls(task));
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(),
+                productImageUrls(task), List.of(), List.of(), List.of(), List.of());
     }
 
     // Keep the stored failure readable when the engine is temporarily unavailable.
@@ -553,10 +593,14 @@ public class VideoRemakeService {
             var data = detail(task);
             var issues = auditIssues(data);
             var warnings = auditWarnings(data);
-            if (issues.isEmpty() && warnings.isEmpty()) return summary(task);
+            var consistency = consistencyIssues(data);
+            var generationWarnings = VideoRemakeGeneration.generationWarnings(data);
+            var shotRetries = VideoRemakeGeneration.shotRetries(data);
+            if (issues.isEmpty() && warnings.isEmpty() && consistency.isEmpty() && generationWarnings.isEmpty() && shotRetries.isEmpty()) return summary(task);
             return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null),
                     error(data, task.error()), task.createdAt(), task.asset(), null, null, null, List.of(),
-                    null, null, issues, warnings, productImageUrls(task));
+                    null, null, issues, warnings, productImageUrls(task), consistency, generationWarnings, shotRetries,
+                    VideoRemakeGeneration.progressSteps(data));
         } catch (RuntimeException ex) {
             return summary(task);
         }
@@ -566,6 +610,22 @@ public class VideoRemakeService {
     }
     private List<String> auditWarnings(JsonNode data) {
         return auditItems(data, "warnings");
+    }
+
+    private List<String> consistencyIssues(JsonNode data) {
+        var failure = data.path("video_consistency_failure");
+        if (!failure.isObject()) failure = data.path("result").path("video_consistency_failure");
+        if (!failure.isObject()) return List.of();
+        var items = new ArrayList<String>();
+        String reason = failure.path("reason_text").asText("");
+        int shot = failure.path("shot_index").asInt(0);
+        items.add(reason.isBlank() ? "生成视频商品一致性或文字安全区检查未通过" : shot > 0 ? "第 " + shot + " 分镜：" + reason : reason);
+        var frames = new ArrayList<String>();
+        failure.path("failed_samples").forEach(sample -> {
+            if (sample.hasNonNull("frame_index")) frames.add("采样帧 " + sample.path("frame_index").asInt());
+        });
+        if (!frames.isEmpty()) items.add("未通过的采样帧：" + String.join("、", frames));
+        return List.copyOf(items);
     }
     private List<String> auditItems(JsonNode data, String field) {
         var audit = data.path("product_fact_audit");

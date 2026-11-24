@@ -122,6 +122,66 @@ class VideoRemakeServiceTest {
         verify(charges, never()).finish(any(), any(), any());
     }
 
+    @ParameterizedTest
+    @CsvSource({"PLANNING", "REVIEW"})
+    void workerAutomaticallyConfirmsNewAndExistingReviewsOnce(String phase) throws Exception {
+        var waiting = row(phase);
+        var lease = new java.util.concurrent.atomic.AtomicReference<String>();
+        when(store.due()).thenReturn(List.of(waiting), List.of(waiting));
+        when(store.claim(eq(waiting), anyString())).thenAnswer(call -> {
+            lease.set(call.getArgument(1));
+            return true;
+        });
+        when(store.find("tenant", ID, true)).thenAnswer(call -> Optional.of(leased(waiting, lease.get())))
+                .thenReturn(Optional.of(row("CONFIRMING")));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(awaitingConfirmation());
+        when(charges.quote("tenant", "remake:" + ID)).thenReturn(
+                new GenerationCharges.Quote(null, Map.of("video", 1), Map.of("video", RATE)));
+
+        service.advance();
+        service.advance();
+
+        verify(charges, times(1)).hold("tenant", "remake:" + ID, "binding", "actor", Map.of("video", 1));
+        var payload = ArgumentCaptor.forClass(String.class);
+        verify(store, times(1)).queueConfirmation(argThat(task -> phase.equals(task.phase())), payload.capture());
+        assertEquals(awaitingConfirmation().path("plan"), json.readTree(payload.getValue()).path("plan"));
+        verify(engine, never()).remake(eq("POST"), anyString(), any());
+    }
+
+    @Test
+    void insufficientBalanceStopsAnExistingReviewBeforeItCanGenerate() throws Exception {
+        var waiting = row("REVIEW");
+        var lease = new java.util.concurrent.atomic.AtomicReference<String>();
+        when(store.due()).thenReturn(List.of(waiting));
+        when(store.claim(eq(waiting), anyString())).thenAnswer(call -> {
+            lease.set(call.getArgument(1));
+            return true;
+        });
+        when(store.find("tenant", ID, true)).thenAnswer(call -> Optional.of(leased(waiting, lease.get())));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(awaitingConfirmation());
+        when(charges.hold("tenant", "remake:" + ID, "binding", "actor", Map.of("video", 1)))
+                .thenThrow(new BizException(1901, "积分不足"));
+
+        service.advance();
+
+        verify(store).update(waiting, lease.get(), "FAILED", ENGINE, "积分不足", 0);
+        verify(store, never()).queueConfirmation(any(), anyString());
+        verify(engine, never()).remake(eq("POST"), anyString(), any());
+        verify(charges, never()).finish(any(), any(), any());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode awaitingConfirmation() throws Exception {
+        return json.readTree("""
+                {"id":"%s","store_id":"tenant","status":"awaiting_confirmation",
+                 "plan":{"title":"自动生成的分镜","shots":[{"scene_id":"scene-1","duration":15}]}}
+                """.formatted(ENGINE));
+    }
+
+    private static Task leased(Task task, String lease) {
+        return new Task(task.tenant(), task.id(), task.actor(), task.binding(), task.product(), task.engine(), task.phase(),
+                task.request(), task.confirmation(), task.asset(), task.error(), lease, task.createdAt());
+    }
+
     @Test
     void failedTaskReadsBlockingAndWarningsFromScopedEngineDetail() throws Exception {
         when(store.find("tenant", ID, false)).thenReturn(Optional.of(row("FAILED")));

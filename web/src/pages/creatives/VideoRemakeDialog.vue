@@ -192,7 +192,7 @@
             </div>
             <div class="remake-actions">
               <el-button v-if="setupStep > 0" :disabled="busy" @click="goToStep(setupStep - 1)">上一步</el-button>
-              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '分析参考视频' }}</el-button>
+              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '开始复刻' }}</el-button>
             </div>
           </form>
         </div>
@@ -202,7 +202,7 @@
             <h3>复刻流程</h3>
             <ol class="remake-workflow">
               <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品与可选人像</small></div></li>
-              <li><span><AssetIcon name="note" /></span><div><strong>确认分镜</strong><small>检查并编辑画面、旁白和字幕</small></div></li>
+              <li><span><AssetIcon name="note" /></span><div><strong>自动确认</strong><small>自动生成分镜并核对成片规格</small></div></li>
               <li><span><AssetIcon name="sparkle" /></span><div><strong>生成与入库</strong><small>生成后预览，合适即可保存</small></div></li>
             </ol>
           </section>
@@ -215,7 +215,7 @@
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
             </dl>
             <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
-            <p v-if="sourceMatchingReady" class="remake-muted">分析参考视频不扣积分，确认生成后预占积分。</p>
+            <p v-if="sourceMatchingReady" class="remake-muted">分析后自动生成，按成片规格预占积分。</p>
           </section>
         </aside>
       </div>
@@ -223,7 +223,7 @@
       <section v-else-if="panel === 'history'" class="remake-history">
         <div class="remake-history-bar">
           <label><span class="remake-sr-only">搜索任务</span><input v-model="historyQuery" type="search" placeholder="搜索商品名称或任务 ID"></label>
-          <label><span class="remake-sr-only">任务状态</span><select v-model="historyFilter"><option value="all">全部状态</option><option value="running">处理中</option><option value="review">待确认分镜</option><option value="completed">成片已就绪</option><option value="attention">失败或待核对</option></select></label>
+          <label><span class="remake-sr-only">任务状态</span><select v-model="historyFilter"><option value="all">全部状态</option><option value="running">处理中</option><option value="completed">成片已就绪</option><option value="attention">失败或待核对</option></select></label>
           <el-button :loading="historyLoading" @click="history"><AssetIcon name="refresh" />刷新</el-button>
         </div>
         <p v-if="historyError" class="remake-error" role="alert">{{ historyError }}</p>
@@ -253,71 +253,30 @@
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
           <p v-if="task.error" class="remake-error remake-task-error" role="alert">{{ task.error }}</p>
+          <section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
+            <h3>成片一致性检查未通过</h3>
+            <ul><li v-for="issue in task.consistencyIssues" :key="issue">{{ issue }}</li></ul>
+          </section>
           <section v-if="task.auditIssues?.length" class="remake-ad-notices">
             <h3>与商品事实矛盾（未通过）</h3>
-            <ul>
-              <li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li>
-            </ul>
+            <ul><li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li></ul>
           </section>
           <section v-if="task.auditWarnings?.length" class="remake-ad-notices">
             <h3>无法确认的商品事实（需注意）</h3>
-            <ul>
-              <li v-for="warning in task.auditWarnings" :key="warning">{{ warning }}</li>
-            </ul>
+            <ul><li v-for="warning in task.auditWarnings" :key="warning">{{ warning }}</li></ul>
+          </section>
+          <section v-if="task.generationWarnings?.length" class="remake-ad-notices">
+            <h3>生成提示</h3>
+            <ul><li v-for="warning in task.generationWarnings" :key="warning">{{ warning }}</li></ul>
+          </section>
+          <section v-if="task.shotRetries?.length" class="remake-ad-notices">
+            <h3>分镜重试</h3>
+            <ul><li v-for="retry in task.shotRetries" :key="retry.shot">
+              第 {{ retry.shotIndex }} 分镜（{{ retryReasonLabel(retry.reason) }}），{{ retryStatusLabel(retry.status) }}。
+            </li></ul>
           </section>
 
-          <div v-if="task.phase === 'REVIEW' && plan" class="remake-grid">
-            <form class="remake-main remake-review" novalidate @submit.prevent="approve">
-              <label>视频标题<input v-model="plan.title" maxlength="100" :disabled="busy"></label>
-              <p v-if="titleError" class="remake-error" role="alert">{{ titleError }}</p>
-              <div class="remake-shot-strip" role="group" aria-label="选择要编辑的镜头">
-                <button v-for="(shot,index) in plan.shots" :key="index" type="button" :aria-pressed="activeShot === index"
-                  :disabled="busy" @click="activeShot = index">
-                  <span>镜头 {{ index + 1 }}</span><small>{{ shot.duration }} 秒 · {{ shot.role }}</small>
-                </button>
-              </div>
-              <div v-if="editShot" class="remake-shot">
-                <label>画面<textarea v-model="editShot.visual_prompt" rows="4" maxlength="1800" :disabled="busy" /></label>
-                <p v-if="visibleShotError === 'visual_prompt'" class="remake-error" role="alert">画面描述至少填写 10 个字。</p>
-                <label>旁白<textarea v-model="editShot.narration" rows="2" :maxlength="narrationLimit" :disabled="busy" /></label>
-                <div class="remake-count"><span v-if="visibleShotError === 'narration'" class="remake-error" role="alert">请填写旁白，且不要超过当前镜头的字数限制。</span><span>{{ countText(editShot.narration) }} / {{ narrationLimit }}</span></div>
-                <label>字幕<input v-model="editShot.caption" maxlength="24" :disabled="busy"></label>
-                <p v-if="visibleShotError === 'caption'" class="remake-error" role="alert">请填写 1 至 24 字的字幕。</p>
-              </div>
-              <section v-if="task.adNotices?.length" class="remake-ad-notices">
-                <h3>全程显示的成片提示语</h3>
-                <ul><li v-for="notice in task.adNotices" :key="notice">{{ notice }}</li></ul>
-              </section>
-              <div v-if="taskError" class="remake-inline-error" role="alert">{{ taskError }}</div>
-              <div class="remake-actions">
-                <router-link v-if="capability?.subscribed === false" :to="'/subscription'" class="remake-link" @click="emit('close')">查看套餐</router-link>
-                <el-button native-type="submit" type="primary" :loading="busy" :disabled="!generationReady">
-                  确认生成<template v-if="task.quote"> · {{ formatPoints(task.quote.points) }} 积分</template>
-                </el-button>
-              </div>
-            </form>
-            <aside class="remake-sidebar">
-              <section class="remake-side-card remake-summary">
-                <h3>分镜摘要</h3>
-                <dl><div><dt>镜头数量</dt><dd>{{ plan.shots.length }} 个</dd></div><div><dt>计划时长</dt><dd>{{ planDuration }} 秒</dd></div>
-                  <div><dt>画幅</dt><dd>{{ task.outputSpec ? orientationLabel(task.outputSpec) : '竖屏 9:16' }}</dd></div>
-                  <div v-if="task.outputSpec"><dt>分辨率</dt><dd>{{ resolutionLabel(task.outputSpec) }}</dd></div>
-                  <div v-if="task.quote?.pointsPerSecond != null"><dt>视频每秒消耗</dt><dd>{{ formatPoints(task.quote.pointsPerSecond) }} 积分</dd></div>
-                  <div v-if="task.quote"><dt>生成消耗</dt><dd>{{ formatPoints(task.quote.points) }} 积分</dd></div>
-                </dl>
-                <p v-if="quotedShortfall" class="remake-error" role="status">{{ quotedShortfall }}</p>
-                <p v-else-if="capability?.subscribed === false" class="remake-muted">开通套餐后可继续生成。</p>
-                <p v-else-if="!task.quote" class="remake-muted">暂未取得生成报价。</p>
-                <p v-else-if="!capabilityLoading && !taskLoading && !generationReady" class="remake-muted">复刻服务暂不可用。</p>
-                <router-link v-if="!busy && quotedShortfall"
-                  class="remake-link" :to="pointsRoute" @click="emit('close')">查看积分</router-link>
-                <el-button v-if="!generationReady" link type="primary" :disabled="busy" :loading="capabilityLoading || taskLoading"
-                  @click="refreshQuote">刷新报价和积分</el-button>
-              </section>
-            </aside>
-          </div>
-
-          <div v-else-if="task.phase === 'SUCCEEDED'" class="remake-result">
+          <div v-if="task.phase === 'SUCCEEDED'" class="remake-result">
             <div class="remake-result-screen">
               <video v-if="task.videoUrl" :key="previewVersion" class="remake-preview" :src="task.videoUrl" :poster="task.coverUrl" controls
                 playsinline preload="metadata" aria-label="成片预览" @error="previewFailed = true" />
@@ -348,7 +307,12 @@
             <span v-else class="remake-task-icon"><AssetIcon name="info-line" /></span>
             <div class="remake-progress-content">
               <h3 aria-live="polite">{{ taskProgress }}</h3>
-              <ol v-if="progressStage" class="remake-progress-stages" aria-label="复刻流程">
+              <p v-if="task.quote" class="remake-muted">本次生成 {{ formatPoints(task.quote.points) }} 积分</p>
+              <ol v-if="generationSteps.length" class="remake-progress-stages" aria-label="生成进度">
+                <li v-for="step in generationSteps" :key="step.id" :aria-current="step.current ? 'step' : undefined"
+                  :data-completed="step.done">{{ step.label }}</li>
+              </ol>
+              <ol v-else-if="progressStage" class="remake-progress-stages" aria-label="复刻流程">
                 <li v-for="(label, index) in progressStages" :key="label"
                   :aria-current="progressStage === index + 1 ? 'step' : undefined"
                   :data-completed="progressStage > index + 1">{{ label }}</li>
@@ -407,8 +371,8 @@ import { storeToRefs } from 'pinia';
 import { useAdvertisingAccountsStore } from '@/stores/advertisingAccounts';
 import { creationProducts, type CreationProduct } from '@/features/delivery/creationApi';
 import {
-  confirmRemake, createRemake, getRemake, getRemakeCapability, importRemakeLink, listRemakes, saveRemake, uploadRemakeMedia,
-  type RemakeCapability, type RemakeShot, type RemakeTask, type RemakeUpload, type RemakeVideoSpec,
+  createRemake, getRemake, getRemakeCapability, importRemakeLink, listRemakes, saveRemake, uploadRemakeMedia,
+  type RemakeCapability, type RemakeTask, type RemakeUpload, type RemakeVideoSpec,
 } from '@/features/creative/videoRemakeApi';
 import AssetIcon from './AssetIcon.vue';
 import RemakeFilePicker from './RemakeFilePicker.vue';
@@ -512,20 +476,13 @@ const panel = ref<'new' | 'history' | 'task'>('new');
 const tasks = ref<RemakeTask[]>([]), historyError = ref(''), historyLoading = ref(false);
 const historyFilter = ref('all'), historyQuery = ref('');
 const task = ref<RemakeTask>(), taskId = ref(''), taskLoading = ref(false), taskError = ref('');
-const quotedShortfall = computed(() => pointShortfall(task.value?.quote?.points));
-const generationReady = computed(() => !capabilityLoading.value && !taskLoading.value && capability.value?.ready === true
-  && capability.value.availablePoints != null && task.value?.quote != null && !quotedShortfall.value);
-const plan = ref<RemakeTask['plan']>(), activeShot = ref(0), reviewAttempted = ref(false);
-const editShot = computed(() => plan.value?.shots[activeShot.value]);
-const planDuration = computed(() => plan.value?.shots.reduce((sum, shot) => sum + shot.duration, 0) ?? 0);
-const narrationLimit = computed(() => editShot.value ? Math.min(120, editShot.value.duration * 5) : 0);
 const previewFailed = ref(false), previewVersion = ref(0), busy = ref(false);
 
 let productRequest = 0, taskRequest = 0, capabilityRequest = 0, alive = true;
 let poll: ReturnType<typeof setTimeout> | undefined;
-const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'CONFIRMING', 'SENDING', 'GENERATING']);
+const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'REVIEW', 'CONFIRMING', 'SENDING', 'GENERATING']);
 const labels: Record<RemakeTask['phase'], string> = {
-  CREATING: '等待分析', PLANNING: '正在分析视频', REVIEW: '待确认分镜', CONFIRMING: '正在确认生成',
+  CREATING: '等待分析', PLANNING: '正在分析视频', REVIEW: '等待自动确认', CONFIRMING: '正在确认生成',
   SENDING: '正在提交生成', GENERATING: '正在生成', SUCCEEDED: '成片已就绪', FAILED: '复刻失败', NEEDS_ATTENTION: '结果待核对',
 };
 const phaseLabel = (phase: RemakeTask['phase']) => labels[phase] ?? phase;
@@ -535,12 +492,11 @@ function message(cause: unknown) {
   const reason = (cause as { reason?: unknown } | null)?.reason;
   return typeof reason === 'string' && reason ? `${text}（原因码：${reason}）` : text;
 }
-const countText = (value: string) => Array.from(value.trim()).length;
 
 function taskTone(phase: RemakeTask['phase']) {
   if (phase === 'SUCCEEDED') return 'success';
   if (phase === 'FAILED') return 'danger';
-  if (phase === 'REVIEW' || phase === 'NEEDS_ATTENTION') return 'warning';
+  if (phase === 'NEEDS_ATTENTION') return 'warning';
   return 'progress';
 }
 function taskAction(phase: RemakeTask['phase']) {
@@ -552,7 +508,7 @@ const filteredTasks = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
   return tasks.value.filter(item => {
     const group = inProgress.has(item.phase) ? 'running' : item.phase === 'SUCCEEDED' ? 'completed'
-      : item.phase === 'REVIEW' ? 'review' : 'attention';
+      : 'attention';
     return (historyFilter.value === 'all' || historyFilter.value === group)
       && (!query || item.product.toLowerCase().includes(query) || item.id.toLowerCase().includes(query));
   });
@@ -572,13 +528,35 @@ const stageLabels: Record<string, string> = {
   outputs: '正在保存成片与封面',
   waiting_network: '网络恢复后将继续查询原任务',
 };
-const progressStages = ['素材分析', '分镜确认', '成片生成'];
+const progressStages = ['素材分析', '自动确认', '成片生成'];
 const progressStage = computed(() => {
   const phase = task.value?.phase;
   if (phase === 'CREATING' || phase === 'PLANNING') return 1;
-  if (phase === 'CONFIRMING') return 2;
+  if (phase === 'REVIEW' || phase === 'CONFIRMING') return 2;
   if (phase === 'SENDING' || phase === 'GENERATING') return 3;
   return 0;
+});
+const retryReasons: Record<string, string> = {
+  product_mismatch: '商品与参考图不一致', fake_brand: '伪造或替换品牌', garbled_text: '乱码或伪文字',
+};
+const retryStatuses: Record<string, string> = {
+  passed: '重试后通过', failed: '重试后仍未通过',
+};
+const retryReasonLabel = (reason: string) => retryReasons[reason] || '视频一致性检查未通过';
+const retryStatusLabel = (status: string) => retryStatuses[status] || '重试中';
+const generationSteps = computed(() => {
+  const done = new Set(task.value?.progressSteps);
+  const stages = [
+    { id: 'reference_analysed', label: '参考分析' },
+    { id: 'shots_planned', label: '规划分镜' },
+    { id: 'generating', label: '生成分镜' },
+    { id: 'checking', label: '成片检查' },
+  ];
+  if (!done.size) return [];
+  const active = stages.findIndex(step => !done.has(step.id));
+  return stages.map((step, index) => ({
+    ...step, done: done.has(step.id), current: index === active && progressStage.value > 0,
+  }));
 });
 const taskProgress = computed(() => {
   if (!task.value) return '';
@@ -847,14 +825,7 @@ async function history() {
 function show(result: RemakeTask) {
   const previous = task.value;
   task.value = result;
-  if (result.phase !== 'REVIEW') {
-    plan.value = undefined;
-    return;
-  }
-  if (result.plan && (!plan.value || previous?.id !== result.id || previous.phase !== 'REVIEW')) {
-    plan.value = { title: result.plan.title, shots: result.plan.shots.map(shot => ({ ...shot })) };
-    activeShot.value = 0;
-    reviewAttempted.value = false;
+  if (previous?.phase !== result.phase && ['CONFIRMING', 'GENERATING', 'SUCCEEDED', 'FAILED'].includes(result.phase)) {
     void loadCapability();
   }
 }
@@ -877,7 +848,6 @@ async function openTask(id: string, summary?: RemakeTask) {
   changePanel('task');
   taskId.value = id;
   task.value = undefined;
-  plan.value = undefined;
   previewFailed.value = false;
   if (summary) show(summary);
   await refreshTask();
@@ -890,40 +860,6 @@ async function refreshTask() {
   previewFailed.value = false;
   await fetchTask(taskId.value, revision, !!task.value && inProgress.has(task.value.phase));
   if (alive && revision === taskRequest && !taskError.value) previewVersion.value++;
-}
-async function refreshQuote() {
-  await Promise.all([loadCapability(), refreshTask()]);
-}
-function shotError(shot: RemakeShot) {
-  const visual = countText(shot.visual_prompt);
-  const narration = countText(shot.narration);
-  const caption = countText(shot.caption);
-  if (visual < 10 || visual > 1800) return 'visual_prompt';
-  if (narration === 0 || narration > Math.min(120, shot.duration * 5)) return 'narration';
-  if (caption === 0 || caption > 24) return 'caption';
-  return '';
-}
-const titleError = computed(() => reviewAttempted.value && plan.value
-  && (countText(plan.value.title) === 0 || countText(plan.value.title) > 100) ? '请填写 1 至 100 字的视频标题。' : '');
-const visibleShotError = computed(() => reviewAttempted.value && editShot.value ? shotError(editShot.value) : '');
-async function approve() {
-  const current = task.value;
-  if (!current?.quote || !plan.value || !generationReady.value || busy.value) return;
-  reviewAttempted.value = true;
-  const firstInvalid = plan.value.shots.findIndex(shotError);
-  if (firstInvalid !== -1) activeShot.value = firstInvalid;
-  if (titleError.value || firstInvalid !== -1) return;
-  busy.value = true;
-  taskError.value = '';
-  try {
-    const result = await confirmRemake(current.id, plan.value.title.trim(), plan.value.shots, current.quote.points);
-    if (result.phase !== 'REVIEW') show(result);
-    await refreshTask();
-  } catch (cause) {
-    await refreshQuote();
-    if (task.value?.id === current.id && task.value.phase === 'REVIEW') taskError.value = message(cause);
-  }
-  finally { busy.value = false; }
 }
 async function save() {
   if (!task.value || task.value.assetId || busy.value) return;

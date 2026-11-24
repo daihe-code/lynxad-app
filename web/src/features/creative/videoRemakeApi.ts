@@ -38,6 +38,8 @@ export interface RemakeTask {
   error?: string;
   auditIssues?: string[];
   auditWarnings?: string[];
+  consistencyIssues?: string[];
+  generationWarnings?: string[];   shotRetries?: { shot: string; shotIndex: number; reason: string; status: string; replan?: string }[];   progressSteps?: string[];
   createdAt: string;
   assetId?: string;
   plan?: { title: string; shots: RemakeShot[] };
@@ -86,11 +88,6 @@ export const getRemakeCapability = () => apiGet<RemakeCapability>(root + '/capab
 export const listRemakes = () => apiGet<RemakeTask[]>(root, quiet);
 export const getRemake = (id: string) => apiGet<RemakeTask>(root + '/' + encodeURIComponent(id), quiet);
 export const createRemake = (body: RemakeInput) => apiPost<RemakeTask>(root, body, { ...quiet, timeout: 60000 });
-export const confirmRemake = (id: string, title: string, shots: RemakeShot[], points: number) =>
-  apiPost<RemakeTask>(root + '/' + encodeURIComponent(id) + '/confirm', {
-    title, shots: shots.map(shot => ({ visualPrompt: shot.visual_prompt, narration: shot.narration, caption: shot.caption })),
-    points, accepted: true,
-  }, quiet);
 export const saveRemake = (id: string) =>
   apiPost<{ assetId: string }>(root + '/' + encodeURIComponent(id) + '/save', null, { ...quiet, timeout: 90000 });
 

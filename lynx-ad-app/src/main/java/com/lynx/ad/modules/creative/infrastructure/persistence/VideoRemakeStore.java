@@ -100,7 +100,7 @@ public class VideoRemakeStore {
     public List<Task> due() {
         return jdbc.query("""
                 SELECT * FROM creative_video_remake WHERE next_check_at<=CURRENT_TIMESTAMP
-                  AND phase IN ('CREATING','PLANNING','CONFIRMING','SENDING','GENERATING','NEEDS_ATTENTION')
+                  AND phase IN ('CREATING','PLANNING','REVIEW','CONFIRMING','SENDING','GENERATING','NEEDS_ATTENTION')
                 ORDER BY next_check_at,created_at LIMIT 4
                 """, this::task);
     }
@@ -122,7 +122,8 @@ public class VideoRemakeStore {
 
     public void queueConfirmation(Task task, String confirmation) {
         jdbc.update("""
-                UPDATE creative_video_remake SET phase='CONFIRMING',confirmation_json=?,next_check_at=CURRENT_TIMESTAMP
+                UPDATE creative_video_remake SET phase='CONFIRMING',confirmation_json=?,next_check_at=CURRENT_TIMESTAMP,
+                  lease_token=NULL,error_message=NULL
                 WHERE tenant_id=? AND id=?
                 """, confirmation, task.tenant(), task.id());
     }
