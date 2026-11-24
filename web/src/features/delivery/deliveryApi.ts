@@ -177,6 +177,13 @@ export function switchTransferredPlan(id: string, body: { requestKey: string; ex
   return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/switch`, body, { timeout: 180000 });
 }
 export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } }); }
+export interface PlanTransferHistory {
+  qcPlanId: string; archivedAt: string; statisticsStartDate?: string | null; statisticsDate?: string | null;
+  costYuan?: number | null; gmvYuan?: number | null; roi?: number | null; orders?: number | null;
+}
+export function listPlanTransferHistory(id: string) {
+  return apiGet<PlanTransferHistory[]>(`/api/v1/delivery/plans/${id}/transfer/history`, { headers: { 'X-Quiet-Request': 'true' } });
+}
 export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
 export interface ControlTaskMaterial { material_id?: string | null; aweme_item_id?: string | null; title?: string | null; cover_image?: { image_url?: string | null; url?: string | null } | null; video_duration?: number | null }
 export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number | null; duration?: number | null; create_time?: string; material_list?: ControlTaskMaterial[] | null; metrics?: Record<string, number | null> | null }
@@ -210,7 +217,7 @@ export function publishPlan(id: string, idempotencyKey: string) {
 }
 
 export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason) {
-  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) });
+  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) }, action === 'ENABLE' ? { timeout: 180000 } : undefined);
 }
 
 export function deletePlan(id: string) {

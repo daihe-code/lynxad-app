@@ -102,7 +102,7 @@
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
                   <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
-                  <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
+                  <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canAct(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
                 </template>
                 <button type="button" v-if="!readOnlyRole && !isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
@@ -145,7 +145,7 @@ import MetricDelta from './components/MetricDelta.vue';
 import CampaignMetricCard from './components/CampaignMetricCard.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getCampaignTrend, listControlTasks, listPlans, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { actPlan, deletePlan, getCampaignTrend, getPlanTransfer, reconcilePlanTransfer, listControlTasks, listPlans, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
 import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
 import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
@@ -313,6 +313,7 @@ const goalText = (value?: number | null) => value == null ? '—' : Number(value
 const fullDate = (date: string) => date.slice(0, 10);
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
+const canAct = (row: PlanListVo) => canManage(row) || (row.qcStatus === 'TRANSFER_ARCHIVED' && row.canTransfer && !readOnlyRole.value && user.trialActive);
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
 const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
   ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
@@ -376,13 +377,26 @@ async function syncRemote(notify = true) {
   } catch { syncWarning.value = '千川同步失败，已保留最近同步的计划，请稍后刷新重试。'; }
   finally { syncing.value = false; }
 }
-function onAct(row: PlanListVo) {
-  if (actingId.value || transferringId.value || deletingId.value || !canManage(row)) return;
+async function onAct(row: PlanListVo) {
+  if (actingId.value || transferringId.value || deletingId.value || !canAct(row)) return;
+  if (row.qcStatus === 'TRANSFER_ARCHIVED') {
+    actingId.value = row.planId;
+    try {
+      const context = await getPlanTransfer(row.planId);
+      if (context.pendingKey) {
+        const result = await reconcilePlanTransfer(row.planId);
+        ElMessage({ type: result.status === 'SUCCEEDED' ? 'success' : 'warning', message: result.message });
+        await load();
+        return;
+      }
+    } catch { ElMessage.warning('暂时无法核查转投状态，请稍后重试。'); return; }
+    finally { actingId.value = ''; }
+  }
   confirmPlan.value = row; confirmOpen.value = true;
 }
 async function confirmAction(pauseReason?: PlanPauseReason) {
   const row = confirmPlan.value;
-  if (!row || actingId.value || !canManage(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
+  if (!row || actingId.value || !canAct(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
   const restoring = row.status === 'PAUSED';
   if (!restoring && !isPlanPauseReason(pauseReason)) { ElMessage.warning('请选择暂停原因'); return; }
   if (restoring) {
@@ -402,7 +416,9 @@ async function confirmAction(pauseReason?: PlanPauseReason) {
     } else ElMessage.success('计划已暂停');
     await load();
   }
-  catch { /* API interceptor displays the error. */ }
+  catch {
+    if (row.qcStatus === 'TRANSFER_ARCHIVED') { confirmOpen.value = false; await load(); }
+  }
   finally { actingId.value = ''; }
 }
 function onDelete(row: PlanListVo) {

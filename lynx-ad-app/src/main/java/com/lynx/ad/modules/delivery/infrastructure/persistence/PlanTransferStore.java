@@ -128,6 +128,18 @@ public class PlanTransferStore {
         jdbc.update("UPDATE delivery_transfer_attempt SET phase=?,qc_plan_id=COALESCE(?,qc_plan_id),updated_at=? WHERE tenant_id=? AND request_key=?",
                 phase,qcId,now(),tenant.value(),key);
     }
+    public boolean startReconciliation(Attempt attempt) {
+        return jdbc.update("""
+                UPDATE delivery_transfer_attempt SET status='RUNNING',updated_at=?
+                WHERE tenant_id=? AND request_key=? AND status=? AND updated_at=?
+                """,now(),attempt.tenant(),attempt.key(),attempt.status(),Timestamp.from(attempt.updatedAt()))==1;
+    }
+    public boolean dispatchPhase(TenantId tenant,String key,String previous,String next) {
+        return jdbc.update("""
+                UPDATE delivery_transfer_attempt SET phase=?,updated_at=?
+                WHERE tenant_id=? AND request_key=? AND phase=? AND status='RUNNING'
+                """,next,now(),tenant.value(),key,previous)==1;
+    }
     public List<Attempt> pending(TenantId tenant) {
         return jdbc.query("SELECT request_key FROM delivery_transfer_attempt WHERE tenant_id=? AND status IN ('RUNNING','UNCERTAIN')",(r,n)->r.getString(1),tenant.value())
                 .stream().map(key->attempt(tenant,key).orElseThrow()).toList();

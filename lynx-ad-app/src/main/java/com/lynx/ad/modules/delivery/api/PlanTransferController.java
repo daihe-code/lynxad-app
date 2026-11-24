@@ -28,6 +28,10 @@ public class PlanTransferController {
     @GetMapping public ApiResponse<PlanTransferService.Context> context(@PathVariable String id) {
         return ApiResponse.ok(service.context(TenantContext.requireTenantId(),new PlanId(id)));
     }
+    @GetMapping("/history")
+    public ApiResponse<java.util.List<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore.History>> history(@PathVariable String id) {
+        return ApiResponse.ok(service.history(TenantContext.requireTenantId(),new PlanId(id)));
+    }
     @GetMapping("/recommendations") public ApiResponse<JsonNode> recommendations(@PathVariable String id) {
         return ApiResponse.ok(service.recommendations(TenantContext.requireTenantId(), new PlanId(id)));
     }

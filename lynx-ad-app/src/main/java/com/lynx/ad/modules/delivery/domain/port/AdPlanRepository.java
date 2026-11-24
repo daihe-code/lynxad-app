@@ -15,6 +15,10 @@ public interface AdPlanRepository {
 
     void save(AdPlan plan);
 
+    default void saveTransferInstance(AdPlan plan, String previousQcId) {
+        save(plan);
+    }
+
     boolean discardDraft(TenantId tenantId, PlanId id);
 
     Optional<AdPlan> findById(TenantId tenantId, PlanId id);

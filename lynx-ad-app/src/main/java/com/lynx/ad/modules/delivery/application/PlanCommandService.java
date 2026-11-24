@@ -225,13 +225,19 @@ public class PlanCommandService {
         AdPlan plan = require(tenantId, id);
         String reason = action == PlanAction.DISABLE ? PlanPauseReason.require(pauseReason) : null;
         String before = plan.status().name();
-        if (action == PlanAction.FINISH && plan.qcPlanId().isPresent())
+        if (action == PlanAction.FINISH && (plan.qcPlanId().isPresent() || plan.transferArchived()))
             throw new BizException(1403, "结束计划尚无对应接口，不能替代为删除操作");
         if ((action == PlanAction.DISABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELIVERING)
                 || (action == PlanAction.ENABLE && plan.status() != com.lynx.ad.modules.delivery.domain.model.PlanStatus.PAUSED))
             throw new BizException(1404, "计划状态已变化，请刷新后操作");
         var group=transfers==null?null:transfers.group(tenantId,id);
         boolean pairedEnable=action==PlanAction.ENABLE && group!=null && group.conservative()!=null && group.custom()!=null;
+        if(pairedEnable && !plan.transferArchived()) {
+            String other=id.value().equals(group.conservative())?group.custom():group.conservative();
+            pairedEnable=!require(tenantId,new PlanId(other)).transferArchived();
+        }
+        if(action==PlanAction.ENABLE && plan.transferArchived() && !pairedEnable)
+            throw new BizException(1403,"暂无可切换的关联计划，请核查转投结果");
         if(pairedEnable) {
             if(transferService==null)throw new BizException(1523,"转投服务尚不可用，请稍后重试");
             var result=transferService.enableExisting(tenantId,id);
@@ -246,7 +252,7 @@ public class PlanCommandService {
             case FINISH -> plan.finish();
             case DELETE -> throw new BizException(1402,"请使用删除计划操作");
         }
-        planRepository.save(plan);
+        if(!pairedEnable)planRepository.save(plan);
         if(transfers!=null)transfers.reconcileActive(tenantId,planRepository.findByTenant(tenantId));
         ActionType type = switch (action) {
             case ENABLE -> ActionType.MANUAL_ENABLE;
@@ -265,14 +271,15 @@ public class PlanCommandService {
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan=require(tenantId,id);
         if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
-        if(plan.qcPlanId().isEmpty()) {
+        if(plan.qcPlanId().isEmpty() && !plan.transferArchived()) {
             discardDraft(tenantId,id);
             return;
         }
         if(transfers!=null)transfers.lockForDeletion(plan);
         plan=planRepository.findByIdForUpdate(tenantId,id).orElseThrow(()->new BizException(1405,"计划不存在"));
         if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
-        adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId,plan.accountId()),plan.qcPlanId().orElseThrow(),PlanAction.DELETE);
+        if(!plan.transferArchived())
+            adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId,plan.accountId()),plan.qcPlanId().orElseThrow(),PlanAction.DELETE);
         try {
             plan.markDeleted();
             planRepository.save(plan);

@@ -42,6 +42,7 @@ class AdPlanPo {
     private String name;
     private String status;
     private String qcStatus;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private String qcPlanId;
     private String smartBidType;
     private BigDecimal budget;
@@ -54,6 +55,7 @@ class AdPlanPo {
     private LocalDate endDate;
     private Integer publishVersion;
     private String idempotencyKey;
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private String rejectReason;
     private String source;
     private Instant createdAt;
@@ -140,9 +142,29 @@ public class MpAdPlanRepository implements AdPlanRepository {
     @Override
     @org.springframework.transaction.annotation.Transactional
     public void save(AdPlan plan) {
+        save(plan,false,null);
+    }
+
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public void saveTransferInstance(AdPlan plan,String previousQcId) {
+        save(plan,true,previousQcId);
+    }
+
+    private void save(AdPlan plan,boolean transfer,String expectedQc) {
         AdPlanPo po = mapper.selectOne(new LambdaQueryWrapper<AdPlanPo>().eq(AdPlanPo::getId,plan.id().value()).last("FOR UPDATE"));
         boolean insert = po == null;
         String previousStatus=po==null?null:po.getStatus(),previousQc=po==null?null:po.getQcPlanId();
+        String nextQc=plan.qcPlanId().map(QcPlanId::value).orElse(null);
+        if(transfer) {
+            if(!java.util.Objects.equals(expectedQc,previousQc)
+                    || !insert && (PlanStatus.DELETED.name().equals(previousStatus)
+                    || expectedQc==null && !AdPlan.TRANSFER_ARCHIVED.equals(po.getQcStatus())))
+                throw new com.lynx.ad.common.exception.BizException(1404,"计划投放实例已变化，请核查转投结果");
+        } else if(!insert && (previousQc!=null && !previousQc.equals(nextQc)
+                || AdPlan.TRANSFER_ARCHIVED.equals(po.getQcStatus()) && (nextQc!=null || plan.status()!=PlanStatus.DELETED && !plan.transferArchived()))) {
+            return; // A status/report read started on a retired instance must never overwrite the new one.
+        }
         boolean newReview=insert || !"PENDING_AUDIT".equals(po.getStatus()) || !java.util.Objects.equals(po.getQcPlanId(),plan.qcPlanId().map(QcPlanId::value).orElse(null));
         if (insert) {
             po = new AdPlanPo();
@@ -157,7 +179,7 @@ public class MpAdPlanRepository implements AdPlanRepository {
         po.setName(plan.name().text());
         po.setStatus(plan.status().name());
         po.setQcStatus(plan.qcStatus());
-        po.setQcPlanId(plan.qcPlanId().map(QcPlanId::value).orElse(null));
+        po.setQcPlanId(nextQc);
         po.setSmartBidType(plan.setting().bidType().oceanValue());
         po.setBudget(plan.setting().dailyBudget().amount());
         po.setRoi2Goal(plan.setting().roi2Goal().map(RoiGoal::value).orElse(null));
