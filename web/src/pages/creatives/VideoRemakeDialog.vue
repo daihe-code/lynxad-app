@@ -140,6 +140,8 @@
                 <div class="remake-field-title"><strong>商品参考图</strong><span v-if="selectedProduct.imageUrl && !productImage">默认使用商品封面</span></div>
                 <RemakeFilePicker kind="image" label="上传商品参考图" :file="productImage?.file" :disabled="busy"
                   @change="productImage = uploadSession($event)" />
+<RemakeFilePicker v-for="(extra, index) in productImages" :key="extra.requestId" kind="image" :label="'上传商品参考图 ' + (index + 2)" :file="extra.file" :disabled="busy" @change="selectProductImage(index, $event)" />
+<RemakeFilePicker v-if="productImages.length + (productImage ? 1 : 0) < 6" kind="image" label="再加一张商品图" :disabled="busy" @change="addProductImage($event)" />
                 <p v-if="fieldError('productImage')" class="remake-error" role="alert">{{ fieldError('productImage') }}</p>
                 <label>商品事实
                   <textarea v-model="facts" rows="3" maxlength="2412" :disabled="busy"
@@ -357,7 +359,7 @@ const awemes = computed(() => selectedAccount.value?.awemes ?? []);
 const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProduct>();
 const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoading = ref(false), productsError = ref('');
 
-const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
+const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>(); const productImages = ref<RemakeUpload[]>([]);
 const referenceSource = ref<'upload' | 'link'>('upload');
 const referenceLinkUrl = ref(''); const extractDouyinShareUrl = (text: string) => { const found = text.match(/https?:\/\/[^\s，。；]+/); if (!found) return ''; let host = ''; try { host = new URL(found[0]).host.toLowerCase(); } catch { return ''; } return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host) ? found[0].replace(/[)\]}.,;:!?]+$/, '') : ''; }; const extractedReferenceLinkUrl = computed(() => extractDouyinShareUrl(referenceLinkUrl.value)); function handleReferenceLinkPaste(event: ClipboardEvent) { const extracted = extractDouyinShareUrl(event.clipboardData?.getData('text') ?? ''); if (!extracted) return; event.preventDefault(); referenceLinkUrl.value = extracted; }
 const referenceLinkAssetId = ref('');
@@ -533,7 +535,7 @@ async function loadProducts(page: number) {
 function pickProduct(product: CreationProduct) {
   if (product.qcProductId === selectedProduct.value?.qcProductId) return;
   selectedProduct.value = product;
-  productImage.value = undefined;
+  productImage.value = undefined; productImages.value = [];
   facts.value = '';
   adNotices.value = '';
 }
@@ -554,7 +556,7 @@ watch([bindingId, awemeId], () => {
   keyword.value = '';
   products.value = [];
   selectedProduct.value = undefined;
-  productImage.value = undefined;
+  productImage.value = undefined; productImages.value = [];
   facts.value = '';
   adNotices.value = '';
   productPage.value = 1;
@@ -568,7 +570,7 @@ watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
-watch([reference, productImage, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
+watch([reference, productImage, productImages, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
   facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
@@ -576,6 +578,15 @@ watch([reference, productImage, portraitImage, bindingId, awemeId, () => selecte
 });
 function uploadSession(file?: File): RemakeUpload | undefined {
   return file ? { file, requestId: crypto.randomUUID(), nextChunk: 0 } : undefined;
+}
+function addProductImage(file?: File) {
+  const session = uploadSession(file);
+  if (!session || productImages.value.length >= 5) return;
+  productImages.value = [...productImages.value, session];
+}
+function selectProductImage(index: number, file?: File) {
+  const session = uploadSession(file);
+  productImages.value = session ? productImages.value.map((item, i) => (i === index ? session : item)) : productImages.value.filter((_, i) => i !== index);
 }
 function selectReference(file?: File) {
   if (reference.value) rights.value = false;
@@ -623,7 +634,7 @@ function validateStep(step: number) {
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
       { when: !selectedProduct.value, field: 'product', message: '请选择目标商品。' },
-      { when: !selectedProduct.value?.imageUrl && !productImage.value, field: 'productImage', message: '请上传目标商品参考图。' },
+      { when: !selectedProduct.value?.imageUrl && !productImage.value && !productImages.value.length, field: 'productImage', message: '请上传目标商品参考图。' },
       { when: !cleanFacts.value.length || cleanFacts.value.length > 12 || cleanFacts.value.some(fact => countText(fact) > 200),
         field: 'facts', message: '请填写 1 至 12 条商品事实，每条最多 200 字。' },
       { when: cleanAdNotices.value.length > 3 || cleanAdNotices.value.some(notice => countText(notice) > 60 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(notice)),
@@ -683,11 +694,11 @@ async function continueSetup() {
       if (!video) return;
       referenceId = await upload(video, 'video', '上传参考视频');
     }
-    const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined;
+    const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined; const productImageIds = productImageId ? [productImageId] : []; for (const extra of productImages.value) productImageIds.push(await upload(extra, 'image', '上传商品图'));
     const portraitImageId = kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
-      productId: product.qcProductId, facts: cleanFacts.value, productImageId, referenceId,
+      productId: product.qcProductId, facts: cleanFacts.value, productImageId, productImageIds: productImageIds.length ? productImageIds : undefined, productImages: product.imageUrl ? [product.imageUrl] : undefined, referenceId,
       portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
       adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
       rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, followSource: true });
