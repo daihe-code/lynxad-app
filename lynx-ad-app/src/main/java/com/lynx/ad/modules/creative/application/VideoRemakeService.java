@@ -96,7 +96,8 @@ public class VideoRemakeService {
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings) {}
+                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings,
+                       List<String> productImageUrls) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
         Map<String, Integer> units() {
@@ -315,7 +316,7 @@ public class VideoRemakeService {
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote, auditIssues(data), auditWarnings(data));
+                quote, auditIssues(data), auditWarnings(data), productImageUrls(task));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -543,7 +544,7 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of());
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(), productImageUrls(task));
     }
 
     // Keep the stored failure readable when the engine is temporarily unavailable.
@@ -555,7 +556,7 @@ public class VideoRemakeService {
             if (issues.isEmpty() && warnings.isEmpty()) return summary(task);
             return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null),
                     error(data, task.error()), task.createdAt(), task.asset(), null, null, null, List.of(),
-                    null, null, issues, warnings);
+                    null, null, issues, warnings, productImageUrls(task));
         } catch (RuntimeException ex) {
             return summary(task);
         }
@@ -578,6 +579,15 @@ public class VideoRemakeService {
         }
         audit.fields().forEachRemaining(entry -> entry.getValue().path(field).valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).forEach(items::add));
         return List.copyOf(items);
+    }
+
+    private List<String> productImageUrls(Task task) {
+        String request = task.request();
+        if (request == null || request.isBlank()) return List.of();
+        var urls = parse(request).path("product").path("image_urls");
+        if (!urls.isArray()) return List.of();
+        return urls.valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).map(String::strip)
+                .filter(VideoRemakeService::isProductImageUrl).distinct().limit(6).toList();
     }
 
     private JsonNode detail(Task task) {

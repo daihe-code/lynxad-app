@@ -348,6 +348,26 @@ class VideoRemakeServiceTest {
     }
 
     @Test
+    void taskDetailsUseTheSavedProductImages() {
+        String request = """
+                {"product":{"image_urls":["https://example.com/front.jpg","https://example.com/front.jpg",
+                    "http://example.com/legacy.jpg",42,"https://example.com/back.jpg"]}}
+                """;
+        var expected = List.of("https://example.com/front.jpg", "https://example.com/back.jpg");
+        var legacy = row("FAILED", "{\"product\":{\"image_asset_ids\":[\"legacy-image\"]}}");
+        when(store.find("tenant", ID, false)).thenReturn(
+                Optional.of(row("CREATING", request)), Optional.of(row("PLANNING", request)), Optional.of(legacy));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.createObjectNode()
+                .put("store_id", "tenant").put("id", ENGINE).put("stage", "analyzing_product_people"));
+
+        assertEquals(expected, service.get("tenant", "actor", ID).productImageUrls());
+        var planning = service.get("tenant", "actor", ID);
+        assertEquals(expected, planning.productImageUrls());
+        assertEquals("analyzing_product_people", planning.stage());
+        assertTrue(service.get("tenant", "actor", ID).productImageUrls().isEmpty());
+    }
+
+    @Test
     void definitiveFailureReleasesReservationButUncertainReceiptDoesNot() throws Exception {
         var generating = row("GENERATING");
         when(store.due()).thenReturn(List.of(generating));

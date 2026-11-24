@@ -242,7 +242,7 @@
         </ul>
       </section>
 
-      <section v-else class="remake-task">
+      <section v-else class="remake-task" :class="{ 'remake-task--with-gallery': progressStage && task?.productImageUrls?.length }">
         <div class="remake-task-header">
           <el-button link :disabled="busy" @click="history"><AssetIcon name="arrow-left" />返回任务列表</el-button>
           <span v-if="task" class="remake-muted">任务 ID {{ task.id }}</span>
@@ -252,7 +252,7 @@
           <div class="remake-task-title"><h3>{{ task.product }}</h3>
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
-          <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p>
+          <p v-if="task.error" class="remake-error remake-task-error" role="alert">{{ task.error }}</p>
           <section v-if="task.auditIssues?.length" class="remake-ad-notices">
             <h3>与商品事实矛盾（未通过）</h3>
             <ul>
@@ -338,16 +338,40 @@
             </div>
           </div>
 
-          <div v-else class="remake-progress-card">
-            <span class="remake-task-icon"><AssetIcon :name="inProgress.has(task.phase) ? 'clock' : 'info-line'" /></span>
-            <div>
-              <strong>{{ taskProgress }}</strong>
-              <p v-if="inProgress.has(task.phase)" class="remake-muted">可关闭弹窗，稍后从任务记录查看进度。</p>
-              <p v-if="taskError" class="remake-error" role="alert">{{ taskError }}</p>
+          <section v-else class="remake-progress-card" aria-label="任务进度">
+            <div v-if="progressStage" class="remake-progress-ring" :data-stage="progressStage" role="progressbar"
+              aria-label="复刻阶段进度" :aria-valuemin="1" :aria-valuemax="progressStages.length" :aria-valuenow="progressStage"
+              :aria-valuetext="`第 ${progressStage} 阶段，共 ${progressStages.length} 个阶段`">
+              <strong>{{ progressStage }}<span>/{{ progressStages.length }}</span></strong>
+              <small>阶段</small>
             </div>
-            <el-button v-if="task.phase !== 'FAILED'" :loading="taskLoading" :disabled="busy" @click="refreshTask">刷新状态</el-button>
-            <el-button v-else :disabled="busy" @click="newTask">新建复刻</el-button>
-          </div>
+            <span v-else class="remake-task-icon"><AssetIcon name="info-line" /></span>
+            <div class="remake-progress-content">
+              <h3 aria-live="polite">{{ taskProgress }}</h3>
+              <ol v-if="progressStage" class="remake-progress-stages" aria-label="复刻流程">
+                <li v-for="(label, index) in progressStages" :key="label"
+                  :aria-current="progressStage === index + 1 ? 'step' : undefined"
+                  :data-completed="progressStage > index + 1">{{ label }}</li>
+              </ol>
+              <p v-if="progressStage" class="remake-muted">可关闭弹窗，稍后从任务记录查看进度。</p>
+              <p v-if="taskError" class="remake-error" role="alert">{{ taskError }}</p>
+              <div class="remake-progress-actions">
+                <el-button v-if="task.phase !== 'FAILED'" :loading="taskLoading" :disabled="busy" @click="refreshTask">刷新状态</el-button>
+                <el-button v-else :disabled="busy" @click="newTask">新建复刻</el-button>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="task.productImageUrls?.length" class="remake-task-gallery" aria-label="商品参考图">
+            <h3>商品参考图</h3>
+            <div class="remake-task-gallery-images">
+              <el-image v-for="(url, index) in task.productImageUrls" :key="url" :src="url"
+                :alt="`${task.product} · 商品图 ${index + 1}`" :preview-src-list="task.productImageUrls"
+                :initial-index="index" fit="contain" referrerpolicy="no-referrer" preview-teleported>
+                <template #error><span class="remake-task-gallery-placeholder" role="img" aria-label="图片暂不可用"><AssetIcon name="image" /></span></template>
+              </el-image>
+            </div>
+          </section>
         </template>
         <div v-else-if="taskError" class="remake-inline-error" role="alert">
           {{ taskError }}<el-button link type="primary" @click="refreshTask">重试</el-button>
@@ -548,6 +572,14 @@ const stageLabels: Record<string, string> = {
   outputs: '正在保存成片与封面',
   waiting_network: '网络恢复后将继续查询原任务',
 };
+const progressStages = ['素材分析', '分镜确认', '成片生成'];
+const progressStage = computed(() => {
+  const phase = task.value?.phase;
+  if (phase === 'CREATING' || phase === 'PLANNING') return 1;
+  if (phase === 'CONFIRMING') return 2;
+  if (phase === 'SENDING' || phase === 'GENERATING') return 3;
+  return 0;
+});
 const taskProgress = computed(() => {
   if (!task.value) return '';
   if (!inProgress.has(task.value.phase)) return phaseLabel(task.value.phase);
