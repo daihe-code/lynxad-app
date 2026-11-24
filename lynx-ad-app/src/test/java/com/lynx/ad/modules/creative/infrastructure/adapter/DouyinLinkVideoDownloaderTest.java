@@ -173,7 +173,6 @@ class DouyinLinkVideoDownloaderTest {
             Files.deleteIfExists(file);
         }
     }
-}
 
     private static final String PLAY_URL = "https://v26-web.douyin.com/video/tos/play/?line=0";
 
