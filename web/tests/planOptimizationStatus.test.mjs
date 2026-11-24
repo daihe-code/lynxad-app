@@ -23,13 +23,14 @@ test('loading and failed requests never appear as unconfigured or healthy', () =
   assert.equal(present(plan, undefined, true).label, '加载中');
   assert.equal(present(plan, undefined, false, true).action, '重试');
   assert.equal(present(plan, { ...state, stale: true }).label, '等待数据');
-  assert.equal(present(plan, { ...state, failed: true }).label, '检测受限');
+  assert.deepEqual(present(plan, { ...state, failed: true }), { label: '等待数据', tone: 'muted', action: '查看盯盘详情' });
   assert.equal(present(plan, { ...state, holdReason: 'manual' }).label, '需核对配置');
 });
 test('verified zero delivery is distinct from waiting for data', () => {
   const zeroDelivery = { ...state, state: 'NO_DELIVERY' };
   assert.equal(present(plan, zeroDelivery).label, '持续无曝光');
   assert.equal(present(plan, { ...zeroDelivery, stale: true }).label, '等待数据');
+  assert.equal(present(plan, { ...zeroDelivery, failed: true }).label, '等待数据');
   assert.equal(present({ ...plan, status: 'PAUSED' }, zeroDelivery).label, '观察暂停');
 });
 test('plan lifecycle and platform restrictions override historical ready results', () => {
@@ -43,7 +44,7 @@ test('plan lifecycle and platform restrictions override historical ready results
 test('transfer-paused plans keep the same monitoring entry as manually paused plans', () => {
   const paused = { ...plan, status: 'PAUSED', qcStatus: 'DISABLE' };
   const transferred = { status: 'PAUSED', qcStatus: 'TRANSFER_ARCHIVED' };
-  for (const monitoring of [undefined, state, { ...state, enabled: false, ruleBased: true }]) {
+  for (const monitoring of [undefined, state, { ...state, failed: true }, { ...state, enabled: false, ruleBased: true }]) {
     assert.deepEqual(present(transferred, monitoring), present(paused, monitoring));
   }
   assert.equal(present(transferred, { ...state, failed: true }).label, '观察暂停');
