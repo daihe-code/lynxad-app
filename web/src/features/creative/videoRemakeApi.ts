@@ -54,6 +54,8 @@ export interface RemakeInput {
   awemeId: string;
   productId: string;
   productImageId?: string;
+productImageIds?: string[];
+  productImages?: string[];
   referenceId: string;
   facts: string[];
   portraitId?: string;
