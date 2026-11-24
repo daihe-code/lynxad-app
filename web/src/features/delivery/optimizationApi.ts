@@ -136,7 +136,7 @@ export const getCreativeJobs = (id: string) => apiGet<CreativeJob[]>(`${path(id)
 export const reviewCreativeJob = (id: string, job: string, approved: boolean) => apiPost(`${path(id)}/creative-jobs/${encodeURIComponent(job)}/review`, { approved });
 const centerPath = '/api/v1/optimization';
 export interface PlanOptimizationStatus { planId: string; enabled: boolean; mode: string; holdReason?: string; stale: boolean; failed: boolean; state?: string; ruleBased?: boolean }
-export const getOptimizationStatuses = (planIds: string[]) => apiGet<PlanOptimizationStatus[]>(`${centerPath}/statuses`, { params: { planIds: planIds.join(',') }, headers: { 'X-Quiet-Request': 'true' } });
+export const getOptimizationStatuses = (planIds: string[], signal?: AbortSignal) => apiGet<PlanOptimizationStatus[]>(`${centerPath}/statuses`, { params: { planIds: planIds.join(',') }, signal, headers: { 'X-Quiet-Request': 'true' } });
 export interface OptimizationEvent { id: string; tenant: string; planId: string; accountId: string; planName: string; version: number; kind?: string; title: string; evidence: string; proposal?: ProposedAction; report: MonitoringReport; status: string; error?: string; actual?: Record<string, unknown>; createdAt: string; dispatchedAt?: string; finishedAt?: string }
 export interface HistoryPage { records: OptimizationEvent[]; total: number; pageNum: number; pageSize: number }
 export interface OptimizationDetails {
