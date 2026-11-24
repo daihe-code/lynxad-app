@@ -167,6 +167,7 @@ export function verifyPlanSettings(id: string, expectedVersion: string, acceptCu
 export interface PlanTransferContext {
   planId: string; currentQcPlanId: string; targetMode: string; budget?: number | null; roi2Goal?: number | null; targetName?: string;
   reuse: boolean; counterpartQcPlanId?: string | null; counterpartPlanId?: string | null; available: boolean; reason?: string | null;
+  requiresResume?: boolean;
   pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
 }
 export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number; name?: string; scheduleType?: 'FROM_NOW'|'DATE_RANGE'; endDate?: string }

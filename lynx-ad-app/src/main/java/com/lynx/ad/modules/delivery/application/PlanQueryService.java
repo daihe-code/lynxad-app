@@ -325,7 +325,7 @@ public class PlanQueryService {
             boolean runningOrPaused=plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED;
             boolean canEdit=authorized.contains(plan.accountId().value()) && (paired?plan.linkedSettingsEditable():plan.qcPlanId().isPresent() && runningOrPaused);
             boolean canTransfer=plan.transferArchived()?authorized.contains(plan.accountId().value()) && (paired || group!=null && group.requestKey()!=null):
-                    canEdit && runningOrPaused && (paired || plan.status()==PlanStatus.DELIVERING && plan.source()==PlanSource.LINGTOU && creationSummary!=null);
+                    canEdit && runningOrPaused && (paired || plan.source()==PlanSource.LINGTOU && creationSummary!=null);
             BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
             String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
             if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());
