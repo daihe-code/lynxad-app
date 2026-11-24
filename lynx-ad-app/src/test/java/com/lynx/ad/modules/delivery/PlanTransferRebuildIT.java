@@ -382,6 +382,7 @@ class PlanTransferRebuildIT {
         } finally { TenantContext.clear(); }
         assertEquals(List.of("DELETE:101","CREATE:SMART_BID_CONSERVATIVE"),writes);
         assertEquals(0,BigDecimal.valueOf(650).compareTo(upstream.get("201").at("/delivery_setting/budget").decimalValue()));
+        assertFalse(upstream.get("201").path("delivery_setting").hasNonNull("roi2_goal"));
         assertEquals("修改后的控成本计划_转投",upstream.get("201").path("name").asText());
 
         var restored=service.enableExisting(tenant,root);
@@ -390,6 +391,7 @@ class PlanTransferRebuildIT {
         assertEquals("修改后的控成本计划",local.get(root.value()).name().text());
         var next=upstream.get(restored.qcPlanId());
         assertEquals(0,BigDecimal.valueOf(650).compareTo(next.at("/delivery_setting/budget").decimalValue()));
+        assertEquals(0,new BigDecimal("5.20").compareTo(next.at("/delivery_setting/roi2_goal").decimalValue()));
         assertEquals("updated-video",next.at("/multi_product_creative_list/0/video_material/0/video_id").asText());
         assertTrue(local.get(volume.planId()).transferArchived());
         assertEquals(1,deliveryCount());
