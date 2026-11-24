@@ -78,7 +78,10 @@
                 <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div class="bid-mode">
                   <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
-                  <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">{{ transferringId === row.planId ? '切换中…' : '↔ 转投' }}</button>
+                  <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">
+                    <template v-if="transferringId === row.planId">切换中…</template>
+                    <template v-else><el-icon :size="16" aria-hidden="true"><Switch /></el-icon>转投</template>
+                  </button>
                   <router-link v-else-if="canSwitchDraft(row)" class="inline-edit" :to="`/campaigns/${row.planId}/edit?step=2`" :aria-label="`切换 ${row.name} 的投放方式`"><el-icon><EditPen /></el-icon></router-link>
                 </div>
               </td>
@@ -137,7 +140,7 @@ import { planOptimizationPresentation } from '@/features/delivery/planOptimizati
 import PlanOptimization from './components/PlanOptimization.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, Switch } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import CampaignPlanActionDialog from './components/CampaignPlanActionDialog.vue';
@@ -585,7 +588,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .plan-info-cell .plan-name { color: #575cf6; line-height: 21px; }.plan-info-cell .plan-name:hover { color: #4348db; }.plan-info-cell .plan-id { margin-top: 1px; line-height: 21px; }.product-line { margin-top: 8px; min-height: 22px; }.product-trigger { gap: 8px; font-size: 13px; }.goods-thumb { display: inline-grid; place-items: center; width: 22px; height: 22px; background: #f7f8fa; border-radius: 4px; color: #9a9eb6; flex-shrink: 0; }.goods-thumb .el-image { width: 22px; height: 22px; border-radius: 4px; }.goods-thumb > .el-icon { font-size: 16px; }
 .settings-cell > div { gap: 4px; line-height: 22px; }.settings-cell b { font-size: 14px; font-weight: 600; }.settings-cell .roi-setting, .settings-cell .roi-setting b { color: #0ba05f; font-size: 13px; }.settings-cell .bid-mode { display: flex; gap: 8px; }
 .bid-mode-info { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; padding: 0; cursor: help; }.bid-mode-info .el-icon { color: #7c7f99; font-size: 12px; }.bid-mode-info:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
-.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
+.transfer-link { gap: 4px; }.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
 .schedule-range { display: block; white-space: nowrap; }.schedule-cell small { display: block; margin-top: 1px; line-height: 20px; }
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; } }
