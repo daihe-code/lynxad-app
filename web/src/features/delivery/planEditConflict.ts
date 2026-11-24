@@ -3,7 +3,7 @@ export interface PlanEditSnapshot {
   planId: string; name: string; qcPlanId?: string; accountId?: string; awemeId?: string;
   scheduleType?: string | null; startDate?: string | null; endDate?: string | null;
   smartBidType?: string; status: string; budget?: number; roi2Goal?: number | null;
-  settingsEdit?: {version: string; status: string; message?: string | null} | null;
+  settingsEdit?: {version: string; status: string; message?: string | null; editable?: boolean | null} | null;
 }
 export interface PlanEditInputs {name: string; budget: string; roi: string; duration?: 'long' | 'custom'; end?: string}
 const duration = (p: PlanEditSnapshot) => p.scheduleType === 'FROM_NOW' ? 'long' : p.scheduleType === 'DATE_RANGE' || p.endDate ? 'custom' : 'long';
@@ -14,7 +14,8 @@ export function changedPlanInputs(base: PlanEditSnapshot, inputs: PlanEditInputs
     ...(inputs.duration ? {schedule:inputs.duration !== duration(base) || inputs.duration === 'custom' && inputs.end !== base.endDate} : {})};
 }
 export function canRebasePlan(base: PlanEditSnapshot, latest: PlanEditSnapshot) {
-  return !!latest.settingsEdit?.version && latest.settingsEdit.status === 'IDLE' && ['DELIVERING','PAUSED'].includes(latest.status)
+  return !!latest.settingsEdit?.version && latest.settingsEdit.status === 'IDLE'
+    && (latest.settingsEdit.editable ?? ['DELIVERING','PAUSED'].includes(latest.status))
     && ['planId','qcPlanId','accountId','awemeId','smartBidType'].every(key=>base[key as keyof PlanEditSnapshot] === latest[key as keyof PlanEditSnapshot]);
 }
 /** A content save advances the plan version; unrelated goal changes still need explicit review. */

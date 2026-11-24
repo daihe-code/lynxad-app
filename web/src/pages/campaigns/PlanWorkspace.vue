@@ -6,7 +6,6 @@
       :tabindex="editing ? undefined : 0" :role="editing ? undefined : 'region'"
       :aria-label="editing ? undefined : '投放计划详情'">
       <div v-if="!draftEditor" class="workspace-feedback container-page">
-        <p v-if="editing && !canEdit" class="workspace-notice" role="status">当前计划状态或账户权限不支持修改，内容以只读方式展示。</p>
         <PlanReviewNotice v-if="!(step === 4 && auditResult)" :plan="plan" auto-read @updated="plan = $event" />
         <RequestFailureNotice :failure="contextFailure" context="历史计划的抖音号与商品信息暂未补全。" :busy="loading" @retry="load" />
       </div>
@@ -254,7 +253,8 @@ const transferNotice = computed(() => {
   return message || (transferPending.value ? '转投结果待核查，请稍后查询。' : '');
 });
 const initialViewStep = ref(1);
-const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : transferring.value ? 2 : initialViewStep.value; });
+const archivedPlan = computed(() => plan.value?.status === 'PAUSED' && plan.value.qcStatus === 'TRANSFER_ARCHIVED');
+const step = computed(() => { const value = Number(route.query.step); return Number.isInteger(value) && value >= 1 && value <= 4 ? value : transferring.value || editing.value && (plan.value?.qcPlanId || archivedPlan.value) ? 2 : initialViewStep.value; });
 const workspaceContent = ref<HTMLElement>();
 watch(step, () => { if (!editing.value && workspaceContent.value) workspaceContent.value.scrollTop = 0; }, { flush: 'post' });
 const draftInitialStep = computed(() => route.query.step == null ? undefined : step.value);
@@ -266,8 +266,13 @@ const account = computed(() => {
   return { key: `${p.accountId}:${p.awemeId}`, awemeName: aweme?.name || (known ? p.awemeId : '暂未获取抖音号'), awemeId: known ? p.awemeId : '—', avatar: aweme?.avatar };
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
-const archivedPlan = computed(() => plan.value?.status === 'PAUSED' && plan.value.qcStatus === 'TRANSFER_ARCHIVED');
-const canEdit = computed(() => user.me?.memberRole !== 'VIEWER' && user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (archivedPlan.value || (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status))));
+const canEdit = computed(() => {
+  const current=plan.value;
+  if(!current || user.me?.memberRole==='VIEWER' || !user.trialActive || boundAccount.value?.status!=='ACTIVE')return false;
+  if(archivedPlan.value || current.qcPlanId)
+    return current.settingsEdit?.editable ?? (archivedPlan.value || ['DELIVERING','PAUSED'].includes(current.status));
+  return current.source!=='EXTERNAL' && ['DRAFT','REJECTED'].includes(current.status);
+});
 const canRestoreArchived = computed(() => plan.value?.qcStatus === 'TRANSFER_ARCHIVED' && user.me?.memberRole !== 'VIEWER' && boundAccount.value?.status === 'ACTIVE');
 const productAdjustmentAvailable = computed(() => editing.value && !transferring.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
 const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
@@ -451,7 +456,7 @@ async function saveSettings() {
     await router.replace({ path: `/campaigns/${p.planId}/edit`, query: { step: String(step.value) } });
   } catch(error) {
     settingsFailure.value=requestFailure(error,{method:'PUT'});
-    if(p.qcPlanId) {
+    if(p.qcPlanId || archivedPlan.value) {
       settingsUnknown.value=settingsFailure.value.kind === 'UNCERTAIN';
     }
   }
@@ -494,7 +499,7 @@ async function finishContentSave() {
 }
 async function verifySettingsResult(acceptCurrent=false) {
   if (transferring.value && transferPending.value) { await reconcileTransfer(); return; }
-  const p=plan.value, version=loadNumber;if(!p?.qcPlanId || settingsChecking.value || saving.value)return;
+  const p=plan.value, version=loadNumber;if(!p || (!p.qcPlanId && !archivedPlan.value) || settingsChecking.value || saving.value)return;
   settingsChecking.value=true;
   try {
     const current=acceptCurrent ? latestSettings.value : await getPlan(p.planId);
@@ -580,7 +585,7 @@ onUnmounted(() => { loadNumber++;clearTimeout(materialTimer); });
 .plan-workspace__content { display: contents; }
 .plan-workspace .workspace-submission { padding: 24px 0 32px; }
 .workspace-loading { padding: 80px 24px; text-align: center; color: #7c7f99; }.workspace-loading button,.workspace-loading a { margin: 16px 10px; }
-.workspace-notice { margin-top: 12px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; padding: 10px 14px; background: #eeeefe; border-radius: 10px; color: #555875; }.workspace-error { color: #e65361; margin-top: 12px; }
+.workspace-error { color: #e65361; margin-top: 12px; }
 .workspace-plan-settings{padding-top:0}.workspace-plan-settings .panel__pad{padding-top:20px;padding-bottom:24px}.workspace-plan-settings label{display:block;margin-bottom:12px;font-weight:600}.workspace-plan-settings input{width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #dedff0;border-radius:10px;background:#fff;color:#1a1b2e;font:inherit}.workspace-plan-settings input:focus{outline:2px solid #575cf640;border-color:#575cf6}
 .workspace-empty { padding: 60px 0; color: #8588a5; text-align: center; }.workspace-result { display: flex; gap: 32px; flex-wrap: wrap; margin: 28px 0; }.workspace-result dt { font-size: 13px; color: #8588a5; }.workspace-result dd { margin-top: 8px; color: #1a1b2e; }.workspace-analysis { margin-top: 28px; }
 @media(max-width:767px){.plan-workspace{padding-bottom:220px}}

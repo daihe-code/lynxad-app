@@ -27,6 +27,15 @@ public final class PlanTransferNames {
         return name.contains("转投") ? name : defaultName(name);
     }
 
+    /** A manually edited pair shares a base name. The transferred member keeps its suffix. */
+    public static String baseName(String name) {
+        for (String suffix : java.util.List.of(LEGACY_VOLUME_SUFFIX,LEGACY_COST_SUFFIX,SUFFIX)) {
+            if (name.endsWith(suffix) && name.length() > suffix.length())
+                return name.substring(0,name.length()-suffix.length()).stripTrailing();
+        }
+        return name;
+    }
+
     public static boolean mayNeedRecovery(String name) {
         return INSTANCE_SUFFIX.matcher(name).find()
                 || name.endsWith(LEGACY_VOLUME_SUFFIX) || name.endsWith(LEGACY_COST_SUFFIX);
