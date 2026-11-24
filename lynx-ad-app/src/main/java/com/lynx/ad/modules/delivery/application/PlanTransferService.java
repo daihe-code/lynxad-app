@@ -338,9 +338,11 @@ public class PlanTransferService {
         var request=new PlanTransferRequest("snapshot",source.qcPlanId().orElseThrow().value(),mode.oceanValue(),budget,roi,
                 false,null,schedule.type().name(),schedule.endDate());
         DeliveryInputPolicy.settings(mode,budget,roi,DeliveryInputPolicy.RULES.creation());
-        var base=rebuilds.savedPayload(tenant,source.id().value());
-        if(base.isEmpty())base=creations.publishedPayload(tenant.value(),root);
+        String qcId=source.qcPlanId().orElseThrow().value();
+        var base=rebuilds.submittedPayload(tenant,source.id().value(),qcId)
+                .or(()->creations.publishedInstancePayload(tenant.value(),root,qcId));
         var saved=payload(base,source,request,detail);
+        saved.set("multi_product_creative_list",rebuildCreatives(detail,base.orElseThrow()));
         if(!"VIDEO_PROM_GOODS".equals(saved.path("marketing_goal").asText()))
             throw new BizException(1403,"当前投放类型暂无法完整重建");
         for(String field:List.of("deep_external_action","qcpx_mode","budget_mode")) {
@@ -349,6 +351,50 @@ public class PlanTransferService {
         saved.put("name",source.name().text());
         validateRebuildPayload(saved);
         return saved;
+    }
+
+    /** Some plan details omit the promotion card submitted for that exact instance. */
+    private static JsonNode rebuildCreatives(JsonNode detail,JsonNode submitted) {
+        var programmatic=detail.path("programmatic_creative_media_list");
+        boolean hasAutomaticMaterials=false;
+        if(programmatic.isObject()) {
+            for(var materials:programmatic)hasAutomaticMaterials|=!materials.isArray() || !materials.isEmpty();
+        } else hasAutomaticMaterials=!programmatic.isMissingNode() && !programmatic.isNull()
+                && (!programmatic.isArray() || !programmatic.isEmpty());
+        if(hasAutomaticMaterials)
+            throw new BizException(1403,"计划包含暂无法完整重建的自动素材");
+        for(var group:detail.path("multi_product_creative_list")) {
+            if(!group.path("block_material").isEmpty() || !group.path("block_video_material").isEmpty())
+                throw new BizException(1403,"计划包含暂无法完整重建的屏蔽素材配置");
+        }
+        var current=QianchuanCreativeBindings.groups(detail);
+        var approved=QianchuanCreativeBindings.groups(submitted);
+        var byProduct=new HashMap<String,JsonNode>();
+        approved.forEach(group->byProduct.put(group.path("product_id").asText(),group));
+        var sameBindings=PublishedMaterialService.same(creativeProof(current),creativeProof(approved));
+        for(var node:current) {
+            var group=(ObjectNode)node;
+            if("PROGRAMMATIC_CREATIVE".equals(group.path("creative_type").asText()))group.remove("creative_type");
+            var card=group.path("creative_card");
+            if(!card.isMissingNode() && !card.isNull() && !(card.isObject() && card.isEmpty()))continue;
+            var original=byProduct.get(group.path("product_id").asText());
+            if(sameBindings && original!=null && original.path("creative_card").hasNonNull("promotion_card_image_id"))
+                group.set("creative_card",original.path("creative_card").deepCopy());
+        }
+        return current;
+    }
+
+    private static JsonNode creativeProof(JsonNode bindings) {
+        JsonNode proof=bindings.deepCopy();
+        for(var node:proof) {
+            var group=(ObjectNode)node;
+            group.remove(List.of("creative_card","creative_type"));
+            for(var title:group.path("title_material")) {
+                if(title.path("dynamic_words").isTextual() && title.path("dynamic_words").asText().isBlank())
+                    ((ObjectNode)title).remove("dynamic_words");
+            }
+        }
+        return proof;
     }
 
     private ObjectNode archivedPayload(TenantId tenant,AdPlan target) {
@@ -535,7 +581,7 @@ public class PlanTransferService {
         var detail=gateway.detail(source,qc);
         String issuedName=restoring?saved.restorePlatformName():saved.targetPlatformName();
         if(!matches(detail,request,issuedName) || !qc.equals(QianchuanPlanMapping.id(detail))
-                || !PublishedMaterialService.same(QianchuanCreativeBindings.groups(payload),QianchuanCreativeBindings.groups(detail)))
+                || !PublishedMaterialService.same(rebuildCreatives(detail,payload),rebuildCreatives(payload,payload)))
             return pending(tenant,a,"计划已创建，投放配置待核查");
         var status=status(detail);
         if(status==PlanStatus.UNKNOWN || status==PlanStatus.DELETED)

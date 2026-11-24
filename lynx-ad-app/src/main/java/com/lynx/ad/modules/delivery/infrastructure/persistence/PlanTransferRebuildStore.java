@@ -60,6 +60,17 @@ public class PlanTransferRebuildStore {
                 """,(r,n)->parse(r.getString(1)).path("createPayload"),tenant.value(),planId).stream().findFirst();
     }
 
+    public Optional<JsonNode> submittedPayload(TenantId tenant,String planId,String qcId) {
+        return jdbc.query("""
+                SELECT a.payload_json FROM delivery_transfer_attempt a
+                  WHERE a.tenant_id=? AND a.target_plan_id=? AND a.qc_plan_id=? AND a.status='SUCCEEDED'
+                UNION ALL
+                SELECT r.source_payload FROM delivery_transfer_rebuild r JOIN delivery_transfer_attempt a
+                  ON a.tenant_id=r.tenant_id AND a.request_key=r.request_key
+                  WHERE r.tenant_id=? AND a.source_plan_id=? AND r.restore_qc_id=? AND a.status='FAILED'
+                """,(r,n)->parse(r.getString(1)),tenant.value(),planId,qcId,tenant.value(),planId,qcId).stream().findFirst();
+    }
+
     public void restoreReceipt(TenantId tenant, String key, String qcId) {
         jdbc.update("UPDATE delivery_transfer_rebuild SET restore_qc_id=? WHERE tenant_id=? AND request_key=?",qcId,tenant.value(),key);
     }
