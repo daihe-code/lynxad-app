@@ -34,6 +34,8 @@ export interface RemakeTask {
   phase: 'CREATING' | 'PLANNING' | 'REVIEW' | 'CONFIRMING' | 'SENDING' | 'GENERATING' | 'SUCCEEDED' | 'FAILED' | 'NEEDS_ATTENTION';
   stage?: string;
   error?: string;
+  auditIssues?: string[];
+  auditWarnings?: string[];
   createdAt: string;
   assetId?: string;
   plan?: { title: string; shots: RemakeShot[] };
