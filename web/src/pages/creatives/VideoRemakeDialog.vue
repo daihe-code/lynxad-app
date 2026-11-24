@@ -268,14 +268,6 @@
                   </ul>
                     <p class="remake-muted">这些事实与商品事实矛盾，导致复刻失败。请核对商品事实或调整复刻要求后重试。</p>
                   </section>
-                    <section v-if="task.auditWarnings?.length" class="remake-ad-notices">
-                    <h3>无法确认的商品事实（需注意）</h3>
-                    <ul>
-                    <li v-for="warning in task.auditWarnings" :key="warning">{{ warning }}</li>
-                  </ul>
-                    <p class="remake-muted">这些事实无法确认，但未导致复刻失败。</p>
-                  </section>
-
           <section v-if="task.generationWarnings?.length" class="remake-ad-notices"><h3>生成提示（已继续生成）</h3><ul><li v-for="warning in task.generationWarnings" :key="warning">{{ warning }}</li></ul><p class="remake-muted">这些提示不会导致复刻失败，生成会继续进行；成片抽查与单次重试仍会把关。</p></section> <section v-if="task.shotRetries?.length" class="remake-ad-notices"><h3>分镜重试</h3><ul><li v-for="retry in task.shotRetries" :key="retry.shot">第 {{ retry.shotIndex }} 分镜已重试一次（{{ retryReasonLabel(retry.reason) }}），{{ retryStatusLabel(retry.status) }}。</li></ul></section></details> 
 
           <div v-if="task.phase === 'SUCCEEDED'" class="remake-result">
