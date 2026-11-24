@@ -49,6 +49,12 @@ class PlanListDisplayTest {
             """))));
     }
     PlanListVo row() {return query.list(tenant,1,20).records().getFirst();}
+    @Test void publishedPausedPlanWithCreationRecordCanEnterFirstTransfer() {
+        plan.apply(PlanStatus.PAUSED);
+        assertTrue(row().canTransfer());
+        when(creation.summariesByPlan(tenant.value(),List.of(id.value()))).thenReturn(Map.of());
+        assertFalse(row().canTransfer());
+    }
     @Test void historyListUsesConfirmedAwemeAndNativeAvatarWithoutDependingOnLoginAccountProfile() throws Exception {
         plan=new AdPlan(id,tenant,plan.accountId(),new AwemeId("unknown"),plan.name(),plan.status(),plan.source(),plan.setting(),
                 List.of(),new QcPlanId("123"),plan.qcStatus(),null,0,null,List.of());

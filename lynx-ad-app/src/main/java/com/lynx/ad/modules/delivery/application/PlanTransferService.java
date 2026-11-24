@@ -33,7 +33,7 @@ public class PlanTransferService {
     private static final List<String> BUDGET_ESTIMATES=List.of("min_estimate_convert","estimate_convert","estimate_roi_goal","min_estimate_roi_goal");
     public record Context(String planId,String currentQcPlanId,String targetMode,BigDecimal budget,BigDecimal roi2Goal,
                           boolean reuse,String counterpartQcPlanId,boolean available,String reason,String pendingKey,
-                          String pendingStatus,String pendingError,String targetName,String counterpartPlanId) {}
+                          String pendingStatus,String pendingError,String targetName,String counterpartPlanId,boolean requiresResume) {}
     public record Result(String planId,String qcPlanId,String status,String message,boolean platformTransferRequired) {
         public Result(String planId,String qcPlanId,String status,String message) {
             this(planId,qcPlanId,status,message,false);
@@ -59,13 +59,21 @@ public class PlanTransferService {
         SmartBidType mode=opposite(current.setting().bidType());String targetId=g==null?null:g.target(mode);
         var target=targetId==null?null:require(tenant,targetId);
         String reason=null;
+        boolean requiresResume=false;
         if(current.qcPlanId().isEmpty() || !editable(current.status()))reason="仅已发布且投放中或暂停的计划支持转投";
         else if((g==null || g.requestKey()==null) && rebuilds!=null && (target==null || target.transferArchived())) {
             try {
                 var detail=gateway.detail(current);
-                if(!enabled(status(detail)))throw new BizException(1403,"请先恢复当前计划投放，再切换投放方式");
+                var platformStatus=status(detail);
+                boolean pausedFirstTransfer=target==null && current.status()==PlanStatus.PAUSED && platformStatus==PlanStatus.PAUSED;
+                if(!enabled(platformStatus) && !pausedFirstTransfer)
+                    throw new BizException(1403,"请先恢复当前计划投放，再切换投放方式");
                 rebuildSnapshot(tenant,g==null?id.value():g.root(),current,detail);
                 if(target!=null) archivedPayload(tenant,g.root(),target);
+                if(pausedFirstTransfer) {
+                    requiresResume=true;
+                    reason="请先恢复当前计划投放，再切换投放方式";
+                }
             } catch(BizException unavailable) { reason=unavailable.getMessage(); }
         }
         else if(target==null && creations.publishedPayload(tenant.value(),g==null?id.value():g.root()).isEmpty())reason="缺少已发布的商品与素材配置，暂时无法转投";
@@ -76,7 +84,7 @@ public class PlanTransferService {
         return new Context(id.value(),current.qcPlanId().map(QcPlanId::value).orElse(null),mode.oceanValue(),
                 target==null?null:target.setting().dailyBudget().amount(),target==null?null:target.setting().roi2Goal().map(RoiGoal::value).orElse(null),
                 target!=null,target==null?null:target.qcPlanId().map(QcPlanId::value).orElse(null),reason==null,reason,a==null?null:a.key(),a==null?null:a.status(),a==null?null:result(a).message(),
-                name,targetId);
+                name,targetId,requiresResume);
     }
     public List<PlanTransferRebuildStore.History> history(TenantId tenant,PlanId id) {
         require(tenant,id.value());

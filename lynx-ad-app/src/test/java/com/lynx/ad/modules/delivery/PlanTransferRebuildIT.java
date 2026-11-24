@@ -199,6 +199,39 @@ class PlanTransferRebuildIT {
         System.out.printf("ROUND TRIP cost 101 → volume 201 → cost 202; archives %s, %s; one active%n",historical.qcPlanId(),service.history(tenant,volume).getFirst().qcPlanId());
     }
 
+    @Test void unpairedPausedPlanCanContinueToFirstTransferAfterExplicitResume() {
+        var source=local.get(root.value());
+        source.apply(PlanStatus.PAUSED);
+        upstream.get("101").put("opt_status","DISABLE");
+
+        var context=service.context(tenant,root);
+        assertTrue(context.requiresResume());
+        assertFalse(context.reuse());
+        assertFalse(context.available());
+        assertThrows(BizException.class,()->service.transfer(tenant,root,volume("while-paused")));
+        assertTrue(writes.isEmpty());
+
+        source.apply(PlanStatus.DELIVERING);
+        upstream.get("101").remove("opt_status");
+        context=service.context(tenant,root);
+        assertFalse(context.requiresResume());
+        assertTrue(context.available());
+        assertEquals("SUCCEEDED",service.transfer(tenant,root,volume("after-resume")).status());
+        assertTrue(source.transferArchived());
+        assertArchivedHistoryRetained(root,"101");
+        assertEquals(1,deliveryCount());
+    }
+
+    @Test void pausedPlanWithMissingSnapshotCannotResumeFromTransfer() {
+        local.get(root.value()).apply(PlanStatus.PAUSED);
+        upstream.get("101").put("opt_status","DISABLE");
+        when(creations.publishedInstancePayload(tenant.value(),root.value(),"101")).thenReturn(Optional.empty());
+        var context=service.context(tenant,root);
+        assertFalse(context.requiresResume());
+        assertFalse(context.available());
+        assertTrue(writes.isEmpty());
+    }
+
     @Test void restoringVolumeRecoversTheEstimateForTheSameBudgetFromAnOlderArchive() throws Exception {
         var recommendation=json.readTree("""
                 {"budget":{"budget":50,"estimate_trans_cost_list":[{"budget":50,"min_estimate_convert":3,"estimate_convert":5,

@@ -78,7 +78,7 @@
                 <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div class="bid-mode">
                   <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
-                  <button v-if="canShowTransfer(row)" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId || !!deletingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="row.status === 'PAUSED' ? '恢复本计划并暂停关联计划' : PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">
+                  <button v-if="canShowTransfer(row)" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId || !!deletingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="row.qcStatus === 'TRANSFER_ARCHIVED' ? '恢复本计划并暂停关联计划' : PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">
                     <template v-if="transferringId === row.planId">切换中…</template>
                     <template v-else><el-icon :size="16" aria-hidden="true"><Switch /></el-icon>转投</template>
                   </button>
@@ -118,7 +118,7 @@
       <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
     <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" @saved="load" />
-    <CampaignPlanActionDialog v-model="confirmOpen" :plan="confirmPlan" :action="confirmPlan?.status === 'DELIVERING' ? 'pause' : 'restore'" :as-transfer="confirmingTransfer" :busy="!!actingId" :blocked-reason="confirmPlan?.status === 'PAUSED' ? restoreBlockedReason : ''" :verification="restorePending" :error="restoreError" @confirm="confirmAction" @verify="verifyRestore" />
+    <CampaignPlanActionDialog v-model="confirmOpen" :plan="confirmPlan" :action="confirmPlan?.status === 'DELIVERING' ? 'pause' : 'restore'" :as-transfer="confirmMode === 'switch'" :resume-for-transfer="confirmMode === 'resume-for-transfer'" :busy="!!actingId" :blocked-reason="confirmPlan?.status === 'PAUSED' ? restoreBlockedReason : ''" :verification="restorePending" :error="restoreError" @confirm="confirmAction" @verify="verifyRestore" />
     <CampaignPlanActionDialog v-model="deleteOpen" :plan="deleteTarget" action="delete" :busy="!!deletingId" @confirm="confirmDelete" />
     <ControlTaskReport v-model="quickReportOpen" :plan-id="quickReportPlan?.planId || ''" :plan-name="quickReportPlan?.name" :task="quickReportTask" :tasks="quickReportTasks" :tasks-loading="quickReportLoading" :tasks-error="quickReportError" :kind="quickReportKind" :initial-range="quickReportRange" @select-task="selectQuickReportTask" @reload-tasks="loadQuickReportTasks" />
     <el-drawer :model-value="!!insightsPlanId" :with-header="false" size="min(1180px, 80vw)" class="plan-insights-drawer" destroy-on-close @update:model-value="onInsightsVisible">
@@ -306,8 +306,9 @@ watch(quickReportOpen, value => { if (!value) { quickReportSerial++; quickReport
 onUnmounted(() => { quickReportSerial++; });
 const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<PlanListVo | null>(null);
 const confirmOpen = ref(false), confirmPlan = ref<PlanListVo | null>(null);
-const confirmingTransfer = ref(false);
-const activationVerb = computed(() => confirmingTransfer.value ? '转投' : '恢复');
+type ConfirmMode = 'normal' | 'switch' | 'resume-for-transfer';
+const confirmMode = ref<ConfirmMode>('normal');
+const activationVerb = computed(() => confirmMode.value === 'switch' ? '转投' : '恢复');
 const restorePending = ref(false), restoreError = ref('');
 const restoreBlockedReason = computed(() => confirmPlan.value ? restoreUnavailableReason(confirmPlan.value, shanghaiToday()) : '');
 const deleteOpen = ref(false), deleteTarget = ref<PlanListVo | null>(null), deletingId = ref('');
@@ -390,8 +391,9 @@ async function syncRemote(notify = true) {
   } catch { syncWarning.value = '千川同步失败，已保留最近同步的计划，请稍后刷新重试。'; }
   finally { syncing.value = false; }
 }
-async function onAct(row: PlanListVo, asTransfer = false, knownContext?: PlanTransferContext) {
+async function onAct(row: PlanListVo, mode: ConfirmMode = 'normal', knownContext?: PlanTransferContext) {
   if (actingId.value || transferringId.value || deletingId.value || !canAct(row)) return;
+  const asTransfer = mode === 'switch';
   restorePending.value = false; restoreError.value = '';
   if (row.qcStatus === 'TRANSFER_ARCHIVED' || asTransfer) {
     actingId.value = row.planId;
@@ -404,7 +406,7 @@ async function onAct(row: PlanListVo, asTransfer = false, knownContext?: PlanTra
     } catch { ElMessage.warning('暂时无法核查转投状态，请稍后重试。'); return; }
     finally { actingId.value = ''; }
   }
-  confirmingTransfer.value = asTransfer;
+  confirmMode.value = mode;
   confirmPlan.value = row; confirmOpen.value = true;
 }
 async function verifyRestore() {
@@ -425,7 +427,8 @@ async function confirmAction(pauseReason?: PlanPauseReason) {
   const row = confirmPlan.value;
   if (!row || actingId.value || restorePending.value || !canAct(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
   const restoring = row.status === 'PAUSED';
-  const transferred = restoring && (confirmingTransfer.value || row.qcStatus === 'TRANSFER_ARCHIVED');
+  const transferred = restoring && (confirmMode.value === 'switch' || row.qcStatus === 'TRANSFER_ARCHIVED');
+  const resumeForTransfer = confirmMode.value === 'resume-for-transfer';
   const verb = activationVerb.value;
   if (!restoring && !isPlanPauseReason(pauseReason)) { ElMessage.warning('请选择暂停原因'); return; }
   if (restoring) {
@@ -434,19 +437,29 @@ async function confirmAction(pauseReason?: PlanPauseReason) {
   }
   actingId.value = row.planId;
   try {
-    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE', pauseReason, transferred);
+    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE', pauseReason, transferred || resumeForTransfer);
     confirmOpen.value = false;
     if (restoring) {
       try {
         const latest = await syncPlanDetail(row.planId, true);
         const feedback = restoreResultFeedback(latest, verb);
-        ElMessage({ type: feedback.type, message: feedback.message });
+        if (resumeForTransfer && feedback.type === 'success') {
+          await router.push(`/campaigns/${row.planId}/transfer?step=2`);
+          return;
+        }
+        if (resumeForTransfer) ElMessage.warning('恢复指令已提交，计划恢复投放后可继续转投。');
+        else ElMessage({ type: feedback.type, message: feedback.message });
       } catch { ElMessage.warning(`${verb}指令已提交，暂未获取最新状态，请刷新核查。`); }
     } else ElMessage.success('计划已暂停');
     await load();
   }
   catch (cause) {
-    if (transferred) {
+    if (resumeForTransfer) {
+      const failure = requestFailure(cause, { method: 'POST' });
+      confirmOpen.value = false;
+      ElMessage.warning(failure.kind === 'UNCERTAIN' ? '恢复结果待确认，请先查看计划状态。' : '暂时无法恢复投放，请刷新后重试。');
+      await load();
+    } else if (transferred) {
       const failure = requestFailure(cause, { method: 'POST' });
       if (failure.kind === 'UNCERTAIN') {
         restorePending.value = true;
@@ -479,34 +492,39 @@ async function confirmDelete() {
 }
 async function onTransfer(row: PlanListVo) {
   if (transferringId.value || actingId.value || deletingId.value || !canShowTransfer(row)) return;
-  if (row.status === 'PAUSED') {
-    await onAct(row, true);
+  if (row.qcStatus === 'TRANSFER_ARCHIVED') {
+    await onAct(row, 'switch');
     return;
   }
   transferringId.value = row.planId;
   let context: PlanTransferContext;
-  let counterpart: PlanListVo;
+  let targetPlan = row;
+  let mode: ConfirmMode = 'switch';
   try {
     context = await getPlanTransfer(row.planId);
     if (!context.reuse || !context.counterpartPlanId) {
-      await router.push(`/campaigns/${row.planId}/transfer?step=2`);
-      return;
+      if (row.status === 'PAUSED' && context.requiresResume) mode = 'resume-for-transfer';
+      else {
+        await router.push(`/campaigns/${row.planId}/transfer?step=2`);
+        return;
+      }
+    } else if (row.status !== 'PAUSED') {
+      if (!context.available && !context.pendingKey) {
+        ElMessage.warning(context.reason || '暂时无法转投，请稍后重试。');
+        return;
+      }
+      const target = await getPlan(context.counterpartPlanId, { quiet: true });
+      if (target.planId !== context.counterpartPlanId || target.status !== 'PAUSED' || target.accountId !== row.accountId) {
+        ElMessage.warning('关联计划状态已变化，请刷新列表后再操作。');
+        return;
+      }
+      targetPlan = { ...target, canEdit: row.canEdit, canTransfer: true };
     }
-    if (!context.available && !context.pendingKey) {
-      ElMessage.warning(context.reason || '暂时无法转投，请稍后重试。');
-      return;
-    }
-    const target = await getPlan(context.counterpartPlanId, { quiet: true });
-    if (target.planId !== context.counterpartPlanId || target.status !== 'PAUSED' || target.accountId !== row.accountId) {
-      ElMessage.warning('关联计划状态已变化，请刷新列表后再操作。');
-      return;
-    }
-    counterpart = { ...target, canEdit: row.canEdit, canTransfer: true };
   } catch {
     ElMessage.warning('暂时无法核查转投状态，请稍后重试。');
     return;
   } finally { transferringId.value = ''; }
-  await onAct(counterpart, true, context);
+  await onAct(targetPlan, mode, context);
 }
 async function exportRows() {
   if (loading.value || metricTemplate.value !== displayedMetricTemplate.value) return;
