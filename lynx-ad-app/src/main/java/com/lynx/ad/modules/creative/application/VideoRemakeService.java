@@ -91,7 +91,7 @@ public class VideoRemakeService {
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec, RemakeQuote quote) {}
+                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
         Map<String, Integer> units() { return images > 0 ? Map.of(kind, quantity, WorkspacePricing.IMAGE_UNIT, images) : Map.of(kind, quantity); }
@@ -275,7 +275,8 @@ public class VideoRemakeService {
 
     public View get(String tenant, String actor, String id) {
         var task = owned(tenant, actor, id);
-        if (task.engine() == null || "FAILED".equals(task.phase())) return summary(task);
+        if (task.engine() == null) return summary(task);
+        if ("FAILED".equals(task.phase())) return failedView(task);
         if (!Set.of("REVIEW", "SUCCEEDED", "GENERATING", "PLANNING").contains(task.phase())) return summary(task);
         var data = detail(task);
         var result = data.path("delivery");
@@ -287,7 +288,7 @@ public class VideoRemakeService {
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote);
+                quote, auditIssues(data), auditWarnings(data));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -397,11 +398,11 @@ public class VideoRemakeService {
                 }
             } catch (RuntimeException ex) {
                 LOG.warn("Video remake checkpoint unavailable for task {} ({})", task.id(), ex.getClass().getSimpleName());
-                store.update(task, token, task.phase(), task.engine(), "暂未取得最新进度，系统会重试", 30);
+            }
+                            store.update(task, token, task.phase(), task.engine(), "暂未取得最新进度，系统会重试", 30);
             }
         }
-    }
-
+    
     private void advance(Task task, String token) {
         if ("CREATING".equals(task.phase())) {
             var payload = (ObjectNode) parse(task.request());
@@ -478,9 +479,20 @@ public class VideoRemakeService {
 
     private String error(JsonNode result, String fallback) {
         var message = result.path("error").asText("");
-        return message.isBlank() ? fallback : ("SCENE_BUDGET_EXCEEDED".equals(message) ? "参考视频镜头切换过多，超过单次分析上限 30 个分镜，请换一个镜头较少的参考视频，或截取其中一段重试（SCENE_BUDGET_EXCEEDED）" : message.substring(0, Math.min(message.length(), 200)));
+        if (message.isBlank()) return fallback;
+        if ("SCENE_BUDGET_EXCEEDED".equals(message)) {
+            return "参考视频镜头切换过多，超过单次分析上限 30 个分镜，请换一个镜头较少的参考视频，或截取其中一段重试 (SCENE_BUDGET_EXCEEDED) ";
+        }
+        if (message.startsWith("商品事实审核未通过")) {
+            var blocking = auditItems(result, "blocking");
+            if (!blocking.isEmpty()) {
+                var detailed = "商品事实审核未通过：" + String.join("；", blocking);
+                return detailed.length() > 200 ? detailed.substring(0, 200) : detailed;
+            }
+        }
+        return message;
     }
-
+    
     private void requireGeneration(String tenant, String actor, String binding) {
         if (binding == null || binding.isBlank()) throw input("请选择千川账户");
         charges.requireAccess(tenant);
@@ -507,9 +519,43 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null);
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of());
     }
 
+    // 失败任务：拉取引擎详情，把商品事实审核的 blocking/warnings 带回 View；拉取失败时回退到摘要。
+    private View failedView(Task task) {
+        try {
+            var data = detail(task);
+            var issues = auditIssues(data);
+            var warnings = auditWarnings(data);
+            if (issues.isEmpty() && warnings.isEmpty()) return summary(task);
+            return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null),
+                            error(data, task.error()), task.createdAt(), task.asset(), null, null, null, List.of(),
+                            null, null, issues, warnings);
+        } catch (RuntimeException ex) {
+            return summary(task);
+        }
+    }
+    private List<String> auditIssues(JsonNode data) {
+        return auditItems(data, "blocking");
+    }
+    private List<String> auditWarnings(JsonNode data) {
+        return auditItems(data, "warnings");
+    }
+    private List<String> auditItems(JsonNode data, String field) {
+        var audit = data.path("product_fact_audit");
+        if ((audit.isMissingNode() || audit.isNull()) && data.has("result")) {
+            audit = data.path("result").path("product_fact_audit");
+        }
+        if (!audit.isObject()) return List.of();
+        var items = new java.util.ArrayList<String>();
+        if (audit.has(field)) {
+            audit.path(field).valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).forEach(items::add);
+        }
+        audit.fields().forEachRemaining(entry -> entry.getValue().path(field).valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).forEach(items::add));
+        return List.copyOf(items);
+    }
+    
     private JsonNode detail(Task task) {
         var result = engine.remake("GET", path(task) + scope(task.tenant()), null);
         if (!task.tenant().equals(result.path("store_id").asText()) || !task.engine().equals(result.path("id").asText()))
