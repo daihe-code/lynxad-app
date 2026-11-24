@@ -188,7 +188,7 @@
             </div>
             <div class="remake-actions">
               <el-button v-if="setupStep > 0" :disabled="busy" @click="goToStep(setupStep - 1)">上一步</el-button>
-              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '分析参考视频' }}</el-button>
+              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '开始生成' }}</el-button>
             </div>
           </form>
         </div>
@@ -198,7 +198,7 @@
             <h3>复刻流程</h3>
             <ol class="remake-workflow">
               <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品和新人物</small></div></li>
-              <li><span><AssetIcon name="note" /></span><div><strong>确认分镜</strong><small>检查并编辑画面、旁白和字幕</small></div></li>
+              <li><span><AssetIcon name="note" /></span><div><strong>后台生成</strong><small>提交后自动生成，无需等待</small></div></li>
               <li><span><AssetIcon name="sparkle" /></span><div><strong>生成与入库</strong><small>生成后预览，合适即可保存</small></div></li>
             </ol>
           </section>
