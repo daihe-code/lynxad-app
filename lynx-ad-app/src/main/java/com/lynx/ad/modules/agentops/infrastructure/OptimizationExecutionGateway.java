@@ -36,13 +36,23 @@ public class OptimizationExecutionGateway {
         if(TenantContext.current().isPresent())
             bindings.requireRuleOperator(plan.tenantId().value(),plan.accountId().value(),TenantContext.userId().value());
     }
+    public void requireActiveRuleBinding(AdPlan plan){
+        if(TenantContext.current().isPresent())
+            bindings.executionScope(plan.tenantId().value(),plan.accountId().value(),TenantContext.userId().value());
+    }
     @org.springframework.beans.factory.annotation.Autowired public void tactics(OptimizationTacticsGateway value){tactics=value;}
     public OptimizationTacticsGateway tactics(){return tactics;}
     public OptimizationExecutionGateway(AdPlanRepository plans,PlanManagementService management,AdManagementPort ads,AdStatusPort statuses,AdListPort listing,
             QianchuanCredentialFacade credentials,PlanTransferStore transfers,BillingTrialService billing,LynxAdProperties properties,ObjectMapper json,PlatformTransactionManager manager){
         this.plans=plans;this.management=management;this.ads=ads;this.statuses=statuses;this.listing=listing;this.credentials=credentials;this.transfers=transfers;this.billing=billing;this.properties=properties;this.json=json;tx=new TransactionTemplate(manager);
     }
-    public AdPlan plan(String tenant,String id){return plans.findById(new TenantId(tenant),new PlanId(id)).filter(p->p.status()!=PlanStatus.DELETED && p.qcPlanId().isPresent()).orElseThrow(()->new BizException(1405,"已发布计划不存在"));}
+    public AdPlan plan(String tenant,String id){return publishedPlan(tenant,id,false);}
+    public AdPlan rulePlan(String tenant,String id){return publishedPlan(tenant,id,true);}
+    private AdPlan publishedPlan(String tenant,String id,boolean allowArchived){
+        return plans.findById(new TenantId(tenant),new PlanId(id))
+            .filter(p->p.status()!=PlanStatus.DELETED && (p.qcPlanId().isPresent() || allowArchived && p.transferArchived()))
+            .orElseThrow(()->new BizException(1405,"已发布计划不存在"));
+    }
     public record PlanFacts(JsonNode facts,String qcStatus) {}
     public JsonNode facts(AdPlan p){return readPlanFacts(p,true).facts();}
     public PlanFacts readPlanFacts(AdPlan p,boolean includeBindings){

@@ -40,6 +40,7 @@
     "REJECTED": { "group": "REJECTED", "label": "审核不通过" },
     "DISABLE": { "group": "PAUSED", "detail": "DISABLE", "label": "手动暂停" },
     "PAUSED": { "group": "PAUSED", "label": "已暂停" },
+    "TRANSFER_ARCHIVED": { "group": "PAUSED", "detail": "DISABLE", "label": "手动暂停" },
     "OFFLINE_BUDGET": { "group": "PAUSED", "detail": "OFFLINE_BUDGET", "label": "计划预算不足" },
     "ADVERTISER_OFFLINE_BUDGET": { "group": "PAUSED", "detail": "ADVERTISER_OFFLINE_BUDGET", "label": "账户预算已花光" },
     "OFFLINE_BALANCE": { "group": "PAUSED", "detail": "OFFLINE_BALANCE", "label": "账户余额不足" },

@@ -195,6 +195,44 @@ class PlanListDisplayTest {
         verify(statistics).report(tenant,plan.accountId().value(),previousRange,false);
     }
     private PlanStatisticsService.Snapshot report(PlanStatisticsService.Metrics metrics) {return new PlanStatisticsService.Snapshot(Map.of("123",metrics),Instant.now());}
+    @Test void transferPausedRowsCompareConfirmedZeroWithoutUsingMetricsOfTheirCounterpart() {
+        var counterpart=transferred(PlanStatus.DELIVERING);
+        plan.archiveForTransfer();
+        var zone=ZoneId.of("Asia/Shanghai");
+        var today=LocalDate.now(zone);
+        var todayRange=new PlanStatisticsRange(today,today);
+        var yesterday=today.minusDays(1);
+        var previousRange=new PlanStatisticsRange(yesterday,yesterday);
+        var rebuilds=mock(PlanTransferRebuildStore.class);
+        query.transferRebuildStore(rebuilds);
+        when(rebuilds.displayName(any())).thenAnswer(a->a.<AdPlan>getArgument(0).name().text());
+        var snapshot=json.createObjectNode();
+        snapshot.putObject("detail").put("create_time",today+" 00:00:00");
+        var saved=snapshot.putObject("historyReport").put("start",today.toString()).put("end",today.toString());
+        var report=saved.putObject("report");
+        report.putObject("summary");report.putArray("trend");
+        report.putObject("metricFields").put("netGmv","native_gmv").put("netRoi","native_roi");
+        var records=List.of(new PlanTransferRebuildStore.ArchivedReport("123",today.atStartOfDay(zone).toInstant(),snapshot));
+        when(rebuilds.reports(eq(tenant),anySet())).thenReturn(Map.of(id.value(),records));
+        var reports=mock(PlanStatisticsService.class);
+        query.statisticsService(reports);
+        var counterpartMetrics=new PlanStatisticsService.Metrics(new BigDecimal("70"),new BigDecimal("200"),new BigDecimal("3"),1L);
+        when(reports.report(eq(tenant),eq("account-a"),any(),eq(false),eq(PlanMetricTemplate.NET)))
+            .thenReturn(new PlanStatisticsService.Snapshot(Map.of(counterpart.qcPlanId().orElseThrow().value(),counterpartMetrics),Instant.now()));
+        var filter=new PlanQueryService.Filters(null,null,null,null,null,null,null,true,todayRange,false,PlanMetricTemplate.NET);
+        var rows=query.list(tenant,1,10,filter).records();
+        var paused=rows.stream().filter(row->row.planId().equals(id.value())).findFirst().orElseThrow();
+        assertEquals(BigDecimal.ZERO,paused.costYuan());
+        assertEquals(BigDecimal.ZERO,paused.netRoi());
+        assertEquals(BigDecimal.ZERO,paused.netGmvYuan());
+        assertEquals(BigDecimal.ZERO,paused.comparison().costChangePct());
+        assertEquals(new BigDecimal("70"),rows.stream().filter(row->row.planId().equals(counterpart.id().value())).findFirst().orElseThrow().costYuan());
+        report.put("warning","统计未完整取得");
+        var unknown=query.list(tenant,1,10,filter).records().stream().filter(row->row.planId().equals(id.value())).findFirst().orElseThrow();
+        assertNull(unknown.costYuan());
+        assertNull(unknown.comparison().current());
+        verify(reports,times(2)).report(tenant,"account-a",previousRange,false,PlanMetricTemplate.NET);
+    }
     @Test void overviewShowsExactChangeAgainstThePreviousEqualLengthPeriod() {
         var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));var range=new PlanStatisticsRange(today.minusDays(22),today);
         var previous=new PlanStatisticsRange(today.minusDays(45),today.minusDays(23));

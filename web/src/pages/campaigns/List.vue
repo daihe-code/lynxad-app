@@ -72,13 +72,16 @@
                 <PlanContentSummary :plan="row" :account="accounts.find(account => account.accountId === row.accountId)" :disabled="isDeleted(row)" :products-link="isDraft(row) && !readOnlyRole ? `/campaigns/${row.planId}/edit?step=1` : `/campaigns/${row.planId}?step=1`" :materials-link="`/campaigns/${row.planId}?step=3`" />
                 <router-link v-if="!isDeleted(row) && alertsOf(row.planId).length" :to="`/campaigns/${row.planId}`" class="alert-link">{{ alertsOf(row.planId).map(ruleLabel).join(' · ') }}</router-link>
               </td>
-              <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
+              <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="planStatusLabel(row.status, row.qcStatus)"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
               <td class="settings-cell">
-                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div class="bid-mode">
                   <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
-                  <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">{{ transferringId === row.planId ? '切换中…' : '↔ 转投' }}</button>
+                  <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">
+                    <template v-if="transferringId === row.planId">切换中…</template>
+                    <template v-else><el-icon :size="16" aria-hidden="true"><Switch /></el-icon>转投</template>
+                  </button>
                   <router-link v-else-if="canSwitchDraft(row)" class="inline-edit" :to="`/campaigns/${row.planId}/edit?step=2`" :aria-label="`切换 ${row.name} 的投放方式`"><el-icon><EditPen /></el-icon></router-link>
                 </div>
               </td>
@@ -101,8 +104,8 @@
                 <span v-else-if="isDeleted(row)" class="muted">已删除</span>
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
-                  <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
-                  <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canManage(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
+                  <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit${row.qcStatus === 'TRANSFER_ARCHIVED' ? '?step=2' : ''}`">修改</router-link>
+                  <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canAct(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
                 </template>
                 <button type="button" v-if="!readOnlyRole && !isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
               </td>
@@ -115,7 +118,7 @@
       <div class="pager"><span>共 {{ total }} 条记录</span><el-pagination background layout="prev, pager, next, jumper" :total="total" :page-size="pageSize" v-model:current-page="pageNum" /></div>
     </section>
     <CampaignOperationDialog v-model="operationOpen" :kind="operationKind" :plan="operationPlan" @saved="load" />
-    <CampaignPlanActionDialog v-model="confirmOpen" :plan="confirmPlan" :action="confirmPlan?.status === 'DELIVERING' ? 'pause' : 'restore'" :busy="!!actingId" :blocked-reason="confirmPlan?.status === 'PAUSED' ? restoreBlockedReason : ''" @confirm="confirmAction" />
+    <CampaignPlanActionDialog v-model="confirmOpen" :plan="confirmPlan" :action="confirmPlan?.status === 'DELIVERING' ? 'pause' : 'restore'" :busy="!!actingId" :blocked-reason="confirmPlan?.status === 'PAUSED' ? restoreBlockedReason : ''" :verification="restorePending" :error="restoreError" @confirm="confirmAction" @verify="verifyRestore" />
     <CampaignPlanActionDialog v-model="deleteOpen" :plan="deleteTarget" action="delete" :busy="!!deletingId" @confirm="confirmDelete" />
     <ControlTaskReport v-model="quickReportOpen" :plan-id="quickReportPlan?.planId || ''" :plan-name="quickReportPlan?.name" :task="quickReportTask" :tasks="quickReportTasks" :tasks-loading="quickReportLoading" :tasks-error="quickReportError" :kind="quickReportKind" :initial-range="quickReportRange" @select-task="selectQuickReportTask" @reload-tasks="loadQuickReportTasks" />
     <el-drawer :model-value="!!insightsPlanId" :with-header="false" size="min(1180px, 80vw)" class="plan-insights-drawer" destroy-on-close @update:model-value="onInsightsVisible">
@@ -133,11 +136,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { campaignTableColumns, columnWidthsPreferenceKey, maximumColumnWidth } from '@/features/delivery/campaignTableColumns';
 import { useCampaignColumnResize } from '@/features/delivery/useCampaignColumnResize';
 import { getOptimizationStatuses, type PlanOptimizationStatus } from '@/features/delivery/optimizationApi';
-import { planOptimizationPresentation } from '@/features/delivery/planOptimizationStatus';
+import { hasPlanOptimization, planOptimizationPresentation } from '@/features/delivery/planOptimizationStatus';
 import PlanOptimization from './components/PlanOptimization.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type CascaderInstance } from 'element-plus';
-import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort } from '@element-plus/icons-vue';
+import { ArrowDown, Calendar, Check, DataAnalysis, Download, EditPen, Filter, Operation, Plus, Refresh, Search, Sort, Switch } from '@element-plus/icons-vue';
 import PlanContentSummary from './components/PlanContentSummary.vue';
 import CampaignOperationDialog from './components/CampaignOperationDialog.vue';
 import CampaignPlanActionDialog from './components/CampaignPlanActionDialog.vue';
@@ -145,8 +148,9 @@ import MetricDelta from './components/MetricDelta.vue';
 import CampaignMetricCard from './components/CampaignMetricCard.vue';
 import PlanInsights from './PlanInsights.vue';
 import ControlTaskReport from './components/ControlTaskReport.vue';
-import { actPlan, deletePlan, getCampaignTrend, listControlTasks, listPlans, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
-import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
+import { actPlan, checkTransferredRestore, deletePlan, getCampaignTrend, getPlanTransfer, listControlTasks, listPlans, syncPlanDetail, syncPlans, type ControlTask, type PlanListVo, type PageResult, type PlanMetricTemplate, type PlanFilters, type CampaignStatisticsTrend } from '@/features/delivery/deliveryApi';
+import { restoreUnavailableReason, restoreResultFeedback, transferredRestoreFeedback } from '@/features/delivery/planConfirmation';
+import { requestFailure } from '@/api/apiErrors';
 import { isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 import { campaignTrendScope } from '@/features/delivery/campaignMetricTrend';
 import { storeToRefs } from 'pinia';
@@ -196,7 +200,7 @@ let optimizationRevision = 0;
 function optimizationPresentation(row: PlanListVo) { return planOptimizationPresentation(row, optimizationStatuses.value[row.planId], optimizationLoading.value, optimizationFailed.value); }
 async function loadOptimizationStatuses(rows: PlanListVo[]) {
   const revision = ++optimizationRevision;
-  const ids = rows.filter(row => row.qcPlanId && !isDeleted(row) && !isDraft(row)).map(row => row.planId);
+  const ids = rows.filter(hasPlanOptimization).map(row => row.planId);
   optimizationStatuses.value = {}; optimizationFailed.value = false; optimizationLoading.value = !!ids.length;
   if (!ids.length) return;
   try {
@@ -302,6 +306,7 @@ watch(quickReportOpen, value => { if (!value) { quickReportSerial++; quickReport
 onUnmounted(() => { quickReportSerial++; });
 const operationOpen = ref(false), operationKind = ref(''), operationPlan = ref<PlanListVo | null>(null);
 const confirmOpen = ref(false), confirmPlan = ref<PlanListVo | null>(null);
+const restorePending = ref(false), restoreError = ref('');
 const restoreBlockedReason = computed(() => confirmPlan.value ? restoreUnavailableReason(confirmPlan.value, shanghaiToday()) : '');
 const deleteOpen = ref(false), deleteTarget = ref<PlanListVo | null>(null), deletingId = ref('');
 const platformOptions = [{ value: 'ALL', label: '商品全域投放' }, { value: 'STANDARD', label: '标准投放' }];
@@ -313,10 +318,14 @@ const goalText = (value?: number | null) => value == null ? '—' : Number(value
 const fullDate = (date: string) => date.slice(0, 10);
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
+const canAct = (row: PlanListVo) => row.qcStatus === 'TRANSFER_ARCHIVED'
+  ? row.canTransfer && !readOnlyRole.value && user.trialActive : canManage(row);
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
-const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
-  ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
-  : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
+const canDelete = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && (
+  row.status === 'PAUSED' && row.qcStatus === 'TRANSFER_ARCHIVED' ||
+  (row.qcPlanId
+    ? row.status !== 'SUBMITTING' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
+    : row.status === 'DRAFT' && row.source !== 'EXTERNAL'));
 const canSwitchDraft = (row: PlanListVo) => !readOnlyRole.value && user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
@@ -376,14 +385,41 @@ async function syncRemote(notify = true) {
   } catch { syncWarning.value = '千川同步失败，已保留最近同步的计划，请稍后刷新重试。'; }
   finally { syncing.value = false; }
 }
-function onAct(row: PlanListVo) {
-  if (actingId.value || transferringId.value || deletingId.value || !canManage(row)) return;
+async function onAct(row: PlanListVo) {
+  if (actingId.value || transferringId.value || deletingId.value || !canAct(row)) return;
+  restorePending.value = false; restoreError.value = '';
+  if (row.qcStatus === 'TRANSFER_ARCHIVED') {
+    actingId.value = row.planId;
+    try {
+      const context = await getPlanTransfer(row.planId);
+      if (context.pendingKey) {
+        restorePending.value = true;
+        restoreError.value = context.pendingError || '恢复结果待确认，请查询当前状态。';
+      }
+    } catch { ElMessage.warning('暂时无法核查转投状态，请稍后重试。'); return; }
+    finally { actingId.value = ''; }
+  }
   confirmPlan.value = row; confirmOpen.value = true;
+}
+async function verifyRestore() {
+  const row = confirmPlan.value;
+  if (!row || actingId.value || !restorePending.value) return;
+  actingId.value = row.planId;
+  try {
+    const { plan, result } = await checkTransferredRestore(row.planId);
+    const feedback = transferredRestoreFeedback(plan, result);
+    if (feedback.pending) { restoreError.value = feedback.message; return; }
+    restorePending.value = false; confirmOpen.value = false;
+    ElMessage({ type: feedback.type, message: feedback.message });
+    await load();
+  } catch { restoreError.value = '暂时无法查询恢复结果，请稍后再查。'; }
+  finally { actingId.value = ''; }
 }
 async function confirmAction(pauseReason?: PlanPauseReason) {
   const row = confirmPlan.value;
-  if (!row || actingId.value || !canManage(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
+  if (!row || actingId.value || restorePending.value || !canAct(row) || !['DELIVERING', 'PAUSED'].includes(row.status)) return;
   const restoring = row.status === 'PAUSED';
+  const transferred = restoring && row.qcStatus === 'TRANSFER_ARCHIVED';
   if (!restoring && !isPlanPauseReason(pauseReason)) { ElMessage.warning('请选择暂停原因'); return; }
   if (restoring) {
     const reason = restoreUnavailableReason(row, shanghaiToday());
@@ -391,7 +427,7 @@ async function confirmAction(pauseReason?: PlanPauseReason) {
   }
   actingId.value = row.planId;
   try {
-    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE', pauseReason);
+    await actPlan(row.planId, restoring ? 'ENABLE' : 'DISABLE', pauseReason, transferred);
     confirmOpen.value = false;
     if (restoring) {
       try {
@@ -402,7 +438,15 @@ async function confirmAction(pauseReason?: PlanPauseReason) {
     } else ElMessage.success('计划已暂停');
     await load();
   }
-  catch { /* API interceptor displays the error. */ }
+  catch (cause) {
+    if (transferred) {
+      const failure = requestFailure(cause, { method: 'POST' });
+      if (failure.kind === 'UNCERTAIN') {
+        restorePending.value = true;
+        restoreError.value = '恢复结果待确认，请查询当前状态。';
+      } else { confirmOpen.value = false; ElMessage.warning(failure.message); await load(); }
+    }
+  }
   finally { actingId.value = ''; }
 }
 function onDelete(row: PlanListVo) {
@@ -414,7 +458,7 @@ async function confirmDelete() {
   if (!row || deletingId.value || !canDelete(row)) return;
   deletingId.value = row.planId;
   try {
-    await deletePlan(row.planId);
+    await deletePlan(row.planId, row.qcStatus === 'TRANSFER_ARCHIVED');
     requestVersion++;
     deleteOpen.value = false; deleteTarget.value = null;
     records.value = records.value.filter(p => p.planId !== row.planId);
@@ -566,7 +610,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .plan-info-cell .plan-name { color: #575cf6; line-height: 21px; }.plan-info-cell .plan-name:hover { color: #4348db; }.plan-info-cell .plan-id { margin-top: 1px; line-height: 21px; }.product-line { margin-top: 8px; min-height: 22px; }.product-trigger { gap: 8px; font-size: 13px; }.goods-thumb { display: inline-grid; place-items: center; width: 22px; height: 22px; background: #f7f8fa; border-radius: 4px; color: #9a9eb6; flex-shrink: 0; }.goods-thumb .el-image { width: 22px; height: 22px; border-radius: 4px; }.goods-thumb > .el-icon { font-size: 16px; }
 .settings-cell > div { gap: 4px; line-height: 22px; }.settings-cell b { font-size: 14px; font-weight: 600; }.settings-cell .roi-setting, .settings-cell .roi-setting b { color: #0ba05f; font-size: 13px; }.settings-cell .bid-mode { display: flex; gap: 8px; }
 .bid-mode-info { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; padding: 0; cursor: help; }.bid-mode-info .el-icon { color: #7c7f99; font-size: 12px; }.bid-mode-info:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
-.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
+.transfer-link { gap: 4px; }.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
 .schedule-range { display: block; white-space: nowrap; }.schedule-cell small { display: block; margin-top: 1px; line-height: 20px; }
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; } }

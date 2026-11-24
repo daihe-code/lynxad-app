@@ -33,19 +33,20 @@
     </template>
     <template v-else-if="action === 'restore'">
       <p class="plan-confirm-impact">恢复后将沿用以上预算{{ plan?.smartBidType === 'SMART_BID_CUSTOM' ? '和目标' : '' }}，可能产生广告消耗。</p>
-      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>如有关联的转投计划，恢复时将暂停另一种投放方式的关联计划。</p></div></div>
+      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>如有关联的转投计划，恢复时将暂停关联计划并切换到当前选择的投放方式。<template v-if="transferArchived">恢复后可能需要重新审核。</template></p></div></div>
       <p v-if="blockedReason" class="plan-confirm-blocked" role="alert">{{ blockedReason }}</p>
     </template>
     <template v-else>
-      <p v-if="!draft" class="plan-confirm-impact">删除后，计划将从千川和当前列表中移除。</p>
+      <p v-if="!draft" class="plan-confirm-impact">删除后，计划将从当前列表中移除。</p>
       <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><strong>{{ draft ? '删除后无法恢复，请确认不再需要此草稿。' : '此操作无法恢复，删除后不能恢复该计划的投放。' }}</strong></div>
       <p class="plan-confirm-retained">仅删除当前{{ draft ? '草稿' : '计划' }}，关联的转投计划和共用素材会保留。</p>
       <p v-if="!draft && plan?.status === 'PAUSED'" class="plan-confirm-retained">若只是暂时不投放，可继续保持暂停。</p>
     </template>
     <p v-if="error" class="plan-confirm-blocked" role="alert">{{ error }}</p>
     <template #footer>
-      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
-      <el-button :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
+      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ verification ? '关闭' : action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
+      <el-button v-if="verification" type="primary" :loading="busy" :disabled="busy" @click="emit('verify')">查询恢复结果</el-button>
+      <el-button v-else :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
     </template>
   </el-dialog>
 </template>
@@ -59,14 +60,16 @@ import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { BID_TYPE, yuan, roiText } from '@/utils/labels';
 import { PLAN_PAUSE_REASONS, isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 
-const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason] }>();
+const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; verification?: boolean; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason]; verify: [] }>();
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
-const draft = computed(() => !props.plan?.qcPlanId);
+const draft = computed(() => props.plan?.status === 'DRAFT' && !props.plan.qcPlanId);
+const transferArchived = computed(() => props.plan?.qcStatus === 'TRANSFER_ARCHIVED');
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
 const state = computed(() => {
   const display = planStatusDisplay(props.plan?.status, props.plan?.qcStatus);
+  if (transferArchived.value) return display;
   return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
 });
 const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');

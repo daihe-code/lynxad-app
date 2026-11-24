@@ -4,7 +4,7 @@ import type { ProductSelectionAnalysis } from './productSelectionAnalysis';
 
 export interface CreationProduct {
   productId: string; qcProductId: string; name: string; price: number | null; userPrice: number | null;
-  imageUrl?: string; category?: string; stock?: number; sales?: number | null; tags: string[]; unavailableReasons: string[];
+  imageUrl?: string; imageUrls?: string[]; category?: string; stock?: number; sales?: number | null; tags: string[]; unavailableReasons: string[];
   priceInfo?: PlatformProductPrice | null; channelId?: string | null;
   draft?: { planId: string; planName: string } | null;
 }
@@ -120,7 +120,7 @@ export interface CreationState {
 export interface CreationAdditionBody { productId: string; type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; description: string; requestId: string }
 export type GenerationIssue = NonNullable<CreationState['generationIssues']>[number];
 export interface ProductQuery { page: number; pageSize: number; keyword: string; tab: string; unpromoted: boolean; cursor?: string }
-export interface ProductPage { items: CreationProduct[]; total: number; nextCursor?: string | null; hasMore?: boolean }
+export interface ProductPage { items: CreationProduct[]; total: number; totalPages?: number; nextCursor?: string | null; hasMore?: boolean }
 const root = '/api/v1/delivery/creation';
 const quiet = { headers: { 'X-Quiet-Request': 'true' } };
 const slow = { timeout: 120000 };

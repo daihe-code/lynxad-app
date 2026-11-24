@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AdPlan {
+    public static final String TRANSFER_ARCHIVED = "TRANSFER_ARCHIVED";
 
     private final PlanId id;
     private final TenantId tenantId;
@@ -163,6 +164,26 @@ public class AdPlan {
         this.qcStatus = "DELETE";
     }
     public void syncPlatformStatus(String value) { this.qcStatus = value; }
+
+    public boolean transferArchived() { return status == PlanStatus.PAUSED && TRANSFER_ARCHIVED.equals(qcStatus); }
+
+    public boolean linkedSettingsEditable() {
+        return transferArchived() || qcPlanId != null && switch (status) {
+            case DELIVERING, PAUSED, PENDING_AUDIT, REJECTED -> true;
+            default -> false;
+        };
+    }
+
+    public void archiveForTransfer() {
+        qcPlanId = null;
+        status = PlanStatus.PAUSED;
+        qcStatus = TRANSFER_ARCHIVED;
+    }
+
+    public void rebuildForTransfer(QcPlanId newId) {
+        qcPlanId = newId;
+        rejectReason = null;
+    }
 
     public PlanStatus status() {
         return status;

@@ -67,19 +67,42 @@ public class OptimizationAutomationStore {
                 && "PAUSE".equals(kind) && "DAILY_LIMIT".equals(item.path("action").path("cause").asText())
                 && com.lynx.ad.modules.agentops.application.OptimizationRules.AUTO_PAUSE.equals(state.policy().rules().protectionAction());
             jdbc.update("INSERT INTO optimization_event(id,tenant_id,plan_id,account_id,plan_name,fingerprint,policy_version,kind,title,evidence,proposal_json,report_json,status,created_at,scope_key,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,state.tenant(),state.plan(),plan.accountId().value(),plan.name().text(),id,state.version(),kind,item.path("title").asText(),item.path("evidence").asText(),item.hasNonNull("action")?encode(item.path("action")):null,encode(report),auto?"READY":"RECOMMENDED",now,scope,now);
-            String detail = "RULE_NO_DELIVERY".equals(kind) ? "。"+item.path("evidence").asText() : "";
-            notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE","新的盯盘建议",plan.name().text()+"："+item.path("title").asText()+detail);
+            boolean watching="RULE_DELIVERY_OBSERVING".equals(kind);
+            boolean deliveryNotice=watching || "RULE_NO_DELIVERY".equals(kind) || "RULE_DELIVERY_BLOCKED".equals(kind)
+                || "RULE_BUDGET_CONSTRAINT".equals(kind);
+            String detail=deliveryNotice?"。"+item.path("evidence").asText():"";
+            notice(state.tenant(),state.plan(),"OPTIMIZATION_ADVICE",watching?"盯盘观察提醒":"新的盯盘建议",plan.name().text()+"："+item.path("title").asText()+detail);
         }
         // Missing/stale business evidence cannot close a previously observed business issue.
-        if(report.path("complete").asBoolean())for(var existing:jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status='RECOMMENDED' AND scope_key IS NOT NULL",this::row,state.tenant(),state.plan(),state.version())){
+        for(var existing:jdbc.query("SELECT * FROM optimization_event WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status='RECOMMENDED' AND scope_key IS NOT NULL",this::row,state.tenant(),state.plan(),state.version())){
             var keys=jdbc.queryForList("SELECT scope_key FROM optimization_event WHERE tenant_id=? AND id=?",String.class,state.tenant(),existing.id());
             if(keys.isEmpty()||active.contains(keys.getFirst()))continue;
-            boolean business=keys.getFirst().contains(":EFFECT:")||keys.getFirst().contains(":GROWTH:");
-            if(business&&!report.path("diagnostics_ready").asBoolean())continue;
-            if("RULE_NO_DELIVERY".equals(existing.kind())
-                && !"ACTIVE".equals(report.path("delivery_check").path("activity").asText()))continue;
+            boolean superseded="RULE_NO_DELIVERY".equals(existing.kind()) && report.path("delivery_observation").isObject()
+                && !existing.report().path("delivery_observation").isObject();
+            if(!superseded && !resolvedMerchantAdvice(existing.kind(),keys.getFirst(),report))continue;
             jdbc.update("UPDATE optimization_event SET status='RESOLVED',finished_at=?,updated_at=?,error_message='最新可靠证据已不再支持原建议；未执行操作' WHERE tenant_id=? AND id=? AND status='RECOMMENDED'",now,now,state.tenant(),existing.id());
         }
+    }
+
+    private static boolean resolvedMerchantAdvice(String kind,String scope,JsonNode report) {
+        var observation=report.path("delivery_observation");
+        boolean hasVolume=observation.isObject()?observation.path("had_volume").asBoolean()
+            :"ACTIVE".equals(report.path("delivery_check").path("activity").asText());
+        return switch(Objects.toString(kind,"")) {
+            case "RULE_DELIVERY_OBSERVING" -> hasVolume || "NO_DELIVERY".equals(report.path("state").asText());
+            case "RULE_NO_DELIVERY" -> hasVolume;
+            case "RULE_DELIVERY_BLOCKED" -> {
+                String object=scope.split(":",3)[2];
+                if(object.startsWith("PLAN:"))yield "DELIVERING".equals(report.path("plan_status").asText());
+                boolean cleared=false;
+                for(var verified:report.path("diagnostic_context").path("verified_deliverable"))
+                    if(object.equals(verified.asText())){cleared=true;break;}
+                yield cleared;
+            }
+            case "RULE_BUDGET_CONSTRAINT" -> "DELIVERING".equals(report.path("plan_status").asText()) && report.hasNonNull("platform_status");
+            default -> report.path("complete").asBoolean()
+                && (!(scope.contains(":EFFECT:") || scope.contains(":GROWTH:")) || report.path("diagnostics_ready").asBoolean());
+        };
     }
     private static final String RULES_ENABLED_TITLE = "盯盘优化已开启";
 

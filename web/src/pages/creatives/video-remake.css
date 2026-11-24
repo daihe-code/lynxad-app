@@ -5,14 +5,18 @@
   --remake-muted: #626781;
   --remake-border: #e2e5f0;
   --remake-tint: #f6f5ff;
+  display: flex;
+  flex-direction: column;
+  min-height: min(520px, 90dvh);
+  max-height: 90dvh;
   border-radius: 18px;
   overflow: hidden;
 }
-.remake-dialog .el-dialog__header { padding: 23px 28px 18px; margin: 0; border-bottom: 1px solid var(--remake-border); }
+.remake-dialog .el-dialog__header { flex-shrink: 0; padding: 23px 28px 18px; margin: 0; border-bottom: 1px solid var(--remake-border); }
 .remake-dialog .el-dialog__title { font-size: 22px; font-weight: 700; color: var(--remake-ink); }
 .remake-dialog .el-dialog__headerbtn { top: 12px; right: 11px; }
-.remake-dialog .el-dialog__body { padding: 0; max-height: calc(90dvh - 74px); overflow: auto; color: var(--remake-ink); }
-.remake-workspace { padding: 0 24px 24px; background: #f7f8fc; color: var(--remake-ink); }
+.remake-dialog .el-dialog__body { flex: 1 1 auto; min-height: 0; padding: 0; overflow: auto; background: #f7f8fc; color: var(--remake-ink); }
+.remake-workspace { padding: 0 24px 24px; color: var(--remake-ink); }
 .remake-workspace h3, .remake-workspace p, .remake-workspace dl, .remake-workspace dd { margin: 0; }
 .remake-workspace h3 { font-size: 17px; line-height: 1.4; font-weight: 700; overflow-wrap: anywhere; }
 .remake-workspace svg { width: 18px; height: 18px; flex-shrink: 0; }
@@ -49,7 +53,7 @@
   white-space: nowrap;
 }
 .remake-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(235px, 29%); align-items: start; gap: 18px; }
-.remake-main, .remake-side-card, .remake-history, .remake-progress-card, .remake-result {
+.remake-main, .remake-side-card, .remake-history, .remake-progress-card, .remake-task-gallery, .remake-result {
   min-width: 0;
   background: #fff;
   border: 1px solid var(--remake-border);
@@ -149,8 +153,8 @@
 .remake-video-requirements summary { width: fit-content; color: #4f45d6; font-size: 13px; cursor: pointer; }
 .remake-video-requirements ul { display: grid; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; }
 .remake-video-requirements li { padding: 8px 10px; border: 1px solid var(--remake-border); border-radius: 8px; background: var(--remake-tint); color: var(--remake-muted); font-size: 13px; }
-.remake-search, .remake-field-title, .remake-card-title, .remake-count { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.remake-field-title span, .remake-card-title span, .remake-count { color: var(--remake-muted); font-size: 12px; }
+.remake-search, .remake-card-title, .remake-count { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.remake-card-title span, .remake-count { color: var(--remake-muted); font-size: 12px; }
 .remake-card-title span { text-align: right; overflow-wrap: anywhere; }
 .remake-count > :last-child { margin-left: auto; white-space: nowrap; }
 .remake-catalog { display: grid; gap: 8px; }
@@ -163,6 +167,14 @@
 .remake-product-meta { flex: 1; min-width: 0; }
 .remake-product-meta strong, .remake-product-meta small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .remake-pager, .remake-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.remake-pager { flex-wrap: wrap; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.remake-pager-pages, .remake-pager-jump { display: flex; align-items: center; gap: 6px; }
+.remake-workspace .remake-pager .remake-pager-jump input { width: 62px; height: 32px; padding: 4px 6px; text-align: center; }
+.remake-workspace .remake-pager-jump input[aria-invalid="true"] { border-color: #b51c42; }
+.remake-pager-error { flex-basis: 100%; margin: 0; text-align: right; white-space: normal; }
+.remake-pager .remake-pager-arrow { width: 32px; height: 32px; padding: 0; flex: none; }
+.remake-pager-arrow svg { width: 20px; height: 20px; }
+.remake-pager-prev svg { transform: rotate(180deg); }
 .remake-actions { padding-top: 12px; border-top: 1px solid var(--remake-border); margin-top: 4px; }
 .remake-actions .el-button + .el-button, .remake-pager .el-button + .el-button, .remake-result-actions .el-button + .el-button { margin-left: 0; }
 .remake-upload-progress { display: grid; gap: 6px; font-size: 13px; color: var(--remake-muted); }
@@ -180,6 +192,8 @@
 .remake-empty { min-height: 210px; padding: 24px 8px; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--remake-muted); text-align: center; }
 .remake-empty svg { width: 24px; height: 24px; }
 .remake-task { display: grid; gap: 11px; min-width: 0; }
+.remake-task--with-gallery { grid-template-columns: minmax(0, 1fr) minmax(255px, 32%); }
+.remake-task--with-gallery > :is(.remake-task-header, .remake-task-title, .remake-task-error, .remake-ad-notices) { grid-column: 1 / -1; }
 .remake-task-header, .remake-task-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .remake-task-header .remake-muted { font-size: 11px; text-align: right; overflow-wrap: anywhere; }
 .remake-shot-strip { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -193,14 +207,47 @@
 .remake-result-info { display: grid; gap: 10px; }
 .remake-result-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .remake-saved { display: flex; align-items: center; color: #156747; gap: 5px; }
-.remake-progress-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 18px; }
-.remake-progress-card .remake-muted { margin-top: 5px; }
+.remake-progress-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 22px; align-items: center; padding: 24px;
+  background: linear-gradient(135deg, #f7f5ff, #fff 75%);
+}
+.remake-progress-ring {
+  --stage-one: var(--remake-accent);
+  --stage-two: var(--remake-border);
+  --stage-three: var(--remake-border);
+  display: grid; place-content: center; text-align: center;
+  width: clamp(76px, 14vw, 104px); aspect-ratio: 1; border-radius: 50%; color: #433bb5;
+  background: radial-gradient(circle closest-side, #fff 81%, transparent 83%),
+    conic-gradient(var(--stage-one) 0deg 112deg, transparent 112deg 120deg,
+      var(--stage-two) 120deg 232deg, transparent 232deg 240deg,
+      var(--stage-three) 240deg 352deg, transparent 352deg);
+}
+.remake-progress-ring[data-stage="2"], .remake-progress-ring[data-stage="3"] { --stage-two: var(--remake-accent); }
+.remake-progress-ring[data-stage="3"] { --stage-three: var(--remake-accent); }
+.remake-progress-ring strong { font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+.remake-progress-ring strong span { font-size: 15px; font-weight: 600; }
+.remake-progress-ring small { margin-top: 5px; font-size: 11px; color: var(--remake-muted); }
+.remake-progress-content { display: grid; gap: 9px; }
+.remake-progress-stages { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0; margin: 0; list-style: none; font-size: 12px; color: var(--remake-muted); }
+.remake-progress-stages li { display: inline-flex; align-items: center; gap: 5px; }
+.remake-progress-stages li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #d7d9e8; }
+.remake-progress-stages [aria-current="step"] { color: #433bb5; font-weight: 700; }
+.remake-progress-stages :is([aria-current="step"], [data-completed="true"])::before { background: var(--remake-accent); }
+.remake-progress-actions .el-button { margin: 3px 0 0; }
+.remake-task-gallery { padding: 16px 18px; }
+.remake-task-gallery h3 { font-size: 15px; margin-bottom: 12px; }
+.remake-task-gallery-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 108px), 1fr)); gap: 8px; }
+.remake-task--with-gallery .remake-task-gallery-images { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.remake-task-gallery-images .el-image { aspect-ratio: 1; width: 100%; border-radius: 8px; border: 1px solid var(--remake-border); background: #f7f8fc; }
+.remake-task-gallery-placeholder { display: grid; place-items: center; height: 100%; color: var(--remake-muted); }
 .remake-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; border: 0; }
 @media (max-width: 780px) {
   .remake-workspace { padding: 0 14px 14px; }
   .remake-dialog .el-dialog__header { padding: 16px 18px; }
   .remake-dialog .el-dialog__headerbtn { top: 5px; right: 6px; }
   .remake-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .remake-task--with-gallery { grid-template-columns: minmax(0, 1fr); }
+  .remake-task--with-gallery .remake-task-gallery-images { grid-template-columns: repeat(auto-fill, minmax(min(100%, 94px), 1fr)); }
   .remake-main, .remake-side-card { padding: 14px; }
   .remake-access { min-height: 240px; padding: 20px 12px; }
 }
@@ -214,8 +261,7 @@
   .remake-history-bar label:first-child { flex: 1 0 100%; }
   .remake-history-list li { grid-template-columns: auto minmax(0, 1fr) auto; }
   .remake-history-list li .el-button { grid-column: 2 / -1; justify-self: end; }
-  .remake-progress-card { grid-template-columns: auto minmax(0, 1fr); }
-  .remake-progress-card .el-button { grid-column: 2; justify-self: end; }
+  .remake-progress-card { gap: 12px; padding: 14px; }
 }
 
 .remake-source-switch {

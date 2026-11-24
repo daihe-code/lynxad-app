@@ -2,9 +2,16 @@ import type { PlanOptimizationStatus } from './optimizationApi';
 import { isOptimizationPlanEnded } from './optimizationDetails.ts';
 import { planStatusDisplay } from './planStatus.ts';
 
-export function planOptimizationPresentation(plan: { qcPlanId?: string | null; status: string; qcStatus?: string | null }, state: PlanOptimizationStatus | undefined, loading = false, failed = false) {
+type OptimizationPlan = { qcPlanId?: string | null; status: string; qcStatus?: string | null };
+
+export function hasPlanOptimization(plan: OptimizationPlan) {
+  const group = planStatusDisplay(plan.status, plan.qcStatus).group;
+  return (Boolean(plan.qcPlanId) || plan.status === 'PAUSED' && plan.qcStatus === 'TRANSFER_ARCHIVED') && !['DRAFT', 'DELETED'].includes(group);
+}
+
+export function planOptimizationPresentation(plan: OptimizationPlan, state: PlanOptimizationStatus | undefined, loading = false, failed = false) {
   const status = planStatusDisplay(plan.status, plan.qcStatus);
-  if (!plan.qcPlanId || ['DRAFT', 'DELETED'].includes(status.group)) return { label: '—', tone: 'muted', action: '' };
+  if (!hasPlanOptimization(plan)) return { label: '—', tone: 'muted', action: '' };
   if (loading) return { label: '加载中', tone: 'muted', action: '' };
   if (failed) return { label: '加载失败', tone: 'warning', action: '重试' };
   const action = state ? '查看盯盘详情' : '设置盯盘规则';
@@ -14,7 +21,7 @@ export function planOptimizationPresentation(plan: { qcPlanId?: string | null; s
   if (state.holdReason === 'AUTHORIZATION_REQUIRED') return { label: '待核对授权', tone: 'warning', action };
   if (state.holdReason === 'SERVICE_EXPIRED') return { label: '服务到期', tone: 'warning', action };
   if (state.holdReason === 'REVISION_REQUIRED') return { label: '规则待生效', tone: 'warning', action };
-  if (state.failed) return { label: '检测受限', tone: 'warning', action };
+  if (state.failed && plan.qcStatus !== 'TRANSFER_ARCHIVED') return { label: '检测受限', tone: 'warning', action };
   if (state.holdReason) return { label: '需核对配置', tone: 'warning', action };
   if (status.detail === 'TIME_NO_REACH' || ['PENDING_AUDIT', 'AUDIT', 'REAUDIT'].includes(status.group) || plan.qcStatus === 'PRE_ONLINE') return { label: '待投放生效', tone: 'muted', action };
   if (status.group === 'PAUSED') return { label: '观察暂停', tone: 'muted', action };

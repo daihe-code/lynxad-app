@@ -52,6 +52,16 @@ class OptimizationMonitoringTest {
         when(plan.productIds()).thenReturn(List.of());when(store.get(tenant,id)).thenReturn(Optional.of(rulesState()));
         assertTrue(service.rulesView(tenant,id).available());verifyNoInteractions(management,insights,engine);
     }
+    @Test void aConfirmedPlatformBlockDoesNotDependOnTheStatisticsEndpoint() {
+        when(management.monitoringFacts(tenant,id,false)).thenReturn(new PlanManagementService.MonitoringFacts(
+            "1878663839175696","UNKNOWN","CUSTOM",BigDecimal.valueOf(400),null,List.of("item"),null,"EXTERNAL_URL_DISABLE"));
+        var state=rulesState();
+        var json=new ObjectMapper();
+        var report=OptimizationRulesEvaluator.evaluate(json.valueToTree(service.collectRules(plan,state)),null,state.policy());
+        assertEquals("商品暂不可用",report.path("recommendations").get(0).path("title").asText());
+        assertFalse(report.path("complete").asBoolean());
+        verifyNoInteractions(insights);
+    }
     @Test void restartRequiresAConfirmedDeliveringStatus() {
         var previous=new ObjectMapper().createObjectNode().put("plan_id","1878663839175696")
             .put("observed_at",Instant.now().minusSeconds(90).toString()).put("plan_status","PAUSED");

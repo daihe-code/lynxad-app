@@ -69,10 +69,34 @@ public class OptimizationTacticsGateway {
         var cached=merchantCache.get(key);if(cached!=null&&cached.fetched().plusSeconds(600).isAfter(now.toInstant()))return cached.body().deepCopy();
         var n=json.createObjectNode().put("complete",false).put("fetched_at",now.toOffsetDateTime().toString()).put("ledger_verified",false).put("budget_constrained",false);
         var issues=n.putArray("issues");
+        var deliveryIssues=n.putArray("delivery_issues");
+        var cleared=n.putArray("verified_deliverable");
         try{
             var current=groups(detail(p));var products=n.putArray("products");var ids=new ArrayList<String>();current.forEach(g->ids.add(g.path("product_id").asText()));
             var selected=catalog.restorable(p.tenantId(),p.accountId().value(),p.awemeId().value(),ids);
-            boolean supply=selected.size()==ids.size();for(var product:selected){boolean eligible=product.unavailableReasons().isEmpty()&&product.stock()!=null&&product.stock()>0;supply&=eligible;var v=products.addObject().put("id",product.qcProductId()).put("name",product.name()).put("eligible",eligible);if(product.stock()!=null)v.put("stock",product.stock());v.set("reasons",json.valueToTree(product.unavailableReasons()));}
+            boolean supply=selected.size()==ids.size();
+            int blockedProducts=0;
+            for(var product:selected) {
+                // Catalog gray reasons describe eligibility to create a campaign, not its current delivery.
+                var reasons=product.unavailableReasons().stream()
+                    .filter(reason->!reason.strip().startsWith("该商品正在使用商品全域推广，暂不支持创建"))
+                    .toList();
+                Long stock=product.stock();
+                boolean inStock=stock!=null && stock>0;
+                boolean eligible=reasons.isEmpty() && inStock;
+                supply&=eligible;
+                var row=products.addObject().put("id",product.qcProductId()).put("name",product.name()).put("eligible",eligible);
+                if(stock!=null)row.put("stock",stock);
+                row.set("reasons",json.valueToTree(reasons));
+                if(inStock)cleared.add("PRODUCT:"+product.qcProductId());
+                else if(stock!=null && stock==0) {
+                    blockedProducts++;
+                    deliveryIssues.addObject().put("object_type","PRODUCT").put("object_id",product.qcProductId())
+                        .put("title","商品库存为零").put("evidence","商品「"+product.name()+"」的库存为零，请核对商品状态。");
+                }
+            }
+            n.put("all_products_blocked",!ids.isEmpty() && blockedProducts==ids.size());
+            currentMaterialAudit(p,now.toLocalDate(),current,deliveryIssues,cleared);
             var defaults=OptimizationPolicy.defaults();var old=defaults.tactics();var readPolicy=new OptimizationPolicy(false,"OBSERVE",defaults.dailySpendLimit(),defaults.maxLoss(),defaults.minSpend(),defaults.minOrders(),3,60,List.of(),defaults.automation(),new OptimizationPolicy.Tactics(false,false,false,false,false,false,old.taskBudget(),old.taskHours(),old.extraBudgetPerDay(),4,1,1,List.of()));
             n.set("entities",entityRows(p,null,readPolicy,now,current));
             var tasks=n.putArray("tasks");boolean known=true;for(var task:ads.controls(credential(p),p.qcPlanId().orElseThrow().value())){
@@ -85,6 +109,29 @@ public class OptimizationTacticsGateway {
             issues.add("当日外部新增投入仍待核实");
         }catch(RuntimeException e){issues.add("商品、计划内素材或独立任务数据暂不可用");}
         if(merchantCache.size()>256)merchantCache.clear();merchantCache.put(key,new MerchantCache(now.toInstant(),n));return n.deepCopy();
+    }
+
+    private void currentMaterialAudit(AdPlan plan,LocalDate day,ArrayNode bound,ArrayNode issues,ArrayNode cleared) {
+        var boundObjects=new HashSet<String>();
+        for(var group:bound)boundObjects.addAll(objects(group));
+        var credential=credential(plan);
+        String qcId=plan.qcPlanId().orElseThrow().value();
+        for(String type:List.of("VIDEO","IMAGE","CAROUSEL")) {
+            if(boundObjects.stream().noneMatch(object->object.startsWith(type+":")))continue;
+            try {
+                for(var row:ads.materialReport(credential,qcId,day,day,type)) {
+                    if(row.hasNonNull("ad_id") && !qcId.equals(row.path("ad_id").asText()) || row.path("is_delete").asBoolean())continue;
+                    var material=row.path("material_info").path(type.toLowerCase(Locale.ROOT)+"_material");
+                    String id=material.path("material_id").asText();
+                    if(id.isBlank() || !boundObjects.contains(objectKey(credential,type,material)))continue;
+                    String status=row.path("audit_status").asText().toUpperCase(Locale.ROOT);
+                    if("PASS".equals(status))cleared.add("MATERIAL:"+id);
+                    else if(Set.of("REJECT","REJECTED","AUDIT_REJECT","AUDIT_REJECTED","AUDIT_FAIL").contains(status))
+                        issues.addObject().put("object_type","MATERIAL").put("object_id",id)
+                            .put("title","素材审核未通过").put("evidence","素材 "+id+" 的审核未通过，请查看千川审核原因。");
+                }
+            }catch(RuntimeException ignored){/* An unavailable report does not confirm or clear an audit issue. */}
+        }
     }
     private CreationStore creations;
     private OptimizationCreativeStore creativeStore;

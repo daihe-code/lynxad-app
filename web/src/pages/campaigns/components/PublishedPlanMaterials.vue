@@ -1,6 +1,6 @@
 <template>
   <main class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad published-materials">
-    <header class="published-materials__header"><div><h2 class="panel__title">已投放素材</h2><p class="panel__sub">查看当前计划的千川素材，点击素材或标题可查看预览</p></div></header>
+    <header class="published-materials__header"><div><h2 class="panel__title">{{ archived ? '共用投放素材' : '已投放素材' }}</h2><p class="panel__sub">点击素材或标题可查看预览</p></div></header>
     <label class="published-materials__product">素材对应商品<select v-model="productId" aria-label="素材对应商品"><option value="">全部商品</option><option v-for="product in productOptions" :key="product.id" :value="product.id">{{ product.name }}</option></select></label>
     <nav class="published-materials__tabs" role="tablist" aria-label="已投放素材分类"><button v-for="tab in tabs" :key="tab.type" type="button" role="tab" :aria-selected="type === tab.type" @click="type = tab.type">{{ tab.label }}<span v-if="snapshots[tab.type]">{{ visiblePlanMaterials(snapshots[tab.type]!.records,productId).length }}</span></button></nav>
     <p v-if="error" class="published-materials__error" role="alert">{{ error }}<button type="button" :disabled="loading" @click="load">重新读取</button></p>
@@ -13,8 +13,8 @@
       </button></li></ul>
       <div class="published-materials__preview"><blockquote v-if="active?.type === 'TITLE'">{{ active.text || active.name }}</blockquote><MaterialPreview v-else :key="`${preview?.id}:${current?.fetchedAt}`" :material="preview" :product="previewProduct" :account="account" /></div>
     </div>
-    <p v-else-if="current && !loading" class="published-materials__empty">{{ error ? '暂无法刷新此分类的素材，请重新读取。' : productId ? '此商品在当前分类下暂无素材，可切换商品或分类查看。' : '千川在所查询区间内未返回此分类的素材，可切换分类查看。' }}</p>
-    <p class="published-materials__period">查询区间：{{ range[0] }} 至 {{ range[1] }}{{ current?.fetchedAt ? ` · 最近读取 ${reviewTime(current.fetchedAt)}` : '' }}</p>
+    <p v-else-if="current && !loading" class="published-materials__empty">{{ error ? '暂无法刷新此分类的素材，请重新读取。' : productId ? '此商品在当前分类下暂无素材，可切换商品或分类查看。' : '暂无此分类的素材，可切换分类查看。' }}</p>
+    <p v-if="!archived" class="published-materials__period">查询区间：{{ range[0] }} 至 {{ range[1] }}{{ current?.fetchedAt ? ` · 最近读取 ${reviewTime(current.fetchedAt)}` : '' }}</p>
   </div></section></div></main>
 </template>
 
@@ -29,6 +29,7 @@ import MaterialPreview from '../create/MaterialPreview.vue';
 import ReferenceIcon from '../reference/ReferenceIcon.vue';
 
 const props = defineProps<{plan: PlanVo;products: CreationProduct[];account?: {awemeName:string;avatar?:string}}>();
+const archived = computed(()=>props.plan.qcStatus === 'TRANSFER_ARCHIVED');
 const tabs = [{type:'VIDEO',label:'视频'},{type:'IMAGE',label:'图片'},{type:'CAROUSEL',label:'图文'},{type:'TITLE',label:'标题'}];
 const labels: Record<string,string> = Object.fromEntries(tabs.map(tab=>[tab.type,tab.label]));
 const type = ref('VIDEO'), productId = ref(''), selectedId = ref(''), loading = ref(false), error = ref('');

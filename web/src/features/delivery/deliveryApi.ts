@@ -1,11 +1,12 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/http";
+import type { CreationState } from './creationApi';
 import type { PlatformProductPrice } from '@/features/catalog/productPrice';
 import type { PlanReviewProgress } from './planReview';
 import type { PlanPauseReason } from './planPause';
 
 export interface PlanVo {
   review?: PlanReviewProgress | null;
-  settingsEdit?: { version: string; status: 'IDLE' | 'PREPARING' | 'SENDING' | 'VERIFYING' | 'UNCERTAIN'; message?: string | null } | null;
+  settingsEdit?: { version: string; status: 'IDLE' | 'PREPARING' | 'SENDING' | 'VERIFYING' | 'UNCERTAIN'; message?: string | null; editable?: boolean | null } | null;
   statisticsDate?: string | null;
   historicalMetrics?: boolean;
   planId: string;
@@ -161,18 +162,28 @@ export function verifyPlanSettings(id: string, expectedVersion: string, acceptCu
   return apiPost<PlanSettingsResult>(`/api/v1/delivery/plans/${id}/settings/reconcile`,{expectedVersion,acceptCurrent},{timeout:60000,headers:{'X-Quiet-Request':'true'}});
 }
 export interface PlanTransferContext {
-  planId: string; currentQcPlanId: string; targetMode: string; budget: number; roi2Goal?: number | null;
-  reuse: boolean; counterpartQcPlanId?: string | null; available: boolean; reason?: string | null;
+  planId: string; currentQcPlanId: string; targetMode: string; budget?: number | null; roi2Goal?: number | null; targetName?: string;
+  reuse: boolean; counterpartQcPlanId?: string | null; counterpartPlanId?: string | null; available: boolean; reason?: string | null;
   pendingKey?: string | null; pendingStatus?: string | null; pendingError?: string | null;
 }
 export interface PlanTransferRequest { requestKey: string; expectedQcPlanId: string; smartBidType: string; budget: number; roi2Goal?: number; name?: string; scheduleType?: 'FROM_NOW'|'DATE_RANGE'; endDate?: string }
-export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string }
-export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`); }
-export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000 }); }
+export interface PlanTransferResult { planId: string; qcPlanId?: string | null; status: 'SUCCEEDED' | 'FAILED' | 'UNCERTAIN' | 'RUNNING' | 'IDLE'; message: string; platformTransferRequired?: boolean }
+export function getPlanTransfer(id: string) { return apiGet<PlanTransferContext>(`/api/v1/delivery/plans/${id}/transfer`, { headers: { 'X-Quiet-Request': 'true' } }); }
+export function getPlanTransferRecommendations(id: string, signal: AbortSignal) {
+  return apiGet<NonNullable<CreationState['recommendations']>>(`/api/v1/delivery/plans/${id}/transfer/recommendations`, { signal, headers: { 'X-Quiet-Request': 'true' } });
+}
+export function transferPlan(id: string, body: PlanTransferRequest) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer`, body, { timeout: 180000, headers: { 'X-Quiet-Request': 'true' } }); }
 export function switchTransferredPlan(id: string, body: { requestKey: string; expectedQcPlanId: string }) {
   return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/switch`, body, { timeout: 180000 });
 }
-export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000 }); }
+export function reconcilePlanTransfer(id: string) { return apiPost<PlanTransferResult>(`/api/v1/delivery/plans/${id}/transfer/reconcile`, undefined, { timeout: 120000, headers: { 'X-Quiet-Request': 'true' } }); }
+export interface PlanTransferHistory {
+  qcPlanId: string; archivedAt: string; statisticsStartDate?: string | null; statisticsDate?: string | null;
+  costYuan?: number | null; gmvYuan?: number | null; roi?: number | null; orders?: number | null;
+}
+export function listPlanTransferHistory(id: string) {
+  return apiGet<PlanTransferHistory[]>(`/api/v1/delivery/plans/${id}/transfer/history`, { headers: { 'X-Quiet-Request': 'true' } });
+}
 export interface ControlMaterial { id: string; name: string; coverUrl?: string | null; auditStatus: string; materialStatus: string; eligible: boolean; reason?: string | null; impressions?: number | null }
 export interface ControlTaskMaterial { material_id?: string | null; aweme_item_id?: string | null; title?: string | null; cover_image?: { image_url?: string | null; url?: string | null } | null; video_duration?: number | null }
 export interface ControlTask { id: string; name?: string; scene?: string; task_status?: string; budget?: number | null; duration?: number | null; create_time?: string; material_list?: ControlTaskMaterial[] | null; metrics?: Record<string, number | null> | null }
@@ -205,10 +216,20 @@ export function publishPlan(id: string, idempotencyKey: string) {
   );
 }
 
-export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason) {
-  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) });
+export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason, quiet = false) {
+  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) }, action === 'ENABLE' ? { timeout: 180000, ...(quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}) } : undefined);
 }
 
-export function deletePlan(id: string) {
-  return apiDelete<void>(`/api/v1/delivery/plans/${encodeURIComponent(id)}`, { timeout: 60000 });
+export async function checkTransferredRestore(id: string) {
+  const context = await getPlanTransfer(id);
+  const result = context.pendingKey ? await reconcilePlanTransfer(id) : undefined;
+  const plan = await getPlan(id, { quiet: true });
+  return { plan, result };
+}
+
+export function deletePlan(id: string, archivedOnly = false) {
+  return apiDelete<void>(`/api/v1/delivery/plans/${encodeURIComponent(id)}`, {
+    timeout: 60000,
+    params: archivedOnly ? { archivedOnly } : undefined,
+  });
 }

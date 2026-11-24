@@ -2,7 +2,9 @@ package com.lynx.ad.modules.delivery.application;
 
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
 import com.lynx.ad.modules.delivery.domain.service.PlanEditVersion;
+import com.lynx.ad.modules.delivery.domain.service.PlanTransferNames;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore;
+import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanSettingsEditStore.LinkedTarget;
 
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -43,6 +45,8 @@ public class PlanManagementService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore transfers;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore transferRebuilds;
     @org.springframework.beans.factory.annotation.Autowired public void transferStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore value) { transfers=value; }
     private com.lynx.ad.modules.creative.application.AssetUploadService assets;
     @org.springframework.beans.factory.annotation.Autowired public void assetUploadService(com.lynx.ad.modules.creative.application.AssetUploadService value) { assets=value; }
@@ -100,7 +104,19 @@ public class PlanManagementService {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
         if(request.name()==null && request.budget()==null && request.roi2Goal()==null && request.scheduleType()==null)throw new BizException(1402,"请填写要修改的字段");
         String name=request.name()==null?null:new PlanName(request.name()).text();
-        var current=require(tenant,id);editable(current);
+        var current=require(tenant,id);
+        if(counterpart(current)!=null)return linkedSettings(current,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),
+                request.expectedVersion(),request.scheduleType(),request.endDate()));
+        if(current.transferArchived()) {
+            settingsEdits.editArchived(current,request.expectedVersion(),plan->{
+                var patch=new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion(),request.scheduleType(),request.endDate());
+                validateTargetSettings(plan,patch);
+                saveArchivedSettings(plan,patch);
+                record(tenant,id,"修改计划："+plan.name().text(),"已保存恢复投放时使用的设置");
+            });
+            return query.get(tenant,id);
+        }
+        editable(current);
         validateSettings(current,request);
         if(transfers!=null)transfers.assertIdle(tenant,id);
         var claim=settingsEdits.claim(tenant,id,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion(),request.scheduleType(),request.endDate()));
@@ -109,7 +125,7 @@ public class PlanManagementService {
             editable(plan);validateSettings(plan,request);
             var c=credentials.getUsableCredential(tenant,plan.accountId());
             var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
-            PlanEditVersion.platformUnchanged(plan,detail,request.scheduleType()!=null);
+            PlanEditVersion.platformUnchanged(plan,logicalPlatformDetail(tenant,plan,detail),request.scheduleType()!=null);
             if(request.scheduleType()!=null && !com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(detail.path("delivery_setting")))
                 throw new BizException(1406,"千川未返回完整投放日期，暂不提交修改");
             if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
@@ -130,6 +146,130 @@ public class PlanManagementService {
             throw failure;
         }
         return query.get(tenant,id);
+    }
+    private AdPlan counterpart(AdPlan plan) {
+        var group=transfers==null?null:transfers.group(plan.tenantId(),plan.id());
+        if(group==null || group.custom()==null || group.conservative()==null)return null;
+        if(!plan.id().value().equals(group.target(plan.setting().bidType())))
+            throw new BizException(1404,"计划的转投关联已变化，请刷新");
+        var otherMode=plan.setting().bidType()==SmartBidType.CUSTOM?SmartBidType.CONSERVATIVE:SmartBidType.CUSTOM;
+        var other=require(plan.tenantId(),new PlanId(group.target(otherMode)));
+        if(!plan.accountId().equals(other.accountId()) || !plan.awemeId().equals(other.awemeId()) || other.setting().bidType()!=otherMode)
+            throw new BizException(1404,"关联计划的账户或投放方式已变化，请刷新");
+        return other;
+    }
+
+    private PlanVo linkedSettings(AdPlan selected,PlanSettingsRequest request) {
+        var tenant=selected.tenantId();
+        var id=selected.id();
+        validateSettings(selected,request);
+        var claim=settingsEdits.claim(tenant,id,request);
+        var pending=claim.pending();
+        boolean sent=false;
+        try {
+            var other=counterpart(claim.plan());
+            if(other==null)throw new BizException(1404,"关联计划已变化，请刷新");
+            String basePlan=pending.root();
+            if(!basePlan.equals(id.value()) && !basePlan.equals(other.id().value()))
+                basePlan=claim.plan().setting().bidType()==SmartBidType.CUSTOM?id.value():other.id().value();
+            String baseName=request.name()==null?null:PlanTransferNames.baseName(request.name());
+            List<LinkedTarget> targets=new ArrayList<>();
+            Map<String,JsonNode> before=new HashMap<>();
+            for(var plan:List.of(claim.plan(),other)) {
+                String name=baseName==null?null:plan.id().value().equals(basePlan)?baseName:PlanTransferNames.defaultPlatformName(baseName);
+                var targetSettings=new PlanSettingsRequest(name,request.budget(),
+                        plan.setting().bidType()==SmartBidType.CUSTOM?request.roi2Goal():null,null,request.scheduleType(),request.endDate());
+                if(!hasSettings(targetSettings))continue;
+                if(!plan.linkedSettingsEditable())throw new BizException(1403,"当前关联计划状态不支持修改");
+                validateTargetSettings(plan,targetSettings);
+                String qc=plan.qcPlanId().map(QcPlanId::value).orElse(null);
+                targets.add(new LinkedTarget(plan.id().value(),qc,targetSettings));
+                if(qc!=null) {
+                    var detail=platformSettings(plan);
+                    PlanEditVersion.platformUnchanged(plan,logicalPlatformDetail(tenant,plan,detail),targetSettings.scheduleType()!=null);
+                    if(targetSettings.scheduleType()!=null && !com.lynx.ad.modules.delivery.domain.service.PlanSchedule.complete(detail.path("delivery_setting")))
+                        throw new BizException(1406,"平台未返回完整投放日期，暂不提交修改");
+                    before.put(plan.id().value(),detail);
+                }
+            }
+            settingsEdits.prepareLinked(pending,targets);
+            Map<String,JsonNode> confirmed=new HashMap<>();
+            if(!before.isEmpty()) {
+                settingsEdits.dispatched(pending);
+                sent=true;
+                for(var target:targets) {
+                    if(target.qcPlanId()==null)continue;
+                    var plan=linkedMember(tenant,target,false);
+                    writeSettings(plan,target.settings(),before.get(target.planId()));
+                    var actual=platformSettings(plan);
+                    if(!matches(target.settings(),actual))throw new BizException(1406,"关联计划的修改正在核查");
+                    confirmed.put(target.planId(),actual);
+                }
+            }
+            settingsEdits.complete(pending,()->applyLinked(tenant,id,targets,confirmed,true));
+        } catch(RuntimeException failure) {
+            if(sent) {
+                settingsEdits.uncertain(pending);
+                throw new BizException(1406,"计划修改结果待确认，请先查询结果");
+            }
+            settingsEdits.complete(pending,()->{});
+            if(failure instanceof BizException business && business.code()==1406)
+                throw new BizException(1404,"尚未发送修改，请重新读取计划后核对");
+            throw failure;
+        }
+        return query.get(tenant,id);
+    }
+    private static boolean hasSettings(PlanSettingsRequest patch) {
+        return patch.name()!=null || patch.budget()!=null || patch.roi2Goal()!=null || patch.scheduleType()!=null;
+    }
+    private void validateTargetSettings(AdPlan plan,PlanSettingsRequest patch) {
+        validateSettings(plan,patch);
+        if(plan.transferArchived()) {
+            if(patch.budget()!=null)DeliveryInputPolicy.budget(patch.budget(),plan.setting().bidType(),DeliveryInputPolicy.RULES.creation());
+            if(patch.roi2Goal()!=null)DeliveryInputPolicy.roi(patch.roi2Goal(),DeliveryInputPolicy.RULES.creation());
+        }
+        if(patch.name()!=null && !patch.name().equals(plan.name().text())
+                && plans.existsUnfinishedName(plan.tenantId(),plan.awemeId(),new PlanName(patch.name()),Optional.of(plan.id())))
+            throw new BizException(1401,"同一抖音号存在同名计划");
+    }
+    private void saveArchivedSettings(AdPlan plan,PlanSettingsRequest patch) {
+        var old=plan.setting();
+        var schedule=patch.scheduleType()==null?old.schedule():new Schedule(ScheduleType.valueOf(patch.scheduleType()),old.schedule().startDate(),patch.endDate());
+        plan.updateSetting(new DeliverySetting(old.bidType(),patch.budget()==null?old.dailyBudget():Money.ofYuan(patch.budget()),
+                patch.roi2Goal()==null?old.roi2Goal():Optional.of(new RoiGoal(patch.roi2Goal())),schedule,old.audience()));
+        if(patch.name()!=null)plan.rename(new PlanName(patch.name()));
+        plans.save(plan);
+    }
+    private AdPlan linkedMember(TenantId tenant,LinkedTarget target,boolean lock) {
+        var id=new PlanId(target.planId());
+        var member=(lock?plans.findByIdForUpdate(tenant,id):plans.findById(tenant,id))
+                .orElseThrow(()->new BizException(1405,"关联计划不存在"));
+        if(!Objects.equals(target.qcPlanId(),member.qcPlanId().map(QcPlanId::value).orElse(null)) || !member.linkedSettingsEditable())
+            throw new BizException(1404,"关联计划的投放状态已变化，请刷新");
+        return member;
+    }
+    private JsonNode platformSettings(AdPlan plan) {
+        var c=credentials.getUsableCredential(plan.tenantId(),plan.accountId());
+        var detail=port.detail(c,plan.qcPlanId().orElseThrow().value());
+        if(detail==null)throw new BizException(1406,"未取得平台计划设置");
+        completeFacts(plan,detail);
+        return detail;
+    }
+    private void writeSettings(AdPlan plan,PlanSettingsRequest patch,JsonNode before) {
+        var c=credentials.getUsableCredential(plan.tenantId(),plan.accountId());
+        var qc=plan.qcPlanId().orElseThrow().value();
+        if(patch.roi2Goal()!=null)port.settings(c,qc,patch.name(),patch.budget(),patch.roi2Goal(),QianchuanPlanMapping.text(before.path("delivery_setting"),"deep_external_action"));
+        else if(patch.name()!=null || patch.budget()!=null)port.settings(c,qc,patch.name(),patch.budget(),null);
+        if(patch.scheduleType()!=null)port.schedule(c,qc,patch.scheduleType(),patch.endDate());
+    }
+    private void applyLinked(TenantId tenant,PlanId selected,List<LinkedTarget> targets,Map<String,JsonNode> confirmed,boolean applyLocal) {
+        for(var target:targets) {
+            var plan=linkedMember(tenant,target,true);
+            if(target.qcPlanId()==null) {
+                if(applyLocal)saveArchivedSettings(plan,target.settings());
+            } else cacheDetail(tenant,plan,confirmed.get(target.planId()));
+        }
+        record(tenant,selected,applyLocal?"修改关联转投计划":"核查关联转投计划",applyLocal?"已同步关联计划设置":"已读取平台确认的设置");
     }
     private void validateSettings(AdPlan p,PlanSettingsRequest request) {
         if(request.scheduleType()!=null) {
@@ -152,13 +292,15 @@ public class PlanManagementService {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
         var pending=settingsEdits.verification(tenant,id,request.expectedVersion());
         try {
+            var linked=settingsEdits.linked(pending);
+            if(linked.isPresent())return verifyLinked(tenant,id,pending,linked.get().targets(),request.acceptCurrent());
             var plan=require(tenant,id);var target=settingsEdits.request(pending);
             var actual=port.detail(credentials.getUsableCredential(tenant,plan.accountId()),plan.qcPlanId().orElseThrow().value());
             completeFacts(plan,actual);
             boolean applied=matches(target,actual),canAccept=pending.startedAt()!=null&&!pending.startedAt().plusSeconds(180).isAfter(Instant.now());
             if(!applied && request.acceptCurrent() && !canAccept)throw new BizException(1523,"请等待原修改请求完成后再采用平台当前设置");
             // Accept only the values the user reviewed; a newer console edit needs another comparison.
-            if(!applied && request.acceptCurrent())PlanEditVersion.platformUnchanged(plan,actual);
+            if(!applied && request.acceptCurrent())PlanEditVersion.platformUnchanged(plan,logicalPlatformDetail(tenant,plan,actual));
             if(applied || request.acceptCurrent()) {
                 settingsEdits.complete(pending,()->{cacheDetail(tenant,plan,actual);record(tenant,id,applied?"核查计划修改成功":"核查并采用千川当前设置",applied?"已确认全部请求值":"用户接受平台当前设置，不代表原修改全部成功");});
                 return new SettingsResult(query.get(tenant,id),applied?"CONFIRMED":"ACCEPTED_CURRENT",applied?"已确认全部修改，计划设置已同步":"已采用千川当前设置，可核对后重新编辑；本次未重新发送修改请求",false);
@@ -166,6 +308,28 @@ public class PlanManagementService {
             settingsEdits.observed(pending,()->cacheDetail(tenant,plan,actual));
             return new SettingsResult(query.get(tenant,id),"UNCERTAIN","尚未确认全部修改，已读取千川当前值；请核对后再决定是否采用当前设置",canAccept);
         }catch(RuntimeException failure){settingsEdits.uncertain(pending);throw failure;}
+    }
+    private SettingsResult verifyLinked(TenantId tenant,PlanId id,PlanSettingsEditStore.Pending pending,
+                                        List<LinkedTarget> targets,boolean acceptCurrent) {
+        Map<String,JsonNode> actual=new HashMap<>();
+        boolean applied=true;
+        for(var target:targets) {
+            var plan=linkedMember(tenant,target,false);
+            if(target.qcPlanId()==null)continue;
+            var detail=platformSettings(plan);
+            actual.put(target.planId(),detail);
+            applied&=matches(target.settings(),detail);
+        }
+        boolean canAccept=pending.startedAt()!=null && !pending.startedAt().plusSeconds(180).isAfter(Instant.now());
+        if(!applied && acceptCurrent && !canAccept)throw new BizException(1523,"请等待原修改请求完成后再采用当前设置");
+        if(applied || acceptCurrent) {
+            boolean confirmed=applied;
+            settingsEdits.complete(pending,()->applyLinked(tenant,id,targets,actual,confirmed));
+            return new SettingsResult(query.get(tenant,id),applied?"CONFIRMED":"ACCEPTED_CURRENT",
+                    applied?"已确认关联计划修改":"已采用平台当前设置，可重新编辑",false);
+        }
+        settingsEdits.observed(pending,()->applyLinked(tenant,id,targets,actual,false));
+        return new SettingsResult(query.get(tenant,id),"UNCERTAIN","关联计划的修改结果仍待确认",canAccept);
     }
     private static boolean matches(PlanSettingsRequest request,JsonNode detail) {
         var ds=detail.path("delivery_setting");
@@ -182,12 +346,18 @@ public class PlanManagementService {
         if(!plan.qcPlanId().orElseThrow().value().equals(detail.path("ad_id").asText())||!detail.hasNonNull("name")||!detail.hasNonNull("status")||!PlanEditVersion.validMode(ds)||QianchuanPlanMapping.number(ds,"budget")==null||SmartBidType.fromOcean(ds.path("smart_bid_type").asText())==SmartBidType.CUSTOM&&!ds.has("roi2_goal"))
             throw new BizException(1406,"千川未返回完整计划设置，请稍后核查");
     }
+    private JsonNode logicalPlatformDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
+        if(transferRebuilds==null || !detail.hasNonNull("name"))return detail;
+        var platformName=detail.path("name").asText();
+        var name=transferRebuilds.logicalName(tenant,plan.id().value(),plan.qcPlanId().orElseThrow().value(),platformName);
+        return name.equals(platformName)?detail:((com.fasterxml.jackson.databind.node.ObjectNode)detail.deepCopy()).put("name",name);
+    }
     private void cacheDetail(TenantId tenant,AdPlan plan,JsonNode detail) {
         // Read-only sync may also see old mock responses without business settings.
         if(!detail.has("delivery_setting"))return;
         plan.restorePlatformAweme(QianchuanPlanMapping.text(detail,"aweme_id"));
         var setting=detail.path("delivery_setting");
-        if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(detail.path("name").asText()));
+        if(detail.hasNonNull("name"))plan.rename(PlanName.fromPlatform(logicalPlatformDetail(tenant,plan,detail).path("name").asText()));
         if(detail.hasNonNull("status")){plan.syncPlatformStatus(detail.path("status").asText());plan.apply(PlanEditVersion.platformStatus(detail));}
         var mode=setting.hasNonNull("smart_bid_type")?SmartBidType.fromOcean(setting.path("smart_bid_type").asText()):plan.setting().bidType();
         var budget=QianchuanPlanMapping.number(setting,"budget");

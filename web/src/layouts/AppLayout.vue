@@ -184,6 +184,12 @@ async function onLogout() {
 }
 
 :is(.asset-shell, .account-shell) .main { display: flex; flex-direction: column; }
+.app-shell:has(> .main > .plan-workspace--view) { height: 100dvh; min-height: 0; }
+.app-shell:has(> .main > .plan-workspace--view) > .main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .reference-header .topbar { z-index: 40; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); }
 :is(.asset-shell, .account-shell) .main > * { flex: 1; }
 .nav-toggle { display: none; }

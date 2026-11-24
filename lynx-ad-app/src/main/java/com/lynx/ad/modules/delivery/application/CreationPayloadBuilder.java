@@ -1,5 +1,6 @@
 package com.lynx.ad.modules.delivery.application;
 
+import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
 
 import com.fasterxml.jackson.databind.*;
@@ -76,11 +77,7 @@ public class CreationPayloadBuilder {
         var setting=root.putObject("delivery_setting");setting.put("smart_bid_type",mode.oceanValue());setting.put("budget",s.budget);
         setting.put("deep_external_action","AD_CONVERT_TYPE_LIVE_PURE_PAY_ROI");
         if(mode==SmartBidType.CUSTOM)setting.put("roi2_goal",s.roi2Goal);
-        else if(recommendationMatches(s))for(var estimate:s.recommendations.path("budget").path("estimate_trans_cost_list")) {
-            if(!estimate.path("budget").isNumber()||estimate.path("budget").decimalValue().compareTo(s.budget)!=0)continue;
-            copyEstimate(setting,estimate,"min_estimate_convert","min_estimate_convert");copyEstimate(setting,estimate,"estimate_convert","estimate_convert");
-            copyEstimate(setting,estimate,"estimate_roi","estimate_roi_goal");copyEstimate(setting,estimate,"min_estimate_roi","min_estimate_roi_goal");break;
-        }
+        else if(recommendationMatches(s))CreationRecommendationPolicy.applyBudgetEstimate(setting,s.recommendations,s.budget);
         setting.put("video_schedule_type","DATE_RANGE".equals(s.scheduleType)?"SCHEDULE_START_END":"SCHEDULE_FROM_NOW");
         if("DATE_RANGE".equals(s.scheduleType)){setting.put("start_time",s.startDate);setting.put("end_time",s.endDate);}
         root.set("multi_product_creative_list",creatives(s));
@@ -160,8 +157,5 @@ public class CreationPayloadBuilder {
     }
     private static int platformLength(String text) {
         return DeliveryInputPolicy.platformLength(text);
-    }
-    private static void copyEstimate(ObjectNode target,JsonNode row,String from,String to) {
-        if(row.path(from).isNumber()&&row.path(from).decimalValue().signum()>=0)target.set(to,row.get(from));
     }
 }

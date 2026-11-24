@@ -43,7 +43,7 @@ public class OptimizationRuleResumeService {
     public Preview configurationPreview(TenantId tenant,PlanId id,OptimizationRules rules,long version) {
         if(rules==null)throw new BizException(1802,"请填写盯盘规则");
         rules.validate();
-        var plan=gateway.plan(tenant.value(),id.value());
+        var plan=gateway.rulePlan(tenant.value(),id.value());
         gateway.requireRuleOperator(plan);
         requireVersion(store.get(tenant,id).orElse(null),version);
         return inspect(plan,rules,version).preview();
@@ -53,7 +53,7 @@ public class OptimizationRuleResumeService {
                           Confirmation confirmation,String operator) {
         if(rules==null)throw new BizException(1802,"请填写盯盘规则");
         rules.validate();
-        var plan=gateway.plan(tenant.value(),id.value());
+        var plan=gateway.rulePlan(tenant.value(),id.value());
         if(OptimizationMonitoringService.rulePlanEnded(plan))throw new BizException(1801,"计划已结束");
         gateway.requireRuleOperator(plan);
         var state=store.get(tenant,id).orElse(null);
@@ -110,14 +110,14 @@ public class OptimizationRuleResumeService {
     }
 
     public Preview preview(TenantId tenant,PlanId id){
-        var plan=gateway.plan(tenant.value(),id.value());
+        var plan=gateway.rulePlan(tenant.value(),id.value());
         gateway.requireRuleOperator(plan);
         var state=recoverableRules(tenant,id);
         return inspect(plan,savedRules(state),state.version()).preview();
     }
 
     public Result resume(TenantId tenant,PlanId id,Confirmation confirmation,String operator){
-        var plan=gateway.plan(tenant.value(),id.value());
+        var plan=gateway.rulePlan(tenant.value(),id.value());
         gateway.requireRuleOperator(plan);
         String owner="resume-rules:"+UUID.randomUUID();
         String account=plan.accountId().value();
@@ -127,7 +127,7 @@ public class OptimizationRuleResumeService {
             var state=recoverableRules(tenant,id);
             if(confirmation==null || confirmation.version()!=state.version())throw changed();
             if(journal.unresolved(tenant.value(),account))throw new BizException(1803,"请先核实账户中已提交的操作");
-            plan=gateway.plan(tenant.value(),id.value());
+            plan=gateway.rulePlan(tenant.value(),id.value());
             if(!account.equals(plan.accountId().value()))throw changed();
             var rules=savedRules(state);
             var evidence=inspect(plan,rules,state.version());
@@ -163,6 +163,13 @@ public class OptimizationRuleResumeService {
         if(OptimizationMonitoringService.rulePlanEnded(plan))throw new BizException(1801,"计划已结束");
         gateway.writable(plan); // Verify service entitlement even when protection only sends reminders.
         var checkedAt=Instant.now();
+        var day=checkedAt.atZone(ZONE).toLocalDate();
+        if(plan.transferArchived()) {
+            gateway.requireActiveRuleBinding(plan);
+            var data=insights.logicalData(plan.tenantId(),plan.id(),new PlanStatisticsRange(day,day),false);
+            return new Evidence(new Preview(version,day,plan.status().name(),plan.qcStatus(),data.summary().get("cost"),
+                data.fetchedAt(),committed(plan,day),rules,Outcome.PLAN_NOT_DELIVERING),null,checkedAt);
+        }
         var platform=gateway.readPlanFacts(plan,false);
         var facts=platform.facts();
         String status=facts.path("status").asText();
@@ -171,7 +178,6 @@ public class OptimizationRuleResumeService {
             || com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.matches(status,platform.qcStatus(),"FINISHED"))throw new BizException(1801,"计划已结束");
         if(!java.util.Set.of("DELIVERING","PAUSED","PENDING_AUDIT").contains(status)
             && !OptimizationRulesEvaluator.planBudgetConstrained(platform.qcStatus()))throw new BizException(1803,"暂时无法核实广告计划状态，请重试");
-        var day=LocalDate.now(ZONE);
         var data=insights.data(plan.tenantId(),plan.id(),new PlanStatisticsRange(day,day),true);
         var spend=data.summary().get("cost");
         var now=Instant.now();
@@ -184,15 +190,24 @@ public class OptimizationRuleResumeService {
         if(!"DELIVERING".equals(status))outcome=Outcome.PLAN_NOT_DELIVERING;
         else if(spend.compareTo(rules.spendProtection())>=0)
             outcome=OptimizationRules.AUTO_PAUSE.equals(rules.protectionAction())?Outcome.LIMIT_PAUSE:Outcome.LIMIT_REMINDER;
-        var committed=confirmations.committed(plan.tenantId().value(),plan.id().value(),day.toString())
+        return new Evidence(new Preview(version,day,status,platform.qcStatus(),spend,fetched,committed(plan,day),rules,outcome),facts,checkedAt);
+    }
+
+    private BigDecimal committed(AdPlan plan,LocalDate day){
+        return confirmations.committed(plan.tenantId().value(),plan.id().value(),day.toString())
             .add(journal.extraBudgetToday(plan.tenantId().value(),plan.id().value()));
-        return new Evidence(new Preview(version,day,status,platform.qcStatus(),spend,fetched,committed,rules,outcome),facts,checkedAt);
     }
 
     private JsonNode report(AdPlan plan,OptimizationRules rules,Evidence evidence,boolean resume){
         var preview=evidence.preview();
         var observed=Instant.now().atZone(ZONE);
         if(!preview.day().equals(observed.toLocalDate()))throw changed();
+        if(evidence.facts()==null) {
+            var paused=json.createObjectNode().put("observed_at",observed.toOffsetDateTime().toString())
+                .put("plan_status",preview.planStatus()).put("platform_status",preview.qcStatus()).put("complete",false);
+            if(resume)paused.put("resume_outcome",preview.outcome().name());
+            return paused;
+        }
         var data=json.createObjectNode()
             .put("store_id",plan.tenantId().value()).put("account_id",plan.accountId().value())
             .put("plan_id",evidence.facts().path("qcId").asText())

@@ -44,7 +44,21 @@ class CreationGatewayTest {
         serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":9007199254740995,\"name\":\"真实商品\",\"img\":\"https://example.test/a.jpg\"}],\"page_info\":{\"total_number\":42}}}",200);
         var page=gateway.products(new TenantId("t"),"a","123",2,10,"商品","ALL",true,null);
         assertEquals(42,page.total());assertEquals("9007199254740995",page.items().getFirst().qcProductId());assertNull(page.items().getFirst().price());
+        assertEquals(5,page.totalPages());
         assertTrue(query.contains("page=2"));var decoded=URLDecoder.decode(query,StandardCharsets.UTF_8);assertTrue(decoded.contains("create_roi2_limit_product"));assertTrue(decoded.contains("商品"));
+    }
+    @Test void numberedCatalogRetainsThePlatformPageCountAndProductGallery() throws Exception {
+        serve("""
+            {"code":0,"data":{"product_list":[{"id":1001,"name":"商品","square_image_list":[
+              {"img_url":"https://example.test/front.jpg"},{"img_url":"https://example.test/side.jpg"},
+              {"img_url":"https://example.test/front.jpg"},{}]}],"page_info":{"total_page":10}}}
+            """,200);
+        var page=gateway.products(new TenantId("t"),"a","123",3,6,null,"ALL",false,null);
+        assertEquals(10,page.totalPages());
+        var product=page.items().getFirst();
+        assertEquals("https://example.test/front.jpg",product.imageUrl());
+        assertEquals(List.of("https://example.test/front.jpg","https://example.test/side.jpg"),product.imageUrls());
+        assertEquals(product.imageUrls(),product.withDraft(null).imageUrls());
     }
     @Test void recommendationScanDoesNotFanOutSkuPriceRequests() throws Exception {
         serve("{\"code\":0,\"data\":{\"product_list\":[{\"id\":9007199254740995,\"name\":\"真实商品\",\"price\":800}],\"page_info\":{\"total_number\":42}}}",200);
@@ -245,6 +259,29 @@ class CreationGatewayTest {
         var retried=gateway.recommendations(new TenantId("t"),"a","123",List.of("9007199254740995"));
         assertFalse(retried.has("budgetError"));assertEquals(100,retried.path("budget").path("budget").asInt());
         assertEquals(0.19,retried.path("budget").path("estimate_trans_cost_list").get(0).path("min_estimate_roi").asDouble());
+    }
+    @Test void volumeTransferBudgetRecommendationIncludesThePlatformPlanId() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var queries = new java.util.ArrayList<String>();
+        server.createContext("/budget/", e -> {
+            queries.add(URLDecoder.decode(e.getRequestURI().getRawQuery(), StandardCharsets.UTF_8));
+            byte[] bytes = "{\"code\":0,\"data\":{\"budget\":50}}".getBytes(StandardCharsets.UTF_8);
+            e.sendResponseHeaders(200, bytes.length);
+            e.getResponseBody().write(bytes);
+            e.close();
+        });
+        server.start();
+        var delivery = p.getQianchuan().getDelivery();
+        var base = "http://127.0.0.1:" + server.getAddress().getPort();
+        delivery.setSuggestBudgetUrl(base + "/budget/");
+        delivery.setSuggestRoiUrl(base + "/roi/");
+        var result = gateway.recommendations(new TenantId("t"), "a", "123", List.of("9007199254740995"),
+                com.lynx.ad.modules.delivery.domain.model.SmartBidType.CONSERVATIVE, "9007199254740997");
+        assertEquals(50, result.path("budget").path("budget").asInt());
+        assertFalse(result.has("roi") || result.has("roiError"));
+        assertEquals(1, queries.size());
+        assertTrue(queries.getFirst().contains("ad_id=9007199254740997"));
+        assertTrue(queries.getFirst().contains("product_ids=[9007199254740995]"));
     }
     @Test void successfulEmptyForecastAndRateLimitHaveDifferentStatusCodesAndRequestIds() throws Exception {
         var calls=new AtomicInteger();

@@ -57,7 +57,7 @@ public class OptimizationMonitoringService {
     }
     private String rulesUnavailable(AdPlan p) {
         if(rulePlanEnded(p))return "计划已结束";
-        if(p.qcPlanId().isEmpty())return "草稿尚未发布";
+        if(p.qcPlanId().isEmpty() && !p.transferArchived())return "草稿尚未发布";
         return properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
     }
     static boolean rulePlanEnded(AdPlan plan) {
@@ -78,11 +78,11 @@ public class OptimizationMonitoringService {
         if(fetchPlatformIds && ids.isEmpty() && p.qcPlanId().isPresent() && unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         if(fetchPlatformIds && config.tactics().content()&&p.qcPlanId().isPresent()&&unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         var result=state==null?null:state.result();
-        boolean stale=result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
+        boolean stale=p.transferArchived() || result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
         if(result!=null)try {stale=stale || OffsetDateTime.parse(result.path("observed_at").asText()).toInstant().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
         if(!stale && state!=null && state.enabled() && !fetchPlatformIds)stale=store.deliveryChangedSinceReport(state);
         return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p,config)==null,unavailable(p,config),
-            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus(),state==null?null:state.pendingRules());
+            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null || p.transferArchived()?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus(),state==null?null:state.pendingRules());
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
         if(policy!=null && policy.rules()!=null)throw new BizException(1803,"请通过盯盘规则入口修改该计划");
@@ -119,6 +119,10 @@ public class OptimizationMonitoringService {
         AdPlan p=null;
         try {
             var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());p=plan(tenant,id);
+            if(p.transferArchived()) {
+                store.pending(state).ifPresent(pending->store.discard(state,pending.id()));
+                return;
+            }
             if(state.policy().rules()!=null) {
                 if(rulePlanEnded(p)){store.suspend(p,state,OptimizationStore.TERMINAL_HOLD);return;}
                 if(gateway!=null)gateway.writable(p);
@@ -165,11 +169,27 @@ public class OptimizationMonitoringService {
         var facts=management.monitoringFacts(p.tenantId(),p.id(),false);
         if(!p.qcPlanId().orElseThrow().value().equals(facts.qcId()))throw new BizException(1802,"平台计划绑定不一致");
         if (execution != null) execution.observe(p,state);
-        var today=LocalDate.now(ZONE);var current=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);
+        var today=LocalDate.now(ZONE);
+        var delivering="DELIVERING".equals(facts.status());
+        var platformIssue=OptimizationRulesEvaluator.planBudgetConstrained(facts.qcStatus())
+            || OptimizationRulesEvaluator.platformBlock(facts.qcStatus())!=null;
+        PlanInsightsService.Statistics current=null;
+        RuntimeException reportFailure=null;
+        if(delivering || !platformIssue) {
+            try {current=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today,today),true);}
+            catch(RuntimeException failure){reportFailure=failure;}
+        }
         var observed=Instant.now().atZone(ZONE);
-        if(current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30)) || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate()) || !today.equals(current.fetchedAt().atZone(ZONE).toLocalDate()))throw new BizException(1803,"等待当天最新报表");
+        if(current!=null && (current.fetchedAt()==null || current.fetchedAt().isAfter(observed.toInstant().plusSeconds(30))
+            || current.fetchedAt().plusSeconds(120).isBefore(observed.toInstant()) || !today.equals(observed.toLocalDate())
+            || !today.equals(current.fetchedAt().atZone(ZONE).toLocalDate()))) {
+            current=null;
+            reportFailure=new BizException(1803,"等待当天最新报表");
+        }
+        if(reportFailure instanceof BizException failure && Set.of(403,1102,1201,1205,1211,1405,1904).contains(failure.code()))throw failure;
         var data=new LinkedHashMap<String,Object>();data.put("request_id",UUID.randomUUID().toString());data.put("store_id",p.tenantId().value());data.put("account_id",p.accountId().value());data.put("plan_id",facts.qcId());data.put("product_ids",facts.productIds());
         data.put("observed_at",observed.toOffsetDateTime().toString());data.put("plan_status",facts.status());data.put("daily_spend_date",today.toString());
+        if(state.error()!=null)data.put("observation_interrupted",true);
         data.put("plan_checked_at",checkedAt.toString());
         data.put("platform_status",facts.qcStatus());
         var previousReport=state.result();
@@ -190,34 +210,41 @@ public class OptimizationMonitoringService {
                 data.put("optimization_restarted_at",previousReport.path("optimization_restarted_at").asText());
             }
         }
-        data.put("daily_spend",decimal(current.summary().get("cost")));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));data.put("complete",current.summary().get("cost")!=null && current.summary().get("cost").signum()>=0);
-        data.put("daily_budget",decimal(facts.budget()));data.put("bid_type",facts.bidType());data.put("metric_fields",current.metricFields());data.put("fetched_at",current.fetchedAt().toString());
+        data.put("complete",false);
+        data.put("daily_budget",decimal(facts.budget()));data.put("bid_type",facts.bidType());
         data.put("source_as_of",null); // A successful fetch is not the platform's conversion update time.
-        var rows=new ArrayList<Map<String,Object>>(hourly(current,observed));
-        try {
-            var previous=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today.minusDays(1),today.minusDays(1)),false);
-            if(current.metricFields().equals(previous.metricFields()) && previous.fetchedAt()!=null && previous.fetchedAt().plusSeconds(600).isAfter(observed.toInstant()))rows.addAll(hourly(previous,observed));
-        }catch(RuntimeException ignored){/* History loss cannot stop independent reliable spend protection. */}
-        data.put("observations",rows);
+        if(current!=null) {
+            var cost=current.summary().get("cost");
+            data.put("daily_spend",decimal(cost));data.put("daily_net_revenue",decimal(current.summary().get("netGmv")));
+            data.put("complete",cost!=null && cost.signum()>=0);
+            data.put("metric_fields",current.metricFields());data.put("fetched_at",current.fetchedAt().toString());
+            var rows=new ArrayList<Map<String,Object>>(hourly(current,observed));
+            try {
+                var previous=insights.data(p.tenantId(),p.id(),new PlanStatisticsRange(today.minusDays(1),today.minusDays(1)),false);
+                if(current.metricFields().equals(previous.metricFields()) && previous.fetchedAt()!=null && previous.fetchedAt().plusSeconds(600).isAfter(observed.toInstant()))rows.addAll(hourly(previous,observed));
+            }catch(RuntimeException ignored){/* History loss cannot stop independent reliable spend protection. */}
+            data.put("observations",rows);
+        }
+        var baseline=deliveryBaseline(state,observed,facts,previousReport);
+        if(baseline!=null)data.put("delivery_baseline",baseline.toString());
+        boolean objectIssue=false;
         if(gateway!=null && gateway.tactics()!=null) {
-            if ("DELIVERING".equals(facts.status())) {
+            if (delivering && current!=null) {
                 var restartedAt = Objects.toString(data.get("optimization_restarted_at"), "");
                 var check = deliveryCheck(p, observed, current, facts, previousReport, restartedAt);
                 data.put("delivery_check", check);
-                var baseline = deliveryBaseline(state, observed, facts, previousReport, restartedAt);
-                if (baseline != null) {
-                    data.put("delivery_baseline", baseline.toString());
-                    if ("ZERO".equals(check.get("activity"))) {
-                        data.put("delivery_history", deliveryHistory(p, facts.productIds(), baseline, observed, previousReport));
-                    }
+                if (baseline!=null && "ZERO".equals(check.get("activity"))) {
+                    data.put("delivery_history", deliveryHistory(p, facts.productIds(), baseline, observed, previousReport));
                 }
             }
-            var context=gateway.tactics().merchantContext(p,observed);
+            var context=delivering?gateway.tactics().merchantContext(p,observed):null;
             if(context!=null) {
                 context.put("budget_constrained",OptimizationRulesEvaluator.planBudgetConstrained(facts.qcStatus()));
                 data.put("diagnostic_context",context);
+                objectIssue=!context.path("delivery_issues").isEmpty();
             }
         }
+        if(reportFailure!=null && !platformIssue && !objectIssue)throw reportFailure;
         data.put("execution_pending",journal!=null && !journal.rulePending(p.tenantId().value(),p.id().value()).isEmpty());
         return data;
     }
@@ -248,13 +275,8 @@ public class OptimizationMonitoringService {
     }
 
     private OffsetDateTime deliveryBaseline(OptimizationStore.State state, ZonedDateTime observed,
-                                               PlanManagementService.MonitoringFacts facts, JsonNode previous,
-                                               String restartedAt) {
+                                               PlanManagementService.MonitoringFacts facts, JsonNode previous) {
         Instant baseline = journal == null ? null : journal.latestRuleStartedAt(state.tenant(), state.plan());
-        if (!restartedAt.isEmpty()) {
-            var restarted = Instant.parse(restartedAt);
-            if (baseline == null || restarted.isAfter(baseline)) baseline = restarted;
-        }
         if (previous != null && previous.hasNonNull("observed_at") && previous.path("product_ids").isArray()) {
             var previousProducts = new HashSet<String>();
             previous.path("product_ids").forEach(id -> previousProducts.add(id.asText()));

@@ -44,6 +44,8 @@ public class PlanQueryService {
     @Autowired public void creationStore(CreationStore store) { creation=store; }
     private PlanTransferStore transfers;
     @Autowired public void transferStore(PlanTransferStore store) { transfers=store; }
+    private PlanTransferRebuildStore transferRebuilds;
+    @Autowired public void transferRebuildStore(PlanTransferRebuildStore store) { transferRebuilds=store; }
     private boolean live;
     private boolean liveAuthorization;
     @Autowired
@@ -90,6 +92,14 @@ public class PlanQueryService {
             if(row.qcPlanId()!=null && matches(row,filter))scope.computeIfAbsent(row.accountId(),key->new HashSet<>()).add(row.qcPlanId());
         return scope;
     }
+    public List<TransferReportTotals.Totals> transferTrend(TenantId tenant,Filters filter,PlanStatisticsRange range) {
+        if(transferRebuilds==null)return List.of();
+        var selected=rows(tenant,null,com.lynx.ad.modules.delivery.domain.service.PlanStatusPolicy.includesDeleted(filter.status()))
+                .stream().filter(row->matches(row,filter)).toList();
+        var archived=transferRebuilds.reports(tenant,selected.stream().map(PlanListVo::planId).collect(java.util.stream.Collectors.toSet()));
+        return selected.stream().filter(row->archived.containsKey(row.planId()))
+                .map(row->TransferReportTotals.archived(archived.get(row.planId()),row.qcPlanId(),range)).toList();
+    }
     public PageResult<PlanListVo> list(TenantId tenant,int pageNum,int pageSize,Filters filter) {
         if(pageNum<1 || pageSize<1 || pageSize>200) throw new BizException(1402,"分页参数不正确");
         String status=filter==null?null:filter.status();
@@ -112,6 +122,8 @@ public class PlanQueryService {
         Set<String> comparisonFailed=new HashSet<>();
         long days=java.time.temporal.ChronoUnit.DAYS.between(range.startDate(),range.endDate())+1;
         var previousRange=new PlanStatisticsRange(range.startDate().minusDays(days),range.endDate().minusDays(days));
+        var archived=transferRebuilds==null?Map.<String,List<PlanTransferRebuildStore.ArchivedReport>>of():
+                transferRebuilds.reports(tenant,rows.stream().map(PlanListVo::planId).collect(java.util.stream.Collectors.toSet()));
         for(var row:rows) if(row.qcPlanId()!=null && !reports.containsKey(row.accountId())) {
             reports.put(row.accountId(),template==PlanMetricTemplate.PAYMENT?statisticsService.report(tenant,row.accountId(),range,refresh):statisticsService.report(tenant,row.accountId(),range,refresh,template));
             try { previousReports.put(row.accountId(),template==PlanMetricTemplate.PAYMENT?statisticsService.report(tenant,row.accountId(),previousRange,refresh):statisticsService.report(tenant,row.accountId(),previousRange,refresh,template)); }
@@ -123,7 +135,15 @@ public class PlanQueryService {
             var m=report==null || row.qcPlanId()==null?null:report.forPlan(row.qcPlanId());
             var previousReport=previousReports.get(row.accountId());
             var previous=previousReport==null || row.qcPlanId()==null?null:previousReport.forPlan(row.qcPlanId());
-            var comparison=row.qcPlanId()==null?null:rangeComparison(m,previous,range,previousRange,comparisonFailed.contains(row.accountId()));
+            var history=archived.getOrDefault(row.planId(),List.of());
+            m=includeArchived(history,row.qcPlanId(),range,m);
+            previous=includeArchived(history,row.qcPlanId(),previousRange,previous);
+            if(AdPlan.TRANSFER_ARCHIVED.equals(row.qcStatus())) {
+                if(m==null)m=TransferReportTotals.noActivityInArchive(history,range);
+                if(previous==null)previous=TransferReportTotals.noActivityInArchive(history,previousRange);
+            }
+            var comparison=row.qcPlanId()==null && history.isEmpty()?null:rangeComparison(m,previous,range,previousRange,
+                    row.qcPlanId()!=null && comparisonFailed.contains(row.accountId()));
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),
@@ -131,6 +151,22 @@ public class PlanQueryService {
                     m==null?null:m.netGmv(),m==null?null:m.netRoi(),m==null?null:m.refundRate(),row.awemeName(),row.awemeAvatarUrl()));
         }
         return result;
+    }
+
+    private static PlanStatisticsService.Metrics includeArchived(List<PlanTransferRebuildStore.ArchivedReport> history,String qcId,
+                                                                  PlanStatisticsRange range,PlanStatisticsService.Metrics live) {
+        if(history.isEmpty())return live;
+        var archived=TransferReportTotals.archived(history,qcId,range).summary();
+        if(archived.isEmpty())return live;
+        Map<String,BigDecimal> current=new HashMap<>();
+        if(live!=null) {
+            current.put("cost",live.cost());current.put("gmv",live.gmv());current.put("roi",live.roi());
+            current.put("orders",live.orders()==null?null:BigDecimal.valueOf(live.orders()));
+            current.put("netGmv",live.netGmv());current.put("netRoi",live.netRoi());
+        }
+        var total=TransferReportTotals.combine(live==null?List.of(archived):List.of(archived,current));
+        return new PlanStatisticsService.Metrics(total.get("cost"),total.get("gmv"),total.get("roi"),
+                total.get("orders")==null?null:total.get("orders").longValue(),total.get("netGmv"),total.get("netRoi"),null);
     }
     private static PlanListVo.MetricComparison rangeComparison(PlanStatisticsService.Metrics current,PlanStatisticsService.Metrics previous,
                                                                PlanStatisticsRange range,PlanStatisticsRange previousRange,boolean failed) {
@@ -171,7 +207,7 @@ public class PlanQueryService {
         String detailAweme=r==null?null:QianchuanPlanMapping.awemeId(r.detail());
         if(detailAweme!=null)aweme=detailAweme;
         var goods=row.products();
-        if(live && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
+        if(live && !plan.transferArchived() && aweme.matches("[1-9][0-9]{0,18}") && !goods.isEmpty()) {
             // Imported history has no local creation snapshot. Read existing products without
             // applying new-plan eligibility checks, or dropping products no longer in the catalog.
             if(catalog!=null)try {
@@ -192,7 +228,8 @@ public class PlanQueryService {
         return new PlanVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.smartBidType(),row.budget(),aweme,
                 plan.rejectReason(),row.lingtou(),row.guarantee(),row.coverUrl(),row.costYuan(),row.gmvYuan(),row.roi(),
                 plan.accountId().value(),row.roi2Goal(),row.startDate(),row.endDate(),row.convert(),row.snapshotTs(),goods,row.comparison(),
-                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null?null:r.detail(),row.statisticsDate(),row.historicalMetrics(),settingsEdits==null?null:settingsEdits.state(plan),row.review());
+                row.createdAt(),row.deliveryPlatform(),plan.qcStatus(),r==null || plan.transferArchived()?null:r.detail(),row.statisticsDate(),row.historicalMetrics(),
+                settingsEdits==null?null:settingsEdits.state(plan).withEditability(row.canEdit()),row.review());
     }
     private List<PlanListVo> rows(TenantId tenant,AdPlan only) {
         return rows(tenant,only,false);
@@ -206,6 +243,8 @@ public class PlanQueryService {
                 .filter(p -> p.status()!=PlanStatus.DRAFT || p.qcPlanId().isPresent() || p.source()!=PlanSource.LINGTOU
                         || !com.lynx.ad.modules.delivery.domain.service.DraftExpiryPolicy.expired(meta.containsKey(p.id().value())?meta.get(p.id().value()).createdAt():null,now)).toList();
         var groups=transfers==null?Map.<String,PlanTransferStore.Group>of():transfers.groups(tenant);
+        var archived=transferRebuilds==null?Map.<String,List<PlanTransferRebuildStore.ArchivedReport>>of():
+                transferRebuilds.reports(tenant,local.stream().map(p->p.id().value()).filter(groups::containsKey).collect(java.util.stream.Collectors.toSet()));
         var latest=snapshots.listLatestPairsByTenant(tenant);
         var selected=bindings.productIdsByPlan(local.stream().map(p->p.id().value()).toList());
         var creationSummaries=creation==null?Map.<String,CreationStore.PlanSummary>of():creation.summariesByPlan(tenant.value(),local.stream().map(p->groups.containsKey(p.id().value())?groups.get(p.id().value()).root():p.id().value()).distinct().toList());
@@ -240,10 +279,10 @@ public class PlanQueryService {
             String awemeAvatar=r==null?null:QianchuanPlanMapping.anchorText(r.payload(),"anchor_avatar");
             var creationSummary=creationSummaries.get(logicalId);
             if(live && r==null) snap=null;
-            JsonNode setting=r==null?null:QianchuanPlanMapping.setting(r.detail()!=null?r.detail():r.payload());
+            JsonNode setting=r==null || plan.transferArchived()?null:QianchuanPlanMapping.setting(r.detail()!=null?r.detail():r.payload());
             var schedule=plan.setting().schedule();
-            if(r!=null)schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(QianchuanPlanMapping.setting(r.payload()),schedule);
-            if(r!=null && r.detail()!=null)schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,schedule);
+            if(r!=null && !plan.transferArchived())schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(QianchuanPlanMapping.setting(r.payload()),schedule);
+            if(setting!=null && r.detail()!=null)schedule=com.lynx.ad.modules.delivery.domain.service.PlanSchedule.read(setting,schedule);
             List<PlanListVo.ProductSummary> goods=new ArrayList<>();
             if(group!=null && creationSummary!=null)for(var product:creationSummary.products())
                 goods.add(new PlanListVo.ProductSummary(product.qcProductId(),product.name(),product.imageUrl()));
@@ -271,13 +310,28 @@ public class PlanQueryService {
             BigDecimal orders=metric(report,"total_pay_order_count_for_roi2");
             Long convert=r==null?(snap==null?null:snap.convert()):orders==null?null:orders.longValue();
             PlanListVo.MetricComparison comparison=r==null?comparison(pair):current?comparison(report,r.yesterdayReport(),r.reportDate()):null;
-            boolean canEdit=plan.qcPlanId().isPresent() && authorized.contains(plan.accountId().value()) &&
-                    (plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED);
+            var history=archived.getOrDefault(plan.id().value(),List.of());
+            if(!history.isEmpty()) {
+                LocalDate day=statistics==null?today:statistics.day();
+                var period=new PlanStatisticsRange(day,day);
+                var withHistory=includeArchived(history,plan.qcPlanId().map(QcPlanId::value).orElse(null),period,
+                        plan.transferArchived()?null:new PlanStatisticsService.Metrics(cost,gmv,roi,convert));
+                if(withHistory!=null) {
+                    cost=withHistory.cost();gmv=withHistory.gmv();roi=withHistory.roi();convert=withHistory.orders();
+                    comparison=null;
+                }
+            }
+            boolean paired=group!=null && group.custom()!=null && group.conservative()!=null;
+            boolean runningOrPaused=plan.status()==PlanStatus.DELIVERING || plan.status()==PlanStatus.PAUSED;
+            boolean canEdit=authorized.contains(plan.accountId().value()) && (paired?plan.linkedSettingsEditable():plan.qcPlanId().isPresent() && runningOrPaused);
+            boolean canTransfer=plan.transferArchived()?authorized.contains(plan.accountId().value()) && (paired || group!=null && group.requestKey()!=null):
+                    canEdit && runningOrPaused && (paired || plan.status()==PlanStatus.DELIVERING && plan.source()==PlanSource.LINGTOU && creationSummary!=null);
             BigDecimal budget=setting==null?plan.setting().dailyBudget().amount():QianchuanPlanMapping.number(setting,"budget");
             String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
             if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());
             if(materialCover==null && creationSummary!=null && creationSummary.materialCoverAssetId()!=null)materialCover=covers.get(creationSummary.materialCoverAssetId());
-            result.add(new PlanListVo(plan.id().value(),plan.name().text(),plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
+            String name=group!=null && transferRebuilds!=null?transferRebuilds.displayName(plan):plan.name().text();
+            result.add(new PlanListVo(plan.id().value(),name,plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
                     plan.source()==PlanSource.LINGTOU,goods.isEmpty()?null:goods.getFirst().imageUrl(),r==null?null:r.guarantee(),cost,gmv,roi,
                     plan.setting().bidType().oceanValue(),budget,
                     setting==null?plan.setting().roi2Goal().map(RoiGoal::value).orElse(null):QianchuanPlanMapping.number(setting,"roi2_goal"),
@@ -287,7 +341,7 @@ public class PlanQueryService {
                     r==null?(metadata==null?null:metadata.deliveryPlatform()):"ALL",plan.accountId().value(),plan.qcStatus(),canEdit,
                     canEdit && plan.status()==PlanStatus.DELIVERING,
                     plan.setting().bidType()==SmartBidType.CONSERVATIVE ? roiEstimate(setting,creationSummary,budget) : null,
-                    canEdit,statistics==null?null:statistics.day(),statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
+                    canTransfer,statistics==null?null:statistics.day(),plan.transferArchived() || statistics!=null && !today.equals(statistics.day()),plan.status()==PlanStatus.PENDING_AUDIT?reviewStates.get(plan.id().value()):null,
                     aweme,materialCover,null,null,null,awemeName,awemeAvatar));
         }
         return result;

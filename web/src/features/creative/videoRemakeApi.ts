@@ -12,6 +12,7 @@ export interface RemakeCapability {
   kling4Available?: boolean;
   sourceMatchingAvailable?: boolean;
   sourceMatchingHd?: boolean;
+  productPeopleSupported?: boolean;
 }
 
 export interface RemakeVideoSpec {
@@ -31,13 +32,16 @@ export interface RemakeShot {
 export interface RemakeTask {
   id: string;
   product: string;
+  productImageUrls?: string[];
   phase: 'CREATING' | 'PLANNING' | 'REVIEW' | 'CONFIRMING' | 'SENDING' | 'GENERATING' | 'SUCCEEDED' | 'FAILED' | 'NEEDS_ATTENTION';
   stage?: string;
   error?: string;
   auditIssues?: string[];
   auditWarnings?: string[];
-  consistencyIssues?: string[]; 
-  generationWarnings?: string[];   shotRetries?: { shot: string; shotIndex: number; reason: string; status: string; replan?: string }[];   progressSteps?: string[];
+  consistencyIssues?: string[];
+  generationWarnings?: string[];
+  shotRetries?: { shot: string; shotIndex: number; reason: string; status: string; replan?: string }[];
+  progressSteps?: string[];
   createdAt: string;
   assetId?: string;
   plan?: { title: string; shots: RemakeShot[] };
@@ -53,18 +57,14 @@ export interface RemakeInput {
   bindingId: string;
   awemeId: string;
   productId: string;
-  productImageId?: string;
-productImageIds?: string[];
-  productImages?: string[];
   referenceId: string;
-  facts: string[];
   portraitId?: string;
   portraitName?: string;
   portraitImageId?: string;
   rightsConfirmed: boolean;
   portraitTermsConfirmed: boolean;
   followSource: boolean;
-  adNotices?: string[];
+  productPeopleMode?: 'auto' | 'none';
 }
 
 export interface RemakeUpload {
@@ -90,11 +90,6 @@ export const getRemakeCapability = () => apiGet<RemakeCapability>(root + '/capab
 export const listRemakes = () => apiGet<RemakeTask[]>(root, quiet);
 export const getRemake = (id: string) => apiGet<RemakeTask>(root + '/' + encodeURIComponent(id), quiet);
 export const createRemake = (body: RemakeInput) => apiPost<RemakeTask>(root, body, { ...quiet, timeout: 60000 });
-export const confirmRemake = (id: string, title: string, shots: RemakeShot[], points: number) =>
-  apiPost<RemakeTask>(root + '/' + encodeURIComponent(id) + '/confirm', {
-    title, shots: shots.map(shot => ({ visualPrompt: shot.visual_prompt, narration: shot.narration, caption: shot.caption })),
-    points, accepted: true,
-  }, quiet);
 export const saveRemake = (id: string) =>
   apiPost<{ assetId: string }>(root + '/' + encodeURIComponent(id) + '/save', null, { ...quiet, timeout: 90000 });
 

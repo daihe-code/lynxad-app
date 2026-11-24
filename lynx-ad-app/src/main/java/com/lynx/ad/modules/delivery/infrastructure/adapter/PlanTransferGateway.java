@@ -26,17 +26,31 @@ public class PlanTransferGateway {
     }
     public Credential credential(AdPlan p) { return creation.credential(p.tenantId(),p.accountId().value(),p.awemeId().value()); }
     public JsonNode detail(AdPlan p) { return creation.detail(p.tenantId(),p.accountId().value(),p.awemeId().value(),p.qcPlanId().orElseThrow().value()); }
+    public JsonNode detail(AdPlan p,String id) { return creation.detail(p.tenantId(),p.accountId().value(),p.awemeId().value(),id); }
+    public JsonNode recommendations(AdPlan plan, List<String> productIds, SmartBidType targetMode) {
+        return creation.recommendations(plan.tenantId(), plan.accountId().value(), plan.awemeId().value(),
+                productIds, targetMode, plan.qcPlanId().orElseThrow().value());
+    }
     public String create(AdPlan p,JsonNode payload) { return creation.create(p.tenantId(),p.accountId().value(),p.awemeId().value(),payload); }
+    public AdManagementPort.InsightReport history(Credential c,String qcId,java.time.LocalDate start,java.time.LocalDate end) {
+        return management.insightReport(c,qcId,start,end,true);
+    }
     public void status(Credential c,String id,boolean enabled) {
+        changeStatus(c,id,enabled?"ENABLE":"DISABLE");
+    }
+    public void delete(Credential c,String id) {
+        changeStatus(c,id,"DELETE");
+    }
+    private void changeStatus(Credential c,String id,String action) {
         var body=json.createObjectNode();body.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));
-        body.putArray("ad_ids").add(CreationQianchuanGateway.numericId(id));body.put("opt_status",enabled?"ENABLE":"DISABLE");
+        body.putArray("ad_ids").add(CreationQianchuanGateway.numericId(id));body.put("opt_status",action);
         var result=creation.write(c,properties.getQianchuan().getDelivery().getAdStatusUrl(),body);
         for(var row:result.path("results"))if(id.equals(row.path("ad_id").asText())) {
             if(!row.path("flag").isBoolean())break;
-            if(!row.path("flag").asBoolean())throw new BizException(1406,row.path("error").path("error_message").asText("千川拒绝启停计划"));
+            if(!row.path("flag").asBoolean())throw new BizException(1406,row.path("error").path("error_message").asText("平台拒绝更新计划状态"));
             return;
         }
-        throw new BizException(1523,"千川未确认启停结果，请核查转投结果");
+        throw new BizException(1523,"平台未确认计划状态，请核查转投结果");
     }
     public void settings(Credential c,String id,BigDecimal budget,BigDecimal roi) {
         var body=json.createObjectNode();body.put("advertiser_id",CreationQianchuanGateway.numericId(c.advertiserId().value()));

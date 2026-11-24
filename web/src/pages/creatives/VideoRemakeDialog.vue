@@ -26,7 +26,7 @@
             <span class="remake-access-icon"><AssetIcon :name="capability?.subscribed === false ? 'video' : 'info-line'" /></span>
             <h3>{{ capability?.subscribed === false ? '开通套餐后即可开始复刻' : '复刻服务暂不可用' }}</h3>
             <p v-if="capabilityError" role="alert">{{ capabilityError }}</p>
-            <p v-else-if="capability?.subscribed === false">更换商品与人物，生成可保存到素材库的新视频。</p>
+            <p v-else-if="capability?.subscribed === false">参考原视频的镜头节奏，替换目标商品与人物，生成可保存到素材库的新视频。</p>
             <p v-else>服务恢复后可以继续新建复刻，已有任务可在任务记录中查看。</p>
             <router-link v-if="capability?.subscribed === false" class="el-button el-button--primary remake-cta"
               to="/subscription" @click="emit('close')">查看套餐</router-link>
@@ -75,7 +75,7 @@
               </div>
               <div class="remake-rights-row">
                 <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频</label>
+                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="productPeopleSupported">及本次使用的商品图与模特肖像</template></label>
                 <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
               </div>
@@ -113,14 +113,14 @@
                 </div>
                 <div class="remake-search">
                   <input v-model="keyword" type="search" aria-label="搜索目标商品" placeholder="商品名称 / ID" :disabled="busy"
-                    @keydown.enter.prevent="loadProducts(1)">
-                  <el-button :loading="productsLoading" :disabled="busy" @click="loadProducts(1)">搜索</el-button>
+                    @keydown.enter.prevent="searchProducts">
+                  <el-button :loading="productsLoading" :disabled="busy" @click="searchProducts">搜索</el-button>
                 </div>
                 <p v-if="productsError" class="remake-error" role="alert">{{ productsError }}</p>
                 <div v-if="products.length" class="remake-products" :aria-busy="productsLoading">
                   <button v-for="product in products" :key="product.qcProductId" type="button" class="remake-product"
                     :aria-pressed="selectedProduct?.qcProductId === product.qcProductId"
-                    :disabled="busy || productsLoading" @click="pickProduct(product)">
+                    :disabled="busy || productsLoading" @click="selectedProduct = product">
                     <span class="remake-product-image"><img v-if="product.imageUrl" :src="product.imageUrl" alt="" loading="lazy"><AssetIcon v-else name="image" /></span>
                     <span class="remake-product-meta"><strong :title="product.name">{{ product.name }}</strong><small>{{ product.qcProductId }}</small></span>
                     <AssetIcon v-if="selectedProduct?.qcProductId === product.qcProductId" name="check" />
@@ -129,11 +129,27 @@
                 <p v-else-if="productsLoading" class="remake-muted" role="status">正在加载商品…</p>
                 <p v-else-if="!productsError" class="remake-muted" role="status">没有符合条件的商品。</p>
                 <p v-if="fieldError('product')" class="remake-error" role="alert">{{ fieldError('product') }}</p>
-                <div v-if="productPage > 1 || hasMore" class="remake-pager">
-                  <el-button link :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">上一页</el-button>
-                  第 {{ productPage }} 页
-                  <el-button link :disabled="busy || !hasMore || productsLoading" @click="loadProducts(productPage + 1)">下一页</el-button>
-                </div>
+                <nav v-if="productTotalPages > 0" class="remake-pager" aria-label="商品分页">
+                  <div class="remake-pager-pages">
+                    <el-button link class="remake-pager-arrow remake-pager-prev" aria-label="上一页"
+                      :disabled="busy || productPage <= 1 || productsLoading" @click="loadProducts(productPage - 1)">
+                      <AssetIcon name="chevron-right" />
+                    </el-button>
+                    <span aria-live="polite">{{ productPage }}/{{ productTotalPages }}</span>
+                    <el-button link class="remake-pager-arrow" aria-label="下一页"
+                      :disabled="busy || productPage >= productTotalPages || productsLoading" @click="loadProducts(productPage + 1)">
+                      <AssetIcon name="chevron-right" />
+                    </el-button>
+                  </div>
+                  <div v-if="productTotalPages > 1" class="remake-pager-jump">
+                    <input v-model="productPageInput" type="text" inputmode="numeric" placeholder="页码" aria-label="跳转到第几页"
+                      :disabled="busy || productsLoading" :aria-invalid="!!productPageError"
+                      :aria-describedby="productPageError ? 'remake-page-error' : undefined"
+                      @input="productPageError = ''" @keydown.enter.prevent="jumpToProductPage">
+                    <el-button native-type="button" :disabled="busy || productsLoading || !productPageInput.trim()" @click="jumpToProductPage">跳转</el-button>
+                  </div>
+                  <p v-if="productPageError" id="remake-page-error" class="remake-error remake-pager-error" role="alert">{{ productPageError }}</p>
+                </nav>
               </div>
 
               <template v-if="selectedProduct">
@@ -158,29 +174,35 @@
             </div>
 
             <div v-else class="remake-step-body">
-              <h3>替换人物与成片设置</h3>
-              <template v-if="useKling">
-                <RemakeFilePicker kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
-                  :disabled="busy" @change="selectPortrait" />
-              </template>
-              <template v-else>
-                <div class="remake-row">
-                  <label>方舟预置虚拟人像 ID<input v-model.trim="portraitId" placeholder="asset-…" maxlength="136" :disabled="busy"></label>
-                  <label>人物名称<input v-model.trim="portraitName" placeholder="输入人像名称" maxlength="80" :disabled="busy"></label>
-                </div>
-                <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library"
-                  target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
-              </template>
-              <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
-              <div class="remake-rights-row">
-                <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
-                  useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
-                }}</label>
-                <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
-                  @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+              <h3>替换人物<template v-if="productPeopleSupported">（可选）</template></h3>
+              <div v-if="productPeopleSupported" class="remake-source-switch" role="group" aria-label="人物选择">
+                <button type="button" :aria-pressed="portraitMode === 'auto'" :disabled="busy" @click="portraitMode = 'auto'">按商品图生成</button>
+                <button type="button" :aria-pressed="portraitMode === 'none'" :disabled="busy" @click="portraitMode = 'none'">仅展示商品</button>
+                <button type="button" :aria-pressed="portraitMode === 'replace'" :disabled="busy" @click="portraitMode = 'replace'">替换人物</button>
               </div>
-              <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
+              <p v-if="productPeopleMode === 'auto'" class="remake-muted">需要出镜时参考商品图中的已授权模特。</p>
+              <template v-if="!productPeopleMode">
+                <RemakeFilePicker v-if="useKling" kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
+                  :disabled="busy" @change="selectPortrait" />
+                <template v-else>
+                  <div class="remake-row">
+                    <label>方舟预置虚拟人像 ID<input v-model.trim="portraitId" placeholder="asset-…" maxlength="136" :disabled="busy"></label>
+                    <label>人物名称<input v-model.trim="portraitName" placeholder="输入人像名称" maxlength="80" :disabled="busy"></label>
+                  </div>
+                  <a class="remake-link" href="https://ark.volcengine.com/region:cn-beijing/docs/avatar-library"
+                    target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
+                </template>
+                <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
+                <div class="remake-rights-row">
+                  <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
+                    :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
+                    useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
+                  }}</label>
+                  <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
+                    @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
+                </div>
+                <p v-if="fieldError('portraitTerms')" id="remake-portrait-rights-error" class="remake-error" role="alert">{{ fieldError('portraitTerms') }}</p>
+              </template>
             </div>
 
             <p v-if="setupError" class="remake-inline-error" role="alert">{{ setupError }}</p>
@@ -199,8 +221,8 @@
           <section class="remake-side-card">
             <h3>复刻流程</h3>
             <ol class="remake-workflow">
-              <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品和新人物</small></div></li>
-              <li><span><AssetIcon name="note" /></span><div><strong>后台生成</strong><small>提交后自动生成，无需等待</small></div></li>
+              <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品与可选人像</small></div></li>
+              <li><span><AssetIcon name="note" /></span><div><strong>后台生成</strong><small>提交后自动生成分镜并核对成片规格，无需等待</small></div></li>
               <li><span><AssetIcon name="sparkle" /></span><div><strong>生成与入库</strong><small>生成后预览，合适即可保存</small></div></li>
             </ol>
           </section>
@@ -209,14 +231,12 @@
             <dl>
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
-              <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : '匹配原视频' }}</dd></div>
+              <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : capability?.sourceMatchingHd === false ? '720p' : '匹配原视频' }}</dd></div>
               <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '选择参考视频后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
-              <div v-if="selectedAccount"><dt>千川账户</dt><dd>{{ selectedAccount.accountName }}</dd></div>
-              <div v-if="useKling"><dt>视频模型</dt><dd>可灵 4.0</dd></div>
             </dl>
             <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
-            <p v-if="sourceMatchingReady" class="remake-muted">提交后自动开始生成，生成时预占积分。</p>
+            <p v-if="sourceMatchingReady" class="remake-muted">提交后自动开始生成，按成片规格预占积分。</p>
           </section>
         </aside>
       </div>
@@ -243,7 +263,7 @@
         </ul>
       </section>
 
-      <section v-else class="remake-task">
+      <section v-else class="remake-task" :class="{ 'remake-task--with-gallery': progressStage && task?.productImageUrls?.length }">
         <div class="remake-task-header">
           <el-button link :disabled="busy" @click="history"><AssetIcon name="arrow-left" />返回任务列表</el-button>
           <span v-if="task" class="remake-muted">任务 ID {{ task.id }}</span>
@@ -253,7 +273,7 @@
           <div class="remake-task-title"><h3>{{ task.product }}</h3>
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
-          <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p> <div class="remake-progress" role="status"><span>{{ taskProgress }}</span><el-progress :percentage="taskProgressPercent" :indeterminate="taskProgressIndeterminate" :status="taskProgressStatus" /></div>
+          <p v-if="task.error" class=remake-error remake-task-error" role="alert">{{ task.error }}</p> <div class="remake-progress" role="status"><span>{{ taskProgress }}</span><el-progress :percentage="taskProgressPercent" :indeterminate="taskProgressIndeterminate" :status="taskProgressStatus" /></div>
                     <details class="remake-details"><summary>查看详情</summary><section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
           <h3>生成视频一致性/文字安全检查未通过（阻断）</h3>
           <ul>
@@ -291,16 +311,45 @@
             </div>
           </div>
 
-          <div v-else class="remake-progress-card">
-            <span class="remake-task-icon"><AssetIcon :name="inProgress.has(task.phase) ? 'clock' : 'info-line'" /></span>
-            <div>
-              <strong>{{ taskProgress }}</strong>
-              <p v-if="inProgress.has(task.phase)" class="remake-muted">可关闭弹窗，稍后从任务记录查看进度。</p>
-              <p v-if="taskError" class="remake-error" role="alert">{{ taskError }}</p>
+          <section v-else class="remake-progress-card" aria-label="任务进度">
+            <div v-if="progressStage" class="remake-progress-ring" :data-stage="progressStage" role="progressbar"
+              aria-label="复刻阶段进度" :aria-valuemin="1" :aria-valuemax="progressStages.length" :aria-valuenow="progressStage"
+              :aria-valuetext="`第 ${progressStage} 阶段，共 ${progressStages.length} 个阶段`">
+              <strong>{{ progressStage }}<span>/{{ progressStages.length }}</span></strong>
+              <small>阶段</small>
             </div>
-            <el-button v-if="task.phase !== 'FAILED'" :loading="taskLoading" :disabled="busy" @click="refreshTask">刷新状态</el-button>
-            <el-button v-else :disabled="busy" @click="newTask">新建复刻</el-button>
-          </div>
+            <span v-else class="remake-task-icon"><AssetIcon name="info-line" /></span>
+            <div class="remake-progress-content">
+              <h3 aria-live="polite">{{ taskProgress }}</h3>
+              <p v-if="task.quote" class="remake-muted">本次生成 {{ formatPoints(task.quote.points) }} 积分</p>
+              <ol v-if="generationSteps.length" class="remake-progress-stages" aria-label="生成进度">
+                <li v-for="step in generationSteps" :key="step.id" :aria-current="step.current ? 'step' : undefined"
+                  :data-completed="step.done">{{ step.label }}</li>
+              </ol>
+              <ol v-else-if="progressStage" class="remake-progress-stages" aria-label="复刻流程">
+                <li v-for="(label, index) in progressStages" :key="label"
+                  :aria-current="progressStage === index + 1 ? 'step' : undefined"
+                  :data-completed="progressStage > index + 1">{{ label }}</li>
+              </ol>
+              <p v-if="progressStage" class="remake-muted">可关闭弹窗，稍后从任务记录查看进度。</p>
+              <p v-if="taskError" class="remake-error" role="alert">{{ taskError }}</p>
+              <div class="remake-progress-actions">
+                <el-button v-if="task.phase !== 'FAILED'" :loading="taskLoading" :disabled="busy" @click="refreshTask">刷新状态</el-button>
+                <el-button v-else :disabled="busy" @click="newTask">新建复刻</el-button>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="task.productImageUrls?.length" class="remake-task-gallery" aria-label="商品参考图">
+            <h3>商品参考图</h3>
+            <div class="remake-task-gallery-images">
+              <el-image v-for="(url, index) in task.productImageUrls" :key="url" :src="url"
+                :alt="`${task.product} · 商品图 ${index + 1}`" :preview-src-list="task.productImageUrls"
+                :initial-index="index" fit="contain" referrerpolicy="no-referrer" preview-teleported>
+                <template #error><span class="remake-task-gallery-placeholder" role="img" aria-label="图片暂不可用"><AssetIcon name="image" /></span></template>
+              </el-image>
+            </div>
+          </section>
         </template>
         <div v-else-if="taskError" class="remake-inline-error" role="alert">
           {{ taskError }}<el-button link type="primary" @click="refreshTask">重试</el-button>
@@ -318,6 +367,7 @@
         <section>
           <h3>人物肖像与声音授权</h3>
           <p>使用可识别真人的肖像或声音前，商家须向本人告知 AI 生成、编辑及广告投放等用途，并取得相应授权。涉及编辑人脸、人声等生物识别信息的，须依法取得本人的单独同意。使用预置虚拟人像的，须遵守相应许可条款。</p>
+          <p v-if="productPeopleSupported">商品图中的模特亦须取得用于 AI 生成和商业广告投放的肖像授权。</p>
         </section>
         <section>
           <h3>责任承担</h3>
@@ -349,11 +399,34 @@ const bindingId = ref(''), awemeId = ref('');
 const selectedAccount = computed(() => activeAccounts.value.find(account => account.accountId === bindingId.value));
 const awemes = computed(() => selectedAccount.value?.awemes ?? []);
 const products = ref<CreationProduct[]>([]), selectedProduct = ref<CreationProduct>();
-const keyword = ref(''), productPage = ref(1), hasMore = ref(false), productsLoading = ref(false), productsError = ref('');
+const keyword = ref(''), productPage = ref(1), productTotalPages = ref(0), productsLoading = ref(false), productsError = ref('');
+const productPageInput = ref(''), productPageError = ref('');
+let productQuery = '';
 
 const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>(); const productImages = ref<RemakeUpload[]>([]);
 const referenceSource = ref<'upload' | 'link'>('upload');
-const referenceLinkUrl = ref(''); const extractDouyinShareUrl = (text: string) => { const found = text.match(/https?:\/\/[^\s，。；]+/); if (!found) return ''; let host = ''; try { host = new URL(found[0]).host.toLowerCase(); } catch { return ''; } return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host) ? found[0].replace(/[)\]}.,;:!?]+$/, '') : ''; }; const extractedReferenceLinkUrl = computed(() => extractDouyinShareUrl(referenceLinkUrl.value)); function handleReferenceLinkPaste(event: ClipboardEvent) { const extracted = extractDouyinShareUrl(event.clipboardData?.getData('text') ?? ''); if (!extracted) return; event.preventDefault(); referenceLinkUrl.value = extracted; }
+const referenceLinkUrl = ref('');
+const douyinHosts = new Set(['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com']);
+function extractDouyinShareUrl(text: string) {
+  const links = text.matchAll(/https?:\/\/[^\s"'<>，。；、！？]+|(?<![\w./@:-])(?:v\.douyin\.com|(?:www\.)?(?:douyin|iesdouyin)\.com)\/[^\s"'<>，。；、！？]+/gi);
+  for (const [link] of links) {
+    const candidate = link.replace(/[)\]}.,;:!?）】》]+$/, '');
+    try {
+      const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+      if (!douyinHosts.has(url.hostname) || url.username || url.password || url.port || url.pathname === '/') continue;
+      url.protocol = 'https:';
+      return url.toString();
+    } catch { /* Continue with the next URL in the share text. */ }
+  }
+  return '';
+}
+const extractedReferenceLinkUrl = computed(() => extractDouyinShareUrl(referenceLinkUrl.value));
+function handleReferenceLinkPaste(event: ClipboardEvent) {
+  const extracted = extractDouyinShareUrl(event.clipboardData?.getData('text') ?? '');
+  if (!extracted) return;
+  event.preventDefault();
+  referenceLinkUrl.value = extracted;
+}
 const referenceLinkAssetId = ref('');
 const referenceMetadata = ref<{ duration: number; width: number; height: number } | null>();
 const referenceError = computed(() => {
@@ -366,24 +439,15 @@ const referenceError = computed(() => {
   }
   return '';
 });
-const linkFormatError = computed(() => {
-  const text = referenceLinkUrl.value.trim();
-  if (!text) return '';
-  const found = text.match(/https?:\/\/[^\s，。；]+/);
-  if (!found) return '未在粘贴内容中找到链接，请粘贴包含 https://v.douyin.com/... 的分享内容';
-  let host = '';
-  try { host = new URL(found[0]).host.toLowerCase(); } catch { return '请粘贴有效的抖音视频链接。'; }
-  return ['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com'].includes(host)
-    ? '' : '仅支持抖音视频链接（v.douyin.com 短链或 douyin.com/video/…）。';
-});
+const invalidShareLink = '请粘贴包含抖音视频链接的分享内容。';
+const linkFormatError = computed(() => referenceLinkUrl.value.trim() && !extractedReferenceLinkUrl.value
+  ? invalidShareLink : '');
 const referenceRights = ref<HTMLInputElement>();
-const portraitId = ref(''), portraitName = ref(''), facts = ref('');
-const adNotices = ref('');
+const portraitId = ref(''), portraitName = ref('');
+const portraitMode = ref<'auto' | 'none' | 'replace'>('auto');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
-const cleanFacts = computed(() => facts.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
-const cleanAdNotices = computed(() => adNotices.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
-const setupSteps = ['参考视频', '目标商品', '人物与成片'];
+const setupSteps = ['参考视频', '目标商品', '替换人物'];
 const setupStep = ref(0), furthestStep = ref(0);
 const setupIssue = ref<{ field: string; message: string }>();
 const setupError = ref('');
@@ -392,6 +456,8 @@ let requestId = crypto.randomUUID();
 
 const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capabilityError = ref('');
 const useKling = computed(() => capability.value?.kling4Available === true);
+const productPeopleSupported = computed(() => capability.value?.productPeopleSupported === true);
+const productPeopleMode = computed(() => productPeopleSupported.value && portraitMode.value !== 'replace' ? portraitMode.value : undefined);
 const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
 const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
 const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
@@ -413,7 +479,7 @@ const estimatedPoints = computed(() => {
 function pointShortfall(points: number | undefined, estimated = false) {
   const available = capability.value?.availablePoints;
   if (points == null || available == null || available >= points) return '';
-  return `本次${estimated ? '预计' : '生成'}需 ${formatPoints(points)} 积分，还差 ${formatPoints(points - available)} 积分。`;
+  return `本次${estimated ? '至少' : '生成'}需 ${formatPoints(points)} 积分，还差 ${formatPoints(points - available)} 积分。`;
 }
 const estimatedShortfall = computed(() => pointShortfall(estimatedPoints.value, true));
 const orientationLabel = (spec: RemakeVideoSpec) => spec.height > spec.width ? '竖屏 9:16' : '横屏 16:9';
@@ -434,12 +500,15 @@ let poll: ReturnType<typeof setTimeout> | undefined;
 const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'REVIEW', 'CONFIRMING', 'SENDING', 'GENERATING']);
 const labels: Record<RemakeTask['phase'], string> = {
   CREATING: '正在生成', PLANNING: '正在生成', REVIEW: '正在生成', CONFIRMING: '正在生成',
-  SENDING: '正在生成', GENERATING: '正在生成', SUCCEEDED: '已完成', FAILED: '失败', NEEDS_ATTENTION: '待核对',
+  SENDING: '正在生成', GENERATING: '正在生成', SUCCEEDED: '已完成', FAILED: '复刻失败', NEEDS_ATTENTION:'结果待核对',
 };
 const phaseLabel = (phase: RemakeTask['phase']) => labels[phase] ?? phase;
 const formatDate = (date: string) => new Date(date).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
-const message = (cause: unknown) => { const text = cause instanceof Error ? cause.message : '操作未完成，请稍后重试。'; const reason = (cause as { reason?: unknown } | null)?.reason; return typeof reason === 'string' && reason ? text + '（原因码：' + reason + '）' : text; };
-const countText = (value: string) => Array.from(value.trim()).length;
+function message(cause: unknown) {
+  const text = cause instanceof Error ? cause.message : '操作未完成，请稍后重试。';
+  const reason = (cause as { reason?: unknown } | null)?.reason;
+  return typeof reason === 'string' && reason ? `${text}（原因码：${reason}）` : text;
+}
 
 function taskTone(phase: RemakeTask['phase']) {
   if (phase === 'SUCCEEDED') return 'success';
@@ -463,9 +532,58 @@ const filteredTasks = computed(() => {
 });
 
 const retryReasonLabel = (reason: string) => reason === 'product_mismatch' ? '商品与参考图不一致' : reason === 'fake_brand' ? '伪造或替换品牌' : reason === 'garbled_text' ? '乱码或伪文字' : '视频一致性检查未通过'; const retryStatusLabel = (status: string) => status === 'passed' ? '重试后通过' : status === 'failed' ? '重试后仍未通过' : '重试中';
+const stageLabels: Record<string, string> = {
+  preparing_product_images: '正在准备商品参考图',
+  importing_product_image: '正在读取商品参考图',
+  analyzing_product_people: '正在分析商品图中的模特',
+  analyzing_reference: '正在拆解参考视频',
+  analysis_partial: '正在分析镜头与节奏',
+  understanding_reference: '正在分析镜头结构',
+  planning_product: '正在编排新商品的分镜',
+  plan: '分镜已编排，等待确认',
+  planning_portrait_boards: '正在准备人物与商品分镜',
+  narration: '正在合成旁白',
+  render_build: '正在剪辑和合成成片',
+  outputs: '正在保存成片与封面',
+  waiting_network: '网络恢复后将继续查询原任务',
+};
+const progressStages = ['素材分析', '自动确认', '成片生成'];
+const progressStage = computed(() => {
+  const phase = task.value?.phase;
+  if (phase === 'CREATING' || phase === 'PLANNING') return 1;
+  if (phase === 'REVIEW' || phase === 'CONFIRMING') return 2;
+  if (phase === 'SENDING' || phase === 'GENERATING') return 3;
+  return 0;
+});
+const retryReasons: Record<string, string> = {
+  product_mismatch: '商品与参考图不一致', fake_brand: '伪造或替换品牌', garbled_text: '乱码或伪文字',
+};
+const retryStatuses: Record<string, string> = {
+  passed: '重试后通过', failed: '重试后仍未通过',
+};
+const retryReasonLabel = (reason: string) => retryReasons[reason] || '视频一致性检查未通过';
+const retryStatusLabel = (status: string) => retryStatuses[status] || '重试中';
+const generationSteps = computed(() => {
+  const done = new Set(task.value?.progressSteps);
+  const stages = [
+    { id: 'reference_analysed', label: '参考分析' },
+    { id: 'shots_planned', label: '规划分镜' },
+    { id: 'generating', label: '生成分镜' },
+    { id: 'checking', label: '成片检查' },
+  ];
+  if (!done.size) return [];
+  const active = stages.findIndex(step => !done.has(step.id));
+  return stages.map((step, index) => ({
+    ...step, done: done.has(step.id), current: index === active && progressStage.value > 0,
+  }));
+});
 const taskProgress = computed(() => {
   if (!task.value) return '';
-  return phaseLabel(task.value.phase);
+  if (!inProgress.has(task.value.phase)) return phaseLabel(task.value.phase);
+  const stage = task.value.stage ?? '';
+  const shot = /(?:^|_)shot_([0-7])_/.exec(stage);
+  if (shot && task.value.phase === 'GENERATING') return '正在处理镜头 ' + (Number(shot[1]) + 1);
+  return stageLabels[stage] ?? phaseLabel(task.value.phase);
 });
 const taskProgressPercent = computed(() => {
   if (!task.value) return 0;
@@ -502,20 +620,28 @@ async function loadAccounts() {
   bindingId.value = activeAccounts.value.find(account => account.accountId === accountId.value)?.accountId
     ?? activeAccounts.value[0]?.accountId ?? '';
 }
-async function loadProducts(page: number) {
-  const revision = ++productRequest;
+async function loadProducts(page: number, query = productQuery) {
   if (!bindingId.value || !awemeId.value || busy.value) return;
+  const revision = ++productRequest;
   productsLoading.value = true;
   productsError.value = '';
+  productPageError.value = '';
   try {
     const pageSize = 6;
     const result = await creationProducts(bindingId.value, awemeId.value, {
-      page, pageSize, keyword: keyword.value.trim(), tab: 'ALL', unpromoted: false,
+      page, pageSize, keyword: query, tab: 'ALL', unpromoted: false,
     });
     if (revision !== productRequest || !alive) return;
+    const totalPages = Math.max(result.items.length ? 1 : 0, result.totalPages ?? Math.ceil(result.total / pageSize));
+    if (totalPages > 0 && page > totalPages) {
+      await loadProducts(totalPages, query);
+      return;
+    }
     products.value = result.items;
-    productPage.value = page;
-    hasMore.value = result.hasMore || page * pageSize < result.total;
+    productPage.value = totalPages > 0 ? page : 1;
+    productTotalPages.value = totalPages;
+    productPageInput.value = '';
+    productQuery = query;
     const returnedSelection = result.items.find(item => item.qcProductId === selectedProduct.value?.qcProductId);
     if (returnedSelection) selectedProduct.value = returnedSelection;
   } catch (cause) {
@@ -531,6 +657,21 @@ function pickProduct(product: CreationProduct) {
   facts.value = '';
   adNotices.value = '';
 }
+function jumpToProductPage() {
+  const input = productPageInput.value.trim();
+  if (!input || busy.value || productsLoading.value) return;
+  const page = Number(input);
+  if (!/^\d+$/.test(input) || page < 1 || page > productTotalPages.value) {
+    productPageError.value = `请输入 1 至 ${productTotalPages.value} 的整数页码。`;
+    return;
+  }
+  if (page === productPage.value) {
+    productPageInput.value = '';
+    return;
+  }
+  void loadProducts(page);
+}
+function searchProducts() { void loadProducts(1, keyword.value.trim()); }
 watch(bindingId, () => {
   awemeId.value = awemes.value.find(aweme => aweme.isPrimary)?.awemeId ?? awemes.value[0]?.awemeId ?? '';
   for (const item of [reference.value, portraitImage.value]) {
@@ -546,13 +687,16 @@ watch(bindingId, () => {
 watch([bindingId, awemeId], () => {
   ++productRequest;
   keyword.value = '';
+  productQuery = '';
   products.value = [];
   selectedProduct.value = undefined;
   productImage.value = undefined; productImages.value = [];
   facts.value = '';
   adNotices.value = '';
   productPage.value = 1;
-  hasMore.value = false;
+  productTotalPages.value = 0;
+  productPageInput.value = '';
+  productPageError.value = '';
   productsLoading.value = false;
   productsError.value = '';
   furthestStep.value = Math.min(furthestStep.value, 1);
@@ -563,7 +707,7 @@ watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
 watch([reference, productImage, productImages, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
+  facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource, productPeopleMode], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
@@ -626,13 +770,13 @@ function validateStep(step: number) {
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
       { when: !selectedProduct.value, field: 'product', message: '请选择目标商品。' },
-      { when: !selectedProduct.value?.imageUrl && !productImage.value && !productImages.value.length, field: 'productImage', message: '请上传目标商品参考图。' },
+            { when: !selectedProduct.value?.imageUrl && !selectedProduct.value?.imageUrls?.length && !productImage.value && !productImages.value.length, field: 'productImage', message: '所选商品没有可用的商品图，请上传目标商品参考图或重新选择。' },
       { when: !cleanFacts.value.length || cleanFacts.value.length > 12 || cleanFacts.value.some(fact => countText(fact) > 200),
         field: 'facts', message: '请填写 1 至 12 条商品事实，每条最多 200 字。' },
       { when: cleanAdNotices.value.length > 3 || cleanAdNotices.value.some(notice => countText(notice) > 60 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(notice)),
         field: 'adNotices', message: '最多填写 3 条成片提示语，每条须为 1 至 60 字的单行文字。' },
     ],
-    [
+    productPeopleMode.value ? [] : [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
         field: 'portrait', message: useKling.value ? '请上传已授权的成年人像图。' : '请填写有效的方舟人像 ID 和名称。' },
       { when: !portraitTerms.value, field: 'portraitTerms', message: '请确认人物素材的使用授权。' },
@@ -655,7 +799,10 @@ function goToStep(next: number) {
 }
 async function importReferenceLink() {
   uploadProgress.value = { label: '正在下载链接视频', percent: 50 };
-  const extractedLinkUrl = extractDouyinShareUrl(referenceLinkUrl.value); if (!extractedLinkUrl) throw new Error('未在粘贴内容中找到链接，请粘贴包含 https://v.douyin.com/... 的分享内容'); referenceLinkUrl.value = extractedLinkUrl; const result = await importRemakeLink(bindingId.value, crypto.randomUUID(), extractedLinkUrl);
+  const extractedLinkUrl = extractedReferenceLinkUrl.value;
+  if (!extractedLinkUrl) throw new Error(invalidShareLink);
+  referenceLinkUrl.value = extractedLinkUrl;
+  const result = await importRemakeLink(bindingId.value, crypto.randomUUID(), extractedLinkUrl);
   referenceLinkAssetId.value = result.assetId;
   referenceMetadata.value = { duration: result.durationSeconds, width: result.width, height: result.height };
   if (referenceError.value) throw new Error(referenceError.value);
@@ -668,7 +815,7 @@ async function continueSetup() {
   for (let step = 0; step < setupSteps.length; step++) {
     if (!validateStep(step)) { setupStep.value = step; return; }
   }
-  const product = selectedProduct.value, video = reference.value, kling = useKling.value;
+  const product = selectedProduct.value, video = reference.value, kling = useKling.value, peopleMode = productPeopleMode.value;
   if (!product) return;
   busy.value = true;
   setupError.value = '';
@@ -687,13 +834,13 @@ async function continueSetup() {
       referenceId = await upload(video, 'video', '上传参考视频');
     }
     const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined; const productImageIds = productImageId ? [productImageId] : []; for (const extra of productImages.value) productImageIds.push(await upload(extra, 'image', '上传商品图'));
-    const portraitImageId = kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
+    const portraitImageId = !peopleMode && kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
       productId: product.qcProductId, facts: cleanFacts.value, productImageId, productImageIds: productImageIds.length ? productImageIds : undefined, productImages: product.imageUrl ? [product.imageUrl] : undefined, referenceId,
-      portraitId: kling ? undefined : portraitId.value, portraitName: kling ? undefined : portraitName.value, portraitImageId,
+      portraitId: peopleMode || kling ? undefined : portraitId.value, portraitName:peopleMode ||  kling ? undefined : portraitName.value, portraitImageId, productPeopleMode: peopleMode,
       adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
-      rightsConfirmed: rights.value, portraitTermsConfirmed: portraitTerms.value, followSource: true });
+      rightsConfirmed: rights.value, portraitTermsConfirmed: !peopleMode && portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;
     await openTask(result.id, result);
@@ -729,7 +876,11 @@ async function history() {
   }
 }
 function show(result: RemakeTask) {
+  const previous = task.value;
   task.value = result;
+  if (previous?.phase !== result.phase && ['CONFIRMING', 'GENERATING', 'SUCCEEDED', 'FAILED'].includes(result.phase)) {
+    void loadCapability();
+  }
 }
 async function fetchTask(id: string, revision: number, keepPolling: boolean) {
   let again = keepPolling;
@@ -750,7 +901,6 @@ async function openTask(id: string, summary?: RemakeTask) {
   changePanel('task');
   taskId.value = id;
   task.value = undefined;
-  
   previewFailed.value = false;
   if (summary) show(summary);
   await refreshTask();
@@ -764,11 +914,6 @@ async function refreshTask() {
   await fetchTask(taskId.value, revision, !!task.value && inProgress.has(task.value.phase));
   if (alive && revision === taskRequest && !taskError.value) previewVersion.value++;
 }
-
-
-
-
-
 async function save() {
   if (!task.value || task.value.assetId || busy.value) return;
   const current = task.value;

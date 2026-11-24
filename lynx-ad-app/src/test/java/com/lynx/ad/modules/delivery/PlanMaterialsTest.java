@@ -39,6 +39,23 @@ class PlanMaterialsTest {
         row.putObject("stats_info").put("product_show_count_for_roi2",12).put("product_click_count_for_roi2",0).put("stat_cost_for_roi2",0);return row;
     }
     void report(String type,JsonNode... rows) {when(port.materialReport(credential,qc,range.startDate(),range.endDate(),type)).thenReturn(List.of(rows));}
+    @Test void archivedPlanShowsSharedMaterialsWithoutBorrowingActiveMetrics() {
+        var transfer=mock(com.lynx.ad.modules.delivery.application.TransferMaterialConfig.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"transferMaterials",transfer);
+        when(plan.qcPlanId()).thenReturn(Optional.empty());
+        when(plan.transferArchived()).thenReturn(true);
+        var config=json.createObjectNode();
+        var group=config.putArray("multi_product_creative_list").addObject().put("product_id",product);
+        group.putArray("video_material").addObject().put("video_id","shared-video").put("title","共用素材");
+        group.putArray("title_material").addObject().put("title","共用标题");
+        when(transfer.archivedMaterials(plan)).thenReturn(config);
+        when(assets.platformPreviewUrl(tenant,account.value(),"VIDEO","shared-video")).thenReturn(Optional.of("https://example.test/shared.mp4"));
+        var records=service.materials(tenant,id,range,"VIDEO",true).records();
+        assertEquals("共用素材",records.getFirst().name());
+        assertEquals("https://example.test/shared.mp4",records.getFirst().previewUrl());
+        assertTrue(records.getFirst().metrics().isEmpty());
+        verifyNoInteractions(port);
+    }
     @Test void editingPreviewFiltersHistoricalRowsAgainstCurrentPhysicalPlanBindings() {
         var old=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)old.path("material_info").path("video_material")).put("video_id","old-video");
         var keep=row("VIDEO");((com.fasterxml.jackson.databind.node.ObjectNode)keep.path("material_info").path("video_material")).put("material_id",Long.parseLong(material)+1).put("video_id","current-video");

@@ -26,9 +26,10 @@ public class OptimizationRuleDetailsService {
         var snapshot=pause==null?null:pause.snapshot();
         long seconds=snapshot==null?metrics.seconds(tenantId,planId,enabled && today):snapshot.effectiveSeconds();
         var summary=snapshot==null?journal.ruleSummary(tenantId,planId,enabled && today):snapshot.summary();
-        return new Details(view,seconds,summary,journal.rulePending(tenantId,planId),
+        boolean archived=com.lynx.ad.modules.delivery.domain.model.AdPlan.TRANSFER_ARCHIVED.equals(view.qcStatus());
+        return new Details(view,seconds,summary,archived?List.of():journal.rulePending(tenantId,planId),
             journal.ruleHistory(tenantId,planId,category,days,page,size),account==null?"UNAVAILABLE":account.status(),
-            account==null?null:account.accountName(),enabled && !OptimizationStore.lifecycleHold(view.holdReason())?journal.ruleActions(tenantId,planId,view.version()):List.of(),
+            account==null?null:account.accountName(),enabled && !archived && !OptimizationStore.lifecycleHold(view.holdReason())?journal.ruleActions(tenantId,planId,view.version()):List.of(),
             reviews==null?List.of():reviews.history(tenantId,planId,enabled && today),pause,
             journal.firstRuleEnabledAt(tenantId,planId));
     }

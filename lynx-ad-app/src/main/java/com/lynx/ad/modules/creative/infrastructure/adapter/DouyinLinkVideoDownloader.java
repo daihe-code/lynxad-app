@@ -89,8 +89,7 @@ public final class DouyinLinkVideoDownloader {
     private static final Set<String> DETAIL_RETRYABLE = Set.of(
             LinkImportFailure.SHARE_PAGE_FETCH, LinkImportFailure.TTWID_MISSING,
             LinkImportFailure.VIDEOINFO_MISSING, LinkImportFailure.PLAY_URL_EMPTY,
-            LinkImportFailure.VIDEO_PRIVATE, LinkImportFailure.VIDEO_DELETED,
-            LinkImportFailure.LOGIN_REQUIRED, LinkImportFailure.DOWNLOAD_FAILED);
+            LinkImportFailure.DOWNLOAD_FAILED);
 
     public record VideoProbe(double durationSeconds, int width, int height) {}
 
@@ -310,7 +309,7 @@ public final class DouyinLinkVideoDownloader {
         JsonNode detail = root.path("aweme_detail");
         if (detail.isMissingNode() || detail.isNull() || !detail.isObject()) return null;
         String returned = detail.path("aweme_id").asText(null);
-        if (returned != null && !returned.equals(awemeId)) return null;
+        if (awemeId == null || !awemeId.equals(returned)) return null;
         return findPlayUrl(detail);
     }
 
@@ -323,7 +322,7 @@ public final class DouyinLinkVideoDownloader {
         JsonNode detail = root.path("aweme_detail");
         if (detail.isMissingNode() || detail.isNull()) return LinkImportFailure.PLAY_URL_EMPTY;
         String returned = detail.path("aweme_id").asText(null);
-        if (returned != null && !returned.equals(awemeId)) return LinkImportFailure.PLAY_URL_EMPTY;
+        if (awemeId == null || !awemeId.equals(returned)) return LinkImportFailure.PLAY_URL_EMPTY;
         return null;
     }
 
@@ -454,6 +453,7 @@ public final class DouyinLinkVideoDownloader {
         try {
             return downloadViaH5(http, json, effectiveUrl, ffprobePath);
         } catch (LinkImportFailure ex) {
+            if (isDefinitive(ex.reason())) throw ex;
             failures.add(ex);
         }
         String aweme = awemeId(effectiveUrl);
@@ -462,6 +462,7 @@ public final class DouyinLinkVideoDownloader {
             try {
                 return downloadViaDetailApi(http, json, aweme, ffprobePath);
             } catch (LinkImportFailure ex) {
+                if (isDefinitive(ex.reason())) throw ex;
                 failures.add(ex);
             }
         }
@@ -551,19 +552,19 @@ public final class DouyinLinkVideoDownloader {
             throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口暂时无法访问，请稍后再试或上传本地视频。",
                     "detail api io: " + ex.getMessage(), awemeId);
         }
-        String body;
+        byte[] body;
         try (InputStream in = response.body()) {
             if (response.statusCode() != 200) {
                 throw fail(LinkImportFailure.DETAIL_API_FAILED,
                         "抖音视频详情接口暂时无法访问（抖音返回 " + response.statusCode() + "），请稍后再试或上传本地视频。",
                         "detail api HTTP " + response.statusCode(), awemeId);
             }
-            body = new String(in.readNBytes(MAX_DETAIL_JSON_BYTES + 1), StandardCharsets.UTF_8);
+            body = in.readNBytes(MAX_DETAIL_JSON_BYTES + 1);
         } catch (IOException ex) {
             throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口返回内容无法读取，请稍后再试或上传本地视频。",
                     "detail api read failed", awemeId);
         }
-        if (body.length() > MAX_DETAIL_JSON_BYTES) {
+        if (body.length > MAX_DETAIL_JSON_BYTES) {
             throw fail(LinkImportFailure.DETAIL_API_FAILED, "抖音视频详情接口返回内容过大，暂时无法导入。",
                     "detail api too large", awemeId);
         }

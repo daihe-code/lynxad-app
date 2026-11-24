@@ -40,18 +40,19 @@ class PlanManagementBoundaryTest {
     final JdbcTemplate jdbc=mock(JdbcTemplate.class);
     final Credential credential=new Credential("token",new AdvertiserId("123"));
     final PlanManagementService service=new PlanManagementService(plans,port,credentials,store,query,billing,audit,jdbc,json);
-    AdPlan plan;JsonNode afterWrite;
+    AdPlan plan;JsonNode afterWrite;String groupRoot;
     final PlanSettingsEditStore settingsEdits=mock(PlanSettingsEditStore.class);
     @BeforeEach void setup() {
         plan=new AdPlan(id,tenant,account,new AwemeId("aweme"),new PlanName("原计划"),PlanStatus.DELIVERING,PlanSource.LINGTOU,
                 new DeliverySetting(SmartBidType.CUSTOM,Money.ofYuan(new BigDecimal("300")),Optional.of(new RoiGoal(new BigDecimal("2"))),Schedule.fromNow(),AudienceJson.empty()),List.of(),new QcPlanId("456"),"DELIVERY_OK",null,0,null,List.of());
         when(plans.findById(tenant,id)).thenReturn(Optional.of(plan));when(credentials.getUsableCredential(tenant,account)).thenReturn(credential);
+        when(plans.findByIdForUpdate(eq(tenant),any())).thenAnswer(i->plans.findById(tenant,i.getArgument(1)));
         when(port.detail(credential,"456")).thenAnswer(i->afterWrite==null?facts("{}"):afterWrite);
         service.settingsEdits(settingsEdits);
         when(settingsEdits.state(any())).thenAnswer(i->new PlanSettingsEditStore.State(PlanEditVersion.version(i.getArgument(0),0),"IDLE",null));
         when(settingsEdits.claim(any(),any(),any())).thenAnswer(i->{
             var request=(PlanSettingsRequest)i.getArgument(2);PlanEditVersion.require(request.expectedVersion(),plan,0);
-            return new PlanSettingsEditStore.Claim(plan,new PlanSettingsEditStore.Pending(tenant.value(),id.value(),1,"PREPARING","settings:test",id.value(),"{}",null,Instant.now(),Instant.now()));
+            return new PlanSettingsEditStore.Claim(plan,new PlanSettingsEditStore.Pending(tenant.value(),id.value(),1,"PREPARING","settings:test",groupRoot==null?id.value():groupRoot,"{}",null,Instant.now(),Instant.now()));
         });
         doAnswer(i->{((Runnable)i.getArgument(1)).run();return null;}).when(settingsEdits).complete(any(),any());
         doAnswer(i->{((Runnable)i.getArgument(2)).run();return null;}).when(settingsEdits).applyRead(any(),any(),any());
@@ -170,8 +171,21 @@ class PlanManagementBoundaryTest {
         when(transfers.group(tenant,id)).thenReturn(group);
         when(transfers.activeId(tenant,id)).thenReturn(other.id());
         when(plans.findById(tenant,other.id())).thenReturn(Optional.of(other));
+        groupRoot=group.root();
         service.transferStore(transfers);
         return transfers;
+    }
+    private void companionSettings(AdPlan other) {
+        var report=json.createObjectNode().put("ad_id","789").put("name",other.name().text()).put("status","DELIVERY_OK");
+        var ds=report.putObject("delivery_setting").put("smart_bid_type",SmartBidType.CONSERVATIVE.oceanValue())
+                .put("budget",other.setting().dailyBudget().amount());
+        when(port.detail(credential,"789")).thenAnswer(i->report.deepCopy());
+        doAnswer(i->{
+            String name=i.getArgument(2);BigDecimal budget=i.getArgument(3);
+            if(name!=null)report.put("name",name);
+            if(budget!=null)ds.put("budget",budget);
+            return null;
+        }).when(port).settings(eq(credential),eq("789"),nullable(String.class),nullable(BigDecimal.class),isNull());
     }
     private AdPlan counterpart() {
         return new AdPlan(new PlanId("volume"),tenant,account,plan.awemeId(),new PlanName("放量计划"),PlanStatus.DELIVERING,PlanSource.LINGTOU,
@@ -185,13 +199,15 @@ class PlanManagementBoundaryTest {
         verify(port,never()).detail(credential,"789");verify(port,never()).materials(credential,"789");verify(port,never()).controls(credential,"789");
         verify(transfers,never()).activeId(any(),any());
     }
-    @Test void editingPausedTransferredMemberDoesNotRenameOrChangeItsCounterpart() {
+    @Test void editingPausedTransferredMemberUpdatesBothNamesAndBudgets() {
         plan.apply(PlanStatus.PAUSED);var other=counterpart();var transfers=associatedPair(other);
+        companionSettings(other);
         service.settings(tenant,id,request("控成本改名",new BigDecimal("350"),null));
-        verify(port).settings(credential,"456","控成本改名",new BigDecimal("350"),null);
-        assertEquals("控成本改名",plan.name().text());assertEquals(0,new BigDecimal("350").compareTo(plan.setting().dailyBudget().amount()));
-        assertEquals("放量计划",other.name().text());assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));
-        verify(plans,never()).save(other);verify(transfers).assertIdle(tenant,id);verify(transfers,never()).activeId(any(),any());
+        verify(port).settings(credential,"456","控成本改名_转投",new BigDecimal("350"),null);
+        verify(port).settings(credential,"789","控成本改名",new BigDecimal("350"),null);
+        assertEquals("控成本改名_转投",plan.name().text());assertEquals(0,new BigDecimal("350").compareTo(plan.setting().dailyBudget().amount()));
+        assertEquals("控成本改名",other.name().text());assertEquals(0,new BigDecimal("350").compareTo(other.setting().dailyBudget().amount()));
+        verify(plans).save(other);verify(transfers,never()).activeId(any(),any());
     }
     @Test void platformRejectionDoesNotMutateLocalPlanOrWriteSuccessLog() {
         doThrow(new BizException(1406,"平台拒绝")).when(port).settings(credential,"456",null,new BigDecimal("350"),null);
@@ -199,8 +215,9 @@ class PlanManagementBoundaryTest {
         assertEquals(0,plan.setting().dailyBudget().amount().compareTo(new BigDecimal("300")));
         verify(plans,never()).save(any());verifyNoInteractions(audit);
     }
-    @Test void pausedBudgetChangeConfirmsFreshPlatformValueAndKeepsCounterpartAndModeUntouched() throws Exception {
+    @Test void pausedBudgetChangeConfirmsBothPlatformValuesAndPreservesDeliveryModes() throws Exception {
         plan.apply(PlanStatus.PAUSED);var other=counterpart();associatedPair(other);
+        companionSettings(other);
         when(port.detail(credential,"456")).thenReturn(
                 facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":300,\"roi2_goal\":2}}"),
                 facts("{\"status\":\"DISABLE\",\"delivery_setting\":{\"budget\":400,\"roi2_goal\":2}}"));
@@ -208,10 +225,11 @@ class PlanManagementBoundaryTest {
         verify(port).settings(credential,"456",null,new BigDecimal("400"),null);verify(port,times(2)).detail(credential,"456");
         assertEquals(0,new BigDecimal("400").compareTo(plan.setting().dailyBudget().amount()));assertEquals(SmartBidType.CUSTOM,plan.setting().bidType());
         assertEquals(new BigDecimal("2"),plan.setting().roi2Goal().orElseThrow().value());assertEquals(PlanStatus.PAUSED,plan.status());
-        assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(plans,never()).save(other);
+        assertEquals(0,new BigDecimal("400").compareTo(other.setting().dailyBudget().amount()));verify(plans).save(other);
+        assertEquals(SmartBidType.CONSERVATIVE,other.setting().bidType());assertEquals(PlanStatus.DELIVERING,other.status());
         var command=ArgumentCaptor.forClass(SuccessAuditCommand.class);verify(audit).record(command.capture());
         JsonNode extra=json.readTree(command.getValue().extra());assertTrue(extra.isObject());
-        assertEquals("修改前：原计划 / 300.0000 / 2",extra.path("detail").asText());assertEquals(id.value(),command.getValue().objectId());
+        assertEquals("已同步关联计划设置",extra.path("detail").asText());assertEquals(id.value(),command.getValue().objectId());
     }
     @Test void volumeBudgetUsesTheSameFlowWithoutAddingAnRoiTarget() throws Exception {
         plan.updateSetting(new DeliverySetting(SmartBidType.CONSERVATIVE,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
@@ -236,7 +254,6 @@ class PlanManagementBoundaryTest {
     void budgetBoundsFollowTheSelectedPlansModeAndIncludeTheMinimum(SmartBidType mode,BigDecimal amount) throws Exception {
         plan.apply(PlanStatus.PAUSED);
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),mode==SmartBidType.CUSTOM?plan.setting().roi2Goal():Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
-        var other=counterpart();var transfers=associatedPair(other);
         var current=facts("{}").put("status","DISABLE");
         current.putObject("delivery_setting").put("smart_bid_type",mode.oceanValue()).put("budget",300);
         var updated=current.deepCopy();updated.withObject("/delivery_setting").put("budget",amount);
@@ -245,13 +262,11 @@ class PlanManagementBoundaryTest {
         service.settings(tenant,id,request(null,amount,null));
         verify(port).settings(credential,"456",null,amount,null);
         assertEquals(0,amount.compareTo(plan.setting().dailyBudget().amount()));assertEquals(mode,plan.setting().bidType());assertEquals(PlanStatus.PAUSED,plan.status());
-        assertEquals(0,new BigDecimal("100").compareTo(other.setting().dailyBudget().amount()));verify(plans,never()).save(other);verify(transfers,never()).activeId(any(),any());
     }
     @ParameterizedTest
     @CsvSource({"CONSERVATIVE,0,50", "CONSERVATIVE,49.99,50", "CONSERVATIVE,50.001,50", "CONSERVATIVE,1000000000,50", "CUSTOM,0,300", "CUSTOM,50,300", "CUSTOM,100,300", "CUSTOM,299.99,300", "CUSTOM,300.001,300", "CUSTOM,1000000000,300"})
     void budgetOutsideModeBoundsIsRejectedBeforeCallingThePlatform(SmartBidType mode,BigDecimal amount,String minimum) {
         plan.updateSetting(new DeliverySetting(mode,plan.setting().dailyBudget(),Optional.empty(),Schedule.fromNow(),AudienceJson.empty()));
-        associatedPair(counterpart());
         BizException error=assertThrows(BizException.class,()->service.settings(tenant,id,request(null,amount,null)));
         assertEquals(1402,error.code());assertTrue(error.getMessage().contains(minimum));
         verifyNoInteractions(port,credentials,audit);verify(plans,never()).save(any());

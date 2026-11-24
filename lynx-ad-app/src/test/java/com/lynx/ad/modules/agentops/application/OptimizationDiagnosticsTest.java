@@ -20,7 +20,23 @@ class OptimizationDiagnosticsTest {
         for(var row:observations)((ObjectNode)row.path("metrics")).put("impressions","1000").put("clicks",row.path("window_start").asText().startsWith("2026-11-04")?"100":"30").put("orders","10");
         return d;
     }
-    JsonNode evaluate(ObjectNode d,MonitoringStrategy.Parameters p)throws Exception{return OptimizationRulesEvaluator.evaluate(json.writeValueAsString(d),null,fixture.policy("CONFIRM"),p);}
+    JsonNode evaluate(ObjectNode d,MonitoringStrategy.Parameters p)throws Exception{
+        var previous=fixture.matureDelivery(d);
+        return OptimizationRulesEvaluator.evaluate(json.writeValueAsString(d),previous,fixture.policy("CONFIRM"),p);
+    }
+    @Test void materialSuggestionsRequireMatureDeliveryAndEnoughTrafficInBothComparisonWindows() throws Exception {
+        var input=report("240");
+        for(var row:input.path("observations"))((ObjectNode)row.path("metrics")).put("clicks","100").put("net_revenue","240");
+        var days=((ArrayNode)input.path("diagnostic_context").path("entities")).addObject()
+            .put("kind","MATERIAL").put("eligible",true).put("id","1234").put("product_id","111").put("material_type","VIDEO").putArray("days");
+        for(int day=1;day<=4;day++)days.addObject().put("date","2026-11-0"+day).putObject("metrics")
+            .put("spend","60").put("net_revenue","300").put("impressions","1000").put("clicks","20").put("orders","2");
+        assertFalse(evaluate(input,approved()).path("recommendations").toString().contains("GROWTH_CREATIVE"));
+        for(var day:days)((ObjectNode)day.path("metrics")).put("clicks","50");
+        assertTrue(evaluate(input,approved()).path("recommendations").toString().contains("GROWTH_CREATIVE"));
+        assertFalse(OptimizationRulesEvaluator.evaluate(json.writeValueAsString(input),null,fixture.policy("CONFIRM"),approved())
+            .path("recommendations").toString().contains("GROWTH_CREATIVE"));
+    }
     @Test void candidateStrategyCannotCreateMerchantRoiAdviceOrEffectiveBusinessTime()throws Exception{
         var r=evaluate(report("100"),MonitoringStrategy.Parameters.shadow());assertFalse(r.path("business_ready").asBoolean());assertFalse(r.path("recommendations").toString().contains("ROI_PROTECTION"));assertFalse(r.path("recommendations").toString().contains("E4-"));assertTrue(r.path("diagnostics").size()>0);for(var f:r.path("diagnostics"))assertTrue(f.path("shadow").asBoolean());
     }

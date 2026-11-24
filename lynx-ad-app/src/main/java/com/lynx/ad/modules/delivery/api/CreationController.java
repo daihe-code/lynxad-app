@@ -38,7 +38,7 @@ public class CreationController {
     }
     @GetMapping("/products") public ApiResponse<CreationQianchuanGateway.Page> products(@RequestParam String accountId,@RequestParam String awemeId,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="10") int pageSize,@RequestParam(required=false) String keyword,@RequestParam(defaultValue="ALL") String tab,@RequestParam(defaultValue="false") boolean unpromoted,@RequestParam(defaultValue="false") boolean refreshPrices,@RequestParam(required=false) String draftId,@RequestParam(required=false) String cursor){
         var tenant=TenantContext.requireTenantId();var result=qc.products(tenant,accountId,awemeId,page,pageSize,keyword,tab,unpromoted,null,refreshPrices,cursor);
-        return ApiResponse.ok(draftProducts==null?result:new CreationQianchuanGateway.Page(draftProducts.decorate(tenant.value(),accountId,draftId,result.items()),result.total(),result.page(),result.pageSize(),result.nextCursor(),result.hasMore()));
+        return ApiResponse.ok(draftProducts==null?result:new CreationQianchuanGateway.Page(draftProducts.decorate(tenant.value(),accountId,draftId,result.items()),result.total(),result.page(),result.pageSize(),result.nextCursor(),result.hasMore(),result.totalPages()));
     }
     @RequiresActiveTrial @PostMapping public ApiResponse<CreationView> select(@RequestBody CreationWorkflowService.Selection req){return view(service.select(TenantContext.requireTenantId(),req));}
     @GetMapping("/{id}") public ApiResponse<CreationView> get(@PathVariable String id){return ApiResponse.ok(CreationView.of(service.get(TenantContext.requireTenantId(),id)));}
