@@ -34,7 +34,7 @@
     </template>
     <PlanResultSummary :plan="plan" :aweme-name="awemeName" />
     <footer v-if="showFooter !== false" class="paused-result__footer"><div><button v-if="canRestore" type="button" class="paused-result__restore" :disabled="actionDisabled" @click="openRestore"><ReferenceIcon name="play" />恢复投放</button><PlanListButton /></div></footer>
-    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :blocked-reason="restoreBlockedReason" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" />
+    <CampaignPlanActionDialog v-model="restoreOpen" :plan="plan" action="restore" :busy="busy" :error="actionError" :blocked-reason="restoreBlockedReason" :verification="restorePending" :pause-origin="pauseRecord?.automatic ? 'automatic' : pauseRecord?.manual ? 'manual' : pauseRecord ? 'platform' : 'unknown'" @confirm="restore" @verify="verifyRestore" />
   </section>
 </template>
 
@@ -43,11 +43,11 @@ import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { listActions } from '@/features/agentops/agentopsApi';
 import { getOptimizationHistory } from '@/features/delivery/optimizationApi';
-import { actPlan, getPlan, getPlanTransfer, reconcilePlanTransfer, syncPlanDetail, type PlanVo, type PlanListVo } from '@/features/delivery/deliveryApi';
+import { actPlan, checkTransferredRestore, getPlanTransfer, syncPlanDetail, type PlanVo, type PlanListVo } from '@/features/delivery/deliveryApi';
 import { insightData, type InsightStatistics } from '@/features/delivery/planInsightsApi';
 import { currentPause, pauseElapsed, pauseHistory, pauseStatisticsRange, pauseTimestamp, pausedMetricCards, pauseActionLabel, automaticPauseActions, automaticPauseAdvice, loadPauseAutomation, type PauseAction } from '@/features/delivery/planPausedResult';
 import { PLAN_PAUSE_REASONS } from '@/features/delivery/planPause';
-import { restoreUnavailableReason, restoreResultFeedback } from '@/features/delivery/planConfirmation';
+import { restoreUnavailableReason, restoreResultFeedback, transferredRestoreFeedback } from '@/features/delivery/planConfirmation';
 import { shanghaiToday } from '@/features/delivery/statisticsRange';
 import { reviewTime } from '@/features/delivery/planReview';
 import { requestFailure } from '@/api/apiErrors';
@@ -67,9 +67,9 @@ const period = computed(() => pauseStatisticsRange(props.plan,pauseRecord.value?
 const createdAtKnown = computed(() => Number.isFinite(pauseTimestamp(props.plan.createdAt)));
 const statistics = ref<InsightStatistics>(), cards = computed(() => pausedMetricCards(props.plan,statistics.value?.summary));
 const loading = ref(false), actionsLoading = ref(false), actionsError = ref(''), statisticsError = ref('');
-const restoreOpen = ref(false), busy = ref(false), actionError = ref('');
+const restoreOpen = ref(false), busy = ref(false), actionError = ref(''), restorePending = ref(false);
 const actionDisabled = computed(() => busy.value || loading.value || props.restoreDisabled);
-function openRestore() { if (canRestore.value && !actionDisabled.value) { restoreOpen.value = true; actionError.value = ''; } }
+function openRestore() { if (canRestore.value && !actionDisabled.value) { restoreOpen.value = true; actionError.value = restorePending.value ? '恢复结果待确认，请查询当前状态。' : ''; } }
 const canRestore = computed(() => !props.readOnly && user.me?.memberRole !== 'VIEWER' && user.trialActive && props.plan.status === 'PAUSED' &&
   (archived.value || !!props.plan.qcPlanId && props.plan.source !== 'EXTERNAL' && props.plan.canControl !== false));
 defineExpose({ canRestore, actionDisabled, busy, openRestore });
@@ -106,21 +106,16 @@ async function read(force = false) {
   if (turn === context && !signal.aborted) loading.value = false;
 }
 async function restore() {
-  if (!canRestore.value || busy.value || loading.value || props.restoreDisabled || restoreBlockedReason.value) return;
+  if (!canRestore.value || busy.value || loading.value || props.restoreDisabled || restoreBlockedReason.value || restorePending.value) return;
   const id = props.plan.planId, turn = context;
   busy.value = true; actionError.value = '';
   try {
     if (archived.value && (await getPlanTransfer(id)).pendingKey) {
-      const result = await reconcilePlanTransfer(id);
-      if (turn !== context) return;
-      const latest = await getPlan(id);
-      if (turn !== context) return;
-      restoreOpen.value = false;
-      emit('updated',latest);
-      ElMessage({type:result.status === 'SUCCEEDED' ? 'success' : 'warning',message:result.message});
+      if (turn === context) { restorePending.value = true; actionError.value = '恢复结果待确认，请查询当前状态。'; }
       return;
     }
-    const result = await actPlan(id,'ENABLE');
+    if (turn !== context) return;
+    const result = await actPlan(id,'ENABLE',undefined,archived.value);
     if (turn !== context) return;
     restoreOpen.value = false;
     try {
@@ -132,11 +127,31 @@ async function restore() {
       if (turn === context) { emit('updated',result);ElMessage.warning('恢复指令已提交，暂未获取千川最新状态，请刷新核查。'); }
     }
   }
-  catch (error) { if (turn === context) actionError.value = requestFailure(error,{method:'POST'}).message; }
+  catch (error) {
+    if (turn === context) {
+      const failure = requestFailure(error,{method:'POST'});
+      restorePending.value = archived.value && failure.kind === 'UNCERTAIN';
+      actionError.value = restorePending.value ? '恢复结果待确认，请查询当前状态。' : failure.message;
+    }
+  }
+  finally { if (turn === context) busy.value = false; }
+}
+async function verifyRestore() {
+  if (busy.value || !restorePending.value) return;
+  const turn = context;
+  busy.value = true;
+  try {
+    const { plan, result } = await checkTransferredRestore(props.plan.planId);
+    if (turn !== context) return;
+    const feedback = transferredRestoreFeedback(plan, result);
+    if (feedback.pending) { actionError.value = feedback.message; return; }
+    restorePending.value = false; restoreOpen.value = false; emit('updated',plan);
+    ElMessage({type:feedback.type,message:feedback.message});
+  } catch { if (turn === context) actionError.value = '暂时无法查询恢复结果，请稍后再查。'; }
   finally { if (turn === context) busy.value = false; }
 }
 watch(() => `${props.plan.planId}:${props.plan.qcPlanId}`, () => {
-  context++; controller?.abort(); actions.value = []; statistics.value = undefined; statisticsKey = ''; loading.value = false; actionsLoading.value = false; actionsError.value = ''; statisticsError.value = ''; restoreOpen.value = false; busy.value = false; actionError.value = ''; void read();
+  context++; controller?.abort(); actions.value = []; statistics.value = undefined; statisticsKey = ''; loading.value = false; actionsLoading.value = false; actionsError.value = ''; statisticsError.value = ''; restoreOpen.value = false; busy.value = false; restorePending.value = false; actionError.value = ''; void read();
 }, {immediate:true});
 onMounted(() => { timer = setInterval(() => { now.value = Date.now(); },30000); });
 onUnmounted(() => { context++; controller?.abort(); clearInterval(timer); });

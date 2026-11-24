@@ -241,6 +241,7 @@ public class PlanCommandService {
         if(pairedEnable) {
             if(transferService==null)throw new BizException(1523,"转投服务尚不可用，请稍后重试");
             var result=transferService.enableExisting(tenantId,id);
+            if("FAILED".equals(result.status()))throw new BizException(1403,result.message());
             if(!"SUCCEEDED".equals(result.status()))throw new BizException(1523,result.message());
             plan=require(tenantId,id);
         } else if (plan.qcPlanId().isPresent()) {

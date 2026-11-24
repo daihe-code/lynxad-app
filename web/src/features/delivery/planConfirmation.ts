@@ -22,3 +22,12 @@ export function restoreResultFeedback(plan: PlanActionState): { type: 'success' 
   if (!plan.qcStatus) return { type: 'warning', message: '恢复指令已提交，暂未获取千川最新状态，请刷新核查。' };
   return { type: 'warning', message: `恢复指令已提交，千川当前状态为“${state.label}”，请核查投放结果。` };
 }
+
+export function transferredRestoreFeedback(plan: PlanActionState, result?: { status: string; message?: string | null }) {
+  if (result?.status === 'RUNNING' || result?.status === 'UNCERTAIN') {
+    return { pending: true, type: 'warning' as const, message: result.message || '恢复结果待确认，请稍后查询。' };
+  }
+  if (result?.status === 'FAILED') return { pending: false, type: 'warning' as const, message: result.message || '计划恢复失败。' };
+  if (plan.qcStatus === 'TRANSFER_ARCHIVED') return { pending: false, type: 'warning' as const, message: '未查到已完成的恢复，计划仍为暂停。' };
+  return { pending: false, ...restoreResultFeedback(plan) };
+}

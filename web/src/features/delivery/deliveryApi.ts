@@ -216,8 +216,15 @@ export function publishPlan(id: string, idempotencyKey: string) {
   );
 }
 
-export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason) {
-  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) }, action === 'ENABLE' ? { timeout: 180000 } : undefined);
+export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pauseReason?: PlanPauseReason, quiet = false) {
+  return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) }, action === 'ENABLE' ? { timeout: 180000, ...(quiet ? { headers: { 'X-Quiet-Request': 'true' } } : {}) } : undefined);
+}
+
+export async function checkTransferredRestore(id: string) {
+  const context = await getPlanTransfer(id);
+  const result = context.pendingKey ? await reconcilePlanTransfer(id) : undefined;
+  const plan = await getPlan(id, { quiet: true });
+  return { plan, result };
 }
 
 export function deletePlan(id: string, archivedOnly = false) {

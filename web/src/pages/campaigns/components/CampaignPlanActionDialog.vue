@@ -44,8 +44,9 @@
     </template>
     <p v-if="error" class="plan-confirm-blocked" role="alert">{{ error }}</p>
     <template #footer>
-      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
-      <el-button :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
+      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ verification ? '关闭' : action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
+      <el-button v-if="verification" type="primary" :loading="busy" :disabled="busy" @click="emit('verify')">查询恢复结果</el-button>
+      <el-button v-else :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
     </template>
   </el-dialog>
 </template>
@@ -59,8 +60,8 @@ import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { BID_TYPE, yuan, roiText } from '@/utils/labels';
 import { PLAN_PAUSE_REASONS, isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 
-const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason] }>();
+const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; verification?: boolean; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason]; verify: [] }>();
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
 const draft = computed(() => props.plan?.status === 'DRAFT' && !props.plan.qcPlanId);

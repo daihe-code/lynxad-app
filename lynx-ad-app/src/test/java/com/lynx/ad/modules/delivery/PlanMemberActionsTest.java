@@ -119,6 +119,15 @@ class PlanMemberActionsTest {
         assertThrows(BizException.class,()->service.act(tenant,cost.id(),PlanAction.ENABLE));
         verifyNoInteractions(status,credentials);verify(plans,never()).save(any());
     }
+    @Test void rolledBackTransferReportsConfirmedFailure() {
+        var transfer=mock(PlanTransferService.class);service.transferService(transfer);
+        when(transfers.group(tenant,cost.id())).thenReturn(new PlanTransferStore.Group("volume","volume","volume","cost",null));
+        when(transfer.enableExisting(tenant,cost.id())).thenReturn(new PlanTransferService.Result("cost","333","FAILED","目标计划创建失败，原投放已恢复"));
+        var failure=assertThrows(BizException.class,()->service.act(tenant,cost.id(),PlanAction.ENABLE));
+        assertEquals(1403,failure.code());
+        assertEquals("目标计划创建失败，原投放已恢复",failure.getMessage());
+        verifyNoInteractions(status,credentials);verify(plans,never()).save(any());
+    }
     @Test void crossTenantCannotOperateAVisibleMemberFromAnotherAccount() {
         assertThrows(BizException.class,()->service.act(new TenantId("other"),cost.id(),PlanAction.ENABLE));
         verifyNoInteractions(status,credentials);assertEquals(PlanStatus.PAUSED,cost.status());
