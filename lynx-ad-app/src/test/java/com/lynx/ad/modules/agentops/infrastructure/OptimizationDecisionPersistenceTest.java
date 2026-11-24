@@ -169,6 +169,7 @@ class OptimizationDecisionPersistenceTest {
         var insights=mock(PlanInsightsService.class);
         var execution=new OptimizationExecutionService(store,journal,gateway,insights);
         when(plan.status()).thenReturn(PlanStatus.DELIVERING);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         when(gateway.plan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
         var platformStatus=new java.util.concurrent.atomic.AtomicReference<>("DELIVERING");
@@ -214,7 +215,7 @@ class OptimizationDecisionPersistenceTest {
         var insights=mock(PlanInsightsService.class);
         var execution=mock(OptimizationExecutionService.class);
         when(plan.status()).thenReturn(PlanStatus.DELIVERING);
-        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
         when(gateway.readPlanFacts(plan,false)).thenReturn(planFacts("DELIVERING","DELIVERY_OK"));
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true))).thenReturn(spend("520"));
@@ -234,7 +235,7 @@ class OptimizationDecisionPersistenceTest {
         var insights=mock(PlanInsightsService.class);
         var execution=mock(OptimizationExecutionService.class);
         when(plan.status()).thenReturn(PlanStatus.DELIVERING);
-        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
         when(gateway.readPlanFacts(plan,false)).thenReturn(planFacts("DELIVERING","DELIVERY_OK"));
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true)))
@@ -265,7 +266,7 @@ class OptimizationDecisionPersistenceTest {
         var insights=mock(PlanInsightsService.class);
         var execution=mock(OptimizationExecutionService.class);
         when(plan.status()).thenReturn(PlanStatus.PAUSED);
-        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
         when(gateway.readPlanFacts(plan,false)).thenReturn(planFacts("PAUSED","DISABLE"),planFacts("DELIVERING","DELIVERY_OK"),planFacts("PAUSED","DISABLE"));
         when(insights.data(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(true))).thenAnswer(call->spend("520"));
@@ -287,6 +288,46 @@ class OptimizationDecisionPersistenceTest {
                 verify(gateway,never()).write(any(),any());
         verifyNoInteractions(execution);
     }
+    @Test void transferPausedPlanCanConfigureAndResumeMonitoringWithoutCallingTheDeliveryPlatform(){
+        store.automationStore(journal);
+        when(plan.transferArchived()).thenReturn(true);
+        when(plan.status()).thenReturn(PlanStatus.PAUSED);
+        when(plan.qcStatus()).thenReturn(AdPlan.TRANSFER_ARCHIVED);
+        when(plan.qcPlanId()).thenReturn(Optional.empty());
+        var gateway=mock(OptimizationExecutionGateway.class);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
+        when(gateway.ready()).thenReturn(true);
+        var insights=mock(PlanInsightsService.class);
+        when(insights.logicalData(eq(new TenantId("tenant")),eq(new PlanId("plan")),any(),eq(false)))
+            .thenReturn(new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal("600")),List.of(),"stat_time_day",null,null));
+        var execution=mock(OptimizationExecutionService.class);
+        var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,execution,json);
+        var rules=state.policy().rules();
+        service.configure(plan.tenantId(),plan.id(),rules,true,1,null,"测试操作人");
+        assertTrue(store.get(plan.tenantId(),plan.id()).orElseThrow().enabled());
+        service.configure(plan.tenantId(),plan.id(),rules,false,2,null,"测试操作人");
+        var preview=service.preview(plan.tenantId(),plan.id());
+        assertEquals(OptimizationRuleResumeService.Outcome.PLAN_NOT_DELIVERING,preview.outcome());
+        assertEquals(new BigDecimal("600"),preview.spend());
+        assertNull(service.resume(plan.tenantId(),plan.id(),confirm(preview),"测试操作人").pauseStatus());
+        var resumed=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertTrue(resumed.enabled());
+        assertEquals("PAUSED",resumed.result().path("plan_status").asText());
+        assertFalse(resumed.result().path("complete").asBoolean(true));
+        verify(gateway,never()).readPlanFacts(any(),anyBoolean());
+        verify(insights,never()).data(any(),any(),any(),anyBoolean());
+        verifyNoInteractions(execution);
+        var plans=mock(AdPlanRepository.class);
+        when(plans.findById(plan.tenantId(),plan.id())).thenReturn(Optional.of(plan));
+        var engine=mock(MonitoringEngineClient.class);
+        var management=mock(com.lynx.ad.modules.delivery.application.PlanManagementService.class);
+        var monitor=new OptimizationMonitoringService(plans,store,engine,insights,management,null,
+            new com.lynx.ad.common.config.LynxAdProperties());
+        monitor.cycle(resumed);
+        assertNull(store.get(plan.tenantId(),plan.id()).orElseThrow().error());
+        verifyNoInteractions(engine,management);
+    }
+
     @Test void enablingWithoutReliableSpendDoesNotSaveRules(){
         var gateway=mock(OptimizationExecutionGateway.class);
         var insights=mock(PlanInsightsService.class);
@@ -294,7 +335,7 @@ class OptimizationDecisionPersistenceTest {
         when(gateway.readPlanFacts(plan,false)).thenReturn(planFacts("DELIVERING","DELIVERY_OK"));
         var newPlan=new PlanId("new");
         when(plan.id()).thenReturn(newPlan);
-        when(gateway.plan("tenant","new")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","new")).thenReturn(plan);
         when(insights.data(eq(new TenantId("tenant")),eq(newPlan),any(),eq(true)))
             .thenReturn(new PlanInsightsService.Statistics(Map.of(),List.of(),null,Instant.now(),null));
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,mock(OptimizationExecutionService.class),json);
@@ -309,7 +350,7 @@ class OptimizationDecisionPersistenceTest {
         var gateway=mock(OptimizationExecutionGateway.class);
         var insights=mock(PlanInsightsService.class);
         var service=new OptimizationRuleResumeService(store,journal,gateway,insights,confirmations,mock(OptimizationExecutionService.class),json);
-        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         when(gateway.ready()).thenReturn(true);
         doThrow(new com.lynx.ad.common.exception.DomainException(1102,"服务到期"))
             .doNothing().when(gateway).writable(plan);
@@ -350,7 +391,7 @@ class OptimizationDecisionPersistenceTest {
         jdbc.update("UPDATE optimization_policy SET config_json=? WHERE tenant_id='tenant' AND plan_id='plan'",
             json.valueToTree(automatic.policy(true)).toString());
         var gateway=mock(OptimizationExecutionGateway.class);
-        when(gateway.plan("tenant","plan")).thenReturn(plan);
+        when(gateway.rulePlan("tenant","plan")).thenReturn(plan);
         var service=new OptimizationRuleResumeService(store,journal,gateway,mock(PlanInsightsService.class),
             confirmations,mock(OptimizationExecutionService.class),json);
         service.configure(plan.tenantId(),plan.id(),old,true,1,null,"测试操作人");

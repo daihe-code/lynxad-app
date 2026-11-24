@@ -138,7 +138,12 @@ public class PlanQueryService {
             var history=archived.getOrDefault(row.planId(),List.of());
             m=includeArchived(history,row.qcPlanId(),range,m);
             previous=includeArchived(history,row.qcPlanId(),previousRange,previous);
-            var comparison=row.qcPlanId()==null && history.isEmpty()?null:rangeComparison(m,previous,range,previousRange,comparisonFailed.contains(row.accountId()));
+            if(AdPlan.TRANSFER_ARCHIVED.equals(row.qcStatus())) {
+                if(m==null)m=TransferReportTotals.noActivityInArchive(history,range);
+                if(previous==null)previous=TransferReportTotals.noActivityInArchive(history,previousRange);
+            }
+            var comparison=row.qcPlanId()==null && history.isEmpty()?null:rangeComparison(m,previous,range,previousRange,
+                    row.qcPlanId()!=null && comparisonFailed.contains(row.accountId()));
             result.add(new PlanListVo(row.planId(),row.name(),row.status(),row.source(),row.qcPlanId(),row.lingtou(),row.coverUrl(),row.guarantee(),
                     m==null?null:m.cost(),m==null?null:m.gmv(),m==null?null:m.roi(),row.smartBidType(),row.budget(),row.roi2Goal(),row.startDate(),row.endDate(),
                     m==null?null:m.orders(),report==null?null:report.fetchedAt(),row.products(),comparison,row.createdAt(),row.deliveryPlatform(),row.accountId(),row.qcStatus(),

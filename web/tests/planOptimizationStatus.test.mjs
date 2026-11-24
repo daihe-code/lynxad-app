@@ -40,3 +40,11 @@ test('plan lifecycle and platform restrictions override historical ready results
   assert.equal(present({ status: 'DRAFT' }, state).action, '');
   assert.equal(present({ ...plan, status: 'DELETED' }, state).action, '');
 });
+test('transfer-paused plans keep the same monitoring entry as manually paused plans', () => {
+  const paused = { ...plan, status: 'PAUSED', qcStatus: 'DISABLE' };
+  const transferred = { status: 'PAUSED', qcStatus: 'TRANSFER_ARCHIVED' };
+  for (const monitoring of [undefined, state, { ...state, enabled: false, ruleBased: true }]) {
+    assert.deepEqual(present(transferred, monitoring), present(paused, monitoring));
+  }
+  assert.equal(present(transferred, { ...state, failed: true }).label, '观察暂停');
+});

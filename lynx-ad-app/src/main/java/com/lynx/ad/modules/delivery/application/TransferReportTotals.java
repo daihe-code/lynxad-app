@@ -3,20 +3,48 @@ package com.lynx.ad.modules.delivery.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.delivery.domain.model.PlanStatisticsRange;
+import com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanPlanMapping;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanRemoteStore;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore.ArchivedReport;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 
 final class TransferReportTotals {
+    private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     private static final Map<String,String> PAYMENT=Map.of("cost","stat_cost","orders","total_pay_order_count_for_roi2",
             "gmv","total_pay_order_gmv_include_coupon_for_roi2","roi","total_prepay_and_pay_order_roi2");
     private static final List<String> ADDITIVE=List.of("cost","orders","gmv","netGmv","shows","clicks");
     record Totals(Map<String,BigDecimal> summary, List<PlanInsightsService.Point> days, boolean partial) {}
 
     private TransferReportTotals() {}
+
+    static PlanStatisticsService.Metrics noActivityInArchive(List<ArchivedReport> instances,PlanStatisticsRange range) {
+        if(instances.isEmpty())return null;
+        Set<String> fields=new HashSet<>(PAYMENT.keySet());
+        for(var instance:instances) {
+            var saved=instance.snapshot().path("historyReport");
+            var report=saved.path("report");
+            var archivedDay=instance.archivedAt().atZone(ZONE).toLocalDate();
+            var info=QianchuanPlanMapping.info(instance.snapshot().path("detail"));
+            var created=QianchuanPlanMapping.instant(QianchuanPlanMapping.text(info,"create_time"));
+            var createdDay=created==null?null:created.atZone(ZONE).toLocalDate();
+            if(!range.startDate().isAfter(archivedDay) && (createdDay==null || !range.endDate().isBefore(createdDay))) {
+                var start=day(saved.path("start").asText());
+                var end=day(saved.path("end").asText());
+                var firstPossibleDay=createdDay!=null && createdDay.isAfter(range.startDate())?createdDay:range.startDate();
+                var lastPossibleDay=range.endDate().isBefore(archivedDay)?range.endDate():archivedDay;
+                if(start==null || end==null || start.isAfter(firstPossibleDay) || end.isBefore(lastPossibleDay)
+                        || !report.path("summary").isObject() || !report.path("summary").isEmpty()
+                        || !report.path("trend").isArray() || !report.path("trend").isEmpty()
+                        || report.hasNonNull("warning"))return null;
+            }
+            report.path("metricFields").properties().forEach(e->fields.add(e.getKey()));
+        }
+        return PlanStatisticsService.noActivity(fields);
+    }
 
     static Totals archived(List<ArchivedReport> instances,String currentId,PlanStatisticsRange range) {
         List<Map<String,BigDecimal>> totals=new ArrayList<>();

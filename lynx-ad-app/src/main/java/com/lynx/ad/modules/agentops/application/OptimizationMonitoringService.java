@@ -57,7 +57,7 @@ public class OptimizationMonitoringService {
     }
     private String rulesUnavailable(AdPlan p) {
         if(rulePlanEnded(p))return "计划已结束";
-        if(p.qcPlanId().isEmpty())return "草稿尚未发布";
+        if(p.qcPlanId().isEmpty() && !p.transferArchived())return "草稿尚未发布";
         return properties.getMock().isQianchuan()?"真实盯盘需要连接千川正式数据源":null;
     }
     static boolean rulePlanEnded(AdPlan plan) {
@@ -78,11 +78,11 @@ public class OptimizationMonitoringService {
         if(fetchPlatformIds && ids.isEmpty() && p.qcPlanId().isPresent() && unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         if(fetchPlatformIds && config.tactics().content()&&p.qcPlanId().isPresent()&&unavailable(p)==null)ids=management.monitoringFacts(tenant,id).productIds();
         var result=state==null?null:state.result();
-        boolean stale=result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
+        boolean stale=p.transferArchived() || result==null || state.lastSuccess()==null || state.lastSuccess().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());
         if(result!=null)try {stale=stale || OffsetDateTime.parse(result.path("observed_at").asText()).toInstant().plusSeconds(config.rules()==null?600:180).isBefore(Instant.now());}catch(RuntimeException ex){stale=true;}
         if(!stale && state!=null && state.enabled() && !fetchPlatformIds)stale=store.deliveryChangedSinceReport(state);
         return new View(config.withEconomics(economics(p,Set.copyOf(ids))),state==null?0:state.version(),ids,unavailable(p,config)==null,unavailable(p,config),
-            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus(),state==null?null:state.pendingRules());
+            state==null?null:state.lastCheck(),state==null?null:state.lastSuccess(),state==null || p.transferArchived()?null:state.error(),stale,result,state==null?null:state.holdReason(),state==null?null:state.lastAction(),p.setting().bidType().name(),p.name()==null?null:p.name().text(),p.accountId().value(),p.status().name(),p.qcStatus(),state==null?null:state.pendingRules());
     }
     public View save(TenantId tenant,PlanId id,OptimizationPolicy policy,long expectedVersion) {
         if(policy!=null && policy.rules()!=null)throw new BizException(1803,"请通过盯盘规则入口修改该计划");
@@ -119,6 +119,10 @@ public class OptimizationMonitoringService {
         AdPlan p=null;
         try {
             var tenant=new TenantId(state.tenant());var id=new PlanId(state.plan());p=plan(tenant,id);
+            if(p.transferArchived()) {
+                store.pending(state).ifPresent(pending->store.discard(state,pending.id()));
+                return;
+            }
             if(state.policy().rules()!=null) {
                 if(rulePlanEnded(p)){store.suspend(p,state,OptimizationStore.TERMINAL_HOLD);return;}
                 if(gateway!=null)gateway.writable(p);

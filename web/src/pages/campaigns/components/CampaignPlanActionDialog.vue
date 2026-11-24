@@ -33,11 +33,11 @@
     </template>
     <template v-else-if="action === 'restore'">
       <p class="plan-confirm-impact">恢复后将沿用以上预算{{ plan?.smartBidType === 'SMART_BID_CUSTOM' ? '和目标' : '' }}，可能产生广告消耗。</p>
-      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>{{ plan?.qcStatus === 'TRANSFER_ARCHIVED' ? '恢复时将暂停当前关联计划，并按保留设置重新创建本计划。新计划可能需要重新审核。' : '如有关联的转投计划，恢复时将切换到当前选择的投放方式。' }}</p></div></div>
+      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>如有关联的转投计划，恢复时将暂停关联计划并切换到当前选择的投放方式。<template v-if="transferArchived">恢复后可能需要重新审核。</template></p></div></div>
       <p v-if="blockedReason" class="plan-confirm-blocked" role="alert">{{ blockedReason }}</p>
     </template>
     <template v-else>
-      <p v-if="!draft" class="plan-confirm-impact">{{ transferArchived ? '删除后，旧计划将从当前列表中移除。' : '删除后，计划将从千川和当前列表中移除。' }}</p>
+      <p v-if="!draft" class="plan-confirm-impact">删除后，计划将从当前列表中移除。</p>
       <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><strong>{{ draft ? '删除后无法恢复，请确认不再需要此草稿。' : '此操作无法恢复，删除后不能恢复该计划的投放。' }}</strong></div>
       <p class="plan-confirm-retained">仅删除当前{{ draft ? '草稿' : '计划' }}，关联的转投计划和共用素材会保留。</p>
       <p v-if="!draft && plan?.status === 'PAUSED'" class="plan-confirm-retained">若只是暂时不投放，可继续保持暂停。</p>
@@ -68,7 +68,7 @@ const transferArchived = computed(() => props.plan?.qcStatus === 'TRANSFER_ARCHI
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
 const state = computed(() => {
   const display = planStatusDisplay(props.plan?.status, props.plan?.qcStatus);
-  if (transferArchived.value) return { ...display, label: '因转投暂停' };
+  if (transferArchived.value) return display;
   return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
 });
 const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');

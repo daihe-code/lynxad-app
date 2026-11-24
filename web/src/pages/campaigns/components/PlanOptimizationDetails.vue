@@ -382,6 +382,7 @@ async function checkRecovery() {
 }
 async function loadTasks(forRecovery = false): Promise<boolean> {
   if (tasksLoading.value || recoveryBlocked.value && !forRecovery) return false;
+  if ((data.value?.view.qcStatus ?? props.plan?.qcStatus) === 'TRANSFER_ARCHIVED') { tasks.value = []; taskError.value = ''; return true; }
   if (props.plan?.smartBidType !== 'SMART_BID_CUSTOM' && data.value?.view.bidType !== 'CUSTOM') return true;
   tasksLoading.value = true;
   const values = await Promise.allSettled(['一键起量', '素材追投'].map(async kind => (await listControlTasks(props.planId, kind)).map(task => ({ ...task, kind }))));
