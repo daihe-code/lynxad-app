@@ -15,7 +15,9 @@ test('reviewing and missing comparable evidence are distinct from effect improve
   assert.equal(reviewStatus('INCOMPARABLE'), '不可单独比较');
   assert.equal(reviewStatus('WAITING_DATA'), '等待成熟数据');
   const d = { view: { policy: {enabled:true}, result: {state:'READY',strategy_approved:false,daily_spend:'120',daily_net_revenue:'0'} }, pending:[] };
-  assert.equal(optimizationDetailState(d,'DELIVERING','ACTIVE').label,'部分受限');
+  const calibrating = optimizationDetailState(d, 'DELIVERING', 'ACTIVE');
+  assert.equal(calibrating.label, '盯盘中');
+  assert.match(calibrating.reason, /仍在校准/);
   d.view.result.strategy_approved=true;d.view.result.business_ready=false;
-  assert.equal(optimizationDetailState(d,'DELIVERING','ACTIVE').label,'部分受限');
+  assert.equal(optimizationDetailState(d, 'DELIVERING', 'ACTIVE').label, '等待数据');
 });

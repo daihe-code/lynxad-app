@@ -219,7 +219,14 @@ const restartAt = computed(() => verifiedDelivery.value === 'DELIVERING' && !dat
   ? data.value?.view.result?.optimization_restarted_at : undefined);
 const runningTasks = computed(() => tasks.value.filter(task => task.task_status === 'PROCESSING'));
 const followingReviews = computed(() => data.value?.reviews?.some(review => followingReviewStatuses.includes(review.status)));
-const state = computed(() => error.value && !recoveryBlocked.value ? { label: '检查受限', tone: 'warning', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' } : data.value ? optimizationDetailState(data.value, planEnded.value ? 'FINISHED' : planDisplay.value.group, accountStatus.value, runningTasks.value.length) : { label: '加载中', tone: 'muted', reason: '' });
+const state = computed(() => {
+  if (error.value && !recoveryBlocked.value) {
+    return { label: '等待数据', tone: 'muted', reason: '暂时无法核实最新状态，历史结果不作为实时判断。' };
+  }
+  if (!data.value) return { label: '加载中', tone: 'muted', reason: '' };
+  const status = planEnded.value ? 'FINISHED' : planDisplay.value.group;
+  return optimizationDetailState(data.value, status, accountStatus.value, runningTasks.value.length);
+});
 const canShowCurrent = computed(() => !!data.value && !planEnded.value && !error.value && !data.value.pending.length && data.value.view.policy.enabled && !data.value.view.error && !data.value.view.stale && !data.value.view.holdReason && planDisplay.value.group === 'DELIVERING' && state.value.label !== '授权失效');
 const recommendations = computed(() => canShowCurrent.value ? data.value?.view.result?.recommendations || [] : []);
 const watching = computed(() => recommendations.value.find(item => item.type === 'DELIVERY_OBSERVING'));
