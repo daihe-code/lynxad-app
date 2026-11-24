@@ -213,12 +213,14 @@ class VideoRemakeServiceTest {
         String reference = "rpa_" + "1".repeat(32);
         String portrait = "rpa_" + "2".repeat(32);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", List.of("不锈钢"),
-                null, reference, null, null, true, true, 0, portrait, List.of(" 请按说明清洗 "), true);
+                null, List.of("product-img-1", "product-img-2"), List.of("https://example.com/product-2.png", "https://example.com/product-3.png"), reference, null, null, true, true, 0, portrait, List.of(" 请按说明清洗 "), true);
         var product = new Product("p", "123", "水杯", null, null, "https://example.com/product.png",
                 "家居>水杯", null, List.of(), List.of());
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
                 .thenReturn(List.of(product));
         when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+    when(store.ownsAsset("tenant", "actor", "binding", "product-img-1", "image")).thenReturn(true);
+    when(store.ownsAsset("tenant", "actor", "binding", "product-img-2", "image")).thenReturn(true);
         when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode().put("source_matching_available", true));
         assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
         verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
@@ -239,6 +241,9 @@ class VideoRemakeServiceTest {
         assertFalse(engineInput.has("portrait"));
         assertEquals("家居>水杯", engineInput.at("/product/category").asText());
         assertEquals("请按说明清洗", engineInput.at("/ad_notices/0").asText());
+    assertEquals("product-img-1", engineInput.at("/product/image_asset_ids/0").asText());
+    assertEquals("product-img-2", engineInput.at("/product/image_asset_ids/1").asText());
+    assertFalse(engineInput.at("/product").has("image_urls"));
     }
 
     @Test
