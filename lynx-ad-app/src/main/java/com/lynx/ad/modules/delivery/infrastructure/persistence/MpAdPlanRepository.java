@@ -279,6 +279,11 @@ public class MpAdPlanRepository implements AdPlanRepository {
     }
 
     private AdPlan toDomain(AdPlanPo po) {
+        var status = PlanStatus.valueOf(po.getStatus());
+        // Archiving clears the current platform ID but retains the published display name.
+        boolean hasPublishedName = po.getQcPlanId() != null || AdPlan.TRANSFER_ARCHIVED.equals(po.getQcStatus())
+                || status == PlanStatus.DELETED;
+        var name = hasPublishedName ? PlanName.fromPlatform(po.getName()) : new PlanName(po.getName());
         DeliverySetting setting = new DeliverySetting(
                 SmartBidType.fromOcean(po.getSmartBidType()),
                 Money.ofYuan(po.getBudget() == null ? BigDecimal.ZERO : po.getBudget()),
@@ -290,8 +295,8 @@ public class MpAdPlanRepository implements AdPlanRepository {
                 new TenantId(po.getTenantId()),
                 po.getOauthAccountId() == null ? new AccountId("unknown") : new AccountId(po.getOauthAccountId()),
                 new AwemeId(po.getAwemeId()),
-                po.getQcPlanId() != null ? PlanName.fromPlatform(po.getName()) : new PlanName(po.getName()),
-                PlanStatus.valueOf(po.getStatus()),
+                name,
+                status,
                 po.getSource() == null ? PlanSource.LINGTOU : PlanSource.valueOf(po.getSource()),
                 setting,
                 bindingStore.productIdsByPlan(List.of(po.getId())).getOrDefault(po.getId(), List.of()).stream()
