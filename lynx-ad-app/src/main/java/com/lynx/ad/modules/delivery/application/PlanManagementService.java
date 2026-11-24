@@ -102,7 +102,25 @@ public class PlanManagementService {
         billing.assertWritable(tenant,Instant.now(),WriteAction.SAVE_PLAN);
         if(request.name()==null && request.budget()==null && request.roi2Goal()==null && request.scheduleType()==null)throw new BizException(1402,"请填写要修改的字段");
         String name=request.name()==null?null:new PlanName(request.name()).text();
-        var current=require(tenant,id);editable(current);
+        var current=require(tenant,id);
+        if(current.transferArchived()) {
+            settingsEdits.editArchived(current,request.expectedVersion(),plan->{
+                validateSettings(plan,request);
+                if(request.budget()!=null)DeliveryInputPolicy.budget(request.budget(),plan.setting().bidType(),DeliveryInputPolicy.RULES.creation());
+                if(request.roi2Goal()!=null)DeliveryInputPolicy.roi(request.roi2Goal(),DeliveryInputPolicy.RULES.creation());
+                if(name!=null && !name.equals(plan.name().text()) && plans.existsUnfinishedName(tenant,plan.awemeId(),new PlanName(name),Optional.of(id)))
+                    throw new BizException(1401,"同一抖音号存在同名计划");
+                var old=plan.setting();
+                var schedule=request.scheduleType()==null?old.schedule():new Schedule(ScheduleType.valueOf(request.scheduleType()),old.schedule().startDate(),request.endDate());
+                plan.updateSetting(new DeliverySetting(old.bidType(),request.budget()==null?old.dailyBudget():Money.ofYuan(request.budget()),
+                        request.roi2Goal()==null?old.roi2Goal():Optional.of(new RoiGoal(request.roi2Goal())),schedule,old.audience()));
+                if(name!=null)plan.rename(new PlanName(name));
+                plans.save(plan);
+                record(tenant,id,"修改计划："+plan.name().text(),"已保存恢复投放时使用的设置");
+            });
+            return query.get(tenant,id);
+        }
+        editable(current);
         validateSettings(current,request);
         if(transfers!=null)transfers.assertIdle(tenant,id);
         var claim=settingsEdits.claim(tenant,id,new PlanSettingsRequest(name,request.budget(),request.roi2Goal(),request.expectedVersion(),request.scheduleType(),request.endDate()));

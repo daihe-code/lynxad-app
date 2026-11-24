@@ -4,6 +4,7 @@ import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.DeliveryInputPolicy;
 import com.lynx.ad.modules.delivery.domain.service.PlanSchedule;
 import com.lynx.ad.modules.delivery.domain.service.PlanTransferNames;
+import com.lynx.ad.modules.delivery.domain.service.PlanEditVersion;
 
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -90,7 +91,7 @@ public class PlanTransferService {
         var plan = target.transferArchived()?source:target;
         var detail = gateway.detail(plan);
         checkMode(detail, plan.setting().bidType());
-        var ids = target.transferArchived() && rebuilds!=null ? productIds(archivedPayload(tenant,target)) : productIds(detail);
+        var ids = productIds(detail);
         if (ids.isEmpty()) throw new BizException(1403, "暂时无法获取计划商品的推荐预算");
         return gateway.recommendations(plan, List.copyOf(ids), mode);
     }
@@ -290,25 +291,28 @@ public class PlanTransferService {
                                 PlanTransferRequest request,SmartBidType mode) {
         if(!enabled(status(detail)))throw new BizException(1403,"请先恢复当前计划投放，再切换投放方式");
         var original=rebuildSnapshot(tenant,root,source,detail);
-        var targetPayload=target==null?original.deepCopy():archivedPayload(tenant,target);
+        var targetPayload=original.deepCopy();
         String sourceName=original.path("name").asText();
         String displayName=target==null?PlanTransferNames.defaultName(sourceName):displayName(target);
         if(request.name()!=null)displayName=PlanTransferNames.editedName(new PlanName(request.name()).text());
         String targetId=target==null?UUID.randomUUID().toString():target.id().value();
         if(plans.existsUnfinishedName(tenant,source.awemeId(),PlanName.fromPlatform(displayName),Optional.of(new PlanId(targetId))))
             throw new BizException(1401,"同一抖音号存在同名计划，请修改转投计划名称");
-        var ds=targetPayload.withObject("/delivery_setting");
-        if(!targetPayload.path("advertiser_id").asText().equals(original.path("advertiser_id").asText())
-                || !targetPayload.path("aweme_id").asText().equals(original.path("aweme_id").asText()))
-            throw new BizException(1404,"待恢复计划的账户绑定与当前计划不一致");
-        if(!request.existingOnly()) {
-            ds.put("smart_bid_type",request.smartBidType()).put("budget",request.budget());
-            ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
-            if(mode==SmartBidType.CUSTOM)ds.put("roi2_goal",request.roi2Goal());
-            if(request.scheduleType()!=null)writeSchedule(ds,request.scheduleType(),request.endDate());
-            if(mode==SmartBidType.CONSERVATIVE)
-                CreationRecommendationPolicy.applyBudgetEstimate(ds,gateway.recommendations(source,List.copyOf(productIds(targetPayload)),mode),request.budget());
+        if(target!=null) {
+            var archived=archivedPayload(tenant,target);
+            if(!archived.path("advertiser_id").asText().equals(original.path("advertiser_id").asText())
+                    || !archived.path("aweme_id").asText().equals(original.path("aweme_id").asText()))
+                throw new BizException(1404,"待恢复计划的账户绑定与当前计划不一致");
+            targetPayload.set("delivery_setting",archived.path("delivery_setting").deepCopy());
         }
+        var ds=targetPayload.withObject("/delivery_setting");
+        var desired=request.existingOnly()?target.setting():setting(target==null?source:target,request);
+        ds.put("smart_bid_type",mode.oceanValue()).put("budget",desired.dailyBudget().amount());
+        ds.remove(List.of("roi2_goal","estimate_roi_goal","min_estimate_roi_goal","max_estimate_roi_goal","min_estimate_convert","estimate_convert"));
+        desired.roi2Goal().ifPresent(roi->ds.put("roi2_goal",roi.value()));
+        writeSchedule(ds,desired.schedule().type().name(),desired.schedule().endDate());
+        if(mode==SmartBidType.CONSERVATIVE && !request.existingOnly())
+            CreationRecommendationPolicy.applyBudgetEstimate(ds,gateway.recommendations(source,List.copyOf(productIds(targetPayload)),mode),request.budget());
         validateRebuildPayload(targetPayload);
         String sourceQc=source.qcPlanId().orElseThrow().value();
         String targetName=instanceName(displayName,tenant,request.requestKey(),"target");
@@ -324,6 +328,11 @@ public class PlanTransferService {
             var current=plans.findByIdForUpdate(tenant,source.id()).orElseThrow();
             if(!current.qcPlanId().map(QcPlanId::value).filter(sourceQc::equals).isPresent())
                 throw new BizException(1404,"当前计划已变化，请刷新后转投");
+            if(target!=null) {
+                var latest=plans.findByIdForUpdate(tenant,target.id()).orElseThrow();
+                if(!PlanEditVersion.snapshot(target).equals(PlanEditVersion.snapshot(latest)))
+                    throw new BizException(1404,"待恢复计划设置已变化，请刷新后操作");
+            }
             rebuilds.save(a,saved);
             store.phase(tenant,a.key(),a.phase(),null);
         });
@@ -403,7 +412,8 @@ public class PlanTransferService {
 
     private ObjectNode archivedPayload(TenantId tenant,AdPlan target) {
         var saved=rebuilds.savedPayload(tenant,target.id().value()).orElseThrow(()->new BizException(1403,"缺少恢复所需的计划快照"));
-        validateRebuildPayload(saved);
+        if(!saved.isObject() || !saved.path("delivery_setting").isObject())
+            throw new BizException(1403,"缺少恢复所需的投放设置");
         return (ObjectNode)saved.deepCopy();
     }
 
@@ -550,8 +560,11 @@ public class PlanTransferService {
         var start=first==null || first.isBefore(earliest)?earliest:first.isAfter(today)?today:first;
         com.lynx.ad.modules.delivery.domain.port.AdManagementPort.InsightReport report;
         try { report=gateway.history(credential,saved.sourceQcId(),start,today); }
-        catch(BizException unavailable) { return; } // The last synchronized report remains available.
-        if(report!=null)rebuilds.saveReport(tenant,attempt.key(),start,today,report);
+        catch(BizException unavailable) { throw new BizException(1406,"暂未取得原计划投放报表，请稍后再试"); }
+        if(report==null || !report.summary().isEmpty() && !saved.sourceQcId().equals(PlanInsightsService.dimension(report.summary(),"ad_id"))
+                || report.trend().stream().anyMatch(row->!saved.sourceQcId().equals(PlanInsightsService.dimension(row,"ad_id"))))
+            throw new BizException(1406,"未能核对原计划投放数据，请稍后再试");
+        rebuilds.saveReport(tenant,attempt.key(),start,today,report);
     }
 
     private Result restoreRebuild(TenantId tenant,Attempt a,PlanTransferRebuildStore.Rebuild saved,AdPlan source) {

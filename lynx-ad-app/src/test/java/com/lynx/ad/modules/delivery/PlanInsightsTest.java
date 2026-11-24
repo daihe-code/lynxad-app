@@ -49,6 +49,32 @@ class PlanInsightsTest {
         verify(port,times(2)).insightReport(credential,qcId,today,today);
         assertThrows(BizException.class,()->service.data(new TenantId("other"),id,range,false));
     }
+    @Test void logicalStatisticsContinueOwnArchivedSpendWithoutChangingLiveOperationalReport() {
+        var archive=mock(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"transferRebuilds",archive);
+        var old=row("111",today.toString());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)old.path("metrics")).put("stat_cost",12).put("gmv",48).put("orders",2);
+        var live=row(qcId,today.toString());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)live.path("metrics")).put("stat_cost",3).put("gmv",3).put("orders",1);
+        var saved=json.createObjectNode();
+        saved.set("summary",old);saved.putArray("trend").add(old);saved.put("timeDimension","stat_time_day");
+        saved.set("metricFields",json.valueToTree(fields));
+        var snapshot=json.createObjectNode();snapshot.putObject("historyReport").put("start",today.toString()).put("end",today.toString()).set("report",saved);
+        var archived=new com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore.ArchivedReport("111",Instant.now(),snapshot);
+        when(archive.reports(tenant,Set.of(id.value()))).thenReturn(Map.of(id.value(),List.of(archived)));
+        report(live,List.of(live));
+
+        var combined=service.logicalData(tenant,id,range,false);
+        assertEquals(new BigDecimal("15"),combined.summary().get("cost"));
+        assertEquals(new BigDecimal("3.4000"),combined.summary().get("roi"));
+        assertEquals(new BigDecimal("3"),combined.trend().getFirst().metrics().get("orders"));
+        assertEquals(new BigDecimal("3"),service.data(tenant,id,range,false).summary().get("cost"));
+
+        when(plan.qcPlanId()).thenReturn(Optional.empty());
+        when(plan.transferArchived()).thenReturn(true);
+        assertEquals(new BigDecimal("12"),service.logicalData(tenant,id,range,false).summary().get("cost"));
+        verify(port,times(1)).insightReport(credential,qcId,today,today);
+    }
     @Test void exposureAndClickCountsUseActualReportFieldsAndPreserveMissingValues() {
         var fieldsWithTraffic=new HashMap<>(fields);fieldsWithTraffic.put("shows","show_cnt_for_roi2");fieldsWithTraffic.put("clicks","click_cnt_for_roi2");
         var summary=row(qcId,null);summary.withObject("/metrics").put("show_cnt_for_roi2",48320).put("click_cnt_for_roi2",0);

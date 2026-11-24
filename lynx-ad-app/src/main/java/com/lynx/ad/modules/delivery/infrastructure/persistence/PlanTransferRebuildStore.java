@@ -20,6 +20,7 @@ public class PlanTransferRebuildStore {
                           String targetPlatformName, String restorePlatformName, String restoreQcId) {}
     public record History(String qcPlanId, Instant archivedAt, LocalDate statisticsStartDate, LocalDate statisticsDate,
                           BigDecimal costYuan, BigDecimal gmvYuan, BigDecimal roi, BigDecimal orders) {}
+    public record ArchivedReport(String qcPlanId, Instant archivedAt, JsonNode snapshot) {}
     public record SyncGuard(Set<String> ids, Set<String> names) {
         public boolean excludes(String id, String name) { return ids.contains(id) || names.contains(name); }
     }
@@ -60,6 +61,20 @@ public class PlanTransferRebuildStore {
                 SELECT snapshot FROM delivery_transfer_history WHERE tenant_id=? AND plan_id=?
                 ORDER BY archived_at DESC LIMIT 1
                 """,(r,n)->parse(r.getString(1)).path("createPayload"),tenant.value(),planId).stream().findFirst();
+    }
+
+    public Map<String,List<ArchivedReport>> reports(TenantId tenant, Set<String> planIds) {
+        if(planIds.isEmpty())return Map.of();
+        var named=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc);
+        Map<String,List<ArchivedReport>> reports=new HashMap<>();
+        named.query("""
+                SELECT plan_id,qc_plan_id,archived_at,snapshot FROM delivery_transfer_history
+                WHERE tenant_id=:tenant AND plan_id IN (:plans) ORDER BY archived_at
+                """,Map.of("tenant",tenant.value(),"plans",planIds),r->{
+            reports.computeIfAbsent(r.getString("plan_id"),id->new ArrayList<>()).add(
+                    new ArchivedReport(r.getString("qc_plan_id"),r.getTimestamp("archived_at").toInstant(),parse(r.getString("snapshot"))));
+        });
+        return reports;
     }
 
     public Optional<JsonNode> submittedPayload(TenantId tenant,String planId,String qcId) {

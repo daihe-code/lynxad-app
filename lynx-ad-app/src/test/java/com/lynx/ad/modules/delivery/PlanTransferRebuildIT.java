@@ -13,6 +13,12 @@ import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
 import com.lynx.ad.modules.delivery.api.dto.PlanTransferRequest;
 import com.lynx.ad.modules.delivery.application.PlanTransferService;
+import com.lynx.ad.modules.delivery.application.PlanManagementService;
+import com.lynx.ad.modules.delivery.application.PlanQueryService;
+import com.lynx.ad.modules.delivery.api.dto.PlanSettingsRequest;
+import com.lynx.ad.common.security.TenantContext;
+import com.lynx.ad.common.security.TenantPrincipal;
+import com.lynx.ad.common.security.SysRole;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.*;
 import com.lynx.ad.modules.delivery.infrastructure.adapter.*;
@@ -64,6 +70,7 @@ class PlanTransferRebuildIT {
         for(var migration:List.of(
                 Map.entry("qc_plan_metadata","V9__qianchuan_management.sql"),
                 Map.entry("delivery_transfer_group","V22__plan_transfer.sql"),
+                Map.entry("delivery_plan_settings_edit","V36__plan_settings_edit.sql"),
                 Map.entry("delivery_transfer_history","V63__rebuild_plan_transfer.sql"))) {
             Integer found=jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?",Integer.class,migration.getKey());
             if(found==0)try(var c=ds.getConnection()){
@@ -75,7 +82,7 @@ class PlanTransferRebuildIT {
     }
 
     @BeforeEach void fixture() throws Exception {
-        for(var table:List.of("delivery_transfer_history","delivery_transfer_rebuild","delivery_transfer_attempt","delivery_transfer_group","qc_plan_metadata"))
+        for(var table:List.of("delivery_transfer_history","delivery_transfer_rebuild","delivery_transfer_attempt","delivery_transfer_group","delivery_plan_settings_edit","qc_plan_metadata"))
             jdbc.update("DELETE FROM "+table+" WHERE tenant_id=?",tenant.value());
         var manager=new DataSourceTransactionManager(ds);
         transfers=new PlanTransferStore(jdbc,manager);
@@ -84,6 +91,8 @@ class PlanTransferRebuildIT {
         var gateway=new PlanTransferGateway(platform,listing,new LynxAdProperties(),json,management);
         service=new PlanTransferService(plans,transfers,creations,remote,gateway,mock(BillingTrialService.class),json,manager);
         service.rebuildStore(rebuilds);
+        when(management.insightReport(eq(credential),anyString(),any(),any(),eq(true)))
+                .thenReturn(new AdManagementPort.InsightReport(json.createObjectNode(),List.of(),"stat_time_day",Map.of(),null));
 
         var published=(ObjectNode)json.readTree("""
                 {"advertiser_id":123,"aweme_id":999,"name":"控成本测试计划","marketing_goal":"VIDEO_PROM_GOODS","product_ids":[101],
@@ -267,6 +276,7 @@ class PlanTransferRebuildIT {
         var start=today.minusDays(12);
         upstream.get("101").put("create_time",start+" 09:00:00");
         var report=json.createObjectNode();
+        report.putObject("dimensions").put("ad_id","101").put("stat_time_day",today.toString());
         report.putObject("metrics").put("stat_cost",358.5).put("total_pay_order_gmv_include_coupon_for_roi2",1650);
         when(management.insightReport(credential,"101",start,today,true))
                 .thenReturn(new AdManagementPort.InsightReport(report,List.of(report),"stat_time_day",Map.of(),null));
@@ -279,6 +289,51 @@ class PlanTransferRebuildIT {
         assertEquals(0,new BigDecimal("128.50").compareTo(remote.list(tenant).get(root.value()).lastReport().path("stat_cost").decimalValue()));
         assertTrue(rebuilds.excludesCurrentRow(tenant,account,"101","控成本测试计划"));
         assertFalse(rebuilds.excludesCurrentRow(tenant,account,"201","新计划"));
+    }
+
+    @Test void archivedSettingsAndLatestSharedMaterialsAreUsedWhenRestoring() {
+        var volume=service.transfer(tenant,root,volume("restore-new-settings"));
+        assertEquals("SUCCEEDED",volume.status(),volume.message());
+        var shared=(ObjectNode)upstream.get("201").at("/multi_product_creative_list/0/video_material/0");
+        shared.put("video_id","updated-video").put("video_cover_id","updated-cover");
+
+        var settings=new PlanSettingsEditStore(jdbc,json,plans,transfers,new DataSourceTransactionManager(ds));
+        var editor=new PlanManagementService(plans,management,mock(com.lynx.ad.modules.identity.application.QianchuanCredentialFacade.class),
+                remote,mock(PlanQueryService.class),mock(BillingTrialService.class),mock(com.lynx.ad.modules.audit.application.AuditRecorder.class),jdbc,json);
+        editor.settingsEdits(settings);
+        editor.transferStore(transfers);
+        var version=settings.state(local.get(root.value())).version();
+        var update=new PlanSettingsRequest("修改后的控成本计划",BigDecimal.valueOf(650),new BigDecimal("5.20"),version);
+        TenantContext.set(new TenantPrincipal(new UserId("editor"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+        try {
+            editor.settings(tenant,root,update);
+            assertThrows(BizException.class,()->editor.settings(tenant,root,update));
+        } finally { TenantContext.clear(); }
+        assertEquals(List.of("DELETE:101","CREATE:SMART_BID_CONSERVATIVE"),writes);
+        assertEquals(0,BigDecimal.valueOf(50).compareTo(upstream.get("201").at("/delivery_setting/budget").decimalValue()));
+
+        var restored=service.enableExisting(tenant,root);
+        assertEquals("SUCCEEDED",restored.status(),restored.message());
+        assertEquals(root.value(),restored.planId());
+        assertEquals("修改后的控成本计划",local.get(root.value()).name().text());
+        var next=upstream.get(restored.qcPlanId());
+        assertEquals(0,BigDecimal.valueOf(650).compareTo(next.at("/delivery_setting/budget").decimalValue()));
+        assertEquals("updated-video",next.at("/multi_product_creative_list/0/video_material/0/video_id").asText());
+        assertTrue(local.get(volume.planId()).transferArchived());
+        assertEquals(1,deliveryCount());
+        assertArchivedHistoryRetained(root,"101");
+    }
+
+    @Test void unavailableArchiveReportLeavesOriginalInstanceRunning() {
+        when(management.insightReport(eq(credential),eq("101"),any(),any(),eq(true))).thenThrow(new BizException(1406,"报表暂不可用"));
+        assertEquals("FAILED",service.transfer(tenant,root,volume("unavailable-report")).status());
+        assertEquals(PlanStatus.DELIVERING,local.get(root.value()).status());
+        assertTrue(writes.isEmpty());
+    }
+
+    private void assertArchivedHistoryRetained(PlanId id,String physicalId) {
+        var records=rebuilds.reports(tenant,Set.of(id.value())).get(id.value());
+        assertEquals(List.of(physicalId),records.stream().map(PlanTransferRebuildStore.ArchivedReport::qcPlanId).toList());
     }
 
     private PlanTransferRequest volume(String key) {
