@@ -74,8 +74,8 @@
               </td>
               <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="planStatusLabel(row.status, row.qcStatus)"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
               <td class="settings-cell">
-                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canQuickEditSettings(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="canQuickEditSettings(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div class="bid-mode">
                   <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
                   <button v-if="canShowTransfer(row)" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId || !!deletingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="row.status === 'PAUSED' ? '恢复本计划并暂停关联计划' : PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">
@@ -325,6 +325,7 @@ const goalText = (value?: number | null) => value == null ? '—' : Number(value
 const fullDate = (date: string) => date.slice(0, 10);
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
+const canQuickEditSettings = (row: PlanListVo) => canManage(row) && (!!row.qcPlanId || row.status === 'PAUSED' && row.qcStatus === 'TRANSFER_ARCHIVED');
 const canAct = (row: PlanListVo) => row.qcStatus === 'TRANSFER_ARCHIVED'
   ? row.canTransfer && !readOnlyRole.value && user.trialActive : canManage(row);
 const canShowTransfer = (row: PlanListVo) => row.status === 'PAUSED'

@@ -13,7 +13,7 @@
         <el-form-item label="计划名称" prop="name"><el-input v-model="form.name" maxlength="30" show-word-limit placeholder="请输入自定义计划名称" aria-label="计划名称" /><p class="field-hint">可自定义 1–30 字的名称，用于区分不同投放计划。</p></el-form-item>
       </template>
       <template v-if="kind === '调整预算' || kind === '修改计划'">
-        <el-form-item label="日预算" prop="budget" :error="quickSetting ? editError : undefined"><el-input v-model="form.budget" inputmode="decimal" placeholder="请输入日预算" aria-label="日预算金额（元）" @input="clearQuickError"><template #suffix><span class="input-unit">元</span></template></el-input><p class="field-hint">参考范围 {{ budgetMinimum }}–999,999,999.99 元，最多两位小数。</p></el-form-item>
+        <el-form-item label="日预算" prop="budget" :error="quickSetting ? editError : undefined"><el-input v-model="form.budget" inputmode="decimal" placeholder="请输入日预算" aria-label="日预算金额（元）" @input="clearQuickError"><template #suffix><span class="input-unit">元</span></template></el-input><p class="field-hint">参考范围 {{ budgetMinimum }}–{{ budgetMaximum.toLocaleString('zh-CN') }} 元，最多两位小数。</p></el-form-item>
       </template>
       <template v-if="kind === '调整 ROI 目标' || (kind === '修改计划' && form.bidType === 'SMART_BID_CUSTOM')">
         <el-form-item prop="roi" :error="quickSetting ? editError : undefined"><template #label><span>净成交ROI目标</span><el-tooltip content="计划设置的净成交ROI目标，用于投放优化。" popper-class="campaign-tooltip"><el-icon class="label-help" tabindex="0" aria-label="净成交ROI目标说明"><QuestionFilled /></el-icon></el-tooltip></template><el-input v-model="form.roi" inputmode="decimal" placeholder="请输入净成交ROI目标" aria-label="净成交ROI目标" @input="clearQuickError" /><p class="field-hint">参考范围 0.01–100。目标过高可能影响获取流量。</p></el-form-item>
@@ -35,7 +35,7 @@ import { DataLine, InfoFilled, QuestionFilled } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormItemRule, FormRules } from 'element-plus';
 import { updatePlanSettings, getPlan, refreshPlanSettings, type PlanListVo, type PlanVo } from '@/features/delivery/deliveryApi';
-import { budgetMinimum as minimumBudget, budgetInputError, roiInputError, planNameError } from '@/features/delivery/inputValidation';
+import { budgetMinimum as minimumBudget, budgetInputError, deliveryInputRules, isCostMode, roiInputError, planNameError } from '@/features/delivery/inputValidation';
 import { canRebasePlan, rebasePlanInputs, planEditComparison } from '@/features/delivery/planEditConflict';
 import { requestFailure } from '@/api/apiErrors';
 import { PLAN_STATUS } from '@/utils/labels';
@@ -50,7 +50,13 @@ const title = computed(() => props.kind === '调整 ROI 目标' ? '调整净成�
 const formRef = ref<FormInstance>();
 const saving = ref(false), loading=ref(false), blocked=ref(false), editError=ref('');
 const baseline=ref<PlanVo>(),comparison=ref<PlanVo>();let loadVersion=0;
-const editableBaseline=computed(()=>!!baseline.value?.qcPlanId && ['DELIVERING','PAUSED'].includes(baseline.value.status) && (props.kind!=='调整 ROI 目标'||baseline.value.smartBidType==='SMART_BID_CUSTOM'));
+const archivedPlan = computed(() => baseline.value?.status === 'PAUSED' && baseline.value.qcStatus === 'TRANSFER_ARCHIVED');
+const editableBaseline = computed(() => {
+  const plan = baseline.value;
+  return !!plan && plan.settingsEdit?.editable !== false &&
+    (archivedPlan.value || !!plan.qcPlanId && ['DELIVERING', 'PAUSED'].includes(plan.status)) &&
+    (props.kind !== '调整 ROI 目标' || plan.smartBidType === 'SMART_BID_CUSTOM');
+});
 const compareRows=computed(()=>baseline.value && comparison.value ? planEditComparison(baseline.value,comparison.value,form) : []);
 const canKeep=computed(()=>!!baseline.value && !!comparison.value && canRebasePlan(baseline.value,comparison.value));
 async function save() {
@@ -72,12 +78,24 @@ async function save() {
   finally { saving.value = false; }
 }
 const form = reactive({ name: '', budget: '', roi: '', bidType: '' });
-const budgetMinimum = computed(() => minimumBudget(form.bidType));
+const budgetMinimum = computed(() => minimumBudget(form.bidType, 'update'));
+const budgetMaximum = computed(() => {
+  const { creation, update } = deliveryInputRules;
+  if (isCostMode(form.bidType)) return update.budgetMaximum;
+  return archivedPlan.value ? creation.volumeBudgetMaximum : update.volumeBudgetMaximum;
+});
 const unchanged=(key:'name'|'budget'|'roi')=>baseline.value && (key==='name'?form.name.trim()===baseline.value.name:Number(form[key])===(key==='budget'?baseline.value.budget:baseline.value.roi2Goal));
+function budgetError() {
+  if (unchanged('budget')) return '';
+  const error = budgetInputError(form.budget, form.bidType, 'update');
+  if (error) return error;
+  return Number(form.budget) > budgetMaximum.value
+    ? `日预算范围为 ${budgetMinimum.value}–${budgetMaximum.value.toLocaleString('zh-CN')} 元，最多两位小数` : '';
+}
 const rule=(error:()=>string):FormItemRule=>({trigger:'blur',validator:(_rule,_value,callback)=>{const message=error();message?callback(new Error(message)):callback();}});
 const rules = computed<FormRules>(() => ({
   name:[rule(()=>unchanged('name')?'':planNameError(form.name))],
-  budget:[rule(()=>unchanged('budget')?'':budgetInputError(form.budget,form.bidType,'update'))],
+  budget:[rule(budgetError)],
   roi:[rule(()=>unchanged('roi')?'':roiInputError(form.roi,form.bidType,'update'))],
 }));
 function fill(plan:PlanVo){Object.assign(form,{name:plan.name,budget:String(plan.budget??''),roi:String(plan.roi2Goal??''),bidType:plan.smartBidType||''});void nextTick(()=>formRef.value?.clearValidate());}
