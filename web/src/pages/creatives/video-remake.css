@@ -5,14 +5,18 @@
   --remake-muted: #626781;
   --remake-border: #e2e5f0;
   --remake-tint: #f6f5ff;
+  display: flex;
+  flex-direction: column;
+  min-height: min(520px, 90dvh);
+  max-height: 90dvh;
   border-radius: 18px;
   overflow: hidden;
 }
-.remake-dialog .el-dialog__header { padding: 23px 28px 18px; margin: 0; border-bottom: 1px solid var(--remake-border); }
+.remake-dialog .el-dialog__header { flex-shrink: 0; padding: 23px 28px 18px; margin: 0; border-bottom: 1px solid var(--remake-border); }
 .remake-dialog .el-dialog__title { font-size: 22px; font-weight: 700; color: var(--remake-ink); }
 .remake-dialog .el-dialog__headerbtn { top: 12px; right: 11px; }
-.remake-dialog .el-dialog__body { padding: 0; max-height: calc(90dvh - 74px); overflow: auto; color: var(--remake-ink); }
-.remake-workspace { padding: 0 24px 24px; background: #f7f8fc; color: var(--remake-ink); }
+.remake-dialog .el-dialog__body { flex: 1 1 auto; min-height: 0; padding: 0; overflow: auto; background: #f7f8fc; color: var(--remake-ink); }
+.remake-workspace { padding: 0 24px 24px; color: var(--remake-ink); }
 .remake-workspace h3, .remake-workspace p, .remake-workspace dl, .remake-workspace dd { margin: 0; }
 .remake-workspace h3 { font-size: 17px; line-height: 1.4; font-weight: 700; overflow-wrap: anywhere; }
 .remake-workspace svg { width: 18px; height: 18px; flex-shrink: 0; }
