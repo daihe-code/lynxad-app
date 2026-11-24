@@ -10,6 +10,7 @@ import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.modules.delivery.application.PlanSyncService;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.port.*;
+import com.lynx.ad.modules.delivery.domain.service.PlanTransferNames;
 import com.lynx.ad.modules.identity.application.QianchuanCredentialFacade;
 import com.lynx.ad.modules.identity.domain.model.*;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
@@ -51,6 +52,28 @@ class PlanOriginStoreTest {
             List.of(),new QcPlanId(qc),"DISABLE",null,version,null,List.of());plans.save(p);return p;
     }
     void receipt(String id,String qc,String state){jdbc.update("INSERT INTO delivery_publish_attempt VALUES(?,?,?,?)",publisher.value(),id,qc,state);}
+
+    @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
+    void transferredPlanKeepsItsFullNameAfterArchivingAndDeletion(String mode) throws Exception {
+        setup(mode);
+        var volume = plan("volume", viewer, account.value(), "111", PlanSource.LINGTOU, 1);
+        var name = PlanTransferNames.defaultName("基".repeat(30));
+        volume.rename(PlanName.fromPlatform(name));
+        volume.archiveForTransfer();
+        plans.saveTransferInstance(volume, "111");
+
+        var archived = plans.findById(viewer, volume.id()).orElseThrow();
+        assertTrue(archived.transferArchived());
+        assertTrue(archived.qcPlanId().isEmpty());
+        assertEquals(name, archived.name().text());
+        assertEquals(name, plans.findByTenant(viewer).getFirst().name().text());
+
+        archived.markDeleted();
+        plans.save(archived);
+        var deleted = plans.findById(viewer, volume.id()).orElseThrow();
+        assertEquals(PlanStatus.DELETED, deleted.status());
+        assertEquals(name, deleted.name().text());
+    }
 
     @ParameterizedTest @ValueSource(strings={"PostgreSQL","MySQL"})
     void publicationSourceIsSharedButPlanDataAndOwnershipRemainTenantScoped(String mode)throws Exception {
