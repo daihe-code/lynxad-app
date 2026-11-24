@@ -29,7 +29,7 @@ public class PlanInsightsService {
     public record SpendingDay(LocalDate date,BigDecimal cost) {}
     public record DailySpending(LocalDate startDate,LocalDate endDate,BigDecimal totalCost,List<SpendingDay> days,Instant fetchedAt,String warning) {}
     private record Access(AdPlan plan,Credential credential) {}
-    private record Key(String tenant,String id,PlanStatisticsRange range) {}
+    private record Key(String tenant,String id,String qcId,PlanStatisticsRange range) {}
     private final Map<Key,Statistics> cache=new ConcurrentHashMap<>();
     private final AdPlanRepository plans;
     private final OauthAccountRepository accounts;
@@ -37,6 +37,8 @@ public class PlanInsightsService {
     private final AdManagementPort port;
     private final PlanStatisticsService statistics;
     private final PlanInsightsStore store;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore transferRebuilds;
     public PlanInsightsService(AdPlanRepository plans,OauthAccountRepository accounts,QianchuanCredentialFacade credentials,
             AdManagementPort port,PlanStatisticsService statistics,PlanInsightsStore store) {
         this.plans=plans;this.accounts=accounts;this.credentials=credentials;this.port=port;this.statistics=statistics;this.store=store;
@@ -85,7 +87,7 @@ public class PlanInsightsService {
         } catch(RuntimeException ex) { throw new BizException(1406,"千川趋势报表日期不正确（"+value.substring(0,Math.min(32,value.length()))+"）"); }
     }
     public Statistics data(TenantId tenant,PlanId id,PlanStatisticsRange range,boolean refresh) {
-        Access access=access(tenant,id);String qcId=qcId(access);Key key=new Key(tenant.value(),id.value(),range);
+        Access access=access(tenant,id);String qcId=qcId(access);Key key=new Key(tenant.value(),id.value(),qcId,range);
         LocalDate today = LocalDate.now(SHANGHAI);
         boolean todayOnly = today.equals(range.startDate()) && today.equals(range.endDate());
         cache.entrySet().removeIf(e->e.getValue().fetchedAt().plusSeconds(60).isBefore(Instant.now()));
@@ -127,6 +129,35 @@ public class PlanInsightsService {
         }
         Statistics result=new Statistics(summary,List.copyOf(points),report.timeDimension(),fetchedAt,report.warning(),report.metricFields());
         if(cache.size()>=256)cache.clear();cache.put(key,result);return result;
+    }
+
+    public Statistics logicalData(TenantId tenant,PlanId id,PlanStatisticsRange range,boolean refresh) {
+        var plan=plans.findById(tenant,id).filter(p->p.status()!=PlanStatus.DELETED).orElseThrow(()->new BizException(1405,"计划不存在"));
+        var history=transferRebuilds==null?List.<com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferRebuildStore.ArchivedReport>of():
+                transferRebuilds.reports(tenant,Set.of(id.value())).getOrDefault(id.value(),List.of());
+        if(history.isEmpty() && !plan.transferArchived())return data(tenant,id,range,refresh);
+        var archived=TransferReportTotals.archived(history,plan.qcPlanId().map(QcPlanId::value).orElse(null),range);
+        Statistics live=null;
+        String warning=archived.partial()?"部分历史报表仅保留了已同步数据。":null;
+        if(plan.qcPlanId().isPresent()) {
+            try { live=data(tenant,id,range,refresh); }
+            catch(BizException unavailable) {
+                if(archived.summary().isEmpty())throw unavailable;
+                warning="本次投放报表暂不可用，已显示历史投放数据。";
+            }
+        }
+        if(live!=null && archived.summary().isEmpty() && !archived.partial())return live;
+        var summaries=new ArrayList<Map<String,BigDecimal>>();
+        if(!archived.summary().isEmpty())summaries.add(archived.summary());
+        var buckets=new TreeMap<String,List<Map<String,BigDecimal>>>();
+        for(var day:archived.days())buckets.computeIfAbsent(day.time(),key->new ArrayList<>()).add(day.metrics());
+        if(live!=null) {
+            summaries.add(live.summary());
+            for(var point:live.trend())buckets.computeIfAbsent(point.time().substring(0,10),key->new ArrayList<>()).add(point.metrics());
+            if(live.warning()!=null)warning=warning==null?live.warning():warning+" "+live.warning();
+        }
+        var days=buckets.entrySet().stream().map(e->new Point(e.getKey(),TransferReportTotals.combine(e.getValue()))).toList();
+        return new Statistics(TransferReportTotals.combine(summaries),days,"stat_time_day",live==null?null:live.fetchedAt(),warning);
     }
     private static boolean hasSpend(Point point) {
         var cost = point.metrics().get("cost");

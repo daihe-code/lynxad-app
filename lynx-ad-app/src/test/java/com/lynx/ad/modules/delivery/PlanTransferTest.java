@@ -99,7 +99,7 @@ class PlanTransferTest {
         var context = service.context(tenant, root);
         assertNull(context.budget());
         assertFalse(context.reuse());
-        assertEquals("逻辑计划_转投放量", context.targetName());
+        assertEquals("逻辑计划_转投", context.targetName());
         assertEquals(quote, service.recommendations(tenant, root));
         var request = new PlanTransferRequest("volume-quote", "111", "SMART_BID_CONSERVATIVE", new BigDecimal("50"), null);
         assertEquals("SUCCEEDED", service.transfer(tenant, root, request).status());
@@ -152,9 +152,9 @@ class PlanTransferTest {
         var source=physical.get("root");String originalName=source.name().text();var originalSchedule=source.setting().schedule();
         var result=service.transfer(tenant,root,request);assertEquals("SUCCEEDED",result.status());
         var payload=json.readTree(attempts.get(request.requestKey()).payload());var ds=payload.path("delivery_setting");
-        assertEquals("修改后的计划_转投控成本",payload.path("name").asText());assertEquals("SCHEDULE_START_END",ds.path("video_schedule_type").asText());
+        assertEquals("修改后的计划_转投",payload.path("name").asText());assertEquals("SCHEDULE_START_END",ds.path("video_schedule_type").asText());
         assertEquals(end.toString(),ds.path("end_time").asText());assertEquals(LocalDate.now(ZoneId.of("Asia/Shanghai")).toString(),ds.path("start_time").asText());
-        var target=physical.get(result.planId());assertEquals("修改后的计划_转投控成本",target.name().text());assertEquals(end,target.setting().schedule().endDate());
+        var target=physical.get(result.planId());assertEquals("修改后的计划_转投",target.name().text());assertEquals(end,target.setting().schedule().endDate());
         assertEquals(originalName,source.name().text());assertEquals(originalSchedule,source.setting().schedule());
         int writes=calls.size();assertEquals("SUCCEEDED",service.transfer(tenant,root,request).status());assertEquals(writes,calls.size());assertEquals(1,creates);
         assertThrows(BizException.class,()->service.transfer(tenant,root,new PlanTransferRequest(request.requestKey(),"111",request.smartBidType(),request.budget(),request.roi2Goal(),false,request.name(),"DATE_RANGE",end.plusDays(1))));
@@ -166,14 +166,14 @@ class PlanTransferTest {
         var request=new PlanTransferRequest("edit-existing","222","SMART_BID_CONSERVATIVE",new BigDecimal("150"),null,false,"更新放量计划","DATE_RANGE",end);
         var result=service.transfer(tenant,new PlanId(group.custom()),request);
         assertEquals("SUCCEEDED",result.status());assertEquals(List.of("UPDATE 111","DETAILS 111","DISABLE 222","ENABLE 111"),calls);
-        assertEquals("更新放量计划_转投放量",physical.get("root").name().text());assertEquals(end,physical.get("root").setting().schedule().endDate());assertEquals(1,creates);
+        assertEquals("更新放量计划_转投",physical.get("root").name().text());assertEquals(end,physical.get("root").setting().schedule().endDate());assertEquals(1,creates);
     }
     @Test void unconfirmedExtraSettingsNeverPauseOrEnableAnotherPlanAndRecoveryDoesNotResendThem() {
         service.transfer(tenant,root,cost("first-key"));calls.clear();
-        doNothing().when(gateway).details(credential,"111","待确认的名称_转投放量",null,null);
+        doNothing().when(gateway).details(credential,"111","待确认的名称_转投",null,null);
         var request=new PlanTransferRequest("pending-fields","222","SMART_BID_CONSERVATIVE",new BigDecimal("100"),null,false,"待确认的名称",null,null);
         assertEquals("UNCERTAIN",service.transfer(tenant,new PlanId(group.custom()),request).status());assertTrue(calls.isEmpty());
-        verify(gateway,times(1)).details(credential,"111","待确认的名称_转投放量",null,null);
+        verify(gateway,times(1)).details(credential,"111","待确认的名称_转投",null,null);
         assertEquals("FAILED",service.reconcile(tenant,new PlanId(group.custom())).status());assertTrue(calls.isEmpty());
         verify(gateway,times(1)).details(any(),anyString(),any(),any(),any());assertEquals(1,creates);
     }
@@ -190,7 +190,7 @@ class PlanTransferTest {
         var request=new PlanTransferRequest("verify-name","111","SMART_BID_CUSTOM",new BigDecimal("300"),new BigDecimal("4.2"),false,"请求保存的名称",null,null);
         assertEquals("UNCERTAIN",service.transfer(tenant,root,request).status());
         assertEquals("UNCERTAIN",service.reconcile(tenant,root).status());assertNotNull(group.requestKey());assertEquals(1,creates);
-        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("name","请求保存的名称_转投控成本");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)platform.get("222")).put("name","请求保存的名称_转投");
         assertEquals("SUCCEEDED",service.reconcile(tenant,root).status());assertNull(group.requestKey());assertEquals(1,creates);
         verify(gateway,times(1)).status(credential,"222",true);
     }
@@ -305,7 +305,7 @@ class PlanTransferTest {
         service.transfer(tenant,root,cost("first-key"));calls.clear();
         assertEquals("SUCCEEDED",service.transfer(tenant,new PlanId(group.custom()),new PlanTransferRequest("second-key","222","SMART_BID_CONSERVATIVE",new BigDecimal("100"),null)).status());
         assertEquals(List.of("DETAILS 111","DISABLE 222","ENABLE 111"),calls);
-        assertEquals("逻辑计划_转投放量", physical.get("root").name().text());
+        assertEquals("逻辑计划_转投", physical.get("root").name().text());
         verifyNoMoreInteractionsAfterSettings();
     }
     private void verifyNoMoreInteractionsAfterSettings(){verify(gateway,never()).settings(any(),anyString(),any(),any());}

@@ -39,6 +39,8 @@ public class PlanMaterialsService {
     private final QianchuanCredentialFacade credentials;
     private final AdManagementPort port;
     private final AssetUploadService assets;
+    @org.springframework.beans.factory.annotation.Autowired
+    private TransferMaterialConfig transferMaterials;
     private com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore labels;
     @org.springframework.beans.factory.annotation.Autowired public void presentationStore(com.lynx.ad.modules.delivery.infrastructure.persistence.PlanMaterialPresentationStore value) {labels=value;}
     public PlanMaterialsService(AdPlanRepository plans,OauthAccountRepository accounts,QianchuanCredentialFacade credentials,AdManagementPort port,AssetUploadService assets) {
@@ -50,6 +52,8 @@ public class PlanMaterialsService {
     public Result materials(TenantId tenant,PlanId id,PlanStatisticsRange range,String type,boolean currentOnly) {
         if(!TYPES.contains(type))throw new BizException(1402,"素材分类不正确");
         var plan=plans.findById(tenant,id).filter(p->p.status()!=PlanStatus.DELETED).orElseThrow(()->new BizException(1405,"计划不存在"));
+        if(plan.transferArchived() && transferMaterials!=null)
+            return configuredMaterials(tenant,plan.accountId(),transferMaterials.archivedMaterials(plan),type);
         if(plan.qcPlanId().isEmpty())throw new BizException(1403,"草稿尚未发布，暂无千川素材统计");
         var account=accounts.findById(tenant,plan.accountId()).orElseThrow(()->new BizException(1201,"授权账户不存在"));
         if(account.platform()!=Platform.QIANCHUAN || !"ACTIVE".equals(account.status()))throw new BizException(1201,"广告账户授权已失效，请重新授权");
@@ -148,8 +152,59 @@ public class PlanMaterialsService {
                     first(text(row,"create_time"),text(info,"create_time"),text(sub,"create_time"),text(meta,"create_time")),strings(row.path("delivery_not_reason")),Collections.unmodifiableMap(metrics),titles));
             }
         }
+        if(currentOnly && result.isEmpty())return configuredMaterials(tenant,plan.accountId(),current,type);
         if("AIGC".equals(type))warnings.add("AIGC 分类依据千川素材库的 AI 标识；未返回标识的素材仍在视频、图片或图文分类中展示。");
         return new Result(List.copyOf(result),Instant.now(),warnings.isEmpty()?null:String.join("；",new LinkedHashSet<>(warnings)));
+    }
+
+    private Result configuredMaterials(TenantId tenant,AccountId account,JsonNode detail,String type) {
+        List<Material> result=new ArrayList<>();
+        com.lynx.ad.modules.delivery.infrastructure.adapter.QianchuanCreativeBindings.groups(detail);
+        for(var group:detail.path("multi_product_creative_list")) {
+            String id=group.path("product_id").asText();
+            var product=List.of(new Product(id,first(text(group,"product_name"),"商品 "+id),null));
+            var titles=stringsFromTitles(group);
+            switch(type) {
+                case "VIDEO" -> {
+                    for(var video:group.path("video_material")) {
+                        var object=text(video,"video_id");
+                        var url=first(registeredUrl(tenant,account,"VIDEO",object),text(video,"video_url"),text(video,"url"));
+                        var cover=first(registeredUrl(tenant,account,"IMAGE",text(video,"video_cover_id")),text(video,"video_cover_url"),text(video,"cover_url"));
+                        result.add(configured(result.size(),type,first(text(video,"title"),titles.isEmpty()?null:titles.getFirst(),"视频素材"),url,cover,List.of(),product,titles));
+                    }
+                }
+                case "IMAGE" -> {
+                    for(var image:group.path("image_material")) {
+                        List<String> urls=new ArrayList<>();
+                        for(var object:image.path("image_ids")) {
+                            var url=registeredUrl(tenant,account,"IMAGE",object.asText());
+                            if(url!=null)urls.add(url);
+                        }
+                        if(urls.isEmpty() && text(image,"image_url")!=null)urls.add(text(image,"image_url"));
+                        result.add(configured(result.size(),type,"图片素材",null,urls.isEmpty()?null:urls.getFirst(),List.copyOf(urls),product,titles));
+                    }
+                }
+                case "CAROUSEL" -> {
+                    for(var item:group.path("carousel_material")) {
+                        var images=strings(item.path("image_urls"));
+                        var cover=first(text(item,"cover_url"),images.isEmpty()?null:images.getFirst());
+                        result.add(configured(result.size(),type,first(text(item,"title"),"图文素材"),null,cover,images,product,titles));
+                    }
+                }
+                case "TITLE" -> titles.forEach(title->result.add(configured(result.size(),type,title,null,null,List.of(),product,List.of(title))));
+                default -> { }
+            }
+        }
+        return new Result(List.copyOf(result),Instant.now(),null);
+    }
+    private static List<String> stringsFromTitles(JsonNode group) {
+        List<String> titles=new ArrayList<>();
+        for(var item:group.path("title_material"))if(text(item,"title")!=null)titles.add(text(item,"title"));
+        return List.copyOf(titles);
+    }
+    private static Material configured(int index,String type,String name,String url,String cover,List<String> images,List<Product> product,List<String> titles) {
+        return new Material(type+":"+index,type,name,"TITLE".equals(type)?name:null,url,cover,images,null,product,
+                null,null,false,null,List.of(),null,List.of(),Map.of(),titles);
     }
     /** Reports can retain removed historical media; the editing preview shows current bindings only. */
     private static boolean currentlyBound(JsonNode detail,JsonNode row,JsonNode sub,JsonNode meta,String type) {
@@ -208,7 +263,7 @@ public class PlanMaterialsService {
     private static List<String> strings(JsonNode values) {List<String> result=new ArrayList<>();if(values.isArray())values.forEach(v->result.add(v.asText()));return List.copyOf(result);}
     private static Boolean flag(JsonNode... nodes) {for(var node:nodes)if(node.path("is_ai_create").isBoolean())return node.path("is_ai_create").booleanValue();return null;}
     private String registeredUrl(TenantId tenant,AccountId account,String kind,String objectId) {
-        if(objectId==null)return null;
+        if(objectId==null || assets==null)return null;
         try {return assets.platformPreviewUrl(tenant,account.value(),kind,objectId).orElse(null);}catch(BizException ex){return null;}
     }
 }

@@ -25,7 +25,7 @@
         <PlanTrendChart v-if="statistics?.trend.length" :points="statistics.trend" :primary="primary" :secondary="secondary" :primary-label="metricLabel(primary)" :secondary-label="metricLabel(secondary)" />
         <el-empty v-else description="当前区间暂无可展示的趋势数据" :image-size="72" />
         <h3>详细数据</h3><el-table :data="statistics?.trend || []" stripe empty-text="平台尚未返回时间明细"><el-table-column prop="time" :label="statistics?.timeDimension === 'stat_time_hour' ? '时间（小时）' : '日期'" min-width="160" /><el-table-column v-for="m in metrics.slice(0, 6)" :key="m.key" :label="m.label" min-width="135"><template #default="{ row }">{{ metricValue(row.metrics[m.key], m.kind) }}</template></el-table-column></el-table>
-        <p class="insights-note">统计仅对应当前计划 ID，暂停计划也可查询已有数据。平台未返回的指标显示「—」。<span v-if="statistics?.fetchedAt"> 查询时间：{{ timeText(statistics.fetchedAt) }}</span></p>
+        <p class="insights-note">统计包含当前计划各次投放的数据。未取得的指标显示「—」。<span v-if="statistics?.fetchedAt"> 查询时间：{{ timeText(statistics.fetchedAt) }}</span></p>
       </template>
       <template v-else-if="activeTab === 'products'">
         <PlanProducts v-if="plan?.qcPlanId" :plan-id="planId" :qc-plan-id="plan.qcPlanId" :range="range" :refresh-token="productRefresh" @changed="productsChanged" />

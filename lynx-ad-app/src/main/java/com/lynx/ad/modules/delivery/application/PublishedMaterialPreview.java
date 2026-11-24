@@ -19,6 +19,8 @@ public class PublishedMaterialPreview {
     private final AdPlanRepository plans;
     private final CreationQianchuanGateway gateway;
     private final CarouselRepository carousels;
+    @org.springframework.beans.factory.annotation.Autowired
+    private TransferMaterialConfig transferMaterials;
     public PublishedMaterialPreview(AdPlanRepository plans,CreationQianchuanGateway gateway,CarouselRepository carousels) {
         this.plans=plans;this.gateway=gateway;this.carousels=carousels;
     }
@@ -27,9 +29,16 @@ public class PublishedMaterialPreview {
         state.publishedMaterialsCurrent=false;
         try {
             var plan=plans.findById(tenant,new PlanId(requested)).orElseThrow(()->new BizException(1405,"计划不存在"));
-            if(plan.qcPlanId().isEmpty()||!plan.accountId().value().equals(state.accountId)||!plan.awemeId().value().equals(state.awemeId))return;
-            var live=gateway.detail(tenant,state.accountId,state.awemeId,plan.qcPlanId().orElseThrow().value());
-            if(!plan.qcPlanId().orElseThrow().value().equals(live.path("ad_id").asText()))return;
+            if(!plan.accountId().value().equals(state.accountId)||!plan.awemeId().value().equals(state.awemeId))return;
+            JsonNode live;
+            if(plan.transferArchived() && transferMaterials!=null) {
+                live=transferMaterials.archivedMaterials(plan);
+            } else {
+                if(plan.qcPlanId().isEmpty())return;
+                var id=plan.qcPlanId().orElseThrow().value();
+                live=gateway.detail(tenant,state.accountId,state.awemeId,id);
+                if(!id.equals(live.path("ad_id").asText()))return;
+            }
             var groups=QianchuanCreativeBindings.groups(live);
             var keys=new LinkedHashMap<String,Set<String>>();
             var pools=new LinkedHashMap<String,CreationState.TitlePool>();

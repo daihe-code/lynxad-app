@@ -37,6 +37,18 @@ public class PlanSettingsEditStore {
             default->null;
         });
     }
+    public void editArchived(AdPlan original, String expectedVersion, java.util.function.Consumer<AdPlan> edit) {
+        tx.executeWithoutResult(s -> {
+            var tenant=original.tenantId();var id=original.id();
+            transfers.lockForDeletion(original);
+            var plan=plans.findByIdForUpdate(tenant,id).orElseThrow(()->new BizException(1405,"计划不存在"));
+            if(!plan.transferArchived())throw new BizException(1404,"计划状态已变化，请刷新后修改");
+            var row=row(tenant,id,true).orElse(null);
+            if(row!=null && !"IDLE".equals(row.status()))throw new BizException(1523,"计划修改正在处理，请稍后核查");
+            PlanEditVersion.require(expectedVersion,plan,row==null?0:row.revision());
+            edit.accept(plan);
+        });
+    }
     @org.springframework.transaction.annotation.Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public Claim claim(TenantId tenant,PlanId id,PlanSettingsRequest request) {
         if(request.expectedVersion()==null || !request.expectedVersion().matches("[0-9]{1,19}\\.[a-f0-9]{64}"))throw new BizException(1404,"页面缺少有效的计划版本，请重新读取后核对，当前输入可保留");

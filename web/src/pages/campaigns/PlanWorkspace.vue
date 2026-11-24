@@ -16,7 +16,7 @@
       </KeepAlive>
       <Create v-if="draftEditor" :key="plan.planId" :initial-plan-id="plan.planId" :initial-step="draftInitialStep" />
       <template v-else-if="showWorkspaceFrame">
-        <CreationFrame :transfer="transferring" :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
+        <CreationFrame :transfer="transferring" :step="step" :reached-step="reachedStep" :max-step="plan.qcPlanId || archivedPlan || plan.status === 'SUBMITTING' || submissionPhase === 'FAILED' ? 4 : creationReachedStep(creation,step)" :account="account" :account-chips="accountChips" :result-state="step === 4 && (submissionPhase === 'FAILED' || plan.status === 'REJECTED') ? 'warning' : undefined" :result-label="plan.status === 'REJECTED' ? '审核未通过' : undefined" navigable :navigation-disabled="saving || resultActionBusy" @navigate="navigate" />
         <CreateProductsStep v-if="step === 1" :products="products" :selected="products" :loaded="true" :load-error="false" :saving="saving || materialBusy" :account="account" :accounts="[]" :account-chips="accountChips" :total="products.length" :analysis-status="creation?.analysisStatus || 'NONE'" :analysis-error="creation?.analysisError" :analysis="creation?.analysis" :basic-analysis="creation?.basicAnalysis" :analysis-started-at="creation?.analysisStartedAt" :group-decision="creation?.groupingDecision" :allow-adjustment="productAdjustmentAvailable" :adjustment-blocked-reason="productAdjustmentBlockedReason" :selection-locked="editing && selectionLocked" @adjust="startContentEdit" :content-editing="!!plan.qcPlanId" read-only embedded />
         <CreateGoalStep
           v-else-if="step === 2"
@@ -34,8 +34,8 @@
           @mode="changeTransferMode" @retry-estimate="transferQuoteVersion++"
         />
         <template v-else-if="step === 3">
-          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && canEdit" :title-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
-          <PublishedPlanMaterials v-else-if="plan.qcPlanId" :key="plan.planId" :plan="plan" :products="products" :account="account" />
+          <CreateMaterialsStep v-if="materialState" v-model:plan-name="name" :state="materialState" :busy="saving || materialBusy" :account="account" :account-chips="accountChips" read-only :addition-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @add="addPublishedMaterial" @add-uploads="addPublishedUploads" @upload-batch-finished="finishPublishedUploads" @generate-addition="generatePublishedAddition" :material-actions="editing && !transferring && !archivedPlan && canEdit" :title-actions="productAdjustmentAvailable && !settingsBlocked && !selectionLocked" @product-titles="saveProductTitles" @add-title="addPublishedTitle" @regenerate-title="regenerateProductTitle" embedded @action="openMaterialAction" @resolve-version="resolveMaterialVersion" @retry-sync="retryVersionSync" :version-error="mediaFailure?.message" />
+          <PublishedPlanMaterials v-else-if="plan.qcPlanId || archivedPlan" :key="plan.planId" :plan="plan" :products="products" :account="account" />
           <main v-else class="ad-main"><div class="container-page"><section class="panel"><div class="panel__pad"><h2 class="panel__title">投放素材</h2><p class="workspace-empty">当前计划暂无已保存的素材。</p></div></section></div></main>
           <main class="ad-main workspace-plan-settings"><div class="container-page"><section class="panel"><div class="panel__pad"><label for="workspace-plan-name">{{ transferring ? '转投计划名称' : '投放计划名称' }}</label><input id="workspace-plan-name" v-model="name" maxlength="30" :disabled="saving || !editing || !canEdit" aria-label="计划名称" /><p v-if="nameError || settingsFieldErrors.name" class="workspace-error" role="alert">{{ nameError || settingsFieldErrors.name }}</p></div></section></div></main>
         </template>
@@ -228,7 +228,7 @@ const settingsFailure = ref<ApiRequestError>(), latestSettings = ref<PlanVo>();
 const settingsChecking = ref(false), settingsUnknown = ref(false), canAcceptCurrent = ref(false);
 const settingsFieldErrors = ref<Partial<Record<SettingsField,string>>>({});
 const settingsPending = computed(() => transferring.value && transferPending.value || settingsUnknown.value || !!(latestSettings.value || plan.value)?.settingsEdit && (latestSettings.value || plan.value)!.settingsEdit!.status !== 'IDLE');
-const settingsBlocked = computed(() => materialBusy.value || materialPending.value || !!plan.value?.qcPlanId && (settingsChecking.value || settingsPending.value));
+const settingsBlocked = computed(() => materialBusy.value || materialPending.value || (!!plan.value?.qcPlanId || plan.value?.qcStatus === 'TRANSFER_ARCHIVED') && (settingsChecking.value || settingsPending.value));
 const settingsInputs = () => ({name:name.value,budget:budget.value,roi:roi.value,duration:duration.value,end:end.value});
 function clearSettingsRecovery() {settingsChecking.value=false;settingsFailure.value=undefined;latestSettings.value=undefined;settingsUnknown.value=false;canAcceptCurrent.value=false;settingsFieldErrors.value={};}
 const name = ref(''), budget = ref(''), roi = ref(''), duration = ref<'long' | 'custom'>('long'), start = ref(''), end = ref('');
@@ -266,14 +266,16 @@ const account = computed(() => {
   return { key: `${p.accountId}:${p.awemeId}`, awemeName: aweme?.name || (known ? p.awemeId : '暂未获取抖音号'), awemeId: known ? p.awemeId : '—', avatar: aweme?.avatar };
 });
 const accountChips = computed(() => awemeLabels(boundAccount.value?.awemes.find(w => w.awemeId === plan.value?.awemeId)));
-const canEdit = computed(() => user.me?.memberRole !== 'VIEWER' && user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status)));
+const archivedPlan = computed(() => plan.value?.status === 'PAUSED' && plan.value.qcStatus === 'TRANSFER_ARCHIVED');
+const canEdit = computed(() => user.me?.memberRole !== 'VIEWER' && user.trialActive && boundAccount.value?.status === 'ACTIVE' && !!plan.value && (archivedPlan.value || (plan.value.qcPlanId ? ['DELIVERING', 'PAUSED'].includes(plan.value.status) : plan.value.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(plan.value.status))));
 const canRestoreArchived = computed(() => plan.value?.qcStatus === 'TRANSFER_ARCHIVED' && user.me?.memberRole !== 'VIEWER' && boundAccount.value?.status === 'ACTIVE');
 const productAdjustmentAvailable = computed(() => editing.value && !transferring.value && canEdit.value && !!plan.value?.qcPlanId && !!creation.value);
 const productAdjustmentBlockedReason = computed(() => settingsBlocked.value ? '请先完成当前计划修改的核查，再调整商品。' : '');
-const draftEditor = computed(() => !transferring.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
+const draftEditor = computed(() => !transferring.value && !archivedPlan.value && editing.value && canEdit.value && !!creation.value && !plan.value?.qcPlanId);
 const showWorkspaceFrame = computed(() => !draftEditor.value && (!contentDraftId.value || step.value === 2 || step.value === 4));
 const footerHint = computed(() => {
   if (!editing.value || !canEdit.value) return '';
+  if (archivedPlan.value) return '';
   if (!plan.value?.qcPlanId) return '保存修改后更新草稿';
   if (transferring.value) return '';
   return step.value === 3 ? '素材操作单独确认，计划名称修改需保存' : '';
@@ -298,11 +300,11 @@ const changedBudget = computed(() => plan.value != null && Number(budget.value) 
 const changedRoi = computed(() => isCost.value && plan.value != null && Number(roi.value) !== plan.value.roi2Goal);
 const changedSchedule = computed(() => !!plan.value && (duration.value !== publishedSchedule(plan.value).duration || duration.value === 'custom' && end.value !== (plan.value.endDate || '')));
 const dateError = computed(() => editing.value && changedSchedule.value ? publishedScheduleError(duration.value,start.value,end.value) : '');
-const reachedStep = computed(() => plan.value?.qcPlanId || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value));
+const reachedStep = computed(() => plan.value?.qcPlanId || archivedPlan.value || plan.value?.status === 'SUBMITTING' ? 4 : creationReachedStep(creation.value,step.value));
 const dirty = computed(() => !!plan.value && (name.value.trim() !== plan.value.name || changedBudget.value || changedRoi.value || changedSchedule.value || changedMode.value));
 const initialName = computed(() => (changedMode.value ? transferContext.value?.targetName : undefined) ?? plan.value?.name);
 const nameError = computed(() => editing.value && name.value.trim() !== initialName.value ? planNameError(name.value) : '');
-const inputProfile = computed(() => changedMode.value || draftEditor.value ? 'creation' : 'update');
+const inputProfile = computed(() => changedMode.value || draftEditor.value || archivedPlan.value ? 'creation' : 'update');
 const budgetMinimum = computed(() => minimumBudget(bidType.value));
 const budgetHint = computed(() => {
   if (!editing.value) return '当前计划的日预算';
@@ -326,6 +328,7 @@ function resetForm() {
   if (transferring.value) {
     transferMode.value = p.smartBidType || '';
     transferBudgetEdited.value = false;
+    if (transferContext.value) changeTransferMode(transferContext.value.targetMode);
   }
 }
 async function load() {
@@ -434,7 +437,7 @@ async function saveSettings() {
   settingsFailure.value=undefined;canAcceptCurrent.value=false;settingsFieldErrors.value={};
   saving.value = true;
   try {
-    if (p.qcPlanId) {
+    if (p.qcPlanId || archivedPlan.value) {
       const result=await savePlanSettingsWithRecovery(p,settingsInputs(),{
         read:()=>readCurrentSettings(p.planId),write:body=>updatePlanSettings(p.planId,body),rebased:adoptSettings,
       });
@@ -456,7 +459,7 @@ async function saveSettings() {
 }
 async function readCurrentSettings(id:string) {
   const current=await getPlan(id,{quiet:true});
-  return current.settingsEdit && current.settingsEdit.status!=='IDLE' ? current : refreshPlanSettings(id);
+  return !current.qcPlanId || current.settingsEdit && current.settingsEdit.status!=='IDLE' ? current : refreshPlanSettings(id);
 }
 function adoptSettings(latest:PlanVo,values:PlanEditInputs) {
   plan.value=latest;resetForm();

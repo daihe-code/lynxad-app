@@ -37,7 +37,7 @@
       <p v-if="blockedReason" class="plan-confirm-blocked" role="alert">{{ blockedReason }}</p>
     </template>
     <template v-else>
-      <p v-if="!draft" class="plan-confirm-impact">删除后，计划将从千川和当前列表中移除。</p>
+      <p v-if="!draft" class="plan-confirm-impact">{{ transferArchived ? '删除后，旧计划将从当前列表中移除。' : '删除后，计划将从千川和当前列表中移除。' }}</p>
       <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><strong>{{ draft ? '删除后无法恢复，请确认不再需要此草稿。' : '此操作无法恢复，删除后不能恢复该计划的投放。' }}</strong></div>
       <p class="plan-confirm-retained">仅删除当前{{ draft ? '草稿' : '计划' }}，关联的转投计划和共用素材会保留。</p>
       <p v-if="!draft && plan?.status === 'PAUSED'" class="plan-confirm-retained">若只是暂时不投放，可继续保持暂停。</p>
@@ -64,10 +64,11 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [paus
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
 const draft = computed(() => props.plan?.status === 'DRAFT' && !props.plan.qcPlanId);
+const transferArchived = computed(() => props.plan?.qcStatus === 'TRANSFER_ARCHIVED');
 const id = computed(() => props.plan?.qcPlanId || props.plan?.planId || '');
 const state = computed(() => {
   const display = planStatusDisplay(props.plan?.status, props.plan?.qcStatus);
-  if (props.plan?.qcStatus === 'TRANSFER_ARCHIVED') return { ...display, label: '因转投暂停' };
+  if (transferArchived.value) return { ...display, label: '因转投暂停' };
   return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
 });
 const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');

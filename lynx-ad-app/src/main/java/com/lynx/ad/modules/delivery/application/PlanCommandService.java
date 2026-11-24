@@ -268,9 +268,16 @@ public class PlanCommandService {
 
     @Transactional
     public void deletePlan(TenantId tenantId, PlanId id) {
+        deletePlan(tenantId,id,false);
+    }
+
+    @Transactional
+    public void deletePlan(TenantId tenantId, PlanId id, boolean archivedOnly) {
         billingTrialService.assertWritable(tenantId, Instant.now(), WriteAction.SAVE_PLAN);
         AdPlan plan=require(tenantId,id);
         if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
+        if(archivedOnly && !plan.transferArchived())
+            throw new BizException(1404,"计划状态已变化，请刷新后操作");
         if(plan.qcPlanId().isEmpty() && !plan.transferArchived()) {
             discardDraft(tenantId,id);
             return;
@@ -278,7 +285,10 @@ public class PlanCommandService {
         if(transfers!=null)transfers.lockForDeletion(plan);
         plan=planRepository.findByIdForUpdate(tenantId,id).orElseThrow(()->new BizException(1405,"计划不存在"));
         if(plan.status()==com.lynx.ad.modules.delivery.domain.model.PlanStatus.DELETED)return;
-        if(!plan.transferArchived())
+        boolean archived=plan.transferArchived();
+        if(archivedOnly && !archived)
+            throw new BizException(1404,"计划状态已变化，请刷新后操作");
+        if(!archived)
             adStatusPort.updateStatus(credentialFacade.getUsableCredential(tenantId,plan.accountId()),plan.qcPlanId().orElseThrow(),PlanAction.DELETE);
         try {
             plan.markDeleted();
@@ -286,6 +296,7 @@ public class PlanCommandService {
             if(transfers!=null)transfers.detachDeleted(tenantId,id);
             recordPlan(tenantId,id.value(),"删除计划："+plan.name().text());
         } catch(RuntimeException ex) {
+            if(archived)throw ex;
             throw new BizException(1406,"千川已接受删除，本地结果待确认，请同步核查，勿重复提交");
         }
     }

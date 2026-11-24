@@ -20,7 +20,11 @@ public class CampaignTrendService {
         var range=filter.statisticsRange();
         if(range==null){var today=LocalDate.now(ZoneId.of("Asia/Shanghai"));range=new PlanStatisticsRange(today,today);}
         var template=filter.metricTemplate()==null?PlanMetricTemplate.PAYMENT:filter.metricTemplate();
-        boolean daily=!range.startDate().equals(range.endDate());
+        var archive=queries.transferTrend(tenant,filter,range);
+        Map<String,List<Map<String,BigDecimal>>> archivedDays=new HashMap<>();
+        for(var plan:archive)for(var point:plan.days())
+            archivedDays.computeIfAbsent(point.time(),time->new ArrayList<>()).add(point.metrics());
+        boolean daily=!range.startDate().equals(range.endDate()) || !archivedDays.isEmpty();
         var scope=queries.statisticsScope(tenant,filter);
         Map<String,PlanStatisticsService.TrendSnapshot> reports=new LinkedHashMap<>();
         for(String account:scope.keySet())reports.put(account,statistics.trend(tenant,account,range,template,daily,filter.refreshStatistics()));
@@ -34,6 +38,8 @@ public class CampaignTrendService {
         if(reports.values().stream().anyMatch(r->r.timeDimension()!=null && !dimension.equals(r.timeDimension())))
             throw new com.lynx.ad.common.exception.BizException(1406,"平台趋势的时间维度不一致，请重试");
         var warnings=new LinkedHashSet<String>();
+        if(archive.stream().anyMatch(TransferReportTotals.Totals::partial))
+            warnings.add("部分历史投放仅保留了已同步数据。");
         reports.values().stream().map(PlanStatisticsService.TrendSnapshot::warning).filter(Objects::nonNull).forEach(warnings::add);
         boolean available=reports.values().stream().allMatch(r->r.timeDimension()!=null);
         Map<String,Map<String,List<PlanStatisticsService.Metrics>>> buckets=new LinkedHashMap<>();
@@ -53,7 +59,11 @@ public class CampaignTrendService {
                     if(rows.isEmpty())values.add(PlanStatisticsService.noActivity(entry.getValue().metricFields()));
                     else values.addAll(rows);
                 }
-                points.add(new PlanInsightsService.Point(time,aggregate(values)));
+                if(archivedDays.containsKey(time)) {
+                    var all=new ArrayList<>(archivedDays.get(time));
+                    if(!values.isEmpty())all.add(aggregate(values));
+                    points.add(new PlanInsightsService.Point(time,TransferReportTotals.combine(all)));
+                } else points.add(new PlanInsightsService.Point(time,aggregate(values)));
             }
         }
         Instant fetchedAt=reports.values().stream().map(PlanStatisticsService.TrendSnapshot::fetchedAt).min(Comparator.naturalOrder()).orElse(Instant.now());

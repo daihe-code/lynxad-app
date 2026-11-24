@@ -74,8 +74,8 @@
               </td>
               <td><span class="status-pill" :class="planStatusDisplay(row.status,row.qcStatus).group.toLowerCase()" :title="`${planStatusLabel(row.status, row.qcStatus)}（${row.qcStatus || row.status}）`"><i></i><span class="status-pill__label">{{ planStatusLabel(row.status, row.qcStatus) }}</span></span><router-link v-if="row.status === 'PENDING_AUDIT' && row.review && row.review.state !== 'WAITING'" class="review-delay-link" :title="row.review.message" :to="`/campaigns/${row.planId}/result`">{{ row.review.state === 'DELAYED' ? '审核等待较久' : '最新结果待查询' }}</router-link></td>
               <td class="settings-cell">
-                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
-                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div><span>每日预算</span><b>{{ budgetText(row.budget) }}<span v-if="row.budget != null"> 元</span></b><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的预算`" @click="openOperation('调整预算', row)"><el-icon><EditPen /></el-icon></button></div>
+                <div v-if="row.smartBidType === 'SMART_BID_CUSTOM'" class="roi-setting"><span>ROI目标</span><b>{{ goalText(row.roi2Goal) }}</b><span>(净成交)</span><button v-if="row.qcPlanId && canManage(row)" class="inline-edit" :aria-label="`调整 ${row.name} 的 ROI`" @click="openOperation('调整 ROI 目标', row)"><el-icon><EditPen /></el-icon></button></div>
                 <div class="bid-mode">
                   <span>{{ BID_TYPE[row.smartBidType || ''] || '投放方式未知' }}</span>
                   <button v-if="row.qcPlanId && canManage(row) && row.canTransfer !== false" type="button" class="inline-edit transfer-link" :class="{ 'transfer-pending': transferringId === row.planId }" :disabled="!!transferringId || !!actingId" :aria-busy="transferringId === row.planId" :aria-label="`转投 ${row.name}`" :title="PUBLISHED_BID_MODE_HINT" @click="onTransfer(row)">{{ transferringId === row.planId ? '切换中…' : '↔ 转投' }}</button>
@@ -101,7 +101,7 @@
                 <span v-else-if="isDeleted(row)" class="muted">已删除</span>
                 <template v-else>
                   <router-link :to="`/campaigns/${row.planId}`">查看详情</router-link>
-                  <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit`">修改</router-link>
+                  <router-link v-if="!readOnlyRole && (canManage(row) || (row.source !== 'EXTERNAL' && row.status === 'REJECTED'))" :to="`/campaigns/${row.planId}/edit${row.qcStatus === 'TRANSFER_ARCHIVED' ? '?step=2' : ''}`">修改</router-link>
                   <button v-if="!readOnlyRole && (row.status === 'DELIVERING' || row.status === 'PAUSED')" :class="row.status === 'DELIVERING' ? 'pause-action' : 'enable-action'" :disabled="!canAct(row) || actingId === row.planId" @click="onAct(row)">{{ actingId === row.planId ? '处理中' : row.status === 'DELIVERING' ? '暂停' : '恢复' }}</button>
                 </template>
                 <button type="button" v-if="!readOnlyRole && !isDeleted(row)" class="delete-action" :disabled="!canDelete(row) || !!deletingId || !!actingId || !!transferringId" :aria-label="`删除 ${row.name}`" @click="onDelete(row)">{{ deletingId === row.planId ? '删除中…' : '删除' }}</button>
@@ -313,11 +313,14 @@ const goalText = (value?: number | null) => value == null ? '—' : Number(value
 const fullDate = (date: string) => date.slice(0, 10);
 const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus).group === 'DELETED';
 const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
-const canAct = (row: PlanListVo) => canManage(row) || (row.qcStatus === 'TRANSFER_ARCHIVED' && row.canTransfer && !readOnlyRole.value && user.trialActive);
+const canAct = (row: PlanListVo) => row.qcStatus === 'TRANSFER_ARCHIVED'
+  ? row.canTransfer && !readOnlyRole.value && user.trialActive : canManage(row);
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
-const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
-  ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
-  : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
+const canDelete = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && (
+  row.status === 'PAUSED' && row.qcStatus === 'TRANSFER_ARCHIVED' ||
+  (row.qcPlanId
+    ? row.status !== 'SUBMITTING' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
+    : row.status === 'DRAFT' && row.source !== 'EXTERNAL'));
 const canSwitchDraft = (row: PlanListVo) => !readOnlyRole.value && user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
@@ -430,7 +433,7 @@ async function confirmDelete() {
   if (!row || deletingId.value || !canDelete(row)) return;
   deletingId.value = row.planId;
   try {
-    await deletePlan(row.planId);
+    await deletePlan(row.planId, row.qcStatus === 'TRANSFER_ARCHIVED');
     requestVersion++;
     deleteOpen.value = false; deleteTarget.value = null;
     records.value = records.value.filter(p => p.planId !== row.planId);

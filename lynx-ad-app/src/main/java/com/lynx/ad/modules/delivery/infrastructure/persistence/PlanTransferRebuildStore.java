@@ -3,6 +3,8 @@ package com.lynx.ad.modules.delivery.infrastructure.persistence;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.common.domain.Ids.*;
+import com.lynx.ad.modules.delivery.domain.model.AdPlan;
+import com.lynx.ad.modules.delivery.domain.service.PlanTransferNames;
 import com.lynx.ad.modules.delivery.infrastructure.persistence.PlanTransferStore.Attempt;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -18,6 +20,7 @@ public class PlanTransferRebuildStore {
                           String targetPlatformName, String restorePlatformName, String restoreQcId) {}
     public record History(String qcPlanId, Instant archivedAt, LocalDate statisticsStartDate, LocalDate statisticsDate,
                           BigDecimal costYuan, BigDecimal gmvYuan, BigDecimal roi, BigDecimal orders) {}
+    public record ArchivedReport(String qcPlanId, Instant archivedAt, JsonNode snapshot) {}
     public record SyncGuard(Set<String> ids, Set<String> names) {
         public boolean excludes(String id, String name) { return ids.contains(id) || names.contains(name); }
     }
@@ -58,6 +61,20 @@ public class PlanTransferRebuildStore {
                 SELECT snapshot FROM delivery_transfer_history WHERE tenant_id=? AND plan_id=?
                 ORDER BY archived_at DESC LIMIT 1
                 """,(r,n)->parse(r.getString(1)).path("createPayload"),tenant.value(),planId).stream().findFirst();
+    }
+
+    public Map<String,List<ArchivedReport>> reports(TenantId tenant, Set<String> planIds) {
+        if(planIds.isEmpty())return Map.of();
+        var named=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc);
+        Map<String,List<ArchivedReport>> reports=new HashMap<>();
+        named.query("""
+                SELECT plan_id,qc_plan_id,archived_at,snapshot FROM delivery_transfer_history
+                WHERE tenant_id=:tenant AND plan_id IN (:plans) ORDER BY archived_at
+                """,Map.of("tenant",tenant.value(),"plans",planIds),r->{
+            reports.computeIfAbsent(r.getString("plan_id"),id->new ArrayList<>()).add(
+                    new ArchivedReport(r.getString("qc_plan_id"),r.getTimestamp("archived_at").toInstant(),parse(r.getString("snapshot"))));
+        });
+        return reports;
     }
 
     public Optional<JsonNode> submittedPayload(TenantId tenant,String planId,String qcId) {
@@ -158,17 +175,49 @@ public class PlanTransferRebuildStore {
                 """,Boolean.class,tenant.value(),account.value(),qcId,tenant.value(),account.value(),qcId,name));
     }
 
+    public String displayName(AdPlan plan) {
+        String name = plan.name().text();
+        if (!PlanTransferNames.mayNeedRecovery(name)) return name;
+        String planId = plan.id().value();
+        String qcId = plan.qcPlanId().map(QcPlanId::value).orElse(null);
+        if (qcId == null && plan.transferArchived()) {
+            qcId = jdbc.queryForList("""
+                    SELECT qc_plan_id FROM delivery_transfer_history
+                    WHERE tenant_id=? AND plan_id=? ORDER BY archived_at DESC LIMIT 1
+                    """, String.class, plan.tenantId().value(), planId).stream().findFirst().orElse(null);
+        }
+        return qcId == null ? name : logicalName(plan.tenantId(), planId, qcId, name);
+    }
+
     public String logicalName(TenantId tenant, String planId, String qcId, String platformName) {
-        var names=jdbc.queryForList("""
-                SELECT r.target_name FROM delivery_transfer_rebuild r JOIN delivery_transfer_attempt a
+        if (!PlanTransferNames.mayNeedRecovery(platformName)) return platformName;
+        record NameReceipt(String target, String source, String sourceQcId, String sourcePlanId, String request) {}
+        var names = jdbc.query("""
+                SELECT r.target_name,r.source_payload,r.source_qc_id,a.source_plan_id,a.request_json
+                FROM delivery_transfer_rebuild r JOIN delivery_transfer_attempt a
                   ON a.tenant_id=r.tenant_id AND a.request_key=r.request_key
-                WHERE r.tenant_id=? AND a.target_plan_id=? AND a.qc_plan_id=? AND r.target_platform_name=?
-                """,String.class,tenant.value(),planId,qcId,platformName);
-        if(!names.isEmpty())return names.getFirst();
+                WHERE r.tenant_id=? AND a.target_plan_id=? AND a.qc_plan_id=? AND a.status='SUCCEEDED'
+                  AND (r.target_platform_name=? OR r.target_name=?)
+                """, (r, n) -> new NameReceipt(r.getString(1), r.getString(2), r.getString(3), r.getString(4), r.getString(5)),
+                tenant.value(), planId, qcId, platformName, platformName);
+        if (names.isEmpty()) return restoredName(tenant, planId, qcId, platformName);
+        var row = names.getFirst();
+        String source = parse(row.source()).path("name").asText("");
+        if (!parse(row.request()).hasNonNull("name")
+                && !source.isBlank() && PlanTransferNames.isLegacyDefault(source, row.target())) {
+            String original = restoredName(tenant, row.sourcePlanId(), row.sourceQcId(), source);
+            return PlanTransferNames.defaultName(original);
+        }
+        return row.target();
+    }
+
+    private String restoredName(TenantId tenant, String planId, String qcId, String platformName) {
+        if (!PlanTransferNames.mayNeedRecovery(platformName)) return platformName;
         return jdbc.query("""
                 SELECT r.source_payload FROM delivery_transfer_rebuild r JOIN delivery_transfer_attempt a
                   ON a.tenant_id=r.tenant_id AND a.request_key=r.request_key
                 WHERE r.tenant_id=? AND a.source_plan_id=? AND r.restore_qc_id=? AND r.restore_platform_name=?
+                  AND a.status='FAILED'
                 """,(r,n)->parse(r.getString(1)).path("name").asText(platformName),
                 tenant.value(),planId,qcId,platformName).stream().findFirst().orElse(platformName);
     }

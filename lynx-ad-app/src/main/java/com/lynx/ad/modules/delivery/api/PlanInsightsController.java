@@ -19,7 +19,7 @@ public class PlanInsightsController {
     }
     @GetMapping("/data")
     public ApiResponse<PlanInsightsService.Statistics> data(@PathVariable String id,@RequestParam String startDate,@RequestParam String endDate,@RequestParam(defaultValue="false") boolean refresh) {
-        return ApiResponse.ok(service.data(TenantContext.requireTenantId(),new PlanId(id),range(startDate,endDate),refresh));
+        return ApiResponse.ok(service.logicalData(TenantContext.requireTenantId(),new PlanId(id),range(startDate,endDate),refresh));
     }
     @GetMapping("/logs")
     public ApiResponse<?> logs(@PathVariable String id,@RequestParam String startDate,@RequestParam String endDate,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="PLATFORM") String source) {
