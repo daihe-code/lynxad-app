@@ -26,7 +26,7 @@
             <span class="remake-access-icon"><AssetIcon :name="capability?.subscribed === false ? 'video' : 'info-line'" /></span>
             <h3>{{ capability?.subscribed === false ? '开通套餐后即可开始复刻' : '复刻服务暂不可用' }}</h3>
             <p v-if="capabilityError" role="alert">{{ capabilityError }}</p>
-            <p v-else-if="capability?.subscribed === false">参考原视频的镜头节奏，替换目标商品与人物，生成可保存到素材库的新视频。</p>
+            <p v-else-if="capability?.subscribed === false">参考原视频的镜头节奏，替换目标商品，生成可保存到素材库的新视频。</p>
             <p v-else>服务恢复后可以继续新建复刻，已有任务可在任务记录中查看。</p>
             <router-link v-if="capability?.subscribed === false" class="el-button el-button--primary remake-cta"
               to="/subscription" @click="emit('close')">查看套餐</router-link>
@@ -151,26 +151,6 @@
                   <p v-if="productPageError" id="remake-page-error" class="remake-error remake-pager-error" role="alert">{{ productPageError }}</p>
                 </nav>
               </div>
-
-              <template v-if="selectedProduct">
-                <div class="remake-field-title"><strong>商品参考图</strong><span v-if="selectedProduct.imageUrl && !productImage">默认使用商品封面</span></div>
-                <RemakeFilePicker kind="image" label="上传商品参考图" :file="productImage?.file" :disabled="busy"
-                  @change="productImage = uploadSession($event)" />
-<RemakeFilePicker v-for="(extra, index) in productImages" :key="extra.requestId" kind="image" :label="'上传商品参考图 ' + (index + 2)" :file="extra.file" :disabled="busy" @change="selectProductImage(index, $event)" />
-<RemakeFilePicker v-if="productImages.length + (productImage ? 1 : 0) < 6" kind="image" label="再加一张商品图" :disabled="busy" @change="addProductImage($event)" />
-                <p v-if="fieldError('productImage')" class="remake-error" role="alert">{{ fieldError('productImage') }}</p>
-                <label>商品事实
-                  <textarea v-model="facts" rows="3" maxlength="2412" :disabled="busy"
-                    placeholder="每行填写一条，例如：杯身为不锈钢、容量 500 mL" />
-                </label>
-                <div class="remake-count"><span>只填写可核实的规格、卖点和用法。</span><span>{{ cleanFacts.length }} / 12 条</span></div>
-                <p v-if="fieldError('facts')" class="remake-error" role="alert">{{ fieldError('facts') }}</p>
-                <label>补充成片提示语（选填）
-                  <textarea v-model="adNotices" rows="2" :disabled="busy" aria-describedby="remake-ad-notices-hint" />
-                </label>
-                <p v-if="fieldError('adNotices')" class="remake-error" role="alert">{{ fieldError('adNotices') }}</p>
-                <p id="remake-ad-notices-hint" class="remake-muted">按商品说明或已核准的广告样件填写，每行一条，最多 3 条，每条最多 60 字。</p>
-              </template>
             </div>
 
             <div v-else class="remake-step-body">
@@ -212,7 +192,7 @@
             </div>
             <div class="remake-actions">
               <el-button v-if="setupStep > 0" :disabled="busy" @click="goToStep(setupStep - 1)">上一步</el-button>
-              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '开始生成' }}</el-button>
+              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '开始复刻' }}</el-button>
             </div>
           </form>
         </div>
@@ -222,7 +202,7 @@
             <h3>复刻流程</h3>
             <ol class="remake-workflow">
               <li><span><AssetIcon name="video" /></span><div><strong>准备素材</strong><small>参考视频、目标商品与可选人像</small></div></li>
-              <li><span><AssetIcon name="note" /></span><div><strong>后台生成</strong><small>提交后自动生成分镜并核对成片规格，无需等待</small></div></li>
+              <li><span><AssetIcon name="note" /></span><div><strong>后台生成</strong><small>自动生成分镜并核对成片规格</small></div></li>
               <li><span><AssetIcon name="sparkle" /></span><div><strong>生成与入库</strong><small>生成后预览，合适即可保存</small></div></li>
             </ol>
           </section>
@@ -232,11 +212,10 @@
               <div><dt>画幅</dt><dd>{{ expectedOutput ? orientationLabel(expectedOutput) : '跟随原视频' }}</dd></div>
               <div><dt>时长</dt><dd>{{ expectedOutput ? expectedOutput.duration_seconds + ' 秒' : '跟随原视频' }}</dd></div>
               <div><dt>分辨率</dt><dd>{{ expectedOutput ? resolutionLabel(expectedOutput) : capability?.sourceMatchingHd === false ? '720p' : '匹配原视频' }}</dd></div>
-              <div><dt>生成消耗</dt><dd>{{ estimatedPoints == null ? '选择参考视频后计算' : `预计 ${formatPoints(estimatedPoints)} 积分` }}</dd></div>
               <div v-if="selectedProduct"><dt>目标商品</dt><dd>{{ selectedProduct.name }}</dd></div>
             </dl>
             <p v-if="estimatedShortfall" class="remake-error" role="status">{{ estimatedShortfall }}</p>
-            <p v-if="sourceMatchingReady" class="remake-muted">提交后自动开始生成，按成片规格预占积分。</p>
+            <p v-if="sourceMatchingReady" class="remake-muted">分析后自动生成，按成片规格预占积分。</p>
           </section>
         </aside>
       </div>
@@ -273,22 +252,29 @@
           <div class="remake-task-title"><h3>{{ task.product }}</h3>
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
-          <p v-if="task.error" class=remake-error remake-task-error" role="alert">{{ task.error }}</p> <div class="remake-progress" role="status"><span>{{ taskProgress }}</span><el-progress :percentage="taskProgressPercent" :indeterminate="taskProgressIndeterminate" :status="taskProgressStatus" /></div>
-                    <details class="remake-details"><summary>查看详情</summary><section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
-          <h3>生成视频一致性/文字安全检查未通过（阻断）</h3>
-          <ul>
-            <li v-for="issue in task.consistencyIssues" :key="issue">{{ issue }}</li>
-          </ul>
-          <p class="remake-muted">生成视频抽帧检查未通过：采样帧商品与参考图不一致、出现伪造品牌，或画面含乱码/伪文字。该分镜已自动重试一次仍未通过，请调整分镜或重新生成。</p>
-        </section>
-        <section v-if="task.auditIssues?.length" class="remake-ad-notices">
-                    <h3>与商品事实矛盾（未通过）</h3>
-                    <ul>
-                    <li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li>
-                  </ul>
-                    <p class="remake-muted">这些事实与商品事实矛盾，导致复刻失败。请核对商品事实或调整复刻要求后重试。</p>
-                  </section>
-          <section v-if="task.generationWarnings?.length" class="remake-ad-notices"><h3>生成提示（已继续生成）</h3><ul><li v-for="warning in task.generationWarnings" :key="warning">{{ warning }}</li></ul><p class="remake-muted">这些提示不会导致复刻失败，生成会继续进行；成片抽查与单次重试仍会把关。</p></section> <section v-if="task.shotRetries?.length" class="remake-ad-notices"><h3>分镜重试</h3><ul><li v-for="retry in task.shotRetries" :key="retry.shot">第 {{ retry.shotIndex }} 分镜已重试一次（{{ retryReasonLabel(retry.reason) }}），{{ retryStatusLabel(retry.status) }}。</li></ul></section></details> 
+          <p v-if="task.error" class="remake-error remake-task-error" role="alert">{{ task.error }}</p>
+          <details v-if="task.consistencyIssues?.length || task.auditIssues?.length || task.generationWarnings?.length || task.shotRetries?.length"
+            class="remake-details">
+            <summary>查看详情</summary>
+            <section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
+              <h3>成片一致性检查未通过</h3>
+              <ul><li v-for="issue in task.consistencyIssues" :key="issue">{{ issue }}</li></ul>
+            </section>
+            <section v-if="task.auditIssues?.length" class="remake-ad-notices">
+              <h3>与商品事实矛盾（未通过）</h3>
+              <ul><li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li></ul>
+            </section>
+            <section v-if="task.generationWarnings?.length" class="remake-ad-notices">
+              <h3>生成提示</h3>
+              <ul><li v-for="warning in task.generationWarnings" :key="warning">{{ warning }}</li></ul>
+            </section>
+            <section v-if="task.shotRetries?.length" class="remake-ad-notices">
+              <h3>分镜重试</h3>
+              <ul><li v-for="retry in task.shotRetries" :key="retry.shot">
+                第 {{ retry.shotIndex }} 分镜（{{ retryReasonLabel(retry.reason) }}），{{ retryStatusLabel(retry.status) }}。
+              </li></ul>
+            </section>
+          </details>
 
           <div v-if="task.phase === 'SUCCEEDED'" class="remake-result">
             <div class="remake-result-screen">
@@ -322,15 +308,6 @@
             <div class="remake-progress-content">
               <h3 aria-live="polite">{{ taskProgress }}</h3>
               <p v-if="task.quote" class="remake-muted">本次生成 {{ formatPoints(task.quote.points) }} 积分</p>
-              <ol v-if="generationSteps.length" class="remake-progress-stages" aria-label="生成进度">
-                <li v-for="step in generationSteps" :key="step.id" :aria-current="step.current ? 'step' : undefined"
-                  :data-completed="step.done">{{ step.label }}</li>
-              </ol>
-              <ol v-else-if="progressStage" class="remake-progress-stages" aria-label="复刻流程">
-                <li v-for="(label, index) in progressStages" :key="label"
-                  :aria-current="progressStage === index + 1 ? 'step' : undefined"
-                  :data-completed="progressStage > index + 1">{{ label }}</li>
-              </ol>
               <p v-if="progressStage" class="remake-muted">可关闭弹窗，稍后从任务记录查看进度。</p>
               <p v-if="taskError" class="remake-error" role="alert">{{ taskError }}</p>
               <div class="remake-progress-actions">
@@ -403,7 +380,7 @@ const keyword = ref(''), productPage = ref(1), productTotalPages = ref(0), produ
 const productPageInput = ref(''), productPageError = ref('');
 let productQuery = '';
 
-const reference = ref<RemakeUpload>(), productImage = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>(); const productImages = ref<RemakeUpload[]>([]);
+const reference = ref<RemakeUpload>(), portraitImage = ref<RemakeUpload>();
 const referenceSource = ref<'upload' | 'link'>('upload');
 const referenceLinkUrl = ref('');
 const douyinHosts = new Set(['v.douyin.com', 'www.douyin.com', 'douyin.com', 'www.iesdouyin.com', 'iesdouyin.com']);
@@ -490,17 +467,14 @@ const panel = ref<'new' | 'history' | 'task'>('new');
 const tasks = ref<RemakeTask[]>([]), historyError = ref(''), historyLoading = ref(false);
 const historyFilter = ref('all'), historyQuery = ref('');
 const task = ref<RemakeTask>(), taskId = ref(''), taskLoading = ref(false), taskError = ref('');
-
-
-
 const previewFailed = ref(false), previewVersion = ref(0), busy = ref(false);
 
 let productRequest = 0, taskRequest = 0, capabilityRequest = 0, alive = true;
 let poll: ReturnType<typeof setTimeout> | undefined;
 const inProgress = new Set<RemakeTask['phase']>(['CREATING', 'PLANNING', 'REVIEW', 'CONFIRMING', 'SENDING', 'GENERATING']);
 const labels: Record<RemakeTask['phase'], string> = {
-  CREATING: '正在生成', PLANNING: '正在生成', REVIEW: '正在生成', CONFIRMING: '正在生成',
-  SENDING: '正在生成', GENERATING: '正在生成', SUCCEEDED: '已完成', FAILED: '复刻失败', NEEDS_ATTENTION:'结果待核对',
+  CREATING: '等待分析', PLANNING: '正在分析视频', REVIEW: '正在准备生成', CONFIRMING: '正在确认生成',
+  SENDING: '正在提交生成', GENERATING: '正在生成', SUCCEEDED: '成片已就绪', FAILED: '复刻失败', NEEDS_ATTENTION: '结果待核对',
 };
 const phaseLabel = (phase: RemakeTask['phase']) => labels[phase] ?? phase;
 const formatDate = (date: string) => new Date(date).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
@@ -517,7 +491,6 @@ function taskTone(phase: RemakeTask['phase']) {
   return 'progress';
 }
 function taskAction(phase: RemakeTask['phase']) {
-  if (phase === 'REVIEW') return '查看任务';
   if (phase === 'SUCCEEDED') return '查看成片';
   return '查看任务';
 }
@@ -530,23 +503,7 @@ const filteredTasks = computed(() => {
       && (!query || item.product.toLowerCase().includes(query) || item.id.toLowerCase().includes(query));
   });
 });
-
-const stageLabels: Record<string, string> = {
-  preparing_product_images: '正在准备商品参考图',
-  importing_product_image: '正在读取商品参考图',
-  analyzing_product_people: '正在分析商品图中的模特',
-  analyzing_reference: '正在拆解参考视频',
-  analysis_partial: '正在分析镜头与节奏',
-  understanding_reference: '正在分析镜头结构',
-  planning_product: '正在编排新商品的分镜',
-  plan: '分镜已编排，等待确认',
-  planning_portrait_boards: '正在准备人物与商品分镜',
-  narration: '正在合成旁白',
-  render_build: '正在剪辑和合成成片',
-  outputs: '正在保存成片与封面',
-  waiting_network: '网络恢复后将继续查询原任务',
-};
-const progressStages = ['素材分析', '自动确认', '成片生成'];
+const progressStages = ['正在分析素材', '正在准备生成', '正在生成成片'];
 const progressStage = computed(() => {
   const phase = task.value?.phase;
   if (phase === 'CREATING' || phase === 'PLANNING') return 1;
@@ -562,40 +519,9 @@ const retryStatuses: Record<string, string> = {
 };
 const retryReasonLabel = (reason: string) => retryReasons[reason] || '视频一致性检查未通过';
 const retryStatusLabel = (status: string) => retryStatuses[status] || '重试中';
-const generationSteps = computed(() => {
-  const done = new Set(task.value?.progressSteps);
-  const stages = [
-    { id: 'reference_analysed', label: '参考分析' },
-    { id: 'shots_planned', label: '规划分镜' },
-    { id: 'generating', label: '生成分镜' },
-    { id: 'checking', label: '成片检查' },
-  ];
-  if (!done.size) return [];
-  const active = stages.findIndex(step => !done.has(step.id));
-  return stages.map((step, index) => ({
-    ...step, done: done.has(step.id), current: index === active && progressStage.value > 0,
-  }));
-});
-const taskProgress = computed(() => {
-  if (!task.value) return '';
-  if (!inProgress.has(task.value.phase)) return phaseLabel(task.value.phase);
-  const stage = task.value.stage ?? '';
-  const shot = /(?:^|_)shot_([0-7])_/.exec(stage);
-  if (shot && task.value.phase === 'GENERATING') return '正在处理镜头 ' + (Number(shot[1]) + 1);
-  return stageLabels[stage] ?? phaseLabel(task.value.phase);
-});
-const taskProgressPercent = computed(() => {
-  if (!task.value) return 0;
-  if (task.value.phase === 'SUCCEEDED' || task.value.phase === 'FAILED') return 100;
-  return Math.round(((task.value.progressSteps ?? []).length / 4) * 100);
-});
-const taskProgressIndeterminate = computed(() => !!task.value && inProgress.has(task.value.phase));
-const taskProgressStatus = computed<'' | 'success' | 'exception'>(() => {
-  if (!task.value) return '';
-  if (task.value.phase === 'SUCCEEDED') return 'success';
-  if (task.value.phase === 'FAILED') return 'exception';
-  return '';
-}); 
+const taskProgress = computed(() => task.value
+  ? progressStages[progressStage.value - 1] ?? phaseLabel(task.value.phase)
+  : '');
 
 async function loadCapability() {
   const revision = ++capabilityRequest;
@@ -649,13 +575,6 @@ async function loadProducts(page: number, query = productQuery) {
     if (revision === productRequest && alive) productsLoading.value = false;
   }
 }
-function pickProduct(product: CreationProduct) {
-  if (product.qcProductId === selectedProduct.value?.qcProductId) return;
-  selectedProduct.value = product;
-  productImage.value = undefined; productImages.value = [];
-  facts.value = '';
-  adNotices.value = '';
-}
 function jumpToProductPage() {
   const input = productPageInput.value.trim();
   if (!input || busy.value || productsLoading.value) return;
@@ -689,9 +608,6 @@ watch([bindingId, awemeId], () => {
   productQuery = '';
   products.value = [];
   selectedProduct.value = undefined;
-  productImage.value = undefined; productImages.value = [];
-  facts.value = '';
-  adNotices.value = '';
   productPage.value = 1;
   productTotalPages.value = 0;
   productPageInput.value = '';
@@ -705,23 +621,14 @@ watch([useKling, portraitId], () => { portraitTerms.value = false; });
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
-watch([reference, productImage, productImages, portraitImage, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
-  facts, adNotices, portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource, productPeopleMode], () => {
+watch([reference, portraitImage, productPeopleMode, bindingId, awemeId, () => selectedProduct.value?.qcProductId,
+  portraitId, portraitName, rights, portraitTerms, referenceLinkUrl, referenceSource], () => {
   requestId = crypto.randomUUID();
   setupIssue.value = undefined;
   setupError.value = '';
 });
 function uploadSession(file?: File): RemakeUpload | undefined {
   return file ? { file, requestId: crypto.randomUUID(), nextChunk: 0 } : undefined;
-}
-function addProductImage(file?: File) {
-  const session = uploadSession(file);
-  if (!session || productImages.value.length >= 5) return;
-  productImages.value = [...productImages.value, session];
-}
-function selectProductImage(index: number, file?: File) {
-  const session = uploadSession(file);
-  productImages.value = session ? productImages.value.map((item, i) => (i === index ? session : item)) : productImages.value.filter((_, i) => i !== index);
 }
 function selectReference(file?: File) {
   if (reference.value) rights.value = false;
@@ -769,11 +676,8 @@ function validateStep(step: number) {
     [
       { when: !bindingId.value || !awemeId.value, field: 'account', message: '请选择千川账户和抖音账号。' },
       { when: !selectedProduct.value, field: 'product', message: '请选择目标商品。' },
-            { when: !selectedProduct.value?.imageUrl && !selectedProduct.value?.imageUrls?.length && !productImage.value && !productImages.value.length, field: 'productImage', message: '所选商品没有可用的商品图，请上传目标商品参考图或重新选择。' },
-      { when: !cleanFacts.value.length || cleanFacts.value.length > 12 || cleanFacts.value.some(fact => countText(fact) > 200),
-        field: 'facts', message: '请填写 1 至 12 条商品事实，每条最多 200 字。' },
-      { when: cleanAdNotices.value.length > 3 || cleanAdNotices.value.some(notice => countText(notice) > 60 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(notice)),
-        field: 'adNotices', message: '最多填写 3 条成片提示语，每条须为 1 至 60 字的单行文字。' },
+      { when: !!selectedProduct.value && !selectedProduct.value.imageUrls?.length && !selectedProduct.value.imageUrl,
+        field: 'product', message: '所选商品没有可用的商品图，请重新选择。' },
     ],
     productPeopleMode.value ? [] : [
       { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
@@ -832,14 +736,14 @@ async function continueSetup() {
       if (!video) return;
       referenceId = await upload(video, 'video', '上传参考视频');
     }
-    const productImageId = productImage.value ? await upload(productImage.value, 'image', '上传商品图') : undefined; const productImageIds = productImageId ? [productImageId] : []; for (const extra of productImages.value) productImageIds.push(await upload(extra, 'image', '上传商品图'));
     const portraitImageId = !peopleMode && kling && portraitImage.value ? await upload(portraitImage.value, 'image', '上传人物图') : undefined;
     uploadProgress.value = undefined;
     const result = await createRemake({ requestId, bindingId: bindingId.value, awemeId: awemeId.value,
-      productId: product.qcProductId, facts: cleanFacts.value, productImageId, productImageIds: productImageIds.length ? productImageIds : undefined, productImages: product.imageUrl ? [product.imageUrl] : undefined, referenceId,
-      portraitId: peopleMode || kling ? undefined : portraitId.value, portraitName:peopleMode ||  kling ? undefined : portraitName.value, portraitImageId, productPeopleMode: peopleMode,
-      adNotices: cleanAdNotices.value.length ? cleanAdNotices.value : undefined,
-      rightsConfirmed: rights.value, portraitTermsConfirmed: !peopleMode && portraitTerms.value, followSource: true });
+      productId: product.qcProductId, referenceId,
+      portraitId: peopleMode || kling ? undefined : portraitId.value,
+      portraitName: peopleMode || kling ? undefined : portraitName.value, portraitImageId,
+      productPeopleMode: peopleMode, rightsConfirmed: rights.value,
+      portraitTermsConfirmed: !peopleMode && portraitTerms.value, followSource: true });
     requestId = crypto.randomUUID();
     setupStep.value = 0;
     await openTask(result.id, result);
