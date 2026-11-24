@@ -36,6 +36,7 @@ export interface RemakeTask {
   error?: string;
   auditIssues?: string[];
   auditWarnings?: string[];
+  consistencyIssues?: string[];
   createdAt: string;
   assetId?: string;
   plan?: { title: string; shots: RemakeShot[] };
