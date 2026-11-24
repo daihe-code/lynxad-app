@@ -174,3 +174,66 @@ class DouyinLinkVideoDownloaderTest {
         }
     }
 }
+
+    private static final String PLAY_URL = "https://v26-web.douyin.com/video/tos/play/?line=0";
+
+    /**
+     * 把一段 JSON 再包两层 JS 字符串转义（模拟 www.douyin.com 视频页
+     * self.__next_f 里双重转义的内嵌数据）：引号与斜杠都会被转义，
+     * 旧的提取逻辑三条路径都会错过。
+     */
+    private static String escapeTwice(String json) {
+        String once = json.replace("\\", "\\\\").replace("\"", "\\\"");
+        return once.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    @Test
+    void extractPlayUrlHandlesDoubleEscapedPayload() {
+        String inner = "{\"videoInfoRes\":{\"video\":{\"play_addr\":{\"url_list\":[\"https:\\/\\/v26-web.douyin.com\\/video\\/tos\\/play\\/?line=0\"]}}}}";
+        String html = "<script>self.__next_f.push([1,\"" + escapeTwice(inner) + "\"])</script>";
+        assertEquals(PLAY_URL, DouyinLinkVideoDownloader.extractPlayUrl(html, new ObjectMapper()));
+    }
+
+    @Test
+    void extractPlayUrlHandlesDoubleEscapedPayloadWithoutVideoInfoRes() {
+        String inner = "{\"data\":{\"video\":{\"play_addr\":{\"url_list\":[\"https:\\/\\/v26-web.douyin.com\\/video\\/tos\\/play\\/?line=0\"]}}}}";
+        String html = "<script>self.__next_f.push([1,\"" + escapeTwice(inner) + "\"])</script>";
+        assertEquals(PLAY_URL, DouyinLinkVideoDownloader.extractPlayUrl(html, new ObjectMapper()));
+    }
+
+    @Test
+    void extractFromPlayAddrReadsUrlListDirectly() {
+        String text = "{\"play_addr\":{\"url_list\":[\"https://v26-web.douyin.com/video/tos/play/?line=0\"]}}";
+        assertEquals(PLAY_URL, DouyinLinkVideoDownloader.extractFromPlayAddr(text, new ObjectMapper()));
+    }
+
+    @Test
+    void extractPlayUrlHandlesVideoInfoResAsJsonString() {
+        String innerVideo = "{\"video\":{\"play_addr\":{\"url_list\":[\"https:\\/\\/v26-web.douyin.com\\/video\\/tos\\/play\\/?line=0\"]}}}";
+        String once = innerVideo.replace("\\", "\\\\").replace("\"", "\\\"");
+        String html = "{\"videoInfoRes\":\"" + once + "\"}";
+        assertEquals(PLAY_URL, DouyinLinkVideoDownloader.extractPlayUrl(html, new ObjectMapper()));
+    }
+
+    @Test
+    void unescapeEmbeddedJsonLeavesPlainTextUnchanged() {
+        assertEquals("{\"videoInfoRes\":{}}", DouyinLinkVideoDownloader.unescapeEmbeddedJson("{\"videoInfoRes\":{}}"));
+    }
+
+    @Test
+    void extractPlayUrlReturnsNullForAntiBotResponses() {
+        assertNull(DouyinLinkVideoDownloader.extractPlayUrl("Blocked by ArgusSecurityPlugin Uifid Not Found", new ObjectMapper()));
+        assertNull(DouyinLinkVideoDownloader.extractPlayUrl("{\"status_code\":11110,\"status_msg\":\"encrypt_data_miss\"}", new ObjectMapper()));
+    }
+
+    @Test
+    void extractPlayUrlOrWebPageReturnsFoundUrlWithoutFetching() {
+        String html = "{\"videoInfoRes\":{\"video\":{\"play_addr\":{\"url_list\":[\"https://v26-web.douyin.com/video/tos/play/?line=0\"]}}}}";
+        assertEquals(PLAY_URL, DouyinLinkVideoDownloader.extractPlayUrlOrWebPage(html, java.net.http.HttpClient.newHttpClient(), new ObjectMapper(), null));
+    }
+
+    @Test
+    void extractPlayUrlOrWebPageReturnsNullWithoutResolvedId() {
+        assertNull(DouyinLinkVideoDownloader.extractPlayUrlOrWebPage("没有视频信息", java.net.http.HttpClient.newHttpClient(), new ObjectMapper(), null));
+    }
+}
