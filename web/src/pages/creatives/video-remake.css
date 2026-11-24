@@ -303,4 +303,4 @@
   background: #fff;
   font: inherit;
 }
-.remake-link-import .remake-muted { margin: 0 0 8px; }
+.remake-link-import .remake-muted { margin: 0 0 8px; } .remake-progress { display: grid; gap: 8px; margin: 12px 0; } .remake-details { margin-top: 12px; } .remake-details > summary { cursor: pointer; color: var(--remake-accent); font-size: 13px; width: fit-content; }

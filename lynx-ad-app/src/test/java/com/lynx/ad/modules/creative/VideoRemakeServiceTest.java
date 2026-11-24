@@ -306,6 +306,8 @@ class VideoRemakeServiceTest {
         when(catalog.restorable(new TenantId("tenant"), "binding", "douyin", List.of("123")))
                 .thenReturn(List.of(product));
         when(store.ownsAsset("tenant", "actor", "binding", reference, "video")).thenReturn(true);
+    when(store.ownsAsset("tenant", "actor", "binding", "product-img-1", "image")).thenReturn(true);
+    when(store.ownsAsset("tenant", "actor", "binding", "product-img-2", "image")).thenReturn(true);
         when(engine.remake("GET", "/capabilities", null)).thenReturn(json.createObjectNode().put("source_matching_available", true));
         assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
         verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
