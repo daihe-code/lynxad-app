@@ -45,7 +45,7 @@
     <footer class="mg-foot"><div class="container-page mg-foot__in"><p class="mg-foot__c">© 2026 坤境智营 · 广告智能投放平台</p><nav class="mg-foot__l" aria-label="页脚导航"><a class="mg-foot__a" href="#" @click.prevent="ElMessage.info('帮助中心即将上线')">帮助中心</a><router-link class="mg-foot__a" to="/legal/terms">使用指南</router-link><router-link class="mg-foot__a" to="/legal/privacy">隐私政策</router-link></nav></div></footer>
     <AssetModal v-if="modal" :kind="modal" :item="current" :library-type="type" :account-id="accountId || undefined" @close="closeModal" @switch="switchModal" @changed="reload('refresh')" />
     <AssetDeleteDialog v-if="deleteItems.length" :items="deleteItems" :busy="deleting" :error="deleteError" @close="closeDelete" @confirm="confirmDelete" />
-    <VideoRemakeDialog v-if="remakeOpen" @close="remakeOpen = false" @saved="reload('refresh')" />
+    <VideoRemakeDialog v-if="remakeOpen" @close="closeRemake" @saved="refreshAfterLibraryChange" />
   </div>
 </template>
 
@@ -76,6 +76,7 @@ const range = ref<[string, string] | null>(null), draftRange = ref<[string, stri
 const { accountId } = storeToRefs(useAdvertisingAccountsStore());
 const calendarOpen = ref(false), dateError = ref("");
 const remakeOpen = ref(false);
+let refreshOnRemakeClose = false;
 const type = ref<AssetType>("VIDEO"), status = ref<Status>("ALL"), q = ref("");
 const data = shallowRef<LibraryResponse>({ qianchuanBound: true, tabCounts: { video: 0, image: 0, carousel: 0, audio: 0, text: 0 }, statusCounts: { all: 0, used: 0, unused: 0, reviewing: 0, rejected: 0 }, pageInfo: { page: 1, pageSize: 8, total: 0 }, items: [] });
 const page = ref(1), loading = ref(false), failMsg = ref("");
@@ -100,9 +101,23 @@ const visiblePages = computed(() => {
 });
 const allPicked = computed(() => data.value.items.length > 0 && data.value.items.every(i => picked.value.has(i.id)));
 const somePicked = computed(() => data.value.items.some(i => picked.value.has(i.id)));
-watch(() => uploadRows.map(r => `${r.result?.id}:${r.result?.aiReview?.status}:${r.result?.syncs.map(s => s.status).join(',')}`).join(';'), () => { void reload('refresh'); });
+watch(() => uploadRows.map(r => `${r.result?.id}:${r.result?.aiReview?.status}:${r.result?.syncs.map(s => s.status).join(',')}`).join(';'), refreshAfterLibraryChange);
+function refreshAfterLibraryChange() {
+  if (remakeOpen.value) {
+    refreshOnRemakeClose = true;
+    return;
+  }
+  void reload('refresh');
+}
+function closeRemake() {
+  remakeOpen.value = false;
+  if (!refreshOnRemakeClose) return;
+  refreshOnRemakeClose = false;
+  void reload('refresh');
+}
 async function reload(mode: 'query' | 'refresh' | 'background' = 'refresh') {
-  if (mode === 'background' && (activeQuery || loading.value || deleting.value || document.hidden)) return;
+  const background = mode === 'background';
+  if (background && (remakeOpen.value || activeQuery || loading.value || deleting.value || document.hidden)) return;
   clearTimeout(searchTimer); activeQuery?.abort(); const id = ++requestId;
   const owner = localStorage.getItem('lynx.token');
   if (mode === 'refresh' || owner !== cacheOwner) queryCache.clear();
@@ -112,18 +127,18 @@ async function reload(mode: 'query' | 'refresh' | 'background' = 'refresh') {
     activeQuery = undefined; data.value = cached.data; displayKey.value = key; loading.value = false; failMsg.value = ''; return;
   }
   const controller = new AbortController(); activeQuery = controller;
-  loading.value = mode !== 'background';
-  if (mode !== 'background') failMsg.value = '';
+  loading.value = !background;
+  if (!background) failMsg.value = '';
   try {
     const result = await listLibraryFull(params, { signal: controller.signal, headers: { 'X-Quiet-Request': 'true' } });
-    if (id !== requestId) return;
+    if (id !== requestId || (background && remakeOpen.value)) return;
     queryCache.delete(key); queryCache.set(key, { data: result, at: Date.now() });
     if (queryCache.size > 12) queryCache.delete(queryCache.keys().next().value!);
     data.value = result; displayKey.value = key; failMsg.value = '';
     if (current.value) current.value = result.items.find(item => item.id === current.value?.id) || current.value;
     if (page.value > totalPages.value) { page.value = totalPages.value; await reload('query'); }
   } catch (error) {
-    if (id !== requestId || controller.signal.aborted || mode === 'background') return;
+    if (id !== requestId || controller.signal.aborted || background) return;
     failMsg.value = error instanceof Error ? error.message : "素材库查询失败";
     data.value = { ...data.value, items: [], pageInfo: { page: page.value, pageSize: 8, total: 0 } }; picked.value.clear();
     displayKey.value = key;
