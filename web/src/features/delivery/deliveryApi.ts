@@ -220,6 +220,9 @@ export function actPlan(id: string, action: "ENABLE" | "DISABLE" | "FINISH", pau
   return apiPost<PlanVo>(`/api/v1/delivery/plans/${id}/actions`, { action, ...(action === 'DISABLE' ? { pauseReason } : {}) }, action === 'ENABLE' ? { timeout: 180000 } : undefined);
 }
 
-export function deletePlan(id: string) {
-  return apiDelete<void>(`/api/v1/delivery/plans/${encodeURIComponent(id)}`, { timeout: 60000 });
+export function deletePlan(id: string, archivedOnly = false) {
+  return apiDelete<void>(`/api/v1/delivery/plans/${encodeURIComponent(id)}`, {
+    timeout: 60000,
+    params: archivedOnly ? { archivedOnly } : undefined,
+  });
 }

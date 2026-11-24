@@ -326,6 +326,7 @@ function resetForm() {
   if (transferring.value) {
     transferMode.value = p.smartBidType || '';
     transferBudgetEdited.value = false;
+    if (transferContext.value) changeTransferMode(transferContext.value.targetMode);
   }
 }
 async function load() {

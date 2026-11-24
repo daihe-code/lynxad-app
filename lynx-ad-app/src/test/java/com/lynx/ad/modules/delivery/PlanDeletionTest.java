@@ -72,6 +72,32 @@ class PlanDeletionTest {
         assertThrows(BizException.class,()->service.deletePlan(tenant,cost.id()));
         verifyNoInteractions(status,credentials,audit);verify(plans,never()).save(any());
     }
+    @Test void archivedTransferDeletionOnlyRemovesThatLogicalPlan() {
+        cost.archiveForTransfer();
+
+        service.deletePlan(tenant,cost.id(),true);
+        service.deletePlan(tenant,cost.id(),true);
+
+        assertEquals(PlanStatus.DELETED,cost.status());
+        assertEquals(PlanStatus.DELIVERING,volume.status());
+        assertEquals(new QcPlanId("111"),volume.qcPlanId().orElseThrow());
+        verify(plans,times(1)).save(cost);
+        verify(plans,never()).save(volume);
+        verify(transfers).lockForDeletion(cost);
+        verify(transfers).detachDeleted(tenant,cost.id());
+        verifyNoInteractions(status,credentials,bindings);
+    }
+    @Test void archivedDeletionCannotRemoveAPlanRebuiltAfterTheListWasLoaded() {
+        cost.archiveForTransfer();
+        var rebuilt = plan("cost","333",SmartBidType.CUSTOM,PlanStatus.DELIVERING);
+        when(plans.findByIdForUpdate(tenant,cost.id())).thenReturn(Optional.of(rebuilt));
+
+        assertEquals(1404,assertThrows(BizException.class,()->service.deletePlan(tenant,cost.id(),true)).code());
+        assertEquals(PlanStatus.DELIVERING,rebuilt.status());
+        verify(plans,never()).save(any());
+        verify(transfers,never()).detachDeleted(any(),any());
+        verifyNoInteractions(status,credentials,bindings,audit);
+    }
     @Test void repeatedDeletionDoesNotPostAgain() {
         service.deletePlan(tenant,cost.id());service.deletePlan(tenant,cost.id());
         verify(status,times(1)).updateStatus(any(),any(),eq(PlanAction.DELETE));verify(plans,times(1)).save(cost);

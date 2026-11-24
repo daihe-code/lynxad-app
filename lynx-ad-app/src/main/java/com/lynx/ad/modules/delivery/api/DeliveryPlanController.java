@@ -30,8 +30,8 @@ public class DeliveryPlanController {
 
     @RequiresActiveTrial
     @DeleteMapping("/api/v1/delivery/plans/{id}")
-    public ApiResponse<Void> deletePlan(@PathVariable String id) {
-        commandService.deletePlan(TenantContext.requireTenantId(), new PlanId(id));
+    public ApiResponse<Void> deletePlan(@PathVariable String id, @RequestParam(defaultValue = "false") boolean archivedOnly) {
+        commandService.deletePlan(TenantContext.requireTenantId(), new PlanId(id), archivedOnly);
         return ApiResponse.ok(null);
     }
 

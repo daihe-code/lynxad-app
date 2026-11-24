@@ -44,6 +44,8 @@ public class PlanQueryService {
     @Autowired public void creationStore(CreationStore store) { creation=store; }
     private PlanTransferStore transfers;
     @Autowired public void transferStore(PlanTransferStore store) { transfers=store; }
+    private PlanTransferRebuildStore transferRebuilds;
+    @Autowired public void transferRebuildStore(PlanTransferRebuildStore store) { transferRebuilds=store; }
     private boolean live;
     private boolean liveAuthorization;
     @Autowired
@@ -281,7 +283,8 @@ public class PlanQueryService {
             String materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.detail());
             if(materialCover==null)materialCover=com.lynx.ad.modules.delivery.domain.service.PlanMaterialCover.remote(r==null?null:r.payload());
             if(materialCover==null && creationSummary!=null && creationSummary.materialCoverAssetId()!=null)materialCover=covers.get(creationSummary.materialCoverAssetId());
-            result.add(new PlanListVo(plan.id().value(),plan.name().text(),plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
+            String name=group!=null && transferRebuilds!=null?transferRebuilds.displayName(plan):plan.name().text();
+            result.add(new PlanListVo(plan.id().value(),name,plan.status().name(),plan.source().name(),plan.qcPlanId().map(QcPlanId::value).orElse(null),
                     plan.source()==PlanSource.LINGTOU,goods.isEmpty()?null:goods.getFirst().imageUrl(),r==null?null:r.guarantee(),cost,gmv,roi,
                     plan.setting().bidType().oceanValue(),budget,
                     setting==null?plan.setting().roi2Goal().map(RoiGoal::value).orElse(null):QianchuanPlanMapping.number(setting,"roi2_goal"),

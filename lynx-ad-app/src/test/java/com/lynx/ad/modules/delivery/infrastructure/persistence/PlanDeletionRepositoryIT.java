@@ -79,6 +79,27 @@ class PlanDeletionRepositoryIT {
         var g=transfers.group(tenant,cost.id());assertEquals("root",g.root());assertNull(g.conservative());assertEquals("cost",g.custom());
         verify(platform).updateStatus(any(),eq(new QcPlanId("111")),eq(PlanAction.DELETE));verify(bindings,never()).upsert(any(),any());
     }
+    @Test void archivedDeleteDetachesOldModeAndKeepsActivePlanOnItsSharedRoot() {
+        var root=plan("root","111",SmartBidType.CUSTOM);
+        var volume=plan("volume","222",SmartBidType.CONSERVATIVE);
+        volume.apply(PlanStatus.DELIVERING);
+        volume.syncPlatformStatus("DELIVERY_OK");
+        plans.save(root);plans.save(volume);transfers.linkImported(root,volume);
+        root.archiveForTransfer();
+        tx.executeWithoutResult(s->plans.saveTransferInstance(root,"111"));
+
+        tx.executeWithoutResult(s->command.deletePlan(tenant,root.id(),true));
+
+        assertEquals(PlanStatus.DELETED,plans.findById(tenant,root.id()).orElseThrow().status());
+        assertEquals(PlanStatus.DELIVERING,plans.findById(tenant,volume.id()).orElseThrow().status());
+        var group=transfers.group(tenant,volume.id());
+        assertEquals(root.id().value(),group.root());
+        assertEquals(volume.id().value(),group.active());
+        assertEquals(volume.id().value(),group.conservative());
+        assertNull(group.custom());
+        verifyNoInteractions(platform,credentials);
+        verify(bindings,never()).upsert(any(),any());
+    }
     @Test void savingStaleObjectAfterDeleteCannotResurrectPhysicalPlan() {
         var root=plan("root","111",SmartBidType.CONSERVATIVE);plans.save(root);
         var stale=plans.findById(tenant,root.id()).orElseThrow();

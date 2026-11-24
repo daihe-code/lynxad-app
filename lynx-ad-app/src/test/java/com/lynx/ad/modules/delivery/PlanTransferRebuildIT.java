@@ -173,6 +173,37 @@ class PlanTransferRebuildIT {
         System.out.printf("ROUND TRIP cost 101 → volume 201 → cost 202; archives %s, %s; one active%n",historical.qcPlanId(),service.history(tenant,volume).getFirst().qcPlanId());
     }
 
+    @Test void fullDefaultNameSurvivesRebuildAndPlatformNamesOnlyMatchTheirOwnReceipts() {
+        String originalName = "2026-11-22_商品全域投放_10:37:01_e8b";
+        String expectedName = originalName + "_转投";
+        var source = local.get(root.value());
+        source.rename(PlanName.fromPlatform(originalName));
+        upstream.get("101").put("name", originalName);
+        assertEquals(expectedName, service.context(tenant,root).targetName());
+
+        var transfer = service.transfer(tenant,root,volume("full-name"));
+        assertEquals("SUCCEEDED",transfer.status(),transfer.message());
+        var target = local.get(transfer.planId());
+        assertEquals(expectedName, target.name().text());
+        String instanceName = upstream.get(transfer.qcPlanId()).path("name").asText();
+        assertTrue(instanceName.length() <= 30);
+        assertNotEquals(expectedName, instanceName);
+
+        target.rename(PlanName.fromPlatform(instanceName));
+        assertEquals(expectedName, rebuilds.displayName(target));
+        assertEquals(instanceName, rebuilds.logicalName(tenant,root.value(),transfer.qcPlanId(),instanceName));
+
+        String legacyName = originalName.substring(0,25) + "_转投放量";
+        jdbc.update("UPDATE delivery_transfer_rebuild SET target_name=? WHERE tenant_id=? AND request_key=?",
+                legacyName,tenant.value(),"full-name");
+        assertEquals(expectedName, rebuilds.displayName(target));
+        var restored = service.enableExisting(tenant,root);
+        assertEquals("SUCCEEDED",restored.status(),restored.message());
+        assertEquals(originalName, local.get(root.value()).name().text());
+        assertEquals(expectedName, local.get(target.id().value()).name().text());
+        assertEquals(expectedName, service.context(tenant,root).targetName());
+    }
+
     @Test void explicitTargetRejectionRebuildsOriginalWithItsBudgetAndMaterials() {
         createRejections=1;
         var first=service.transfer(tenant,root,volume("reject-and-restore"));

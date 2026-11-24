@@ -315,9 +315,11 @@ const isDeleted = (row: PlanListVo) => planStatusDisplay(row.status,row.qcStatus
 const canManage = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && row.canEdit === true;
 const canAct = (row: PlanListVo) => canManage(row) || (row.qcStatus === 'TRANSFER_ARCHIVED' && row.canTransfer && !readOnlyRole.value && user.trialActive);
 const isDraft = (row: PlanListVo) => row.status === 'DRAFT' && !row.qcPlanId && row.source !== 'EXTERNAL';
-const canDelete = (row: PlanListVo) => !isDeleted(row) && user.trialActive && (row.qcPlanId
-  ? row.status !== 'SUBMITTING' && row.status !== 'DELETED' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
-  : row.status === 'DRAFT' && row.source !== 'EXTERNAL');
+const canDelete = (row: PlanListVo) => !readOnlyRole.value && !isDeleted(row) && user.trialActive && (
+  row.status === 'PAUSED' && row.qcStatus === 'TRANSFER_ARCHIVED' ||
+  (row.qcPlanId
+    ? row.status !== 'SUBMITTING' && accounts.value.some(a => a.accountId === row.accountId && a.status === 'ACTIVE')
+    : row.status === 'DRAFT' && row.source !== 'EXTERNAL'));
 const canSwitchDraft = (row: PlanListVo) => !readOnlyRole.value && user.trialActive && !row.qcPlanId && row.source !== 'EXTERNAL' && ['DRAFT', 'REJECTED'].includes(row.status);
 const alertsOf = (id: string) => openByPlan.value[id] || [];
 const filtered = computed(() => records.value);
@@ -430,7 +432,7 @@ async function confirmDelete() {
   if (!row || deletingId.value || !canDelete(row)) return;
   deletingId.value = row.planId;
   try {
-    await deletePlan(row.planId);
+    await deletePlan(row.planId, row.qcStatus === 'TRANSFER_ARCHIVED');
     requestVersion++;
     deleteOpen.value = false; deleteTarget.value = null;
     records.value = records.value.filter(p => p.planId !== row.planId);
