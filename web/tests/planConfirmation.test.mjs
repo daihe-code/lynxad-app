@@ -11,6 +11,15 @@ test('恢复核查区分处理中、已回退和已恢复投放', () => {
   assert.equal(transferredRestoreFeedback({ status: 'DELIVERING', qcStatus: 'DELIVERY_OK' }).type, 'success');
 });
 
+test('已配对计划的转投沿用恢复核查并使用转投反馈', () => {
+  const paused = { status: 'PAUSED', qcStatus: 'TRANSFER_ARCHIVED' };
+  assert.deepEqual(transferredRestoreFeedback(paused, { status: 'UNCERTAIN' }, '转投'),
+    { pending: true, type: 'warning', message: '转投结果待确认，请稍后查询。' });
+  assert.equal(restoreResultFeedback(paused, '转投').type, 'warning');
+  assert.deepEqual(restoreResultFeedback({ status: 'DELIVERING', qcStatus: 'DELIVERY_OK' }, '转投'),
+    { type: 'success', message: '转投成功，关联计划已暂停' });
+});
+
 test('恢复前核对排期，结束当天仍可恢复，结束后必须先处理排期', () => {
   const plan = { status: 'PAUSED', qcStatus: 'DISABLE', scheduleType: 'DATE_RANGE', endDate: '2026-10-25' };
   assert.equal(restoreUnavailableReason(plan, '2026-10-25'), '');

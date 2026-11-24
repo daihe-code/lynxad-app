@@ -16,18 +16,24 @@ export function restoreUnavailableReason(plan: PlanActionState, today: string): 
   return '';
 }
 
-export function restoreResultFeedback(plan: PlanActionState): { type: 'success' | 'warning'; message: string } {
+type ActivationVerb = '恢复' | '转投';
+
+export function restoreResultFeedback(plan: PlanActionState, verb: ActivationVerb = '恢复'): { type: 'success' | 'warning'; message: string } {
   const state = planStatusDisplay(plan.status, plan.qcStatus);
+  if (verb === '转投') {
+    if (plan.qcStatus && state.group === 'DELIVERING') return { type: 'success', message: '转投成功，关联计划已暂停' };
+    return { type: 'warning', message: '转投指令已提交，请核查最新投放状态。' };
+  }
   if (plan.qcStatus && state.group === 'DELIVERING') return { type: 'success', message: '千川已确认，计划已恢复投放' };
   if (!plan.qcStatus) return { type: 'warning', message: '恢复指令已提交，暂未获取千川最新状态，请刷新核查。' };
   return { type: 'warning', message: `恢复指令已提交，千川当前状态为“${state.label}”，请核查投放结果。` };
 }
 
-export function transferredRestoreFeedback(plan: PlanActionState, result?: { status: string; message?: string | null }) {
+export function transferredRestoreFeedback(plan: PlanActionState, result?: { status: string; message?: string | null }, verb: ActivationVerb = '恢复') {
   if (result?.status === 'RUNNING' || result?.status === 'UNCERTAIN') {
-    return { pending: true, type: 'warning' as const, message: result.message || '恢复结果待确认，请稍后查询。' };
+    return { pending: true, type: 'warning' as const, message: result.message || `${verb}结果待确认，请稍后查询。` };
   }
-  if (result?.status === 'FAILED') return { pending: false, type: 'warning' as const, message: result.message || '计划恢复失败。' };
-  if (plan.qcStatus === 'TRANSFER_ARCHIVED') return { pending: false, type: 'warning' as const, message: '未查到已完成的恢复，计划仍为暂停。' };
-  return { pending: false, ...restoreResultFeedback(plan) };
+  if (result?.status === 'FAILED') return { pending: false, type: 'warning' as const, message: result.message || `计划${verb}失败。` };
+  if (plan.qcStatus === 'TRANSFER_ARCHIVED') return { pending: false, type: 'warning' as const, message: `未查到已完成的${verb}，计划仍为暂停。` };
+  return { pending: false, ...restoreResultFeedback(plan, verb) };
 }
