@@ -55,6 +55,7 @@ class PlanTransferRebuildIT {
     private int createRejections;
     private boolean loseCreateReceipt;
     private boolean loseDeleteReceipt;
+    private boolean omitCardsInDetail;
 
     @BeforeAll static void schema() throws Exception {
         ds=new DriverManagerDataSource(System.getenv("LYNXAD_TRANSFER_TEST_URL"),"root",System.getenv("LYNXAD_TRANSFER_TEST_PASSWORD"));
@@ -98,14 +99,20 @@ class PlanTransferRebuildIT {
                 List.of(new QcProductId("101")),new QcPlanId("101"),"DELIVERY_OK",null,1,null,List.of());
         local.put(root.value(),source);
         upstream.put("101",published.deepCopy().put("ad_id","101").put("status","DELIVERY_OK"));
-        when(creations.publishedPayload(tenant.value(),root.value())).thenReturn(Optional.of(published));
+        when(creations.publishedInstancePayload(tenant.value(),root.value(),"101")).thenReturn(Optional.of(published));
         when(plans.findById(eq(tenant),any())).thenAnswer(i->Optional.ofNullable(local.get(((PlanId)i.getArgument(1)).value())));
         when(plans.findByIdForUpdate(eq(tenant),any())).thenAnswer(i->plans.findById(tenant,i.getArgument(1)));
         doAnswer(i->{AdPlan p=i.getArgument(0);local.put(p.id().value(),p);return null;}).when(plans).save(any());
         doAnswer(i->{plans.save(i.getArgument(0));return null;}).when(plans).saveTransferInstance(any(),nullable(String.class));
         when(platform.credential(tenant,account.value(),aweme.value())).thenReturn(credential);
         when(platform.detail(eq(tenant),eq(account.value()),eq(aweme.value()),anyString()))
-                .thenAnswer(i->upstream.get(i.<String>getArgument(3)).deepCopy());
+                .thenAnswer(i->{
+                    var result=upstream.get(i.<String>getArgument(3)).deepCopy();
+                    if(omitCardsInDetail)for(var group:result.path("multi_product_creative_list"))
+                        ((ObjectNode)group).putNull("creative_card").put("creative_type","PROGRAMMATIC_CREATIVE");
+                    result.putObject("programmatic_creative_media_list").putArray("video_material");
+                    return result;
+                });
         when(platform.recommendations(eq(tenant),eq(account.value()),eq(aweme.value()),anyList(),any(),anyString())).thenReturn(json.createObjectNode());
         when(platform.write(eq(credential),any(),any())).thenAnswer(i->{
             JsonNode body=i.getArgument(2);
@@ -204,10 +211,24 @@ class PlanTransferRebuildIT {
     }
 
     @Test void incompleteCreativeSnapshotDisablesTransferBeforeAnyWrite() {
-        ((ObjectNode)upstream.get("101").at("/multi_product_creative_list/0")).remove("creative_card");
+        var group=(ObjectNode)upstream.get("101").at("/multi_product_creative_list/0");
+        group.remove("creative_card");
+        ((ObjectNode)group.path("title_material").get(0)).put("title","已经改变的素材标题");
         assertFalse(service.context(tenant,root).available());
         assertThrows(BizException.class,()->service.transfer(tenant,root,volume("missing-card")));
         assertTrue(writes.isEmpty());
+        assertEquals(1,deliveryCount());
+    }
+
+    @Test void exactInstanceReceiptFillsOmittedCardOnBothTransfersAndReadback() {
+        omitCardsInDetail=true;
+        assertTrue(service.context(tenant,root).available());
+        var volume=service.transfer(tenant,root,volume("missing-card-matched"));
+        assertEquals("SUCCEEDED",volume.status(),volume.message());
+        var restore=service.enableExisting(tenant,root);
+        assertEquals("SUCCEEDED",restore.status(),restore.message());
+        for(String id:List.of("201","202"))
+            assertEquals("cover1",upstream.get(id).at("/multi_product_creative_list/0/creative_card/promotion_card_image_id").asText());
         assertEquals(1,deliveryCount());
     }
 

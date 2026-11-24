@@ -40,6 +40,14 @@ public class CreationStore {
         return jdbc.query("SELECT payload_json FROM delivery_publish_attempt WHERE tenant_id=? AND plan_id=? AND status='CREATED' ORDER BY created_at DESC LIMIT 1",
                 (r,n)->{try{return json.readTree(r.getString(1));}catch(Exception e){throw new IllegalStateException(e);}},tenant,id).stream().findFirst();
     }
+    public Optional<com.fasterxml.jackson.databind.JsonNode> publishedInstancePayload(String tenant,String id,String qcId) {
+        return jdbc.query("""
+                SELECT payload_json FROM delivery_publish_attempt
+                WHERE tenant_id=? AND plan_id=? AND qc_plan_id=? AND status='CREATED'
+                ORDER BY created_at DESC LIMIT 1
+                """,(r,n)->{try{return json.readTree(r.getString(1));}catch(java.io.IOException e){throw new IllegalStateException(e);}},
+                tenant,id,qcId).stream().findFirst();
+    }
     private CreationState read(String tenant,String id,boolean lock) {
         if(expiry!=null)expiry.assertAvailable(tenant,id,Instant.now());
         var state=jdbc.query("SELECT state_json FROM delivery_creation WHERE tenant_id=? AND plan_id=?"+(lock?" FOR UPDATE":""),
