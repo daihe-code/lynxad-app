@@ -313,10 +313,17 @@ public class VideoRemakeService {
         var result = data.path("delivery");
         boolean finished = "SUCCEEDED".equals(task.phase());
         var adNotices = data.path("ad_notices").valueStream().filter(JsonNode::isTextual).map(JsonNode::asText).toList();
-        var charge = "REVIEW".equals(task.phase()) ? remakeCharge(task, data) : null;
-        var reserved = charge != null || task.confirmation() == null ? null : charges.quote(tenant, chargeKey(task));
-        var quote = reserved != null ? new RemakeQuote(reserved.total(), null) : charge == null ? null : charge.quote();
-        if (quote != null) charges.access(tenant, quote.points());
+        RemakeQuote quote = null;
+        if ("REVIEW".equals(task.phase())) {
+            var charge = remakeCharge(task, data);
+            if (charge != null) {
+                quote = charge.quote();
+                charges.access(tenant, quote.points());
+            }
+        } else if (task.confirmation() != null && (finished || "GENERATING".equals(task.phase()))) {
+            var reserved = charges.quote(tenant, chargeKey(task));
+            if (reserved != null) quote = new RemakeQuote(reserved.total(), null);
+        }
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
