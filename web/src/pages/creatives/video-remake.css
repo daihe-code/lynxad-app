@@ -165,7 +165,7 @@
 .remake-pager, .remake-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .remake-pager { flex-wrap: wrap; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .remake-pager-pages, .remake-pager-jump { display: flex; align-items: center; gap: 6px; }
-.remake-workspace .remake-pager-jump input { width: 62px; height: 32px; padding: 4px 6px; text-align: center; }
+.remake-workspace .remake-pager .remake-pager-jump input { width: 62px; height: 32px; padding: 4px 6px; text-align: center; }
 .remake-workspace .remake-pager-jump input[aria-invalid="true"] { border-color: #b51c42; }
 .remake-pager-error { flex-basis: 100%; margin: 0; text-align: right; white-space: normal; }
 .remake-pager .remake-pager-arrow { width: 32px; height: 32px; padding: 0; flex: none; }
