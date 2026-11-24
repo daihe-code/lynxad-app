@@ -189,7 +189,7 @@ async function confirmDelete() {
     if (alive && owner === (accountId.value || undefined)) deleteError.value = error instanceof Error ? error.message : '暂时无法删除，请重试。';
   } finally { if (alive) deleting.value = false; }
 }
-onMounted(() => { void reload('query'); pollTimer = setInterval(() => { if (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status)))) void reload('background'); }, 5000); });
+onMounted(() => { void reload('query'); pollTimer = setInterval(() => { if (data.value.usagePending || uploadRows.some(r => r.busy) || data.value.items.some(i => i.usageKnown === false || reviewPending(i.aiReview?.status) || i.syncs?.some(s => ['QUEUED', 'RUNNING'].includes(s.status)))) void reload('background'); }, 60_000); });
 onUnmounted(() => { alive = false; ++requestId; activeQuery?.abort(); queryCache.clear(); clearTimeout(searchTimer); clearInterval(pollTimer); });
 </script>
 
