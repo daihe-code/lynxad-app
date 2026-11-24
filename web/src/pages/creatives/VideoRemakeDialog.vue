@@ -251,13 +251,13 @@
           <div class="remake-task-title"><h3>{{ task.product }}</h3>
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
-          <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p>
+          <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p> <section v-if="generationSteps.length" class="remake-progress-steps" aria-label="生成进度"><ol><li v-for="step in generationSteps" :key="step.id" :class="{ done: step.done, current: step.current }"><span class="remake-step-index">{{ step.index }}</span><span>{{ step.label }}</span><small v-if="step.hint">{{ step.hint }}</small></li></ol></section>
                     <section v-if="task.consistencyIssues?.length" class="remake-ad-notices">
           <h3>生成视频一致性/文字安全检查未通过（阻断）</h3>
           <ul>
             <li v-for="issue in task.consistencyIssues" :key="issue">{{ issue }}</li>
           </ul>
-          <p class="remake-muted">生成视频抽帧检查未通过：采样帧商品与参考图不一致，或画面含生成字幕/水印等内嵌文字。请调整分镜或重新生成。</p>
+          <p class="remake-muted">生成视频抽帧检查未通过：采样帧商品与参考图不一致、出现伪造品牌，或画面含乱码/伪文字。该分镜已自动重试一次仍未通过，请调整分镜或重新生成。</p>
         </section>
         <section v-if="task.auditIssues?.length" class="remake-ad-notices">
                     <h3>与商品事实矛盾（未通过）</h3>
@@ -274,7 +274,7 @@
                     <p class="remake-muted">这些事实无法确认，但未导致复刻失败。</p>
                   </section>
 
-          <div v-if="task.phase === 'REVIEW' && plan" class="remake-grid">
+          <section v-if="task.generationWarnings?.length" class="remake-ad-notices"><h3>生成提示（已继续生成）</h3><ul><li v-for="warning in task.generationWarnings" :key="warning">{{ warning }}</li></ul><p class="remake-muted">这些提示不会导致复刻失败，生成会继续进行；成片抽查与单次重试仍会把关。</p></section> <section v-if="task.shotRetries?.length" class="remake-ad-notices"><h3>分镜重试</h3><ul><li v-for="retry in task.shotRetries" :key="retry.shot">第 {{ retry.shotIndex }} 分镜已重试一次（{{ retryReasonLabel(retry.reason) }}），{{ retryStatusLabel(retry.status) }}。</li></ul></section> <div v-if="task.phase === 'REVIEW' && plan" class="remake-grid">
             <form class="remake-main remake-review" novalidate @submit.prevent="approve">
               <label>视频标题<input v-model="plan.title" maxlength="100" :disabled="busy"></label>
               <p v-if="titleError" class="remake-error" role="alert">{{ titleError }}</p>
@@ -534,7 +534,7 @@ const stageLabels: Record<string, string> = {
   outputs: '正在保存成片与封面',
   waiting_network: '网络恢复后将继续查询原任务',
 };
-const taskProgress = computed(() => {
+const generationSteps = computed(() => { const t = task.value; if (!t) return []; const done = new Set(t.progressSteps ?? []); const running = ['PLANNING', 'GENERATING', 'CONFIRMING', 'SENDING'].includes(t.phase); const retryReasonLabel = (reason: string) => reason === 'product_mismatch' ? '商品与参考图不一致' : reason === 'fake_brand' ? '伪造或替换品牌' : reason === 'garbled_text' ? '乱码或伪文字' : '视频一致性检查未通过'; const retryStatusLabel = (status: string) => status === 'passed' ? '重试后通过' : status === 'failed' ? '重试后仍未通过' : '重试中'; const steps = [{ id: 'reference_analysed', label: '参考已分析', hint: '钩子、节奏、运镜、灯光与氛围' }, { id: 'shots_planned', label: '分镜已规划', hint: '按目标商品改写动作' }, { id: 'generating', label: '生成中', hint: '可灵 4.0 逐镜生成' }, { id: 'checking', label: '抽查中', hint: '商品一致与文字检查' }]; let currentFound = false; return steps.map((step, index) => { const isDone = done.has(step.id) || t.phase === 'SUCCEEDED'; const isCurrent = !isDone && running && !currentFound && (index === 0 || done.has(steps[index - 1].id)); if (isCurrent) currentFound = true; return { ...step, index: index + 1, done: isDone, current: isCurrent }; }); }); const taskProgress = computed(() => {
   if (!task.value) return '';
   if (!inProgress.has(task.value.phase)) return phaseLabel(task.value.phase);
   const stage = task.value.stage ?? '';
