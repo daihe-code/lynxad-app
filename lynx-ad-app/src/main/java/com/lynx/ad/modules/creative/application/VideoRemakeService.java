@@ -91,7 +91,7 @@ public class VideoRemakeService {
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
     public record View(String id, String product, String phase, String stage, String error, Instant createdAt,
                        String assetId, JsonNode plan, String videoUrl, String coverUrl, List<String> adNotices,
-                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings) {}
+                       JsonNode outputSpec, RemakeQuote quote, List<String> auditIssues, List<String> auditWarnings, List<String> consistencyIssues) {}
 
     private record RemakeCharge(String kind, int quantity, BigDecimal rate, int images, BigDecimal imageRate) {
         Map<String, Integer> units() { return images > 0 ? Map.of(kind, quantity, WorkspacePricing.IMAGE_UNIT, images) : Map.of(kind, quantity); }
@@ -288,7 +288,7 @@ public class VideoRemakeService {
         return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null), task.error(),
                 task.createdAt(), task.asset(), data.get("plan"), finished ? result.path("video_url").asText(null) : null,
                 finished ? result.path("cover_url").asText(null) : null, adNotices, data.get("output_spec"),
-                quote, auditIssues(data), auditWarnings(data));
+                quote, auditIssues(data), auditWarnings(data), consistencyIssues(data));
     }
 
     public View confirm(String tenant, String actor, String id, Confirm request) {
@@ -519,7 +519,7 @@ public class VideoRemakeService {
 
     private View summary(Task task) {
         return new View(task.id(), task.product(), task.phase(), null, task.error(),
-                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of());
+                task.createdAt(), task.asset(), null, null, null, List.of(), null, null, List.of(), List.of(), List.of());
     }
 
     // 失败任务：拉取引擎详情，把商品事实审核的 blocking/warnings 带回 View；拉取失败时回退到摘要。
@@ -528,10 +528,11 @@ public class VideoRemakeService {
             var data = detail(task);
             var issues = auditIssues(data);
             var warnings = auditWarnings(data);
-            if (issues.isEmpty() && warnings.isEmpty()) return summary(task);
+        var consistency = consistencyIssues(data);
+            if (issues.isEmpty() && warnings.isEmpty() && consistency.isEmpty()) return summary(task);
             return new View(task.id(), task.product(), task.phase(), data.path("stage").asText(null),
                             error(data, task.error()), task.createdAt(), task.asset(), null, null, null, List.of(),
-                            null, null, issues, warnings);
+                            null, null, issues, warnings, consistency);
         } catch (RuntimeException ex) {
             return summary(task);
         }
@@ -539,9 +540,7 @@ public class VideoRemakeService {
     private List<String> auditIssues(JsonNode data) {
         return auditItems(data, "blocking");
     }
-    private List<String> auditWarnings(JsonNode data) {
-        return auditItems(data, "warnings");
-    }
+    private List<String> auditWarnings(JsonNode data) {         return auditItems(data, "warnings");     }      private List<String> consistencyIssues(JsonNode data) {         var failure = data.path("video_consistency_failure");         if (failure.isMissingNode() || failure.isNull() || !failure.isObject()) return List.of();         var items = new java.util.ArrayList<String>();         String reason = failure.path("reason_text").asText("");         int shot = failure.path("shot_index").asInt(0);         String detail = reason.isBlank() ? "生成视频商品一致性或文字安全区检查未通过"             : shot > 0 ? "第" + shot + "分镜：" + reason : reason;         items.add(detail);         var samples = failure.path("failed_samples");         if (samples.isArray() && !samples.isEmpty()) {             var frames = new java.util.ArrayList<String>();             samples.forEach(sample -> {                 if (sample.hasNonNull("frame_index")) frames.add("采样帧" + sample.path("frame_index").asInt());             });             if (!frames.isEmpty()) items.add("未通过的采样帧：" + String.join("、", frames));         }         return List.copyOf(items);     }
     private List<String> auditItems(JsonNode data, String field) {
         var audit = data.path("product_fact_audit");
         if ((audit.isMissingNode() || audit.isNull()) && data.has("result")) {
