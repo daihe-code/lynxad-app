@@ -32,8 +32,8 @@
       <p class="plan-confirm-impact">暂停后计划将停止投放，可随时在计划列表中恢复。已投放数据、商品、素材和投放设置会保留。</p>
     </template>
     <template v-else-if="action === 'restore'">
-      <p class="plan-confirm-impact">恢复后将沿用以上预算{{ plan?.smartBidType === 'SMART_BID_CUSTOM' ? '和目标' : '' }}，可能产生广告消耗。</p>
-      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>如有关联的转投计划，恢复时将暂停关联计划并切换到当前选择的投放方式。<template v-if="transferArchived">恢复后可能需要重新审核。</template></p></div></div>
+      <p class="plan-confirm-impact">{{ restoreVerb }}后将沿用以上预算{{ plan?.smartBidType === 'SMART_BID_CUSTOM' ? '和目标' : '' }}，可能产生广告消耗。</p>
+      <div class="plan-confirm-notice"><el-icon aria-hidden="true"><WarningFilled /></el-icon><div><strong>关联计划提醒</strong><p>{{ asTransfer ? '确认后将恢复本计划，并暂停关联计划。' : '如有关联的转投计划，恢复时将暂停关联计划并切换到当前选择的投放方式。' }}<template v-if="transferArchived">{{ restoreVerb }}后可能需要重新审核。</template></p></div></div>
       <p v-if="blockedReason" class="plan-confirm-blocked" role="alert">{{ blockedReason }}</p>
     </template>
     <template v-else>
@@ -44,9 +44,9 @@
     </template>
     <p v-if="error" class="plan-confirm-blocked" role="alert">{{ error }}</p>
     <template #footer>
-      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ verification ? '关闭' : action === 'pause' ? '暂不暂停' : action === 'restore' ? '暂不恢复' : draft ? '取消' : '暂不删除' }}</el-button>
-      <el-button v-if="verification" type="primary" :loading="busy" :disabled="busy" @click="emit('verify')">查询恢复结果</el-button>
-      <el-button v-else :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? '确认恢复' : draft ? '删除草稿' : '确认删除' }}</el-button>
+      <el-button :disabled="busy" @click="emit('update:modelValue', false)">{{ verification ? '关闭' : action === 'pause' ? '暂不暂停' : action === 'restore' ? `暂不${restoreVerb}` : draft ? '取消' : '暂不删除' }}</el-button>
+      <el-button v-if="verification" type="primary" :loading="busy" :disabled="busy" @click="emit('verify')">查询{{ restoreVerb }}结果</el-button>
+      <el-button v-else :type="action === 'delete' ? 'danger' : 'primary'" :loading="busy" :disabled="busy || !!blockedReason || (action === 'pause' && !isPlanPauseReason(pauseReason))" @click="confirm">{{ action === 'pause' ? '确认暂停' : action === 'restore' ? `确认${restoreVerb}` : draft ? '删除草稿' : '确认删除' }}</el-button>
     </template>
   </el-dialog>
 </template>
@@ -60,7 +60,7 @@ import { planStatusDisplay } from '@/features/delivery/planStatus';
 import { BID_TYPE, yuan, roiText } from '@/utils/labels';
 import { PLAN_PAUSE_REASONS, isPlanPauseReason, type PlanPauseReason } from '@/features/delivery/planPause';
 
-const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; blockedReason?: string; error?: string; verification?: boolean; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
+const props = defineProps<{ modelValue: boolean; plan: PlanListVo | null; action: 'pause' | 'restore' | 'delete'; busy: boolean; asTransfer?: boolean; blockedReason?: string; error?: string; verification?: boolean; pauseOrigin?: 'automatic' | 'manual' | 'platform' | 'unknown' }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [pauseReason?: PlanPauseReason]; verify: [] }>();
 const pauseReason = ref('');
 watch([() => props.modelValue, () => props.plan?.planId, () => props.action], () => { pauseReason.value = ''; });
@@ -72,8 +72,14 @@ const state = computed(() => {
   if (transferArchived.value) return display;
   return props.plan?.status === 'PAUSED' && props.pauseOrigin ? { ...display, label: { automatic:'系统自动暂停', manual:'手动暂停', platform:'平台异常暂停', unknown:'已暂停（原因待核对）' }[props.pauseOrigin] } : display;
 });
-const title = computed(() => props.action === 'pause' ? '暂停这条投放计划？' : props.action === 'restore' ? '恢复这条计划的投放？' : draft.value ? '删除这条草稿计划？' : props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？');
-const subtitle = computed(() => props.action === 'delete' && draft.value ? '请核对计划信息，确认后将从列表中删除。' : `该计划当前为${state.value.label}，${props.action === 'restore' ? '请确认恢复后的投放设置。' : '请核对后再操作。'}`);
+const restoreVerb = computed(() => props.asTransfer ? '转投' : '恢复');
+const title = computed(() => {
+  if (props.action === 'pause') return '暂停这条投放计划？';
+  if (props.action === 'restore') return props.asTransfer ? '转投到这条计划？' : '恢复这条计划的投放？';
+  if (draft.value) return '删除这条草稿计划？';
+  return props.plan?.status === 'PAUSED' ? '删除这条已暂停计划？' : '删除这条投放计划？';
+});
+const subtitle = computed(() => props.action === 'delete' && draft.value ? '请核对计划信息，确认后将从列表中删除。' : `该计划当前为${state.value.label}，${props.action === 'restore' ? `请确认${restoreVerb.value}后的投放设置。` : '请核对后再操作。'}`);
 function close(done: () => void) { if (!props.busy) done(); }
 function setVisible(value: boolean) { if (!props.busy) emit('update:modelValue', value); }
 function confirm() {
