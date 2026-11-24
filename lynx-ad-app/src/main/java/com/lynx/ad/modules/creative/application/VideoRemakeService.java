@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.ArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -83,7 +84,7 @@ public class VideoRemakeService {
     public record Upload(String requestId, String mediaType, String filename, long size, String sha256) {}
     public record LinkImport(String requestId, String url) {}
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
-                        String productImageId, String referenceId, String portraitId, String portraitName,
+                        String productImageId, List<String> productImageIds, List<String> productImages, String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
                         String portraitImageId, List<String> adNotices, boolean followSource) {}
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
@@ -221,11 +222,11 @@ public class VideoRemakeService {
         var target = json.createObjectNode().put("id", productId).put("name", productName);
         target.set("facts", json.valueToTree(facts));
         if (product.category() != null && !product.category().isBlank()) target.put("category", product.category().strip());
-        if (request.productImageId() != null && !request.productImageId().isBlank()) {
-            target.putArray("image_asset_ids").add(requireAsset(tenant, actor, request.bindingId(), request.productImageId(), "image"));
+        List<String> productImageIds = new ArrayList<>(); if (request.productImageId() != null && !request.productImageId().isBlank()) productImageIds.add(request.productImageId()); if (request.productImageIds() != null) productImageIds.addAll(request.productImageIds()); productImageIds = new ArrayList<>(productImageIds.stream().filter(id -> id != null && !id.isBlank()).distinct().limit(6).toList()); List<String> productImageUrls = request.productImages() == null ? new ArrayList<>() : new ArrayList<>(request.productImages()); if (!productImageIds.isEmpty()) {
+            var assetIds = target.putArray("image_asset_ids"); for (String assetId : productImageIds) assetIds.add(requireAsset(tenant, actor, request.bindingId(), assetId, "image"));
         } else {
-            if (product.imageUrl() == null || !product.imageUrl().startsWith("https://")) throw input("请上传目标商品参考图");
-            target.putArray("image_urls").add(product.imageUrl());
+            if (productImageUrls.stream().noneMatch(url -> url != null && url.startsWith("https://")) && (product.imageUrl() == null || !product.imageUrl().startsWith("https://"))) throw input("请上传目标商品参考图");
+            var urls = target.putArray("image_urls"); productImageUrls.stream().filter(url -> url != null && url.startsWith("https://")).distinct().limit(6).forEach(urls::add); if (urls.isEmpty()) urls.add(product.imageUrl());
         }
         var payload = json.createObjectNode().put("store_id", tenant).put("request_id", id)
                 .put("source_material_id", requireAsset(tenant, actor, request.bindingId(), request.referenceId(), "video"))
@@ -247,7 +248,7 @@ public class VideoRemakeService {
                 throw input("人物参考图和方舟预置人像只能选一种");
             }
             String actorImage = requireAsset(tenant, actor, request.bindingId(), request.portraitImageId(), "image");
-            if (actorImage.equals(request.productImageId())) throw input("请分别上传商品参考图和人物参考图");
+            if (actorImage.equals(request.productImageId()) || productImageIds.contains(actorImage)) throw input("请分别上传商品参考图和人物参考图");
             payload.putObject("kling_portrait").put("image_asset_id", actorImage)
                     .put("rights_confirmed", true).put("adult_confirmed", true);
         } else {
