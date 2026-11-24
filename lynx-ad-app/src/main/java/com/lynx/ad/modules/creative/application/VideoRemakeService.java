@@ -86,7 +86,7 @@ public class VideoRemakeService {
     public record Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts,
                         String productImageId, List<String> productImageIds, List<String> productImages, String referenceId, String portraitId, String portraitName,
                         boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds,
-                        String portraitImageId, List<String> adNotices, boolean followSource) {}
+                        String portraitImageId, List<String> adNotices, boolean followSource) { public Start(String requestId, String bindingId, String awemeId, String productId, List<String> facts, String productImageId, String referenceId, String portraitId, String portraitName, boolean rightsConfirmed, boolean portraitTermsConfirmed, int durationSeconds, String portraitImageId, List<String> adNotices, boolean followSource) { this(requestId, bindingId, awemeId, productId, facts, productImageId, List.of(), List.of(), referenceId, portraitId, portraitName, rightsConfirmed, portraitTermsConfirmed, durationSeconds, portraitImageId, adNotices, followSource); } }
     public record ShotEdit(String visualPrompt, String narration, String caption) {}
     public record Confirm(String title, List<ShotEdit> shots, boolean accepted, BigDecimal points) {}
     public record RemakeQuote(BigDecimal points, BigDecimal pointsPerSecond) {}
