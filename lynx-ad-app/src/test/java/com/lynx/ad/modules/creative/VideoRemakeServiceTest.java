@@ -122,6 +122,22 @@ class VideoRemakeServiceTest {
         verify(charges, never()).finish(any(), any(), any());
     }
 
+    @Test
+    void failedTaskReadsBlockingAndWarningsFromScopedEngineDetail() throws Exception {
+        when(store.find("tenant", ID, false)).thenReturn(Optional.of(row("FAILED")));
+        when(engine.remake("GET", TASK_PATH + "?store_id=tenant", null)).thenReturn(json.readTree("""
+                {"id":"%s","store_id":"tenant","stage":"confirmed_plan","error":"商品事实审核未通过",
+                 "product_fact_audit":{"confirmed_plan":{"blocking":["分镜2超出商品实际规格"],
+                                                         "warnings":["无法确认材质"]}}}
+                """.formatted(ENGINE)));
+
+        var view = service.get("tenant", "actor", ID);
+        assertEquals(List.of("分镜2超出商品实际规格"), view.auditIssues());
+        assertEquals(List.of("无法确认材质"), view.auditWarnings());
+        assertTrue(view.error().contains("分镜2超出商品实际规格"));
+        assertNull(view.videoUrl());
+    }
+
     @ParameterizedTest
     @CsvSource({"720,1280,9,40,360,remake_720p_second", "1920,1080,17,60,1020,remake_1080p_second"})
     void analysisQuotesMeasuredOutputAndConfirmationReservesThatAmount(int width, int height, int duration,

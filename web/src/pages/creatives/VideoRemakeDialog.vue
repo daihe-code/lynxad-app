@@ -256,6 +256,18 @@
             <span class="remake-status" :data-tone="taskTone(task.phase)" role="status">{{ phaseLabel(task.phase) }}</span>
           </div>
           <p v-if="task.error" class="remake-error" role="alert">{{ task.error }}</p>
+          <section v-if="task.auditIssues?.length" class="remake-ad-notices">
+            <h3>与商品事实矛盾（未通过）</h3>
+            <ul>
+              <li v-for="issue in task.auditIssues" :key="issue">{{ issue }}</li>
+            </ul>
+          </section>
+          <section v-if="task.auditWarnings?.length" class="remake-ad-notices">
+            <h3>无法确认的商品事实（需注意）</h3>
+            <ul>
+              <li v-for="warning in task.auditWarnings" :key="warning">{{ warning }}</li>
+            </ul>
+          </section>
 
           <div v-if="task.phase === 'REVIEW' && plan" class="remake-grid">
             <form class="remake-main remake-review" novalidate @submit.prevent="approve">
