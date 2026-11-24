@@ -488,7 +488,7 @@ public class VideoRemakeService {
       complete(task, token, "FAILED", ex.getMessage(), false, false);
       return;
     }
-    LOG.info("Video remake auto-confirmed task {} points {} shots {}", task.id(), charge.points(), plan.path("shots").size());
+    LOG.info("Video remake auto-confirmed task {} points {} shots {}", task.id(), charge.quote().points(), plan.path("shots").size());
   }
   private void dispatch(Task task, String token) {
         try {
