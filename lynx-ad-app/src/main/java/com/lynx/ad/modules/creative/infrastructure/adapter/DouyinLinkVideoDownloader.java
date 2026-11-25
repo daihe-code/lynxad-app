@@ -45,7 +45,7 @@ import java.util.regex.Pattern;
  * {@code lynx.ad.remake-link.download-api-path} 时启用；主路由失败后才尝试，两个路由都失败时
  * 返回主路由的错误，不静默替换为其他视频。备用接口的具体路径随自托管实例的版本而不同
  * （旧版为同步接口，新版默认返回异步任务），请按实例的 {@code /docs} 填写；若备用接口只返回
- * 异步任务而不直接返回视频地址，本方法会明确报错，不会等待或猜测任务结果。
+ * 异步任务而不直接返回视频地址，本方法会轮询任务结果（见 DownloadApiTaskPoller），最多等待约 20 秒。
  *
  * <p>搜索页链接（/search/…）没有单个视频地址：若带 modal_id，会先尝试打开该视频；否则直接
  * 提示用户先打开视频再复制分享链接。
@@ -90,6 +90,23 @@ public final class DouyinLinkVideoDownloader {
             LinkImportFailure.SHARE_PAGE_FETCH, LinkImportFailure.TTWID_MISSING,
             LinkImportFailure.VIDEOINFO_MISSING, LinkImportFailure.PLAY_URL_EMPTY,
             LinkImportFailure.DOWNLOAD_FAILED);
+
+    /** 链接下载整条链路最多尝试的次数（含首次）：首次失败后最多再试两次。 */
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 3;
+
+    /** 两次尝试之间的等待时间。 */
+    private static final long RETRY_DELAY_MILLIS = 2000L;
+
+    /**
+     * 值得把整条链路再试一次的失败原因（瞬时失败）。确定性失败（视频私密／已删除／需要登录／
+     * 规格失败／视频过大）与链接格式／搜索页失败不在此列，出现时直接抛出，不重试。
+     */
+    // 包内可见，供单测断言可重试原因集合。
+    static final Set<String> RETRYABLE_FAILURES = Set.of(
+            LinkImportFailure.SHARE_PAGE_FETCH, LinkImportFailure.SHORT_LINK_RESOLVE,
+            LinkImportFailure.TTWID_MISSING, LinkImportFailure.VIDEOINFO_MISSING,
+            LinkImportFailure.PLAY_URL_EMPTY, LinkImportFailure.DETAIL_API_FAILED,
+            LinkImportFailure.DOWNLOAD_API_FAILED, LinkImportFailure.DOWNLOAD_FAILED);
 
     public record VideoProbe(double durationSeconds, int width, int height) {}
 
@@ -435,10 +452,22 @@ public final class DouyinLinkVideoDownloader {
 
     /**
      * 主入口：先走 H5 路由；H5 路由失败且能确定视频编号时，先试 aweme 详情接口；
-     * 再走已配置的备用接口；都失败时返回最明确的失败原因，不用其他视频替代。
+     * 再走已配置的备用接口；都失败时返回最明确的失败原因，不用其他视频替代。临时失败会把整条链路最多重试两次，每次间隔 2 秒。
      * 搜索页链接会先按 modal_id 尝试打开其中那条视频，失败时按搜索页报错。
      */
     public static DownloadedVideo download(ObjectMapper json, String rawInput,
+        String downloadApiBaseUrl, String downloadApiPath, String downloadApiKey, String ffprobePath) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return downloadOnce(json, rawInput, downloadApiBaseUrl, downloadApiPath, downloadApiKey, ffprobePath);
+            } catch (LinkImportFailure ex) {
+                if (attempt >= MAX_DOWNLOAD_ATTEMPTS || !RETRYABLE_FAILURES.contains(ex.reason())) throw ex;
+                try { Thread.sleep(RETRY_DELAY_MILLIS); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw ex; }
+            }
+        }
+    }
+
+    private static DownloadedVideo downloadOnce(ObjectMapper json, String rawInput,
             String downloadApiBaseUrl, String downloadApiPath, String downloadApiKey, String ffprobePath) {
         String normalized = normalizeShareUrl(rawInput);
         if (isSearchPage(normalized) && searchVideoId(normalized) == null) {
@@ -683,8 +712,8 @@ public final class DouyinLinkVideoDownloader {
             throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口暂时无法访问，未能获取该视频。",
                     "download api io: " + ex.getMessage());
         }
-        if (response.statusCode() != 200) {
-            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口返回 " + response.statusCode() + "，未能获取该视频。",
+        if (response.statusCode() != 200 && response.statusCode() != 202) {
+        throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口返回 " + response.statusCode() + "，未能获取该视频。",
                     "download api HTTP " + response.statusCode());
         }
         JsonNode root;
@@ -694,10 +723,12 @@ public final class DouyinLinkVideoDownloader {
             throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口返回内容无法解析，未能获取该视频。", "download api parse failed");
         }
         String playUrl = findVideoUrl(root);
-        if (playUrl == null && root.hasNonNull("task_id")) {
-            throw fail(LinkImportFailure.DOWNLOAD_API_FAILED,
-                    "备用下载接口为异步接口，未直接返回视频地址，请在自托管实例中确认任务状态后再试。", "download api async task only");
+    if (playUrl == null) {
+        String taskId = DownloadApiTaskPoller.taskId(root);
+        if (taskId != null) {
+            playUrl = DownloadApiTaskPoller.pollForPlayUrl(http, json, base, apiKey, taskId);
         }
+    }
         if (playUrl == null) {
             throw fail(LinkImportFailure.DOWNLOAD_API_FAILED, "备用下载接口未返回视频地址，未能获取该视频。", "download api no play url");
         }
