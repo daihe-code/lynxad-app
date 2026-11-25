@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,6 +36,16 @@ class DownloadApiTaskPollerTest {
         if (server != null) {
             server.stop(0);
         }
+    }
+
+    @Test
+    void retryableFailuresContainTransientReasonsOnly() {
+        assertTrue(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.VIDEOINFO_MISSING));
+        assertTrue(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.DOWNLOAD_API_FAILED));
+        assertTrue(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.SHARE_PAGE_FETCH));
+        assertFalse(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.VIDEO_PRIVATE));
+        assertFalse(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.VIDEO_DELETED));
+        assertFalse(DouyinLinkVideoDownloader.RETRYABLE_FAILURES.contains(LinkImportFailure.LOGIN_REQUIRED));
     }
 
     @Test
