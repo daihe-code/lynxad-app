@@ -3,6 +3,7 @@ package com.lynx.ad.modules.creative.infrastructure.adapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -10,7 +11,6 @@ import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -146,15 +146,9 @@ class DownloadApiTaskPollerTest {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
-    private void startServer(Consumer<HttpExchange> handler) throws IOException {
+    private void startServer(HttpHandler handler) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/api/v1/tasks/", exchange -> {
-            try {
-                handler.accept(exchange);
-            } catch (Exception ex) {
-                throw new RuntimeException(ex);
-            }
-        });
+        server.createContext("/api/v1/tasks/", handler);
         server.start();
     }
 
