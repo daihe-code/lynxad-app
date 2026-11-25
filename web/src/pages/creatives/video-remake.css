@@ -120,7 +120,7 @@
 .remake-steps .current span { background: var(--remake-accent); color: #fff; }
 .remake-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .remake-form label, .remake-review label { display: grid; gap: 5px; font-weight: 600; }
-.remake-workspace :is(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+.remake-workspace :is(input:not([type="checkbox"], [type="file"], [type="radio"]), select, textarea) {
   box-sizing: border-box; width: 100%; min-width: 0;
   background: #fff; border: 1px solid var(--remake-border); color: var(--remake-ink);
   border-radius: 8px; padding: 9px 11px; font: inherit; font-weight: 400; line-height: 1.45;
@@ -285,6 +285,36 @@
   background: #fff;
   box-shadow: 0 1px 4px #20264a14;
 }
+.remake-person-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 8px;
+}
+.remake-form .remake-person-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--remake-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.remake-person-option input {
+  flex: 0 0 auto;
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--remake-accent);
+  cursor: inherit;
+}
+.remake-person-option:has(:checked), .remake-person-option:has(:enabled):hover {
+  border-color: var(--remake-accent);
+  background: var(--remake-tint);
+}
+.remake-person-option:has(:checked) { color: #433bb5; }
+.remake-person-option:has(:disabled) { cursor: not-allowed; }
 .remake-link-import label {
   display: grid;
   gap: 6px;
