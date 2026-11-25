@@ -64,7 +64,7 @@ lynx:
       engine-api-key: ${LYNXAD_ENGINE_API_KEY:}
       scan-ms: 10000
     remake-link:
-      # 抖音链接导入：主路由为免登录 H5 路由；备用接口为空时不启用。
+      # 抖音链接导入：先试 H5 路由（服务端常被 Argus 拦截），再试详情接口与备用接口；备用接口为空时不启用。
       # 备用接口为自托管的 Evil0ctal Douyin_TikTok_Download_API 实例，
       # download-api-path 按实例版本填写（见实例的 /docs）。
       download-api-base-url: ${LYNXAD_REMAKE_LINK_DOWNLOAD_API_BASE_URL:}
