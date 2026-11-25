@@ -1,6 +1,6 @@
 # 项目进展与爆款视频复刻需求
 
-更新时间：2026-11-22
+更新时间：2026-11-25
 
 ## 支付宝接入进度
 
@@ -57,7 +57,7 @@
 
 - 入口与流程：复刻弹窗步骤 0 可在「本地上传 / 粘贴链接」之间切换。链接模式粘贴抖音分享链接或视频 URL（`v.douyin.com` 短链、`douyin.com/video/xxx`、`iesdouyin.com` 分享页）；前端只做格式校验，提交时服务端下载并导入，规格不符时报错、不创建任务。
 - 主下载器：开源免登录 H5 路由（`DouyinLinkVideoDownloader`）。解析分享短链，两次请求 iesdouyin 分享页取得 ttwid 设备 Cookie，从内嵌 `videoInfoRes` JSON 取播放地址，`playwm` 换 `play` 去水印，下载后用 ffprobe 校验：时长 4–120 秒、横屏 16:9 或竖屏 9:16、短边 720–1440 像素、长边不超过 2560 像素、视频不超过 200 MB。
-- 备用下载：自托管 Docker 的 Evil0ctal Douyin_TikTok_Download_API，仅当配置了 `lynx.ad.remake-link.download-api-base-url` 与 `download-api-path` 时启用；主路由失败后才尝试。备用接口只返回异步 `task_id` 而无视频地址时明确报错。
+- 备用下载：自托管 Docker 的 Evil0ctal Douyin_TikTok_Download_API，仅当配置了 `lynx.ad.remake-link.download-api-base-url` 与 `download-api-path` 时启用；主路由失败后才尝试。接口返回 202 与 `task_id` 时轮询任务结果（最多约 20 秒），拿到视频地址后再下载；轮询失败仍报 `DOWNLOAD_API_FAILED`。
 - 同一路径：下载成功后复用现有上传、分片、完成登记流程（`VideoRemakeService.importLink`），与本地上传走同一素材注册、同一存储、同一复刻管线入口，不重复复刻逻辑。来源记录在 `creative_video_remake_upload`（Flyway V62 新增 `source_url`、`source_platform`、`download_method`）。
 - 错误情形：链接不可达、需登录、私密或已删除、规格不符时返回明确错误，不静默替换其他视频，不编造结果。
 - 配置：环境变量 `LYNXAD_REMAKE_LINK_DOWNLOAD_API_BASE_URL`、`LYNXAD_REMAKE_LINK_DOWNLOAD_API_PATH`、`LYNXAD_REMAKE_LINK_DOWNLOAD_API_KEY`、`LYNXAD_FFPROBE_PATH`（默认 `ffprobe`）；备用接口地址与路径留空时不启用，需按自托管实例的 `/docs` 填写，尚未部署真实实例。
