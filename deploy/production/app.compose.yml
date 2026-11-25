@@ -13,7 +13,7 @@ services:
       start_period: 60s
 
   app-web:
-    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261125-bb58502
+    image: lynxad-prod-acr-registry-vpc.cn-beijing.cr.aliyuncs.com/lynxad-prod/lynxad-app-web:20261125-32142e3
     ports:
       - "80:80"
     depends_on:
