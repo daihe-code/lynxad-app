@@ -624,9 +624,48 @@ public class VideoRemakeService {
         if (!failure.isObject()) failure = data.path("result").path("video_consistency_failure");
         if (!failure.isObject()) return List.of();
         var items = new ArrayList<String>();
-        String reason = failure.path("reason_text").asText("");
+        String reasonCode = failure.path("reason").asText("");
         int shot = failure.path("shot_index").asInt(0);
-        items.add(reason.isBlank() ? "生成视频商品一致性或文字安全区检查未通过" : shot > 0 ? "第 " + shot + " 分镜：" + reason : reason);
+        for (var retry : VideoRemakeGeneration.shotRetries(data)) {
+            if (shot > 0 && retry.shotIndex() == shot && "pending".equals(retry.status())) {
+                items.add("第 " + shot + " 分镜首次抽查未通过，正在重试");
+                return List.copyOf(items);
+            }
+        }
+        String detail = switch (reasonCode) {
+            case "product_mismatch" -> "商品与参考图不一致";
+            case "garbled_text" -> "画面出现无法辨认的乱码或伪文字";
+            case "fake_brand" -> "画面出现仿造品牌或商标";
+            case "sample_count_mismatch" -> "采样帧数量与抽查批次不一致";
+            case "embedded_text" -> "画面出现与商品无关的内嵌文字";
+            case "pure_product_people" -> "纯商品镜头出现人物";
+            default -> null;
+        };
+        String first = "生成视频商品一致性检查未通过";
+        if (shot > 0 && detail != null) first += "（第 " + shot + " 分镜：" + detail + "）";
+        else if (shot > 0) first += "（第 " + shot + " 分镜）";
+        else if (detail != null) first += "（" + detail + "）";
+        items.add(first);
+        var byImage = failure.path("product_matches_by_image");
+        if (byImage.isArray() && byImage.size() > 0 && byImage.valueStream().noneMatch(JsonNode::asBoolean)) {
+            items.add("无任何一张参考图与画面商品匹配");
+        }
+        var texts = new ArrayList<String>();
+        failure.path("embedded_texts").forEach(entry -> {
+            if (entry.isTextual()) {
+                String text = entry.asText("");
+                if (!text.isBlank()) texts.add(text);
+            } else if (entry.isObject()) {
+                String text = entry.path("text").asText("");
+                if (!text.isBlank()) {
+                    String kind = entry.path("kind").asText("");
+                    String label = text;
+                    if (entry.hasNonNull("frame_index")) label = "采样帧 " + entry.path("frame_index").asInt() + "：" + text;
+                    texts.add(kind.isBlank() ? label : label + "（" + kind + "）");
+                }
+            }
+        });
+        if (!texts.isEmpty()) items.add("画面内嵌文字：" + String.join("；", texts);
         var frames = new ArrayList<String>();
         failure.path("failed_samples").forEach(sample -> {
             if (sample.hasNonNull("frame_index")) frames.add("采样帧 " + sample.path("frame_index").asInt());
@@ -634,6 +673,7 @@ public class VideoRemakeService {
         if (!frames.isEmpty()) items.add("未通过的采样帧：" + String.join("、", frames));
         return List.copyOf(items);
     }
+
     private List<String> auditItems(JsonNode data, String field) {
         var audit = data.path("product_fact_audit");
         if ((audit.isMissingNode() || audit.isNull()) && data.has("result")) {
