@@ -665,7 +665,7 @@ public class VideoRemakeService {
                 }
             }
         });
-        if (!texts.isEmpty()) items.add("画面内嵌文字：" + String.join("；", texts);
+        if (!texts.isEmpty()) items.add("画面内嵌文字：" + String.join("；", texts));
         var frames = new ArrayList<String>();
         failure.path("failed_samples").forEach(sample -> {
             if (sample.hasNonNull("frame_index")) frames.add("采样帧 " + sample.path("frame_index").asInt());
