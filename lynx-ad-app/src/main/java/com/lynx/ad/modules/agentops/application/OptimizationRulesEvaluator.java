@@ -57,6 +57,7 @@ public final class OptimizationRulesEvaluator {
         var history=result.putArray("rule_samples");
         boolean complete=data.path("complete").asBoolean();
         BigDecimal spend=decimal(data,"daily_spend"),revenue=decimal(data,"daily_net_revenue");
+        boolean spendReady=complete && spend!=null && spend.signum()>=0;
         boolean pending=data.path("execution_pending").asBoolean();
         String platformStatus=data.path("platform_status").asText();
         boolean budgetConstrained=planBudgetConstrained(platformStatus);
@@ -79,6 +80,8 @@ public final class OptimizationRulesEvaluator {
         boolean deliveryBlocked=platformBlock!=null
             || data.path("diagnostic_context").path("all_products_blocked").asBoolean();
         var startup=StartupDeliveryObservation.update(result, previous, observed, deliveryBlocked);
+        result.put("effective_monitoring", delivering && !pending
+            && (spendReady || startup.eligible() || budgetConstrained || platformBlock!=null || objectBlocked));
         if(!delivering){
             result.put("state","PAUSED");reasons.add("计划未在投放，保持观察");return result;
         }
@@ -124,7 +127,7 @@ public final class OptimizationRulesEvaluator {
         var matureRoi=matureReady?matureRevenue.divide(matureSpend,8,RoundingMode.HALF_UP):null;
         if(matureRoi!=null && matureRoi.compareTo(rules.roiFloor())<0)
             advice(advice,"ROI_PROTECTION","净成交ROI低于本计划要求","最近 "+windowHours+" 个完整成熟小时的净成交ROI "+matureRoi.setScale(2,RoundingMode.HALF_UP)+"，期望不低于 "+rules.roiFloor()+"；先核对成交回传与投放变化。");
-        if(!complete || spend==null || spend.signum()<0){
+        if(!spendReady){
             reasons.add("等待完整的当天消耗数据，暂缓消耗保护和新增投入判断");
             return result;
         }

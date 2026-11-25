@@ -9,7 +9,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 /** Counts eligible intervals between real observations, independently of the calendar date. */
-record StartupDeliveryObservation(long effectiveMillis, boolean hadVolume, boolean zeroNow, long zeroMillis, long checkLagMillis) {
+record StartupDeliveryObservation(long effectiveMillis, boolean eligible, boolean hadVolume, boolean zeroNow,
+                                  long zeroMillis, long checkLagMillis) {
     private static final long ONE_HOUR = Duration.ofHours(1).toMillis();
     private static final long MAX_SAMPLE_GAP = Duration.ofMinutes(5).toMillis();
     private static final long MAX_CHECK_AGE = Duration.ofMinutes(10).toMillis();
@@ -51,7 +52,7 @@ record StartupDeliveryObservation(long effectiveMillis, boolean hadVolume, boole
             .put("eligible", eligible).put("effective_millis", effective).put("had_volume", hadVolume);
         if (zeroSince != null) snapshot.put("zero_since", zeroSince.toString());
         long zeroMillis = zeroSince == null ? 0 : elapsed(zeroSince, checkedAt);
-        return new StartupDeliveryObservation(effective, hadVolume, zeroNow, zeroMillis, age);
+        return new StartupDeliveryObservation(effective, eligible, hadVolume, zeroNow, zeroMillis, age);
     }
 
     boolean complete() { return effectiveMillis >= 4 * ONE_HOUR; }
