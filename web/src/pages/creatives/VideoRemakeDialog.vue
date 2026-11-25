@@ -156,7 +156,7 @@
             <div v-else class="remake-step-body">
               <h3>替换人物<template v-if="productPeopleSupported">（可选）</template></h3>
               <div v-if="productPeopleSupported" class="remake-source-switch" role="group" aria-label="人物选择">
-                <button type="button" :aria-pressed="portraitMode === 'auto'" :disabled="busy" @click="portraitMode = 'auto'">按商品图生成</button>
+                <button type="button" :aria-pressed="portraitMode === 'auto'" :disabled="busy" @click="portraitMode = 'auto'">使用商品图中的模特</button>
                 <button type="button" :aria-pressed="portraitMode === 'none'" :disabled="busy" @click="portraitMode = 'none'">仅展示商品</button>
                 <button type="button" :aria-pressed="portraitMode === 'replace'" :disabled="busy" @click="portraitMode = 'replace'">替换人物</button>
               </div>
@@ -421,7 +421,7 @@ const linkFormatError = computed(() => referenceLinkUrl.value.trim() && !extract
   ? invalidShareLink : '');
 const referenceRights = ref<HTMLInputElement>();
 const portraitId = ref(''), portraitName = ref('');
-const portraitMode = ref<'auto' | 'none' | 'replace'>('auto');
+const portraitMode = ref<'auto' | 'none' | 'replace'>('none');
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
 const setupSteps = ['参考视频', '目标商品', '替换人物'];
