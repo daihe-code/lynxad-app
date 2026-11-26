@@ -6,6 +6,7 @@ import com.lynx.ad.common.exception.BizException;
 import com.lynx.ad.modules.agentops.infrastructure.*;
 import com.lynx.ad.modules.delivery.domain.port.AdPlanRepository;
 import com.lynx.ad.modules.identity.domain.port.OauthAccountRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.Test;
@@ -47,5 +48,22 @@ class OptimizationListStatusTest {
         var result=new ObjectMapper().createObjectNode().put("state","READY").put("observed_at",Instant.now().minusSeconds(601).toString());
         when(store.forPlans(tenant,List.of("a"))).thenReturn(List.of(new OptimizationStore.State("tenant-a","a",1,true,OptimizationPolicy.defaults(),null,Instant.now(),null,result)));
         assertTrue(service.statuses(tenant,List.of("a")).getFirst().stale());
+    }
+
+    @Test void manualRefreshDoesNotAppearAsRulesNeedingReview() {
+        var now=Instant.now();
+        var rules=new OptimizationRules(BigDecimal.ONE,new BigDecimal("400"),new BigDecimal("480"),
+            OptimizationRules.AUTO_PAUSE,5,BigDecimal.TEN,BigDecimal.TEN,new BigDecimal("20"));
+        var report=new ObjectMapper().createObjectNode().put("state","READY").put("observed_at",now.toString());
+        when(store.forPlans(tenant,List.of("a","b"))).thenReturn(List.of(
+            new OptimizationStore.State(tenant.value(),"a",1,true,rules.policy(true),now,now,null,report,
+                "用户正在手动操作计划，自动调控已暂停",null,null,null,null),
+            new OptimizationStore.State(tenant.value(),"b",1,true,rules.policy(true),now,now,null,report,
+                OptimizationStore.AUTHORIZATION_HOLD,null,null,null,null)));
+        var statuses=service.statuses(tenant,List.of("a","b"));
+        assertTrue(statuses.getFirst().enabled());
+        assertTrue(statuses.getFirst().stale());
+        assertNull(statuses.getFirst().holdReason());
+        assertEquals(OptimizationStore.AUTHORIZATION_HOLD,statuses.get(1).holdReason());
     }
 }

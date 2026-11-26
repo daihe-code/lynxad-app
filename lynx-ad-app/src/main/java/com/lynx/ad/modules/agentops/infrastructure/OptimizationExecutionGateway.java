@@ -74,6 +74,10 @@ public class OptimizationExecutionGateway {
     public JsonNode reviewFacts(AdPlan p){var result=(com.fasterxml.jackson.databind.node.ObjectNode)facts(p);if(tactics!=null)result.set("bindings",tactics.merchantBindings(p));return result;}
     public void writable(AdPlan p){if(!ready())throw new BizException(1801,"自动执行仅支持正式千川数据源");billing.assertWritable(p.tenantId(),Instant.now(),WriteAction.SAVE_PLAN);}
     public List<String> related(AdPlan p){var g=transfers.group(p.tenantId(),p.id());if(g==null)return List.of(p.id().value());return java.util.stream.Stream.of(g.root(),g.conservative(),g.custom()).filter(Objects::nonNull).distinct().toList();}
+    public boolean manualChangePending(AdPlan p){
+        var group=transfers.group(p.tenantId(),p.id());
+        return group!=null && group.requestKey()!=null && !group.requestKey().startsWith("optimization:");
+    }
     public void lock(AdPlan p,String eventId){tx.executeWithoutResult(s->transfers.lockForProductChange(p,"optimization:"+eventId));}
     public void unlock(AdPlan p,String eventId){var g=transfers.group(p.tenantId(),p.id());if(g!=null && ("optimization:"+eventId).equals(g.requestKey()))tx.executeWithoutResult(s->transfers.finishProductChange(p.tenantId(),g.root(),g.requestKey()));}
     public void assertPeerStopped(AdPlan p){for(String id:related(p)){if(id.equals(p.id().value()))continue;var peer=plans.findById(p.tenantId(),new PlanId(id)).orElse(null);if(peer==null || peer.status()==PlanStatus.DELETED || peer.qcPlanId().isEmpty())continue;String status=facts(peer).path("status").asText();if(!Set.of("PAUSED","FINISHED","DELETED").contains(status))throw new BizException(1803,"关联转投计划仍在运行或状态不明确，不自动启用当前计划");}}

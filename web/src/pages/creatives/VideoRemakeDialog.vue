@@ -75,7 +75,7 @@
               </div>
               <div class="remake-rights-row">
                 <label class="remake-check"><input ref="referenceRights" v-model="rights" type="checkbox" :disabled="busy"
-                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="productPeopleSupported">及本次使用的商品图与模特肖像</template></label>
+                  :aria-describedby="fieldError('rights') ? 'remake-video-rights-error' : undefined">我已阅读并同意协议，确认有权使用此参考视频<template v-if="productPeopleSupported">及本次使用的商品图</template></label>
                 <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                   @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
               </div>
@@ -161,7 +161,6 @@
                   <span>{{ option.label }}</span>
                 </label>
               </div>
-              <p v-if="productPeopleMode === 'auto'" class="remake-muted">需要出镜时参考商品图中的已授权模特。</p>
               <template v-if="!productPeopleMode">
                 <RemakeFilePicker v-if="useKling" kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
                   :disabled="busy" @change="selectPortrait" />
@@ -174,11 +173,11 @@
                     target="_blank" rel="noopener noreferrer">查看方舟虚拟人像库 <AssetIcon name="chevron-right" /></a>
                 </template>
                 <p v-if="fieldError('portrait')" class="remake-error" role="alert">{{ fieldError('portrait') }}</p>
+              </template>
+              <template v-if="portraitTermsRequired">
                 <div class="remake-rights-row">
                   <label class="remake-check"><input v-model="portraitTerms" type="checkbox" :disabled="busy"
-                    :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">{{
-                    useKling ? '我确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放' : '我确认所选人像为成年人，且有权用于生成和广告投放'
-                  }}</label>
+                    :aria-describedby="fieldError('portraitTerms') ? 'remake-portrait-rights-error' : undefined">我已阅读并同意协议，{{ portraitTermsLabel }}</label>
                   <button type="button" class="remake-agreement-link" aria-haspopup="dialog" :disabled="busy"
                     @click="rightsAgreementOpen = true">《素材授权与责任协议》</button>
                 </div>
@@ -193,7 +192,8 @@
             </div>
             <div class="remake-actions">
               <el-button v-if="setupStep > 0" :disabled="busy" @click="goToStep(setupStep - 1)">上一步</el-button>
-              <el-button native-type="submit" type="primary" :loading="busy">{{ setupStep < 2 ? '下一步' : '开始复刻' }}</el-button>
+              <el-button native-type="submit" type="primary" class="remake-submit" :loading="busy"
+                :disabled="setupStep === 2 && portraitTermsRequired && !portraitTerms">{{ setupStep < 2 ? '下一步' : '开始复刻' }}</el-button>
             </div>
           </form>
         </div>
@@ -441,6 +441,12 @@ const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capab
 const useKling = computed(() => capability.value?.kling4Available === true);
 const productPeopleSupported = computed(() => capability.value?.productPeopleSupported === true);
 const productPeopleMode = computed(() => productPeopleSupported.value && portraitMode.value !== 'replace' ? portraitMode.value : undefined);
+const portraitTermsRequired = computed(() => productPeopleMode.value !== 'none');
+const portraitTermsLabel = computed(() => {
+  if (productPeopleMode.value === 'auto') return '确认商品图中的模特为成年人，且已取得用于 AI 生成视频和广告投放的肖像授权';
+  if (useKling.value) return '确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放';
+  return '确认所选人像为成年人，且有权用于生成和广告投放';
+});
 const sourceMatchingReady = computed(() => capability.value?.ready === true && capability.value.sourceMatchingAvailable === true);
 const formatPoints = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
 const expectedOutput = computed<RemakeVideoSpec | undefined>(() => {
@@ -623,7 +629,9 @@ watch([bindingId, awemeId], () => {
   furthestStep.value = Math.min(furthestStep.value, 1);
   void loadProducts(1);
 });
-watch([useKling, portraitId], () => { portraitTerms.value = false; });
+watch([productPeopleMode, useKling, portraitId, () => selectedProduct.value?.qcProductId], () => {
+  portraitTerms.value = false;
+});
 watch(referenceMetadata, () => {
   if (setupIssue.value?.field === 'reference') setupIssue.value = undefined;
 });
@@ -670,6 +678,8 @@ function selectPortrait(file?: File) {
 }
 const fieldError = (field: string) => setupIssue.value?.field === field ? setupIssue.value.message : '';
 function validateStep(step: number) {
+  const portraitMissing = useKling.value ? !portraitImage.value
+    : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value;
   const issues: { when: boolean; field: string; message: string }[][] = [
     [
       { when: !rights.value, field: 'rights', message: '请阅读并同意协议，确认参考视频的使用授权。' },
@@ -685,10 +695,10 @@ function validateStep(step: number) {
       { when: !!selectedProduct.value && !selectedProduct.value.imageUrls?.length && !selectedProduct.value.imageUrl,
         field: 'product', message: '所选商品没有可用的商品图，请重新选择。' },
     ],
-    productPeopleMode.value ? [] : [
-      { when: useKling.value ? !portraitImage.value : !/^asset-[A-Za-z0-9_-]{4,120}$/.test(portraitId.value.replace(/^asset:\/\//, '')) || !portraitName.value,
+    [
+      { when: !productPeopleMode.value && portraitMissing,
         field: 'portrait', message: useKling.value ? '请上传已授权的成年人像图。' : '请填写有效的方舟人像 ID 和名称。' },
-      { when: !portraitTerms.value, field: 'portraitTerms', message: '请确认人物素材的使用授权。' },
+      { when: portraitTermsRequired.value && !portraitTerms.value, field: 'portraitTerms', message: '请确认人物素材的使用授权。' },
     ],
   ];
   setupIssue.value = issues[step]?.find(issue => issue.when);
@@ -726,6 +736,7 @@ async function continueSetup() {
   }
   const product = selectedProduct.value, video = reference.value, kling = useKling.value, peopleMode = productPeopleMode.value;
   if (!product) return;
+  const portraitTermsConfirmed = portraitTermsRequired.value && portraitTerms.value;
   busy.value = true;
   setupError.value = '';
   const upload = (session: RemakeUpload, kind: 'video' | 'image', label: string) => {
@@ -749,8 +760,10 @@ async function continueSetup() {
       portraitId: peopleMode || kling ? undefined : portraitId.value,
       portraitName: peopleMode || kling ? undefined : portraitName.value, portraitImageId,
       productPeopleMode: peopleMode, rightsConfirmed: rights.value,
-      portraitTermsConfirmed: !peopleMode && portraitTerms.value, followSource: true });
+      portraitTermsConfirmed, followSource: true });
     requestId = crypto.randomUUID();
+    portraitMode.value = 'none';
+    portraitTerms.value = false;
     setupStep.value = 0;
     await openTask(result.id, result);
   } catch (cause) { setupError.value = message(cause); }

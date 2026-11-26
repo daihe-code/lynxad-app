@@ -31,7 +31,18 @@ public class OptimizationExecutionService {
         else if(!state.baseline().equals(facts) && !journal.unresolved(state.tenant(),p.accountId().value()))hold(p,"检测到千川后台或人工变更，已暂停自动调控，请核查并重新授权");
     }
     public void hold(AdPlan p,String reason){var ids=gateway.related(p).stream().filter(id->policies.get(p.tenantId(),new PlanId(id)).map(s->"AUTO_LIMITED".equals(s.policy().mode())).orElse(false)).toList();journal.hold(p.tenantId().value(),ids,reason);}
-    public String manualClaim(AdPlan p){hold(p,"用户正在手动操作计划，自动调控已暂停");String owner="manual:"+UUID.randomUUID();if(!journal.claimAccount(p.tenantId().value(),p.accountId().value(),owner))throw new BizException(1803,"账户正在提交或核查自动操作，请稍后重试手动操作");if(journal.unresolved(p.tenantId().value(),p.accountId().value())){journal.releaseAccount(p.tenantId().value(),p.accountId().value(),owner);throw new BizException(1803,"账户有自动操作结果待核查，请先到盯盘中心核查");}return owner;}
+    public String manualClaim(AdPlan p){
+        String tenant=p.tenantId().value(),account=p.accountId().value(),owner="manual:"+UUID.randomUUID();
+        if(!journal.claimAccount(tenant,account,owner))throw new BizException(1803,"账户正在提交或核查自动操作，请稍后重试手动操作");
+        try {
+            if(journal.unresolved(tenant,account))throw new BizException(1803,"账户有自动操作结果待核查，请先到盯盘中心核查");
+            policies.invalidateForManualWrite(p.tenantId(),gateway.related(p));
+            return owner;
+        } catch(RuntimeException failure) {
+            journal.releaseAccount(tenant,account,owner);
+            throw failure;
+        }
+    }
     public void release(AdPlan p,String owner){journal.releaseAccount(p.tenantId().value(),p.accountId().value(),owner);}
     public void process(Event event){
         String owner="execution:"+UUID.randomUUID();if(!journal.claimAccount(event.tenant(),event.accountId(),owner))return;

@@ -24,12 +24,12 @@ public class OptimizationCenterService {
     public List<Status> statuses(TenantId tenant,List<String> ids){
         if(ids==null || ids.isEmpty() || ids.size()>50 || ids.stream().anyMatch(id->id==null || id.isBlank() || id.length()>64))throw new BizException(1802,"请选择1–50条计划");
         var now=Instant.now();
-        return store.forPlans(tenant,ids.stream().distinct().toList()).stream().map(s->new Status(s.plan(),s.enabled(),s.policy().mode(),s.holdReason(),
+        return store.forPlans(tenant,ids.stream().distinct().toList()).stream().map(s->new Status(s.plan(),s.enabled(),s.policy().mode(),s.visibleHoldReason(),
             stale(s,now),s.error()!=null,s.result()==null?null:s.result().path("state").asText(null),s.policy().rules()!=null)).toList();
     }
     private static boolean stale(OptimizationStore.State state,Instant now){
         long freshness=state.policy().rules()==null?600:180;
-        if(state.lastSuccess()==null || state.lastSuccess().plusSeconds(freshness).isBefore(now) || state.result()==null)return true;
+        if(state.waitingForManualRefresh() || state.lastSuccess()==null || state.lastSuccess().plusSeconds(freshness).isBefore(now) || state.result()==null)return true;
         try {var observed=Instant.parse(state.result().path("observed_at").asText());return observed.plusSeconds(freshness).isBefore(now) || observed.isAfter(now.plusSeconds(60));}
         catch(RuntimeException ex){return true;}
     }
