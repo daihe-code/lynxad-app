@@ -762,6 +762,7 @@ async function continueSetup() {
       productPeopleMode: peopleMode, rightsConfirmed: rights.value,
       portraitTermsConfirmed, followSource: true });
     requestId = crypto.randomUUID();
+    portraitMode.value = 'none';
     portraitTerms.value = false;
     setupStep.value = 0;
     await openTask(result.id, result);
