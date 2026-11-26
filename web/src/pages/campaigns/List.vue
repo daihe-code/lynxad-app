@@ -702,6 +702,7 @@ td { font-size: 13px; line-height: 22px; padding-top: 14px; padding-bottom: 14px
 .settings-cell > div { gap: 4px; line-height: 22px; }.settings-cell b { font-size: 14px; font-weight: 600; }.settings-cell .roi-setting, .settings-cell .roi-setting b { color: #0ba05f; font-size: 13px; }.settings-cell .bid-mode { display: flex; gap: 8px; }
 .bid-mode-info { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: inherit; line-height: inherit; padding: 0; cursor: help; }.bid-mode-info .el-icon { color: #7c7f99; font-size: 12px; }.bid-mode-info:focus-visible { outline: 2px solid #575cf6; outline-offset: 2px; }
 .transfer-link { gap: 4px; }.transfer-link.transfer-pending { opacity: 1; pointer-events: none; }.transfer-link:disabled { cursor: wait; }
+.transfer-link :deep(.el-icon svg) { width: 12px; height: 12px; }
 .schedule-range { display: block; white-space: nowrap; }.schedule-cell small { display: block; margin-top: 1px; line-height: 20px; }
 .number-cell strong { font: inherit; font-weight: 600; line-height: 22px; }.number-cell.gmv-cell { color: #4e5069; }.number-cell small { font-weight: 400; }.metric-change-line { display: flex; align-items: center; margin-top: 1px; min-height: 20px; }.roi-line { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }.roi-line strong.roi-good { color: #0ba05f; }.roi-line strong.roi-low { color: #e5484d; }
 @media (max-width: 1100px) { .toolbar-left { flex-wrap: wrap; }.search-input { width: 250px; }.panel { padding: 24px; }.metrics { gap: 12px; } }
