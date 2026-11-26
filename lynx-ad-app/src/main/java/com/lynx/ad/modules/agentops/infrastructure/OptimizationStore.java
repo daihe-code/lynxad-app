@@ -21,6 +21,8 @@ public class OptimizationStore {
     public static final String SERVICE_HOLD = "SERVICE_EXPIRED";
     public static final String REVISION_HOLD = "REVISION_REQUIRED";
     public static final String TERMINAL_HOLD = "PLAN_ENDED";
+    private static final String LEGACY_MANUAL_HOLD = "用户正在手动操作计划，自动调控已暂停";
+    private static final String MANUAL_WRITE_REFRESH = "计划已发起手动操作，等待最新投放数据后重新判断";
 
     public static boolean lifecycleHold(String reason) {
         return AUTHORIZATION_HOLD.equals(reason) || SERVICE_HOLD.equals(reason)
@@ -41,6 +43,8 @@ public class OptimizationStore {
             this(tenant,plan,version,enabled,policy,lastCheck,lastSuccess,error,result,holdReason,baseline,lastAction,autoPausedReason,autoPausedAt,null);
         }
         public State(String tenant,String plan,long version,boolean enabled,OptimizationPolicy policy,Instant lastCheck,Instant lastSuccess,String error,JsonNode result){this(tenant,plan,version,enabled,policy,lastCheck,lastSuccess,error,result,null,null,null,null,null);}
+        public boolean waitingForManualRefresh(){return policy.rules()!=null && LEGACY_MANUAL_HOLD.equals(holdReason);}
+        public String visibleHoldReason(){return waitingForManualRefresh()?null:holdReason;}
     }
     public record Pending(String id,long version,String payload,Instant created) {}
     public record DeliveryChange(String type,Instant at) {}
@@ -162,9 +166,32 @@ public class OptimizationStore {
     }
 
     private void invalidateUnsent(State state,Timestamp now) {
-        if(automationStore!=null)automationStore.expireAdvice(state,"当前盯盘规则已暂停核对，原建议已失效",now);
+        invalidateUnsent(state,now,"盯盘规则已暂停核对",false);
+    }
+
+    private void invalidateUnsent(State state,Timestamp now,String reason,boolean keepTrackingReviews) {
+        if(automationStore!=null)automationStore.expireAdvice(state,reason+"，原建议已失效",now,keepTrackingReviews);
         jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE tenant_id=? AND plan_id=? AND status='PENDING'",now,state.tenant(),state.plan());
-        jdbc.update("UPDATE optimization_event SET status='SKIPPED',error_message='盯盘规则已暂停核对',finished_at=? WHERE tenant_id=? AND plan_id=? AND status='READY'",now,state.tenant(),state.plan());
+        jdbc.update("UPDATE optimization_event SET status='SKIPPED',error_message=?,finished_at=? WHERE tenant_id=? AND plan_id=? AND status='READY'",reason,now,state.tenant(),state.plan());
+    }
+
+    /** Called with the account write lease held, before a manual plan operation. */
+    public void invalidateForManualWrite(TenantId tenant,List<String> plans) {
+        tx.executeWithoutResult(status -> {
+            var now=Timestamp.from(Instant.now());
+            for(String id:plans.stream().distinct().sorted().toList()) {
+                var state=jdbc.query("SELECT * FROM optimization_policy WHERE tenant_id=? AND plan_id=? FOR UPDATE",
+                    this::row,tenant.value(),id).stream().findFirst().orElse(null);
+                if(state==null || !state.enabled() || (state.holdReason()!=null && !state.waitingForManualRefresh()))continue;
+                invalidateUnsent(state,now,MANUAL_WRITE_REFRESH,true);
+                jdbc.update("""
+                    UPDATE optimization_policy SET policy_version=policy_version+1, next_check_at=?, last_success_at=NULL,
+                        baseline_json=CASE WHEN ? THEN NULL ELSE baseline_json END
+                    WHERE tenant_id=? AND plan_id=?
+                    """,now,state.policy().rules()==null,state.tenant(),state.plan());
+                if(ruleMetrics!=null && state.policy().rules()!=null)ruleMetrics.reset(state.tenant(),state.plan());
+            }
+        });
     }
 
     public void resumeRules(AdPlan plan,State paused,JsonNode report,JsonNode facts,String operator) {
@@ -261,6 +288,14 @@ public class OptimizationStore {
                 throw new BizException(1803,"投放状态已变化，等待最新检查");
             jdbc.update("UPDATE optimization_outbox SET status='SENT',updated_at=? WHERE id=? AND tenant_id=? AND plan_id=? AND status='PENDING'",now,pending.id(),state.tenant(),state.plan());
             jdbc.update("UPDATE optimization_policy SET result_json=?,last_success_at=?,last_error=NULL WHERE tenant_id=? AND plan_id=? AND lease_owner=?",encode(result),now,state.tenant(),state.plan(),owner);
+            var checkedState=state;
+            if(state.waitingForManualRefresh() && state.pendingRules()==null && result.hasNonNull("plan_checked_at")
+                && Set.of("DELIVERING","PAUSED").contains(result.path("plan_status").asText()) && !result.path("execution_pending").asBoolean()) {
+                invalidateUnsent(state,now,MANUAL_WRITE_REFRESH,true);
+                jdbc.update("UPDATE optimization_policy SET hold_reason=NULL,policy_version=policy_version+1,next_check_at=? WHERE tenant_id=? AND plan_id=?",
+                    Timestamp.from(now.toInstant().plusSeconds(60)),state.tenant(),state.plan());
+                checkedState=getLocked(state);
+            }
             var prior=state.result();
             boolean restarted=result.hasNonNull("optimization_restarted_at")
                 && (prior==null || !result.path("optimization_restarted_at").equals(prior.path("optimization_restarted_at")));
@@ -268,8 +303,8 @@ public class OptimizationStore {
                 if(ruleMetrics!=null)ruleMetrics.reset(state.tenant(),state.plan());
                 if(automationStore!=null)automationStore.expireDeliveryAdvice(state);
             }
-            if(ruleMetrics!=null)ruleMetrics.observed(state,result);
-            if(automationStore!=null)automationStore.recordAdvice(state,result);
+            if(ruleMetrics!=null)ruleMetrics.observed(checkedState,result);
+            if(automationStore!=null)automationStore.recordAdvice(checkedState,result);
         });
     }
     public void discard(State s,String id) {jdbc.update("UPDATE optimization_outbox SET status='CANCELLED',updated_at=? WHERE id=? AND tenant_id=? AND plan_id=?",Timestamp.from(Instant.now()),id,s.tenant(),s.plan());}

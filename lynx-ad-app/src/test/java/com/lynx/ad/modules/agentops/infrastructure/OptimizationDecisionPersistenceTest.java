@@ -38,6 +38,79 @@ class OptimizationDecisionPersistenceTest {
     void approve(OptimizationAutomationStore.Event e,BigDecimal amount){confirmations.approve(e,"user",json.createObjectNode(),e.proposal(),e.report(),amount,new BigDecimal("200"),"owner");}
     OptimizationPolicy policy(boolean enabled){var p=state.policy();return new OptimizationPolicy(enabled,p.mode(),p.dailySpendLimit(),p.maxLoss(),p.minSpend(),p.minOrders(),p.persistenceWindows(),p.conversionDelayMinutes(),p.economics(),p.automation(),p.tactics(),p.creativeGeneration(),p.rules());}
 
+    @Test void manualWriteKeepsRulesEnabledAndInvalidatesPreviouslyQueuedWork() {
+        store.automationStore(journal);
+        var event=create("before-manual");
+        assertTrue(journal.claimAccount("tenant","account","owner"));
+        approve(event,BigDecimal.TEN);
+        journal.releaseAccount("tenant","account","owner");
+        var tracked=create("tracked");
+        var review=reviews.start(tracked,"budget",json.createObjectNode().put("budget","300"),
+            json.createObjectNode(),MonitoringStrategy.Parameters.shadow());
+        assertTrue(store.claim(state,"old-worker",Instant.now()));
+        var oldReport=store.enqueue(state,"old-worker",Map.of("request_id","old-observation"));
+        var gateway=mock(OptimizationExecutionGateway.class);
+        when(gateway.related(plan)).thenReturn(List.of("plan"));
+        var execution=new OptimizationExecutionService(store,journal,gateway,mock(PlanInsightsService.class));
+
+        var owner=execution.manualClaim(plan);
+        assertTrue(journal.manualWriteActive("tenant","account"));
+        var refreshed=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertTrue(refreshed.enabled());
+        assertNull(refreshed.holdReason());
+        assertEquals(state.policy().rules(),refreshed.policy().rules());
+        assertEquals(state.version()+1,refreshed.version());
+        assertNull(refreshed.lastSuccess());
+        assertEquals("RESOLVED",journal.event("tenant",event.id()).orElseThrow().status());
+        assertEquals("RECOMMENDED",journal.event("tenant",tracked.id()).orElseThrow().status());
+        assertEquals("NOT_SENT",confirmations.find("tenant",event.id()).orElseThrow().status());
+        assertTrue(store.pending(refreshed).isEmpty());
+        assertThrows(BizException.class,()->store.complete(state,"old-worker",oldReport,report("plan")));
+        assertFalse(jdbc.queryForList("SELECT biz_type FROM notification",String.class).contains("OPTIMIZATION_TAKEOVER"));
+        assertThrows(BizException.class,()->execution.manualClaim(plan));
+        assertEquals(refreshed.version(),store.get(plan.tenantId(),plan.id()).orElseThrow().version());
+
+        var actual=json.createObjectNode().put("budget","400");
+        assertTrue(reviews.applied(review,actual));
+        reviews.verifiedWorkflow(review,actual);
+        assertEquals("SUCCEEDED",journal.event("tenant",tracked.id()).orElseThrow().status());
+        execution.release(plan,owner);
+        assertFalse(journal.manualWriteActive("tenant","account"));
+        store.release(state,"old-worker",null);
+        assertTrue(store.claim(refreshed,"fresh-worker",Instant.now()));
+        var fresh=store.enqueue(refreshed,"fresh-worker",Map.of("request_id","fresh-observation"));
+        store.complete(refreshed,"fresh-worker",fresh,report("after-manual"));
+        assertNotNull(store.get(plan.tenantId(),plan.id()).orElseThrow().lastSuccess());
+    }
+
+    @Test void historicalManualHoldClearsOnlyAfterUpdatedPlanStatusIsVerified() {
+        var rules=state.policy().rules();
+        var automatic=new OptimizationRules(rules.roiFloor(),rules.spendReminder(),rules.spendProtection(),
+            OptimizationRules.AUTO_PAUSE,rules.runawayMinutes(),rules.runawaySpend(),rules.maxAddition(),rules.dailyAddition());
+        store.save(plan,automatic.policy(true),state.version());
+        store.automationStore(journal);
+        journal.hold("tenant",List.of("plan"),"用户正在手动操作计划，自动调控已暂停");
+        var held=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertNull(held.visibleHoldReason());
+        assertTrue(held.waitingForManualRefresh());
+        assertTrue(store.claim(held,"worker",Instant.now()));
+        var first=store.enqueue(held,"worker",Map.of("request_id","unverified"));
+        store.complete(held,"worker",first,report("unverified"));
+        assertTrue(store.get(plan.tenantId(),plan.id()).orElseThrow().waitingForManualRefresh());
+
+        var fresh=store.enqueue(held,"worker",Map.of("request_id","verified"));
+        var verified=report("verified").put("plan_checked_at",Instant.now().toString()).put("plan_status","DELIVERING");
+        var advice=verified.withArray("recommendations").removeAll().addObject().put("type","SPEND_PROTECTION")
+            .put("title","当天消耗达到保护金额").put("execution_allowed",true);
+        advice.putObject("action").put("kind","PAUSE").put("cause","DAILY_LIMIT");
+        store.complete(held,"worker",fresh,verified);
+        var recovered=store.get(plan.tenantId(),plan.id()).orElseThrow();
+        assertNull(recovered.holdReason());
+        assertTrue(recovered.enabled());
+        assertEquals(held.version()+1,recovered.version());
+        assertTrue(journal.pending().stream().anyMatch(event->"PAUSE".equals(event.kind()) && event.version()==recovered.version()));
+    }
+
     @Test void collectionRetryKeepsItsStatusAndOnlyNotifiesForAdvice() {
         store.automationStore(journal);
         assertTrue(store.claim(state, "worker", Instant.now()));

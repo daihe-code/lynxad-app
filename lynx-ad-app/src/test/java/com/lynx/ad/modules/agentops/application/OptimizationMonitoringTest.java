@@ -113,6 +113,29 @@ class OptimizationMonitoringTest {
         assertEquals("10", service.collectRules(plan, rulesState()).get("daily_spend"));
         verify(gateway, never()).facts(any());
     }
+    @Test void monitoringWaitsForManualWritesAndUnverifiedPlanChanges() {
+        var gateway=mock(OptimizationExecutionGateway.class);
+        var journal=mock(OptimizationAutomationStore.class);
+        service.execution(mock(OptimizationExecutionService.class),gateway,journal);
+        var state=rulesState();
+        when(store.claim(eq(state),anyString(),any())).thenReturn(true);
+        when(journal.manualWriteActive("a","account")).thenReturn(true,false,false);
+        when(gateway.manualChangePending(plan)).thenReturn(true,false);
+
+        service.cycle(state);
+        service.cycle(state);
+        verifyNoInteractions(management,insights,engine);
+        verify(store,never()).enqueue(any(),anyString(),any());
+
+        when(management.monitoringFacts(tenant,id,false)).thenReturn(new PlanManagementService.MonitoringFacts(
+            "1878663839175696","PAUSED","CUSTOM",BigDecimal.valueOf(400),null,List.of("item")));
+        when(insights.data(eq(tenant),eq(id),any(),eq(true))).thenReturn(
+            new PlanInsightsService.Statistics(Map.of("cost",BigDecimal.TEN),List.of(),"stat_time_day",Instant.now(),null));
+        when(store.enqueue(eq(state),anyString(),anyMap()))
+            .thenAnswer(call->new OptimizationStore.Pending("after-manual",1,new ObjectMapper().writeValueAsString(call.getArgument(2)),Instant.now()));
+        service.cycle(state);
+        verify(store).complete(eq(state),anyString(),any(),argThat(report->"PAUSED".equals(report.path("plan_status").asText())));
+    }
     @Test void expiredOrConcurrentLeaseCannotCollectOrSubmit() {service.cycle(state());verifyNoInteractions(engine,insights,management);}
     @Test void cumulativeSummaryIsNotSentAsHourlyEvidence() {
         var stats=new PlanInsightsService.Statistics(Map.of("cost",new BigDecimal("999")),List.of(),"stat_time_day",Instant.now(),null);

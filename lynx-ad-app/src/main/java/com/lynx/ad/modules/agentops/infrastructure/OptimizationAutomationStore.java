@@ -209,6 +209,9 @@ public class OptimizationAutomationStore {
         expireAdvice(state,"广告投放状态已变化，原建议已失效",Timestamp.from(Instant.now()));
     }
     int expireAdvice(OptimizationStore.State state,String reason,Timestamp now) {
+        return expireAdvice(state,reason,now,false);
+    }
+    int expireAdvice(OptimizationStore.State state,String reason,Timestamp now,boolean keepTrackingReviews) {
         jdbc.update("""
             UPDATE optimization_confirmation SET status='NOT_SENT'
             WHERE tenant_id=? AND plan_id=? AND status='RESERVED' AND event_id IN (
@@ -220,9 +223,9 @@ public class OptimizationAutomationStore {
             WHERE tenant_id=? AND plan_id=? AND policy_version=? AND status IN ('RECOMMENDED','READY')
               AND NOT EXISTS (
                 SELECT 1 FROM optimization_review r WHERE r.tenant_id=optimization_event.tenant_id AND r.event_id=optimization_event.id
-                  AND (r.action_at IS NOT NULL OR r.content_work_id IS NOT NULL)
+                  AND (r.action_at IS NOT NULL OR r.content_work_id IS NOT NULL OR (? AND r.status='TRACKING'))
               )
-            """,reason,now,now,state.tenant(),state.plan(),state.version());
+            """,reason,now,now,state.tenant(),state.plan(),state.version(),keepTrackingReviews);
     }
     public Instant latestRuleStartedAt(String tenant, String plan) {
         var latest = jdbc.queryForObject("""
@@ -266,6 +269,10 @@ public class OptimizationAutomationStore {
         if(jdbc.queryForObject("SELECT COUNT(*) FROM optimization_account_guard WHERE tenant_id=? AND account_id=?",Integer.class,tenant,account)==0)jdbc.update("INSERT INTO optimization_account_guard(tenant_id,account_id) VALUES(?,?)",tenant,account);
     }
     public boolean claimAccount(String tenant,String account,String owner){return Boolean.TRUE.equals(tx.execute(s->{ensureAccount(tenant,account);var now=Instant.now();return jdbc.update("UPDATE optimization_account_guard SET lease_owner=?,lease_until=? WHERE tenant_id=? AND account_id=? AND (lease_until IS NULL OR lease_until<?)",owner,Timestamp.from(now.plusSeconds(180)),tenant,account,Timestamp.from(now))==1;}));}
+    public boolean manualWriteActive(String tenant,String account){
+        return jdbc.queryForObject("SELECT COUNT(*) FROM optimization_account_guard WHERE tenant_id=? AND account_id=? AND lease_owner LIKE 'manual:%' AND lease_until>?",
+            Integer.class,tenant,account,Timestamp.from(Instant.now()))>0;
+    }
     public void releaseAccount(String tenant,String account,String owner){jdbc.update("UPDATE optimization_account_guard SET lease_owner=NULL,lease_until=NULL WHERE tenant_id=? AND account_id=? AND lease_owner=?",tenant,account,owner);}
     public BigDecimal limit(String tenant,String account){var rows=jdbc.query("SELECT budget_limit FROM optimization_account_guard WHERE tenant_id=? AND account_id=?",(r,n)->r.getBigDecimal(1),tenant,account);return rows.isEmpty()?null:rows.getFirst();}
     public List<AccountLimit> limits(String tenant){return jdbc.query("SELECT account_id,budget_limit FROM optimization_account_guard WHERE tenant_id=?",(r,n)->new AccountLimit(r.getString(1),r.getBigDecimal(2)),tenant);}
