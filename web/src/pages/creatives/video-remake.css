@@ -178,6 +178,11 @@
 .remake-pager-arrow svg { width: 20px; height: 20px; }
 .remake-pager-prev svg { transform: rotate(180deg); }
 .remake-actions { padding-top: 12px; border-top: 1px solid var(--remake-border); margin-top: 4px; }
+.remake-actions .remake-submit {
+  --el-button-disabled-bg-color: var(--el-fill-color-light);
+  --el-button-disabled-border-color: var(--remake-border);
+  --el-button-disabled-text-color: var(--remake-muted);
+}
 .remake-actions .el-button + .el-button, .remake-pager .el-button + .el-button, .remake-result-actions .el-button + .el-button { margin-left: 0; }
 .remake-upload-progress { display: grid; gap: 6px; font-size: 13px; color: var(--remake-muted); }
 .remake-workspace .remake-error { color: #b51c42; font-size: 13px; overflow-wrap: anywhere; }

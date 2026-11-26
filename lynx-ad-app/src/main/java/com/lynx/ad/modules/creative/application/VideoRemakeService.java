@@ -227,7 +227,10 @@ public class VideoRemakeService {
             throw input("请选择有效的人物设置");
         }
         boolean skipPortrait = productPeopleMode != null || request.preserveSourcePeople();
-        if (!skipPortrait && !request.portraitTermsConfirmed()) throw input("请确认替换人像的使用授权");
+        boolean useProductModel = "auto".equals(productPeopleMode);
+        if ((useProductModel || !skipPortrait) && !request.portraitTermsConfirmed()) {
+            throw input(useProductModel ? "请确认商品图模特的肖像使用授权" : "请确认替换人像的使用授权");
+        }
         if ((productPeopleMode != null && request.preserveSourcePeople()) || (skipPortrait
                 && Stream.of(request.portraitId(), request.portraitName(), request.portraitImageId())
                 .anyMatch(value -> value != null && !value.isBlank()))) throw input("请只选择一种人物设置");

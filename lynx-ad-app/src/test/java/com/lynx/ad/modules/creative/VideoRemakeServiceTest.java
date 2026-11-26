@@ -378,6 +378,22 @@ class VideoRemakeServiceTest {
         verify(store, never()).ownsAsset(anyString(), anyString(), anyString(), anyString(), eq("image"));
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "true, 请确认商品图模特的肖像使用授权",
+        "false, 请确认替换人像的使用授权"
+    })
+    void portraitModesRequireSeparateConsent(boolean useProductModel, String message) {
+        var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", "rpa_" + "1".repeat(32),
+                null, null, true, false, 0, null, true, false, useProductModel ? "auto" : null);
+
+        var error = assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
+
+        assertEquals(message, error.getMessage());
+        verify(store, never()).create(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verifyNoInteractions(engine, catalog);
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"auto", "none"})
     void productPeopleModesUseTheCatalogGalleryAndNeedNoPortrait(String mode) throws Exception {
@@ -390,7 +406,7 @@ class VideoRemakeServiceTest {
         var capability = json.createObjectNode().put("source_matching_available", true);
         when(engine.remake("GET", "/capabilities", null)).thenReturn(capability);
         var request = new VideoRemakeService.Start(ID, "binding", "douyin", "123", reference,
-                null, null, true, false, 0, null, true, false, mode);
+                null, null, true, "auto".equals(mode), 0, null, true, false, mode);
 
         assertThrows(BizException.class, () -> service.create("tenant", "actor", request));
         capability.put("product_people_supported", true);
