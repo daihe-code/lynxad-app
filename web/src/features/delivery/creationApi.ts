@@ -139,7 +139,7 @@ export const saveContentEdit = (s:CreationState) => apiPost<CreationState>(`${ro
 export const verifyContentEdit = (s:CreationState) => apiPost<CreationState>(`${root}/${s.planId}/content-edit/verify`,{},slow);
 export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }, inlineFailure = false) =>
   apiPost<CreationState>(root, body, inlineFailure ? { ...slow, ...quiet } : slow);
-export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh });
+export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh }, quiet);
 export const creationKeepGroup = (s:CreationState) => apiPut<CreationState>(`${root}/${s.planId}/groups/keep`, {revision:s.revision});
 export const creationRecommendations = (id: string, refresh = false) => apiGet<CreationState>(`${root}/${id}/recommendations`, { ...slow, params: { refresh } });
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
