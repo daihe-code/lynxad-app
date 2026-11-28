@@ -43,6 +43,8 @@ public class CreationState {
     public BigDecimal budget, roi2Goal;
     public boolean hideInAweme = true;
     public List<Product> products = new ArrayList<>();
+    /** Drafts created before direct product selection keep the legacy analysis flow. */
+    public boolean skipProductAnalysis;
     public String analysisStatus = "NONE", analysisError, enginePlanId, engineJobId, previousEngineJobId;
     public ProductBasicAnalysis basicAnalysis;
     public String analysisRequestId;

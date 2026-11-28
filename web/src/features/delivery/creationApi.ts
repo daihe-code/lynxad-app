@@ -98,7 +98,7 @@ export interface CreationState {
   reachedStep?: number;
   packageVersion: number; confirmedVersion?: number; smartBidType: 'CUSTOM' | 'CONSERVATIVE';
   budget?: number; roi2Goal?: number; scheduleType: string; startDate?: string; endDate?: string; hideInAweme: boolean;
-  products: CreationProduct[]; analysisStatus: string; analysisError?: string;
+  products: CreationProduct[]; skipProductAnalysis?: boolean; analysisStatus: string; analysisError?: string;
   analysis?: ProductAnalysis;
   basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number;
   recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
@@ -135,12 +135,14 @@ export const creationGet = (id: string, signal?: AbortSignal) => apiGet<Creation
 export const beginContentEdit = (id:string) => apiPost<CreationState>(`${root}/${id}/content-edit`,{},slow);
 export const saveContentEdit = (s:CreationState) => apiPost<CreationState>(`${root}/${s.planId}/content-edit/save`,{revision:s.revision},slow);
 export const verifyContentEdit = (s:CreationState) => apiPost<CreationState>(`${root}/${s.planId}/content-edit/verify`,{},slow);
-export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }) => apiPost<CreationState>(root, body, slow);
+export const creationSelect = (body: { planId?: string; revision?: number; accountId: string; awemeId: string; productIds: string[] }, inlineFailure = false) =>
+  apiPost<CreationState>(root, body, inlineFailure ? { ...slow, ...quiet } : slow);
 export const creationAnalyze = (s: CreationState, refresh = false) => apiPost<CreationState>(`${root}/${s.planId}/analysis`, { revision: s.revision, refresh });
 export const creationKeepGroup = (s:CreationState) => apiPut<CreationState>(`${root}/${s.planId}/groups/keep`, {revision:s.revision});
 export const creationRecommendations = (id: string, refresh = false) => apiGet<CreationState>(`${root}/${id}/recommendations`, { ...slow, params: { refresh } });
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
-export const creationStep = (s: CreationState, step: number) => apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step });
+export const creationStep = (s: CreationState, step: number) =>
+  apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step }, s.skipProductAnalysis && step === 2 ? quiet : undefined);
 export const creationGenerate = (s: CreationState, productIds: string[]) => apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds });
 export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|'CAROUSEL', issue?: GenerationIssue) => apiPost<CreationState>(`${root}/${s.planId}/generation/retry`, { revision:s.revision,type, ...(issue ? {productId:issue.productId,slotId:issue.slotId} : {}) }, slow);
 export const creationDeleteGenerationFailure = (s: CreationState, issue: GenerationIssue) => apiDelete<CreationState>(`${root}/${s.planId}/generation/failures`, { data: {revision:s.revision,productId:issue.productId,type:issue.type,slotId:issue.slotId} });

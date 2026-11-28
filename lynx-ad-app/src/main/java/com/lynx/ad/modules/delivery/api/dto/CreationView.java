@@ -15,7 +15,7 @@ public record CreationView(
         String planId, String accountId, String awemeId, String name, int revision, int step,
         int packageVersion, Integer confirmedVersion, String smartBidType, BigDecimal budget,
         BigDecimal roi2Goal, String scheduleType, String startDate, String endDate, boolean hideInAweme,
-        List<CreationState.Product> products, String analysisStatus, String analysisError,
+        List<CreationState.Product> products, boolean skipProductAnalysis, String analysisStatus, String analysisError,
         JsonNode analysis, JsonNode recommendations, String generationStatus,
         String generationMessage, int progress, List<String> generationProductIds,
         String generationStage, List<CreationState.GenerationCount> generationCounts,
@@ -33,7 +33,7 @@ public record CreationView(
         boolean failedAnalysis="SUCCEEDED".equals(s.analysisStatus)&&ProductAnalysisOutcome.failed(s.analysis);
         return new CreationView(s.planId, s.accountId, s.awemeId, s.name, s.revision, s.step,
                 s.packageVersion, s.confirmedVersion, s.smartBidType, s.budget, s.roi2Goal,
-                s.scheduleType, s.startDate, s.endDate, s.hideInAweme, List.copyOf(s.products),
+                s.scheduleType, s.startDate, s.endDate, s.hideInAweme, List.copyOf(s.products), s.skipProductAnalysis,
                 failedAnalysis?"FAILED":s.analysisStatus, failedAnalysis?ProductAnalysisOutcome.failureMessage(s.analysis):s.analysisError, s.analysis, s.recommendations,
                 s.generationStatus, customerMessage(s), s.progress,
                 List.copyOf(s.generationProductIds), s.generationStage, List.copyOf(s.generationCounts),

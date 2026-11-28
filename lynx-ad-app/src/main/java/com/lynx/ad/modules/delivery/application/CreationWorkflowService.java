@@ -293,6 +293,7 @@ public class CreationWorkflowService {
                 plans.save(plan);bindProducts(plan);
                 var s=new CreationState();s.planId=plan.id().value();s.tenantId=tenant.value();s.userId=TenantContext.userId().value();
                 s.accountId=request.accountId;s.awemeId=request.awemeId;s.name=name;s.products=new ArrayList<>(selected);
+                s.skipProductAnalysis=true;
                 s.basicAnalysis=ProductBasicAnalysisService.analyze(s.products);store.insert(s);return s;
             }
             return store.mutate(tenant.value(),request.planId,request.revision,s->{
@@ -319,6 +320,7 @@ public class CreationWorkflowService {
         String id=sharedId(tenant,requestedId,true);
         writable(tenant,WriteAction.SAVE_PLAN);
         var snapshot=store.get(tenant.value(),id);
+        if(snapshot.skipProductAnalysis)throw new BizException(1403,"此计划可在选好商品后直接进入投放目标，请刷新页面");
         var currentProducts=currentProductPrices(tenant,snapshot);
         return store.mutate(tenant.value(),id,v.revision,s->{
             selectionEditable(s);
@@ -382,7 +384,7 @@ public class CreationWorkflowService {
             if(s.publishedEdit!=null&&!"DRAFT".equals(s.publishedEdit.status))throw new BizException(1403,"保存结果待核查，请先核查原计划");
             if(s.qcPlanId!=null||!Set.of("NONE","FAILED").contains(s.publishStatus))throw new BizException(1403,"计划正在发布或已发布，不可修改草稿");
             if(request.step>=2)requireBasicAnalysis(s);
-            if(request.step==2 && s.step==1)confirmAnalysisSnapshot(s);
+            if(request.step==2 && s.step==1 && !s.skipProductAnalysis)confirmAnalysisSnapshot(s);
             boolean refreshed=request.step==3&&refreshDraftSchedule(s);
             if(request.step==3&&(s.step!=3||refreshed))CreationPayloadBuilder.settings(s);
             // Navigation changes no creative content and must preserve an already confirmed package.

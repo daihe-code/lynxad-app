@@ -28,6 +28,10 @@
           </p>
         </div>
         <div class="panel__body" id="goods-body">
+          <RequestFailureNotice v-if="selectionFailure" :failure="selectionFailure" :busy="saving" @retry="emit('recoverSelection')" />
+          <ul v-else-if="selectionErrors.length" class="basic-analysis basic-analysis--blocked" role="alert">
+            <li v-for="(issue, index) in selectionErrors" :key="`${issue.productId}:${issue.code}:${index}`">{{ issue.productName ? `${issue.productName}：` : '' }}{{ issue.message }}</li>
+          </ul>
           <div v-if="!readOnly && !recommendationsOpen" ref="filters" class="filters">
             <div class="seg" role="group" aria-label="商品筛选"><button v-for="category in catalogPolicy.tabs" :key="category.value" class="seg__item" type="button" :aria-pressed="tab === category.value" @click="tab = category.value">{{ category.label }}</button></div>
             <label class="check"><input v-model="unpromoted" class="checkbox" type="checkbox" /><span class="check__label">只看未投放商品</span></label>
@@ -109,7 +113,7 @@
         </div>
       </section>
     </div></main>
-    <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : analysisOpen ? '下一步' : '分析所选商品 · 10 积分' }}</button></CreationFooter>
+    <CreationFooter :show-draft-save="contentEditing" :plan-status="planStatus" :save-label="contentEditing ? '暂存修改' : '保存草稿'" v-if="!embedded" :plan-name="planName" :busy="saving" :save-disabled="draftSaveDisabled || readOnly" @back="emit('cancel')" @save="emit('saveDraft')"><button class="btn-next" type="button" :disabled="!selected.length || saving || analysisOpen && !canContinue" @click="skipProductAnalysis || analysisOpen ? emit('next') : confirm()">{{ saving ? '处理中…' : skipProductAnalysis || analysisOpen ? '下一步' : '分析所选商品 · 10 积分' }}</button></CreationFooter>
   </div>
 </template>
 
@@ -133,7 +137,7 @@ import { productPriceText } from '@/features/catalog/productPrice';
 import RequestFailureNotice from '@/components/RequestFailureNotice.vue';
 import type { ApiRequestError } from '@/api/apiErrors';
 interface AccountOption { key: string; awemeName: string; awemeId: string; avatar?: string; accountId?: string }
-const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
+const props = defineProps<{ products: ProductVo[]; selected: ProductVo[]; loaded: boolean; loadError: boolean; loadFailure?: ApiRequestError; saving: boolean; account?: AccountOption; accounts: AccountOption[]; accountChips: string[]; total: number; pagination?: { nextCursor?: string | null; hasMore?: boolean }; cursorHistory?: Record<number, string>; skipProductAnalysis?: boolean; selectionFailure?: ApiRequestError; analysisStatus: string; analysisError?: string; analysis?: ProductAnalysis; basicAnalysis?: ProductBasicAnalysis; analysisStartedAt?: number; readOnly?: boolean; allowAdjustment?: boolean; adjustmentBlockedReason?: string; selectionLocked?: boolean; contentEditing?:boolean; planStatus?:string; embedded?: boolean; initialQuery?: ProductQuery; maxStep?: number; reachedStep?: number; groupDecision?: string; draftId?: string; planName?: string; draftSaveDisabled?: boolean }>();
 const tipDismissed = defineModel<boolean>('tipDismissed', { default: false });
 const filters = ref<HTMLElement>();
 async function dismissTip() {
@@ -141,7 +145,7 @@ async function dismissTip() {
   await nextTick();
   filters.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 }
-const emit = defineEmits<{ adjustConfirmed: []; adjust: []; keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
+const emit = defineEmits<{ adjustConfirmed: []; adjust: []; recoverSelection: []; keep: []; navigate: [step:number]; select: [product: ProductVo]; remove: [id: string]; account: [key: string]; catalog: []; retry: []; next: []; cancel: []; saveDraft: []; analyze: [refresh?: boolean]; group: [ids: string[]]; query: [query: ProductQuery] }>();
 const bannerChips = ['商城+搜索等全域投放', '智能生成素材', '智能出价', '实时监控+优化'];
 const steps = ['选择商品', '设置投放目标', '定素材并投放', '查看投放结果'];
 const query = ref(props.initialQuery?.keyword ?? ''), page = ref(props.initialQuery?.page ?? 1), size = ref(props.initialQuery?.pageSize ?? 10), jump = ref(String(page.value));
@@ -163,7 +167,7 @@ const viewStorage = { getItem: (key: string) => localStorage.getItem(key), setIt
 const productView = ref<ProductStepView>();
 watch(viewScope, scope => { productView.value = scope ? readProductStepView(viewStorage, scope) : undefined; }, { immediate: true });
 const analysisOpen = computed({
-  get: () => productView.value === 'ANALYSIS' || productView.value === undefined && (props.analysisStatus !== 'NONE' || !!props.analysis),
+  get: () => !props.skipProductAnalysis && (productView.value === 'ANALYSIS' || productView.value === undefined && (props.analysisStatus !== 'NONE' || !!props.analysis)),
   set: (open: boolean) => {
     productView.value = open ? 'ANALYSIS' : 'SELECTION';
     if (viewScope.value) rememberProductStepView(viewStorage, viewScope.value, productView.value);
@@ -196,6 +200,8 @@ const emptyMessage = computed(() => query.value.trim() ? '没有匹配的商品�
 const analyzing = computed(() => ['QUEUED','RUNNING'].includes(props.analysisStatus));
 const presentation = computed(() => productAnalysisPresentation(props.analysis, props.analysisStatus, props.selected));
 const canContinue = computed(() => canContinueProductAnalysis(props.basicAnalysis, props.analysisStatus, props.analysis, props.selected));
+const selectionErrors = computed(() => props.skipProductAnalysis && !props.readOnly
+  ? props.basicAnalysis?.issues.filter(issue => issue.severity === 'ERROR') || [] : []);
 watch([analysisOpen, recommendationsOpen, () => props.account?.key], ([analysis, recommendations, key]) => {
   if (!props.readOnly && key && !analysis && !recommendations) emit('catalog');
 }, { immediate: true });

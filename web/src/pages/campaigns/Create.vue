@@ -5,10 +5,10 @@
       <p v-if="draftStatus">{{ draftStatus }}</p>
       <div v-if="draftUnresolved"><button type="button" :disabled="draftRestoring" @click="autosave.retryRestore">{{ draftRestoring ? '正在核验商品…' : '载入本机内容核对' }}</button><button type="button" :disabled="draftRestoring" @click="autosave.keepServer">保留服务器内容</button></div>
     </aside>
-    <RequestFailureNotice :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
+    <RequestFailureNotice v-if="!inlineSelectionFailure" :failure="operationFailure" :busy="busy || recovering" @retry="recoverOperation" />
     <RequestFailureNotice :failure="pollFailure" context="状态暂未刷新，当前展示上次查询结果。" :busy="polling" @retry="poll" />
     <aside v-if="contentEditing && contentLocked" class="draft-save-note"><button type="button" :disabled="busy" @click="verifyContent">核查保存结果</button></aside>
-    <CreateProductsStep ref="productStep" @adjust-confirmed="adjustmentAcknowledged = true" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="sameAnalysisInput ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
+    <CreateProductsStep ref="productStep" @adjust-confirmed="adjustmentAcknowledged = true" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" v-model:tip-dismissed="productTipDismissed" :draft-id="state?.planId" :skip-product-analysis="skipProductAnalysis" :selection-failure="inlineSelectionFailure ? operationFailure : undefined" @recover-selection="recoverOperation" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-if="step === 1" :key="accountKey" :initial-query="query" :pagination="productPagination" :cursor-history="productCursors" :products="products" :selection-locked="selectionLocked" :selected="selected" :loaded="loaded" :load-error="loadError" :load-failure="productFailure" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :total="total" :analysis-status="sameAnalysisInput ? state?.analysisStatus || 'NONE' : 'NONE'" :analysis="sameAnalysisInput ? state?.analysis : undefined" :analysis-error="sameAnalysisInput ? state?.analysisError : undefined" :basic-analysis="(skipProductAnalysis ? sameSelection : sameAnalysisInput) ? state?.basicAnalysis : undefined" :analysis-started-at="state?.analysisStartedAt" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @select="toggle" @remove="remove" @account="chooseAccount" @query="changeQuery" @catalog="ensureProductCatalog" @retry="loadProducts()" @keep="keepGroup" :group-decision="state?.groupingDecision" @group="applyGroup" @analyze="analyze" @next="nextGoal" @cancel="cancel" />
     <CreateGoalStep :read-only="contentEditing" @roi-input="editRoi" :plan-name="name" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 2" v-model:budget="budget" v-model:roi="roi" v-model:duration="duration" v-model:start="start" v-model:end="end" :mode="mode === 'CUSTOM' ? 'SMART_BID_CUSTOM' : 'SMART_BID_CONSERVATIVE'" :saving="busy || contentLocked || draftRestoring || draftUnresolved" :budget-error="budgetError" budget-warn="" :roi-error="roiError" :date-error="dateError" :budget-hint="budgetHint" :roi-hint="roiHint" :estimate-roi-hint="estimateRoiHint" :estimate-orders-hint="estimateOrdersHint" :estimate-status="estimateStatus" :budget-options="budgetOptions" :order-lo="0" :order-hi="0" selection-warning="" :demo-mode="false" :account="account" :accounts="contentEditing ? [] : accountOptions" :account-chips="accountChips" @mode="changeMode" @account="chooseAccount" @prev="goToStep(1)" @next="saveGoal" @cancel="cancel" />
     <LiveMaterialsStep :initial-product-id="initialMaterialProduct" :initial-tab="initialMaterialTab" @regenerate-title="regenerateTitle" :draft-save-disabled="!canSaveDraft" @save-draft="saveDraft" :plan-status="state?.contentEdit?.planStatus" :content-editing="contentEditing" :reached-step="reachedStep" :max-step="maxStep" @navigate="goToStep" v-else-if="step === 3 && state" v-model:plan-name="name" :state="state" :busy="busy || contentLocked || draftRestoring || draftUnresolved" :account="account" :accounts="contentEditing ? [] : accountOptions" @account="chooseAccount" :account-chips="accountChips" :reconnecting="!!pollFailure" @prev="goToStep(2)" @generate="generate" @generate-addition="generateAddition" @add="add" @add-uploads="addUploadBatch" @action="openAction" @resolve-version="resolveVersion" :version-error="operationFailure?.message" @titles="editTitles" :visibility-value="visibilityValue" :visibility-error="visibilityError" :visibility-disabled="requestBusy || contentLocked || draftRestoring || draftUnresolved || recovering" @visibility="setVisibility" @retry-visibility="visibility.retry" @recheck="recheck" @retry-sync="retrySync" @verify-sync="verifySync" @refresh-status="poll" @typography="repairTypography" @context="analyzeContext" @product-titles="editProductTitles" @add-title="addTitle" @retry-generation="retryGeneration" @retry-failure="retryFailure" @delete-failure="deleteFailure" @publish="publish" @cancel="cancel" />
     <PlanResult v-else-if="state?.publishStatus === 'CREATED'" :plan-id="state.planId" />
@@ -108,17 +108,27 @@ watch(() => step.value === 4 && state.value?.publishStatus !== 'CREATED' ? state
   } catch { /* An unavailable creation time stays unknown; submission polling continues independently. */ }
 });
 const sameSelection = computed(() => !!state.value && JSON.stringify(state.value.products.map(p => p.qcProductId)) === JSON.stringify(selected.value.map(p => p.qcProductId)));
+const skipProductAnalysis = computed(() => state.value ? !!state.value.skipProductAnalysis : !contentEditing.value);
+const inlineSelectionFailure = computed(() => step.value === 1 && skipProductAnalysis.value);
+watch(() => selected.value.map(p => p.qcProductId).join(','), () => {
+  if (inlineSelectionFailure.value && operationFailure.value?.kind === 'VALIDATION') operationFailure.value = undefined;
+});
 const resumeMaterialEntry = computed(() => contentEditing.value && props.initialStep === 3 && !props.adjustProductsOnOpen
   && sameSelection.value && JSON.stringify(state.value?.products.map(p => p.qcProductId)) === materialEntryProducts.value);
 const pendingSelectionImpact = computed(() => state.value ? selectionImpact(state.value.products,selected.value,state.value.materials) : undefined);
 const sameAnalysisInput = computed(() => !!state.value && productAnalysisInput(state.value.products) === productAnalysisInput(selected.value));
-const analysisReady = computed(() => !!state.value && sameAnalysisInput.value
-  && canContinueProductAnalysis(state.value.basicAnalysis, state.value.analysisStatus, state.value.analysis, selected.value));
-const analysisPending = computed(() => !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
+const selectionReady = computed(() => {
+  const draft = state.value;
+  if (!draft) return false;
+  if (draft.skipProductAnalysis)
+    return sameSelection.value && selected.value.length > 0 && draft.basicAnalysis?.canContinue === true;
+  return sameAnalysisInput.value && canContinueProductAnalysis(draft.basicAnalysis, draft.analysisStatus, draft.analysis, selected.value);
+});
+const analysisPending = computed(() => !skipProductAnalysis.value && !!state.value && ['QUEUED','RUNNING'].includes(state.value.analysisStatus));
 const working = computed(() => !!state.value && ['QUEUED','RUNNING','REVISING','SUBMITTING','UNCERTAIN','IMPORTING'].includes(state.value.generationStatus));
 const selectionLocked=computed(()=>contentLocked.value || productSelectionLocked(state.value));
 const reconcileId = ref(''), reviewedQuote=ref('');
-const maxStep = computed(() => contentEditing.value ? 4 : analysisReady.value || resumeMaterialEntry.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
+const maxStep = computed(() => contentEditing.value ? 4 : selectionReady.value || resumeMaterialEntry.value ? Math.max(step.value, state.value?.budget != null ? 3 : 2) : 1);
 async function reconcile() { await run(async () => { acceptWrite(await api.creationReconcile(state.value!, reconcileId.value.trim())); }); }
 const roi = ref(''), mode = ref<'CUSTOM'|'CONSERVATIVE'>('CUSTOM'), name = ref(''), duration = ref<'long'|'custom'>('long');
 const { budget, budgets: modeBudgets, restore: restoreBudgets, reset: resetBudgets, applyRecommendation: applyBudgetRecommendation } = useCreationModeBudgets(mode);
@@ -145,7 +155,7 @@ function fillDraft(values: DraftInputs, restoreStep = true) {
   values = resumeDraftDates(values,today(),canRefreshCreationSchedule(state.value));
   name.value = values.name; mode.value = values.mode; restoreBudgets(values.budget,values.modeBudgets); restoreRoi(values.roi,values.roiSource);
   duration.value = values.duration; start.value = values.start; end.value = values.end;
-  if (restoreStep) step.value = resumeMaterialEntry.value ? 3 : analysisReady.value ? values.step : 1;
+  if (restoreStep) step.value = resumeMaterialEntry.value ? 3 : selectionReady.value ? values.step : 1;
 }
 async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   values = resumeDraftDates(values,today(),canRefreshCreationSchedule(state.value));
@@ -169,7 +179,7 @@ async function restoreDraft(values: DraftInputs): Promise<string | undefined> {
   fillDraft(values);
   const same = !!state.value && JSON.stringify(values.productIds) === JSON.stringify(state.value.products.map(p => p.qcProductId));
   const missing = values.productIds.filter(id => !eligible.some(p => p.qcProductId === id));
-  if (!same || missing.length || !analysisReady.value && !resumeMaterialEntry.value) step.value = 1;
+  if (!same || missing.length || !selectionReady.value && !resumeMaterialEntry.value) step.value = 1;
   else if (step.value === 3 && changedDraftFields(values,serverDraftInputs(state.value,today())).some(key => key !== 'roiSource' && draftGoalFields.includes(key))) step.value = 2;
   return missing.length ? `已恢复可用内容；${missing.length} 个商品已被其他草稿占用、下架、不可投或信息不完整，未恢复选中（ID：${missing.join('、')}）。请重新确认选品。` : undefined;
 }
@@ -289,7 +299,7 @@ async function ensureSelection() {
     catch { return false; }
   }
   if(selectionLocked.value)throw new Error('素材正在生成或处理中，暂不能调整商品，请完成后再试');
-  const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) });
+  const saved = await api.creationSelect({ planId: state.value?.planId, revision: state.value?.revision, accountId: account.value.accountId, awemeId: account.value.awemeId, productIds: selected.value.map(p => p.qcProductId) }, skipProductAnalysis.value);
   if (fresh) autosave.suspend();
   state.value = saved;
   if(selectionChanged && !contentEditing.value){resetBudgets();restoreRoi('');reviewedQuote.value='';}
@@ -305,21 +315,35 @@ async function applyGroup(ids: string[]) {
   if(busy.value || selectionLocked.value || !ids.length)return;
   selected.value=selected.value.filter(p=>ids.includes(p.qcProductId));await analyze();
 }
-async function analyze(refresh = false) { await run(async () => { if(!await ensureSelection())return; acceptWrite(await api.creationAnalyze(state.value!, refresh)); schedulePoll(); }); }
+async function analyze(refresh = false) {
+  if (skipProductAnalysis.value) return;
+  await run(async () => { if(!await ensureSelection())return; acceptWrite(await api.creationAnalyze(state.value!, refresh)); schedulePoll(); });
+}
 async function persistStep(target: number) {
   if (state.value && (state.value.step !== target || creationReachedStep(state.value) < target)) acceptWrite(await api.creationStep(state.value, target));
   if (state.value) autosave.acknowledge(['step'],state.value.revision,{ ...captureDraft(),step: target });
 }
 async function goToStep(target: number) {
-  if(props.publishedWorkspace && contentEditing.value && (target===2 || target===4)) {emit('navigate',target);return;}
-  if (target > 1 && state.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
-  if (target < 1 || target > 3 || target > maxStep.value) return;
-  await run(async () => { if(step.value === 2 && (target === 3 || !budgetError.value && !roiError.value && !dateError.value)) await persistGoal(); await persistStep(target); step.value = target; window.scrollTo(0,0); });
+  const directGoal = skipProductAnalysis.value && step.value === 1 && target === 2;
+  if(props.publishedWorkspace && contentEditing.value && (target===2 && !directGoal || target===4)) {emit('navigate',target);return;}
+  if (target > 1 && state.value && !skipProductAnalysis.value && !sameAnalysisInput.value) { ElMessage.warning('商品已调整，请先更新商品分析'); return; }
+  if (target < 1 || target > 3 || target > maxStep.value && !directGoal) return;
+  await run(async () => {
+    if (directGoal && !selectionReady.value) {
+      if (!await ensureSelection() || !selectionReady.value) return;
+    }
+    if (target > 1 && skipProductAnalysis.value && !selectionReady.value) return;
+    if (step.value === 2 && (target === 3 || !budgetError.value && !roiError.value && !dateError.value)) await persistGoal();
+    await persistStep(target);
+    step.value = target;
+    window.scrollTo(0,0);
+    if (directGoal) schedulePoll();
+  });
   if(props.publishedWorkspace && step.value===target)emit('navigate',target);
   if(target === 2 && step.value === 2) await refreshRecommendations();
 }
 async function nextGoal() {
-  if (!analysisReady.value) return;
+  if (!skipProductAnalysis.value && !selectionReady.value) return;
   await goToStep(2);
 }
 async function refreshRecommendations(force = false) {
@@ -540,7 +564,7 @@ async function initialize() {
       const noticeMaterials = typeof route.query.notice === 'string' && route.query.step === '3' && creationReachedStep(s) >= 3;
       const restoredStep = ['QUEUED', 'SENDING', 'UNCERTAIN', 'CREATED'].includes(s.publishStatus) || showPublishFailureResult(s.publishStatus, props.initialStep, noticeMaterials) ? 4
         : Math.min(creationReachedStep(s), Math.max(1, Math.min(4, props.initialStep ?? (noticeMaterials ? 3 : s.step))));
-      step.value = restoredStep < 4 && !analysisReady.value && !noticeMaterials && !resumeMaterialEntry.value ? 1 : restoredStep;
+      step.value = restoredStep < 4 && !selectionReady.value && !noticeMaterials && !resumeMaterialEntry.value ? 1 : restoredStep;
       name.value = s.name; mode.value = s.smartBidType; restoreBudgets(s.budget == null ? '' : String(s.budget));
       restoreRoi(s.roi2Goal == null ? '' : String(s.roi2Goal)); duration.value = s.scheduleType === 'DATE_RANGE' ? 'custom' : 'long';
       const schedule = serverDraftInputs(s,today()); start.value = schedule.start; end.value = schedule.end;
@@ -568,7 +592,7 @@ async function initialize() {
         ? publishFailureStep(publishFailureTarget(state.value.publishRecovery, state.value.publishError, route.query.recover)) : undefined;
       if (recoveryStep) step.value = recoveryStep;
       else if (showPublishFailureResult(state.value?.publishStatus, props.initialStep, noticeMaterials, sameSelection.value)) step.value = 4;
-      if (step.value < 4 && !analysisReady.value && !resumeMaterialEntry.value && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
+      if (step.value < 4 && !selectionReady.value && !resumeMaterialEntry.value && !(typeof route.query.notice === 'string' && route.query.step === '3' && state.value && creationReachedStep(state.value) >= 3)) step.value = 1;
       if(step.value === 2 && state.value) {
         await refreshRecommendations(planPublishFailure(state.value.publishRecovery, state.value.publishError).refreshEstimate);
       }

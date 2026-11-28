@@ -10,6 +10,9 @@ import com.lynx.ad.modules.billing.application.WorkspacePricing;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
+import com.lynx.ad.common.security.SysRole;
+import com.lynx.ad.common.security.TenantContext;
+import com.lynx.ad.common.security.TenantPrincipal;
 import com.lynx.ad.modules.billing.application.BillingTrialService;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.api.dto.CreationView;
@@ -62,6 +65,43 @@ class CreationBasicAnalysisWorkflowTest {
     CreationState copy(CreationState state) { return json.convertValue(state,CreationState.class); }
     CreationWorkflowService.Goal goal() { return new CreationWorkflowService.Goal(saved.get().revision,"已填写目标","CUSTOM",new BigDecimal("600"),new BigDecimal("2.25"),"FROM_NOW",null,null); }
     void queueAnalysis() { service.analyze(tenant,id,new CreationWorkflowService.Analysis(saved.get().revision,false)); }
+    @Test void firstSelectionPersistsDirectModeWhileOlderDraftsDefaultToLegacy() throws Exception {
+        var ids=List.of("123","456");
+        when(qc.selected(tenant,"account","aweme",ids))
+                .thenReturn(ids.stream().map(ProductBasicAnalysisTest::valid).toList());
+        TenantContext.set(new TenantPrincipal(new UserId("user"),Optional.of(tenant),Optional.empty(),SysRole.USER));
+        try {
+            var draft=service.select(tenant,new CreationWorkflowService.Selection(null,null,"account","aweme",ids));
+            var reloaded=json.readValue(json.writeValueAsString(draft),CreationState.class);
+            verify(store).insert(draft);
+            assertTrue(CreationView.of(reloaded).skipProductAnalysis());
+            assertFalse(CreationView.of(json.readValue("{}",CreationState.class)).skipProductAnalysis());
+            assertEquals(ids,reloaded.products.stream().map(CreationState.Product::qcProductId).toList());
+            assertEquals("NONE",reloaded.analysisStatus);
+            assertNull(reloaded.enginePlanId);
+            verifyNoInteractions(engine);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test void directDraftCanEnterGoalButCannotQueueOrChargeForProductAnalysis() {
+        var charges=mock(GenerationCharges.class);
+        service.generationCharges(charges);
+        saved.get().skipProductAnalysis=true;
+        saved.get().enginePlanId=null;
+        saved.get().budget=null;
+        saved.get().roi2Goal=null;
+
+        assertThrows(BizException.class,this::queueAnalysis);
+        var goalStep=service.step(tenant,id,new CreationWorkflowService.Step(saved.get().revision,2));
+        assertEquals(2,goalStep.step);
+        assertEquals("NONE",goalStep.analysisStatus);
+        assertTrue(goalStep.analysisConfirmation==null||goalStep.analysisConfirmation.isNull());
+        assertNull(goalStep.analysisChargeKey);
+        verifyNoInteractions(engine,charges);
+    }
+
     @ParameterizedTest @ValueSource(strings={"QUEUED","SUBMITTING","RUNNING","IMPORTING","REVISING","UNCERTAIN"})
     void generatingDraftsAndPublishedEditDraftsRejectSelectionAtTheSaveBoundary(String status) throws Exception {
         when(qc.selected(tenant,"account","aweme",List.of("456"))).thenReturn(List.of(ProductBasicAnalysisTest.valid("456")));
@@ -310,15 +350,17 @@ class CreationBasicAnalysisWorkflowTest {
         assertNull(saved.get().enginePlanId);assertEquals("QUEUED",saved.get().analysisStatus);
         verify(engine,never()).post(eq("/api/v1/capabilities/perception/products/analyze"),any());
     }
-    @Test void generationCanRegisterEngineTaskAfterAnalysisFailed() throws Exception {
-        saved.get().analysisStatus="FAILED";saved.get().enginePlanId=null;
+    @ParameterizedTest @ValueSource(strings={"FAILED","NONE"})
+    void generationCanRegisterEngineTaskWithoutSuccessfulAnalysis(String analysisStatus) throws Exception {
+        saved.get().analysisStatus=analysisStatus;saved.get().enginePlanId=null;
+        saved.get().skipProductAnalysis="NONE".equals(analysisStatus);
         service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123")));
         when(engine.post(eq("/api/v1/plan-tasks"),any())).thenReturn(json.readTree("{\"ai_plan_task_id\":\"generation-task\"}"));
         when(engine.post(eq("/api/v1/capabilities/perception/products/recommend-groups"),any())).thenReturn(json.readTree("{}"));
         when(engine.post(eq("/api/v1/capabilities/generation/jobs"),any())).thenReturn(json.readTree("{\"job_id\":\"job\"}"));
         service.process(copy(saved.get()));
         assertEquals("generation-task",saved.get().enginePlanId);assertEquals("RUNNING",saved.get().generationStatus);
-        assertEquals("job",saved.get().engineJobId);assertEquals("FAILED",saved.get().analysisStatus);
+        assertEquals("job",saved.get().engineJobId);assertEquals(analysisStatus,saved.get().analysisStatus);
         verify(engine,never()).post(eq("/api/v1/capabilities/perception/products/analyze"),any());
     }
     @Test void registrationFailureDoesNotPretendThatMediaSubmissionIsUncertain() {
