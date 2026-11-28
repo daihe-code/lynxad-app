@@ -113,7 +113,9 @@ public class CreationWorkflowService {
     public record Analysis(int revision, boolean refresh) {}
     public record Step(int revision,Integer step) {}
     public record Visibility(int revision,Boolean hideInAweme) {}
-    public record Generate(int revision,List<String> productIds) {}
+    public record Generate(int revision,List<String> productIds,CreationState.VideoStyle videoStyle) {
+        public Generate(int revision,List<String> productIds) { this(revision,productIds,null); }
+    }
     public record Addition(int revision,String productId,String type,String description,String requestId) {}
     public record MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles,String addedVia) {
         public MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles){this(revision,productId,type,videoAssetId,coverAssetId,imageAssetIds,carouselId,titles,null);}
@@ -412,6 +414,7 @@ public class CreationWorkflowService {
             var decisions=new LinkedHashSet<>(s.generationSelection==null?List.<String>of():s.generationSelection);decisions.addAll(g.productIds);
             s.generationSelection=new ArrayList<>(decisions);s.generationPendingProductIds.clear();
             if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
+            s.generationVideoStyle=g.videoStyle;
             int each=2*new LinkedHashSet<>(g.productIds).size();
             var requested = new HashMap<String, Integer>(MaterialPointUsage.reserve("VIDEO", each));
             MaterialPointUsage.reserve("IMAGE", each).forEach((kind, count) -> requested.merge(kind, count, Integer::sum));
@@ -889,9 +892,12 @@ public class CreationWorkflowService {
                 var selected=new ArrayList<Map<String,Object>>();
                 for(int i=0;i<snapshot.products.size();i++)if(snapshot.generationProductIds.contains(snapshot.products.get(i).qcProductId())) {
                     var product=snapshot.products.get(i);if(product.imageUrl()==null||product.imageUrl().isBlank())throw new BizException(1503,"商品主图缺失，无法生成素材："+product.name());
-                    var p=engineProduct(product);p.put("image_urls",List.of(product.imageUrl()));selected.add(Map.of("group_id","group-"+(i+1),"products",List.of(p)));
+                    var p=engineProduct(product);p.put("image_urls",generationImages(product));selected.add(Map.of("group_id","group-"+(i+1),"products",List.of(p)));
                 }
-                var body=new LinkedHashMap<String,Object>(groupBody);body.put("product_groups",selected);body.put("platform","douyin");body.put("constraints",Map.of("source","lynxad-app"));
+                var body=new LinkedHashMap<String,Object>(groupBody);body.put("product_groups",selected);body.put("platform","douyin");
+                var constraints=new LinkedHashMap<String,Object>();constraints.put("source","lynxad-app");
+                if(snapshot.generationVideoStyle==CreationState.VideoStyle.PRODUCT_SHOWCASE)constraints.put("video_strategy","product_showcase");
+                body.put("constraints",constraints);
                 var job=engine.post("/api/v1/capabilities/generation/jobs",body);String jobId=job.path("job_id").asText(job.path("id").asText());
                 if(jobId.isBlank())throw new BizException(8003,"引擎未返回生成任务 ID，提交结果待确认");
                 store.mutate(snapshot.tenantId,id,null,s->{if("SUBMITTING".equals(s.generationStatus)){s.engineJobId=jobId;s.groups=groups;s.generationStatus="RUNNING";s.generationMessage="AI 引擎生成中";}});
@@ -1344,5 +1350,11 @@ public class CreationWorkflowService {
     }
     private static Map<String,Object> engineProduct(CreationState.Product p){var m=new LinkedHashMap<String,Object>();m.put("id",p.qcProductId());m.put("name",p.name());m.put("category",p.category());if(p.userPrice()!=null||p.price()!=null)m.put("price",p.userPrice()!=null?p.userPrice():p.price());if(p.priceInfo()!=null){m.put("price_min",p.priceInfo().minPrice());m.put("price_max",p.priceInfo().maxPrice());}if(p.stock()!=null)m.put("inventory",p.stock());if(p.sales()!=null)m.put("sales",p.sales());if(p.imageUrl()!=null)m.put("image_url",p.imageUrl());m.put("availability",Map.of("status",p.unavailableReasons()!=null&&!p.unavailableReasons().isEmpty()?"unavailable":"available","reasons",p.unavailableReasons()==null?List.of():p.unavailableReasons()));return m;}
     private static List<Map<String,Object>> engineProducts(CreationState s){return s.products.stream().map(CreationWorkflowService::engineProduct).toList();}
+    private static List<String> generationImages(CreationState.Product product) {
+        var images=new LinkedHashSet<String>();images.add(product.imageUrl());
+        if(product.imageUrls()!=null)product.imageUrls().stream().filter(Objects::nonNull).map(String::strip)
+                .filter(url->url.startsWith("https://")||url.startsWith("http://")).forEach(images::add);
+        return images.stream().limit(20).toList();
+    }
     private static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
 }

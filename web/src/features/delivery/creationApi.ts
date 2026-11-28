@@ -8,6 +8,7 @@ export interface CreationProduct {
   priceInfo?: PlatformProductPrice | null; channelId?: string | null;
   draft?: { planId: string; planName: string } | null;
 }
+export type GenerationVideoStyle = 'AUTO' | 'PRODUCT_SHOWCASE';
 export interface ProductSuggestions {
   accountId: string; awemeId: string; sourceProductIds: string[];
   items: { product: CreationProduct; reasons: string[]; matchedProductIds: string[] }[];
@@ -104,6 +105,7 @@ export interface CreationState {
   recommendations?: { budget?: Record<string, unknown>; roi?: Record<string, unknown>; budgetError?: string; roiError?: string; fetchedAt?: string; accountId?: string; awemeId?: string; productIds?: string[]; budgetFromCache?: boolean; budgetFetchedAt?: string; budgetStatus?: string; roiStatus?: string; budgetCode?: number; roiCode?: number; budgetRequestId?: string; roiRequestId?: string };
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
   generationSelection?: string[] | null;
+  generationVideoStyle?: GenerationVideoStyle | null;
   generationPendingProductIds?: string[];
   selectionChange?: { addedNames: string[]; removedNames: string[]; retainedMaterials: number; removedMaterials: number };
   regenerationRetryAt?: number;
@@ -143,7 +145,8 @@ export const creationRecommendations = (id: string, refresh = false) => apiGet<C
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
 export const creationStep = (s: CreationState, step: number) =>
   apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step }, s.skipProductAnalysis && step === 2 ? quiet : undefined);
-export const creationGenerate = (s: CreationState, productIds: string[]) => apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds });
+export const creationGenerate = (s: CreationState, productIds: string[], videoStyle?: GenerationVideoStyle) =>
+  apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds, videoStyle });
 export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|'CAROUSEL', issue?: GenerationIssue) => apiPost<CreationState>(`${root}/${s.planId}/generation/retry`, { revision:s.revision,type, ...(issue ? {productId:issue.productId,slotId:issue.slotId} : {}) }, slow);
 export const creationDeleteGenerationFailure = (s: CreationState, issue: GenerationIssue) => apiDelete<CreationState>(`${root}/${s.planId}/generation/failures`, { data: {revision:s.revision,productId:issue.productId,type:issue.type,slotId:issue.slotId} });
 export const creationAddition = (s: CreationState, body: CreationAdditionBody) => apiPost<CreationState>(`${root}/${s.planId}/generation/additions`, { revision: s.revision, ...body });

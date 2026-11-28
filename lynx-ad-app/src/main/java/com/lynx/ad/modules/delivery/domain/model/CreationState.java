@@ -101,6 +101,8 @@ public class CreationState {
         public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
     }
     public List<String> generationProductIds = new ArrayList<>();
+    public enum VideoStyle { AUTO, PRODUCT_SHOWCASE }
+    public VideoStyle generationVideoStyle;
     public Map<String,String> generationGroupProducts = new LinkedHashMap<>();
     /** Null means undecided; an empty list records the explicit choice to use existing/uploaded materials. */
     public List<String> generationSelection;

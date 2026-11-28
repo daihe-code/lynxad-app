@@ -387,7 +387,7 @@ async function saveGoal() { await run(async () => { await persistGoal(); await p
 function refreshInputSchedule() {
   const dates = resumeDraftDates(captureDraft(),today(),canRefreshCreationSchedule(state.value));start.value=dates.start;end.value=dates.end;
 }
-async function generate(ids: string[]) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationGenerate(state.value!, ids)); schedulePoll(); }); }
+async function generate(ids: string[], videoStyle?: api.GenerationVideoStyle) { await run(async () => { refreshInputSchedule();acceptWrite(await api.creationGenerate(state.value!, ids, videoStyle)); schedulePoll(); }); }
 async function generateAddition(body: api.CreationAdditionBody) { await run(async () => { refreshInputSchedule();const next=await api.creationAddition(state.value!, body);acceptWrite(next);notices.addition(next,body.requestId);schedulePoll(); }); }
 async function addTitle(body: TitleAddition, receipt: TitleAdditionReceipt) {
   let started=false;

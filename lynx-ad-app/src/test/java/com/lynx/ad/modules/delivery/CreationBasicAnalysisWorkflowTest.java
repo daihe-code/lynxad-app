@@ -363,6 +363,25 @@ class CreationBasicAnalysisWorkflowTest {
         assertEquals("job",saved.get().engineJobId);assertEquals(analysisStatus,saved.get().analysisStatus);
         verify(engine,never()).post(eq("/api/v1/capabilities/perception/products/analyze"),any());
     }
+    @Test void showcaseStyleAndProductImagesReachTheGenerationJob() throws Exception {
+        var main="https://assets.test/main.jpg";
+        var detail="https://assets.test/detail.jpg";
+        saved.get().products=List.of(new CreationState.Product("123","123","测试商品",new BigDecimal("100"),
+                null,main,"家居",10L,List.of(),List.of(),null,null,null,null,List.of(main,detail,detail)));
+        var queued=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123"),
+                CreationState.VideoStyle.PRODUCT_SHOWCASE));
+        assertEquals(CreationState.VideoStyle.PRODUCT_SHOWCASE,CreationView.of(copy(queued)).generationVideoStyle());
+        when(engine.post(eq("/api/v1/capabilities/perception/products/recommend-groups"),any())).thenReturn(json.createObjectNode());
+        when(engine.post(eq("/api/v1/capabilities/generation/jobs"),any())).thenAnswer(call->{
+            var payload=json.valueToTree(call.getArgument(1));
+            assertEquals("product_showcase",payload.path("constraints").path("video_strategy").asText());
+            assertEquals(json.valueToTree(List.of(main,detail)),
+                    payload.path("product_groups").get(0).path("products").get(0).path("image_urls"));
+            return json.createObjectNode().put("job_id","job");
+        });
+        service.process(copy(queued));
+        assertEquals("RUNNING",saved.get().generationStatus);
+    }
     @Test void registrationFailureDoesNotPretendThatMediaSubmissionIsUncertain() {
         saved.get().enginePlanId=null;service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123")));
         when(engine.post(eq("/api/v1/plan-tasks"),any())).thenThrow(new BizException(8003,"初始化超时"));
