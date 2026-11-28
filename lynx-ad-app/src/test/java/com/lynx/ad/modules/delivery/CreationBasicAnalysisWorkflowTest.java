@@ -133,6 +133,7 @@ class CreationBasicAnalysisWorkflowTest {
         assertEquals(List.of("123"),result.generationSelection);
         assertEquals(List.of("123"),result.generationProductIds);assertEquals("QUEUED",result.generationStatus);
         assertEquals(List.of("123"),CreationView.of(copy(result)).generationSelection());
+        assertEquals(new CreationState.BatchGenerationCounts(1,1,1,1),CreationView.of(copy(result)).generationRequestedCounts());
     }
 
     @Test void invalidGenerationChoiceCannotBeSaved() {
@@ -387,23 +388,36 @@ class CreationBasicAnalysisWorkflowTest {
     @Test void specifiedStyleAndQuantitiesAreReservedAndSubmitted() throws Exception {
         var charges=mock(GenerationCharges.class);
         service.generationCharges(charges);
-        var counts=new CreationState.BatchGenerationCounts(1,3,0,2);
+        var counts=new CreationState.BatchGenerationCounts(5,10,10,10);
         var queued=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123"),
                 CreationState.VideoStyle.CREAM,counts));
         assertEquals(counts,CreationView.of(copy(queued)).generationRequestedCounts());
         verify(charges).hold(eq("tenant"),anyString(),eq("account"),eq("user"),
-                eq(Map.of(WorkspacePricing.VIDEO_SECOND,30,WorkspacePricing.IMAGE_UNIT,6,"title",2)));
+                eq(Map.of(WorkspacePricing.VIDEO_SECOND,150,WorkspacePricing.IMAGE_UNIT,140,"title",10)));
         when(engine.post(eq("/api/v1/capabilities/perception/products/recommend-groups"),any())).thenReturn(json.createObjectNode());
         when(engine.post(eq("/api/v1/capabilities/generation/jobs"),any())).thenAnswer(call->{
             var constraints=json.valueToTree(call.getArgument(1)).path("constraints");
             assertEquals("cream",constraints.path("video_visual_style").asText());
             assertEquals("product_showcase",constraints.path("video_strategy").asText());
-            assertEquals(json.valueToTree(Map.of("video_count",1,"product_card_count",3,"image_count",0,"title_count",2)),
+            assertEquals(json.valueToTree(Map.of("video_count",5,"product_card_count",10,"image_count",10,"title_count",10)),
                     constraints.path("generation_counts"));
             return json.createObjectNode().put("job_id","job");
         });
         service.process(copy(queued));
         assertEquals("RUNNING",saved.get().generationStatus);
+    }
+
+    @Test void quantitiesAbovePerProductLimitsAreRejectedBeforeQueueing() {
+        for(var counts:List.of(new CreationState.BatchGenerationCounts(6,1,1,1),
+                new CreationState.BatchGenerationCounts(1,11,1,1),
+                new CreationState.BatchGenerationCounts(1,1,11,1),
+                new CreationState.BatchGenerationCounts(1,1,1,11))) {
+            var error=assertThrows(BizException.class,()->service.generate(tenant,id,
+                    new CreationWorkflowService.Generate(1,List.of("123"),CreationState.VideoStyle.CREAM,counts)));
+            assertEquals(1503,error.code());
+        }
+        verify(plans,never()).save(any());
+        verifyNoInteractions(engine);
     }
 
     @Test void titleOnlyBatchAppendsAndSettlesOnlyNewTitles() throws Exception {

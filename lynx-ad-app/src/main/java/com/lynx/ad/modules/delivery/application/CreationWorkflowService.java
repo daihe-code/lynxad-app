@@ -34,6 +34,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class CreationWorkflowService {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(CreationWorkflowService.class);
+    private static final CreationState.BatchGenerationCounts DEFAULT_BATCH_COUNTS = new CreationState.BatchGenerationCounts(1, 1, 1, 1);
     private com.lynx.ad.modules.billing.application.GenerationCharges charges;
     @org.springframework.beans.factory.annotation.Autowired
     public void generationCharges(com.lynx.ad.modules.billing.application.GenerationCharges value) { charges=value; regeneration.generationCharges(value); }
@@ -421,10 +422,10 @@ public class CreationWorkflowService {
             s.generationSelection=new ArrayList<>(decisions);s.generationPendingProductIds.clear();
             if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
             s.generationVideoStyle=g.videoStyle;
-            s.generationRequestedCounts=g.counts;
             var selected=new LinkedHashSet<>(g.productIds);
-            var counts=g.counts==null?new CreationState.BatchGenerationCounts(2,2,2,0):g.counts;
-            if(g.counts!=null)validateBatchCounts(s,selected,counts);
+            var counts=g.counts==null?DEFAULT_BATCH_COUNTS:g.counts;
+            validateBatchCounts(s,selected,counts);
+            s.generationRequestedCounts=counts;
             int products=selected.size();
             var requested = new HashMap<String,Integer>();
             var media=Map.of("VIDEO",counts.videos(),"IMAGE",counts.productCards(),"CAROUSEL",counts.carousels());
@@ -437,16 +438,15 @@ public class CreationWorkflowService {
             s.generationGroupProducts.clear();for(int n=0;n<s.products.size();n++)s.generationGroupProducts.put("group-"+(n+1),s.products.get(n).qcProductId());
             s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
             s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.generationImportedTitles.clear();s.resetGenerationReconciliation();
-            if(g.counts!=null){
-                media.forEach((type,count)->s.generationCounts.add(new CreationState.GenerationCount(type,0,count*products)));
-                s.generationCounts.add(new CreationState.GenerationCount("TITLE",0,counts.titles()*products));
-            }
+            media.forEach((type,count)->s.generationCounts.add(new CreationState.GenerationCount(type,0,count*products)));
+            s.generationCounts.add(new CreationState.GenerationCount("TITLE",0,counts.titles()*products));
         });
     }
     private static void validateBatchCounts(CreationState state,Set<String> products,CreationState.BatchGenerationCounts counts) {
-        if(List.of(counts.videos(),counts.productCards(),counts.carousels()).stream().anyMatch(n->n<0||n>6)
-                ||counts.titles()<0||counts.titles()>12||counts.media()+counts.titles()==0)
-            throw new BizException(1503,"每款商品的视频、商品卡片和图文各可生成 0–6 条，标题可生成 0–12 条，至少生成一项");
+        if(counts.videos()<0||counts.videos()>5
+                ||List.of(counts.productCards(),counts.carousels(),counts.titles()).stream().anyMatch(n->n<0||n>10)
+                ||counts.media()+counts.titles()==0)
+            throw new BizException(1503,"每款商品最多生成 5 条视频、10 张商品卡片、10 条图文、10 个标题，至少生成一项");
         if(state.activeMaterials().size()+counts.media()*products.size()>100)
             throw new BizException(1503,"本次生成与已有素材合计不能超过 100 条");
         for(String product:products) {

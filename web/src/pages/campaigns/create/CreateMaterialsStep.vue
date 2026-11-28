@@ -257,15 +257,17 @@ const videoStyles = [
   { value: 'TECH', label: '科技感' }, { value: 'RETRO', label: '复古胶片风' },
 ] as const;
 const countOptions = [
-  { key: 'videos', label: '视频', max: 6 }, { key: 'productCards', label: '商品卡片', max: 6 },
-  { key: 'carousels', label: '图文', max: 6 }, { key: 'titles', label: '标题', max: 12 },
+  { key: 'videos', label: '视频', max: 5 }, { key: 'productCards', label: '商品卡片', max: 10 },
+  { key: 'carousels', label: '图文', max: 10 }, { key: 'titles', label: '标题', max: 10 },
 ] as const;
 function savedVideoStyle(): GenerationVideoStyle {
   const style = props.state.generationVideoStyle;
   return !style || style === 'PRODUCT_SHOWCASE' ? 'AUTO' : style;
 }
 function savedGenerationCounts(): BatchGenerationCounts {
-  return { ...(props.state.generationRequestedCounts ?? { videos: 2, productCards: 2, carousels: 2, titles: 4 }) };
+  const counts = { ...(props.state.generationRequestedCounts ?? { videos: 1, productCards: 1, carousels: 1, titles: 1 }) };
+  for (const { key, max } of countOptions) counts[key] = Math.min(counts[key], max);
+  return counts;
 }
 const generationVideoStyle = ref<GenerationVideoStyle>(savedVideoStyle());
 const requestedCounts = ref(savedGenerationCounts());
