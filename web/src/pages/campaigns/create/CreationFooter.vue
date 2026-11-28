@@ -27,7 +27,7 @@ const emit = defineEmits<{ back: []; save: [] }>();
 </script>
 <style scoped>
 .creation-footer{position:fixed;bottom:0;left:0;right:0;z-index:35;border-top:1px solid #e9e9f4;background:#fff;color:#24263f}
-.creation-footer__inner{box-sizing:border-box;display:flex;align-items:center;gap:24px;max-width:1248px;min-height:92px;margin:0 auto;padding:12px 24px}
+.creation-footer__inner{box-sizing:border-box;display:flex;align-items:center;gap:24px;max-width:max(1248px,var(--creation-wide-width,0px));min-height:92px;margin:0 auto;padding:12px 24px}
 .creation-footer__back{display:inline-flex;align-items:center;gap:8px;flex-shrink:0;min-height:44px;padding:0 24px 0 0;border:0;border-right:1px solid #e5e5f0;background:transparent;color:#575cf6;font:inherit;font-size:14px;white-space:nowrap;cursor:pointer}
 .creation-footer__back :deep(svg){width:17px;height:17px;flex-shrink:0}
 .creation-footer__summary{display:flex;align-items:center;gap:24px;flex:1;min-width:0}
