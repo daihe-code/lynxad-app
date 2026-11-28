@@ -441,7 +441,7 @@ const capability = ref<RemakeCapability>(), capabilityLoading = ref(true), capab
 const useKling = computed(() => capability.value?.kling4Available === true);
 const productPeopleSupported = computed(() => capability.value?.productPeopleSupported === true);
 const productPeopleMode = computed(() => productPeopleSupported.value && portraitMode.value !== 'replace' ? portraitMode.value : undefined);
-const portraitTermsRequired = computed(() => productPeopleMode.value !== 'none');
+const portraitTermsRequired = computed(() => true); // 仅展示商品已移除，自动与自选均需确认肖像授权。
 const portraitTermsLabel = computed(() => {
   if (productPeopleMode.value === 'auto') return '确认商品图中的模特为成年人，且已取得用于 AI 生成视频和广告投放的肖像授权';
   if (useKling.value) return '确认图中人物为成年人，且有权将图片交由可灵生成视频，并将成片用于广告投放';
