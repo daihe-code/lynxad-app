@@ -101,8 +101,13 @@ public class CreationState {
         public GenerationIssue(String productId,String productName,String message){this(productId,productName,message,null,null,null,null);}
     }
     public List<String> generationProductIds = new ArrayList<>();
-    public enum VideoStyle { AUTO, PRODUCT_SHOWCASE }
+    public enum VideoStyle { AUTO, PRODUCT_SHOWCASE, CREAM, MINIMAL, NATURAL, TECH, RETRO }
     public VideoStyle generationVideoStyle;
+    public record BatchGenerationCounts(int videos,int productCards,int carousels,int titles) {
+        public int media() { return videos + productCards + carousels; }
+    }
+    public BatchGenerationCounts generationRequestedCounts;
+    public Map<String,Integer> generationImportedTitles = new LinkedHashMap<>();
     public Map<String,String> generationGroupProducts = new LinkedHashMap<>();
     /** Null means undecided; an empty list records the explicit choice to use existing/uploaded materials. */
     public List<String> generationSelection;
@@ -183,6 +188,7 @@ public class CreationState {
     }
     public static class Material {
         public String id, productId, groupId, type, title, text, engineMaterialId, engineJobId, enginePlanId;
+        public boolean separateBatchTitles;
         public String generationRequestId,generationDescription;
         public JsonNode creativeProfile;
         public String creativeProfileStatus;

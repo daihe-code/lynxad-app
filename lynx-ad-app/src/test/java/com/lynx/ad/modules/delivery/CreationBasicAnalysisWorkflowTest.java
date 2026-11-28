@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lynx.ad.modules.billing.application.GenerationCharges;
 import com.lynx.ad.modules.billing.application.WorkspacePricing;
+import com.lynx.ad.modules.creative.application.CreationAssetImporter;
 import com.lynx.ad.common.domain.Ids.*;
 import com.lynx.ad.common.domain.Money;
 import com.lynx.ad.common.exception.BizException;
@@ -35,6 +36,7 @@ class CreationBasicAnalysisWorkflowTest {
     final ObjectMapper json=new ObjectMapper();
     final CreationStore store=mock(CreationStore.class);
     final CreationEngineClient engine=mock(CreationEngineClient.class);
+    final CreationAssetImporter importer=mock(CreationAssetImporter.class);
     final CreationQianchuanGateway qc=mock(CreationQianchuanGateway.class);
     final AdPlanRepository plans=mock(AdPlanRepository.class);
     final TenantId tenant=new TenantId("tenant");
@@ -59,7 +61,7 @@ class CreationBasicAnalysisWorkflowTest {
             Consumer<CreationState> change=call.getArgument(3);change.accept(current);saved.set(current);return copy(current);
         });
         when(qc.refreshPrices(eq(tenant),eq("account"),eq("aweme"),anyList())).thenAnswer(call->call.getArgument(3));
-        service=new CreationWorkflowService(store,plans,mock(AdPlanCreativeBindingStore.class),qc,engine,json,null,null,null,null,
+        service=new CreationWorkflowService(store,plans,mock(AdPlanCreativeBindingStore.class),qc,engine,json,importer,null,null,null,
                 mock(BillingTrialService.class),mock(PlatformTransactionManager.class));
     }
     CreationState copy(CreationState state) { return json.convertValue(state,CreationState.class); }
@@ -382,6 +384,58 @@ class CreationBasicAnalysisWorkflowTest {
         service.process(copy(queued));
         assertEquals("RUNNING",saved.get().generationStatus);
     }
+    @Test void specifiedStyleAndQuantitiesAreReservedAndSubmitted() throws Exception {
+        var charges=mock(GenerationCharges.class);
+        service.generationCharges(charges);
+        var counts=new CreationState.BatchGenerationCounts(1,3,0,2);
+        var queued=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123"),
+                CreationState.VideoStyle.CREAM,counts));
+        assertEquals(counts,CreationView.of(copy(queued)).generationRequestedCounts());
+        verify(charges).hold(eq("tenant"),anyString(),eq("account"),eq("user"),
+                eq(Map.of(WorkspacePricing.VIDEO_SECOND,30,WorkspacePricing.IMAGE_UNIT,6,"title",2)));
+        when(engine.post(eq("/api/v1/capabilities/perception/products/recommend-groups"),any())).thenReturn(json.createObjectNode());
+        when(engine.post(eq("/api/v1/capabilities/generation/jobs"),any())).thenAnswer(call->{
+            var constraints=json.valueToTree(call.getArgument(1)).path("constraints");
+            assertEquals("cream",constraints.path("video_visual_style").asText());
+            assertEquals("product_showcase",constraints.path("video_strategy").asText());
+            assertEquals(json.valueToTree(Map.of("video_count",1,"product_card_count",3,"image_count",0,"title_count",2)),
+                    constraints.path("generation_counts"));
+            return json.createObjectNode().put("job_id","job");
+        });
+        service.process(copy(queued));
+        assertEquals("RUNNING",saved.get().generationStatus);
+    }
+
+    @Test void titleOnlyBatchAppendsAndSettlesOnlyNewTitles() throws Exception {
+        var counts=new CreationState.BatchGenerationCounts(0,0,0,1);
+        var charges=mock(GenerationCharges.class);
+        service.generationCharges(charges);
+        when(charges.hold(eq("tenant"),anyString(),eq("account"),eq("user"),eq(Map.of("title",1)))).thenReturn(true);
+        when(charges.quote(eq("tenant"),anyString())).thenReturn(new GenerationCharges.Quote(null,Map.of("title",1),Map.of("title",BigDecimal.ONE)));
+        var pool=new CreationState.TitlePool();
+        pool.customTitles.add("已有的有效投放标题");
+        saved.get().titlePools.put("123",pool);
+        var queued=service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123"),
+                CreationState.VideoStyle.AUTO,counts));
+        when(engine.post(eq("/api/v1/capabilities/perception/products/recommend-groups"),any())).thenReturn(json.createObjectNode());
+        when(engine.post(eq("/api/v1/capabilities/generation/jobs"),any())).thenReturn(json.createObjectNode().put("job_id","job"));
+        service.process(copy(queued));
+        when(engine.get("/api/v1/capabilities/generation/jobs/job?store_id=tenant")).thenReturn(json.readTree("""
+                {"job_id":"job","status":"succeeded","groups":[{"group_id":"group-1",
+                    "expected":{"videos":0,"product_cards":0,"image_texts":0,"titles":1},"materials":[],
+                    "titles":["已有的有效投放标题","新生成的有效投放标题"]}]}
+                """));
+        when(importer.ingest(eq(tenant),eq(new UserId("user")),anyString(),
+                eq("已有的有效投放标题\n新生成的有效投放标题"),eq("TEXT"),isNull(),eq(false))).thenReturn("text-asset");
+        service.process(copy(saved.get()));
+        service.process(copy(saved.get()));
+        assertEquals("SUCCEEDED",saved.get().generationStatus);
+        assertEquals(List.of("已有的有效投放标题","新生成的有效投放标题"),saved.get().titlePools.get("123").customTitles);
+        assertEquals(List.of("新生成的有效投放标题"),saved.get().titlePools.get("123").customGeneratedTitles);
+        assertTrue(saved.get().materials.isEmpty());
+        verify(charges).finish(eq("tenant"),anyString(),eq(Map.of("title",1)));
+    }
+
     @Test void registrationFailureDoesNotPretendThatMediaSubmissionIsUncertain() {
         saved.get().enginePlanId=null;service.generate(tenant,id,new CreationWorkflowService.Generate(1,List.of("123")));
         when(engine.post(eq("/api/v1/plan-tasks"),any())).thenThrow(new BizException(8003,"初始化超时"));

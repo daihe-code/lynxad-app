@@ -14,6 +14,7 @@ import com.lynx.ad.modules.creative.application.*;
 import com.lynx.ad.modules.creative.infrastructure.adapter.CreationEngineClient;
 import com.lynx.ad.modules.delivery.domain.model.*;
 import com.lynx.ad.modules.delivery.domain.service.ProductBasicAnalysisService;
+import com.lynx.ad.modules.delivery.domain.service.ProductTitlePool;
 import com.lynx.ad.modules.delivery.domain.service.CreationRecommendationPolicy;
 import com.lynx.ad.modules.delivery.domain.service.CreationDraftSchedule;
 import com.lynx.ad.modules.delivery.domain.service.CreationSyncRecovery;
@@ -52,7 +53,10 @@ public class CreationWorkflowService {
             delivered.add(m);
         }
         var quote = charges.quote(s.tenantId, s.generationChargeKey);
-        charges.finish(s.tenantId,s.generationChargeKey,MaterialPointUsage.delivered(quote, delivered));
+        var usage=MaterialPointUsage.delivered(quote,delivered);
+        if(!rejected&&quote!=null&&quote.requested().containsKey("title"))
+            usage.put("title",s.generationImportedTitles.values().stream().mapToInt(Integer::intValue).sum());
+        charges.finish(s.tenantId,s.generationChargeKey,usage);
         s.generationChargeKey=null;s.generationChargeBaseline=new ArrayList<>();
     }
     private final CreationStore store;
@@ -113,8 +117,10 @@ public class CreationWorkflowService {
     public record Analysis(int revision, boolean refresh) {}
     public record Step(int revision,Integer step) {}
     public record Visibility(int revision,Boolean hideInAweme) {}
-    public record Generate(int revision,List<String> productIds,CreationState.VideoStyle videoStyle) {
-        public Generate(int revision,List<String> productIds) { this(revision,productIds,null); }
+    public record Generate(int revision,List<String> productIds,CreationState.VideoStyle videoStyle,
+                           CreationState.BatchGenerationCounts counts) {
+        public Generate(int revision,List<String> productIds) { this(revision,productIds,null,null); }
+        public Generate(int revision,List<String> productIds,CreationState.VideoStyle style) { this(revision,productIds,style,null); }
     }
     public record Addition(int revision,String productId,String type,String description,String requestId) {}
     public record MaterialSelection(int revision,String productId,String type,String videoAssetId,String coverAssetId,List<String> imageAssetIds,String carouselId,List<String> titles,String addedVia) {
@@ -415,15 +421,41 @@ public class CreationWorkflowService {
             s.generationSelection=new ArrayList<>(decisions);s.generationPendingProductIds.clear();
             if(g.productIds.isEmpty()) { s.step=3;s.revision++;return; }
             s.generationVideoStyle=g.videoStyle;
-            int each=2*new LinkedHashSet<>(g.productIds).size();
-            var requested = new HashMap<String, Integer>(MaterialPointUsage.reserve("VIDEO", each));
-            MaterialPointUsage.reserve("IMAGE", each).forEach((kind, count) -> requested.merge(kind, count, Integer::sum));
-            MaterialPointUsage.reserve("CAROUSEL", each).forEach((kind, count) -> requested.merge(kind, count, Integer::sum));
+            s.generationRequestedCounts=g.counts;
+            var selected=new LinkedHashSet<>(g.productIds);
+            var counts=g.counts==null?new CreationState.BatchGenerationCounts(2,2,2,0):g.counts;
+            if(g.counts!=null)validateBatchCounts(s,selected,counts);
+            int products=selected.size();
+            var requested = new HashMap<String,Integer>();
+            var media=Map.of("VIDEO",counts.videos(),"IMAGE",counts.productCards(),"CAROUSEL",counts.carousels());
+            media.forEach((type,count)->{
+                if(count>0)MaterialPointUsage.reserve(type,count*products)
+                        .forEach((kind,quantity)->requested.merge(kind,quantity,Integer::sum));
+            });
+            if(counts.titles()>0)requested.put("title",counts.titles()*products);
             holdGeneration(s,"initial:"+id+":"+s.revision,requested);
             s.generationGroupProducts.clear();for(int n=0;n<s.products.size();n++)s.generationGroupProducts.put("group-"+(n+1),s.products.get(n).qcProductId());
             s.generationRetry=null;s.regeneration=null;s.generationProductIds=new ArrayList<>(new LinkedHashSet<>(g.productIds));s.generationStatus="QUEUED";s.generationMessage="等待 AI 引擎生成";s.previousEngineJobId=s.engineJobId;s.engineJobId=null;s.engineTerminalStatus=null;s.engineTerminalJobId=null;s.pendingRegenerationId=null;s.progress=0;s.changed();
-            s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.resetGenerationReconciliation();
+            s.generationStage="queued";s.generationCounts.clear();s.generationIssues.clear();s.generationImportedTitles.clear();s.resetGenerationReconciliation();
+            if(g.counts!=null){
+                media.forEach((type,count)->s.generationCounts.add(new CreationState.GenerationCount(type,0,count*products)));
+                s.generationCounts.add(new CreationState.GenerationCount("TITLE",0,counts.titles()*products));
+            }
         });
+    }
+    private static void validateBatchCounts(CreationState state,Set<String> products,CreationState.BatchGenerationCounts counts) {
+        if(List.of(counts.videos(),counts.productCards(),counts.carousels()).stream().anyMatch(n->n<0||n>6)
+                ||counts.titles()<0||counts.titles()>12||counts.media()+counts.titles()==0)
+            throw new BizException(1503,"每款商品的视频、商品卡片和图文各可生成 0–6 条，标题可生成 0–12 条，至少生成一项");
+        if(state.activeMaterials().size()+counts.media()*products.size()>100)
+            throw new BizException(1503,"本次生成与已有素材合计不能超过 100 条");
+        for(String product:products) {
+            var pool=ProductTitlePool.of(state,product);
+            var existing=new HashSet<>(pool.customTitles);existing.addAll(pool.cardTitles);
+            if(counts.titles()>0&&(pool.customTitles.size()+counts.titles()>DeliveryInputPolicy.RULES.customTitleMaximum()
+                    ||existing.size()+counts.titles()>30))
+                throw new BizException(1503,"本次生成与商品已有标题合计超过上限，请减少标题数量");
+        }
     }
     public CreationState addition(TenantId tenant,String requestedId,Addition request) {
         String id=sharedId(tenant,requestedId,true);
@@ -896,7 +928,27 @@ public class CreationWorkflowService {
                 }
                 var body=new LinkedHashMap<String,Object>(groupBody);body.put("product_groups",selected);body.put("platform","douyin");
                 var constraints=new LinkedHashMap<String,Object>();constraints.put("source","lynxad-app");
-                if(snapshot.generationVideoStyle==CreationState.VideoStyle.PRODUCT_SHOWCASE)constraints.put("video_strategy","product_showcase");
+                var counts=snapshot.generationRequestedCounts;
+                if(counts!=null) {
+                    constraints.put("generation_counts",Map.of("video_count",counts.videos(),"product_card_count",counts.productCards(),
+                            "image_count",counts.carousels(),"title_count",counts.titles()));
+                    if(counts.titles()>0) {
+                        var existing=new LinkedHashMap<String,List<String>>();
+                        snapshot.generationGroupProducts.forEach((group,product)->{
+                            if(snapshot.generationProductIds.contains(product)) {
+                                var pool=ProductTitlePool.of(snapshot,product);
+                                var titles=new LinkedHashSet<>(pool.customTitles);titles.addAll(pool.cardTitles);
+                                existing.put(group,List.copyOf(titles));
+                            }
+                        });
+                        constraints.put("existing_generation_titles",existing);
+                    }
+                }
+                var style=snapshot.generationVideoStyle;
+                boolean explicitStyle=style!=null&&style!=CreationState.VideoStyle.AUTO&&style!=CreationState.VideoStyle.PRODUCT_SHOWCASE;
+                if(counts!=null||explicitStyle||style==CreationState.VideoStyle.PRODUCT_SHOWCASE)
+                    constraints.put("video_strategy","product_showcase");
+                if(explicitStyle&&(counts==null||counts.videos()>0))constraints.put("video_visual_style",style.name().toLowerCase(Locale.ROOT));
                 body.put("constraints",constraints);
                 var job=engine.post("/api/v1/capabilities/generation/jobs",body);String jobId=job.path("job_id").asText(job.path("id").asText());
                 if(jobId.isBlank())throw new BizException(8003,"引擎未返回生成任务 ID，提交结果待确认");
@@ -930,6 +982,7 @@ public class CreationWorkflowService {
                     String mid=item.path("material_id").asText();if(mid.isBlank()||current.removedMaterialIds.contains(mid)||current.materials.stream().anyMatch(m->m.id.equals(mid)))continue;
                     var m=new CreationState.Material();m.id=mid;m.engineMaterialId=mid;m.engineJobId=current.engineJobId;m.enginePlanId=current.enginePlanId;m.groupId=groupId;m.productId=productId;
                     m.type=switch(item.path("material_type").asText()){case "video"->"VIDEO";case "image_text"->"CAROUSEL";case "product_card"->"IMAGE";default->"";};if(m.type.isEmpty())continue;
+                    m.separateBatchTitles=current.generationRequestedCounts!=null&&current.regeneration==null;
                     MaterialPointUsage.readVideoDuration(m, item);
                     m.title=item.path("content").path("title").asText();m.text=item.path("content").path("text").asText();
                     m.deliverySource=item.path("detail").path("delivery_source").asText(null);
@@ -946,8 +999,11 @@ public class CreationWorkflowService {
                 }
             }
             String status=job.path("status").asText();
+            var titleImports=Set.of("succeeded","partial_failed","failed","cancelled").contains(status)
+                    ? prepareBatchTitles(current,job) : List.<BatchTitles>of();
             store.mutate(current.tenantId,id,null,s->{
                 if(!Objects.equals(s.engineJobId,polledJobId)||!Set.of("RUNNING","IMPORTING","FAILED").contains(s.generationStatus))return;
+                for(var batch:titleImports)applyBatchTitles(s,batch);
                 for(var m:ready)if(!s.removedMaterialIds.contains(m.id)&&s.materials.stream().noneMatch(x->x.id.equals(m.id))&&(m.pendingVersion()?s.materials.size()<200:s.activeMaterials().size()<100)){s.materials.add(m);if(m.pendingVersion())s.changed();else s.mediaChanged();}
                 s.progress=engineProgress(s,job);s.generationMessage=job.path("progress").path("message").asText("正在登记引擎素材并同步千川");
                 updateGenerationSummary(s,job);
@@ -964,15 +1020,55 @@ public class CreationWorkflowService {
             long finished=s.materials.stream().filter(m->Set.of("READY","FAILED").contains(m.status)).count();
             if(finished<s.materials.size()){s.progress=Math.max(s.progress,80+(int)(19*finished/s.materials.size()));return;}
             finishGeneration(s,false);
-            boolean all=s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
+            boolean titlesOnly=s.generationRequestedCounts!=null&&s.generationRequestedCounts.media()==0
+                    &&s.regeneration==null&&s.generationRetry==null;
+            boolean all=titlesOnly||s.generationProductIds.stream().allMatch(p->s.materials.stream().anyMatch(m->m.productId.equals(p)&&"READY".equals(m.status)));
             boolean replacement=s.pendingRegenerationId==null||s.materials.stream().anyMatch(m->(s.pendingRegenerationId.equals(m.replacesId)||s.pendingRegenerationId.equals(m.reviewSourceId))&&"READY".equals(m.status));
             boolean completeCounts=s.generationCounts.stream().allMatch(c->c.total()==null||c.completed()>=c.total());
-            boolean succeeded=all&&replacement&&completeCounts&&!s.materials.isEmpty()&&s.materials.stream().allMatch(m->"READY".equals(m.status))&&"succeeded".equals(s.engineTerminalStatus);
+            boolean succeeded=all&&replacement&&completeCounts&&(titlesOnly||!s.materials.isEmpty()&&s.materials.stream().allMatch(m->"READY".equals(m.status)))&&"succeeded".equals(s.engineTerminalStatus);
             s.generationStatus=succeeded?"SUCCEEDED":"FAILED";s.progress=succeeded?100:Math.max(s.progress,80);
-            s.generationMessage=succeeded?"素材已就绪并同步千川":s.materials.stream().anyMatch(m->"FAILED".equals(m.status))?
+            s.generationMessage=succeeded?(titlesOnly?"标题已生成":"素材已就绪并同步千川"):!titlesOnly&&s.materials.stream().anyMatch(m->"FAILED".equals(m.status))?
                 "部分素材同步未完成，可继续使用已就绪素材":"部分 AI 创意未完成，已有可用素材已保留，可从下方选用";
             s.generationStage="finished";
         });
+    }
+    private record BatchTitles(String productId,List<String> titles,List<String> added,String textAssetId) {}
+    private List<BatchTitles> prepareBatchTitles(CreationState state,JsonNode job) {
+        var counts=state.generationRequestedCounts;
+        if(counts==null||counts.titles()==0||state.regeneration!=null||state.generationRetry!=null)return List.of();
+        var imports=new ArrayList<BatchTitles>();
+        for(var group:job.path("groups")) {
+            String product=state.generationGroupProducts.get(group.path("group_id").asText());
+            if(product==null||!state.generationProductIds.contains(product)||state.generationImportedTitles.containsKey(product))continue;
+            var pool=ProductTitlePool.of(state,product);
+            var existing=new HashSet<>(pool.customTitles);existing.addAll(pool.cardTitles);
+            var added=new ArrayList<String>();
+            for(var title:group.path("titles")) {
+                if(added.size()>=counts.titles()||existing.size()>=30
+                        ||pool.customTitles.size()+added.size()>=DeliveryInputPolicy.RULES.customTitleMaximum())break;
+                if(!title.isTextual())continue;
+                String value=DeliveryInputPolicy.text(title.asText());
+                try { DeliveryInputPolicy.titles(List.of(value),true); }
+                catch(BizException invalid){continue;}
+                if(existing.add(value))added.add(value);
+            }
+            if(added.isEmpty())continue;
+            var combined=new ArrayList<>(pool.customTitles);combined.addAll(added);
+            String text=String.join("\n",combined);
+            String asset=importer.ingest(new TenantId(state.tenantId),new UserId(state.userId),
+                    state.planId+":batch-titles:"+state.engineJobId+":"+product+":"+hash(text),text,"TEXT",null,false);
+            imports.add(new BatchTitles(product,combined,added,asset));
+        }
+        return imports;
+    }
+    private static void applyBatchTitles(CreationState state,BatchTitles batch) {
+        if(state.generationImportedTitles.putIfAbsent(batch.productId(),batch.added().size())!=null)return;
+        var pool=ProductTitlePool.of(state,batch.productId());
+        pool.customTitles=new ArrayList<>(batch.titles());
+        pool.customGeneratedTitles.addAll(batch.added());
+        pool.customTextAssetId=batch.textAssetId();
+        state.titlePools.put(batch.productId(),pool);
+        state.mediaChanged();
     }
     private void processAddition(CreationState snapshot,CreationState.GenerationAddition request) {
         String tenant=snapshot.tenantId,id=snapshot.planId,rid=request.id;
@@ -1074,7 +1170,7 @@ public class CreationWorkflowService {
             if(!selectedGenerationGroup(s,group))continue;
             var expected=group.path("expected");
             // Planning failures can have no counts. Do not invent totals for those products.
-            if(!expected.isObject()||expected.path("videos").asInt()+expected.path("product_cards").asInt()+expected.path("image_texts").asInt()==0)known=false;
+            if(!expected.isObject()||expected.path("videos").asInt()+expected.path("product_cards").asInt()+expected.path("image_texts").asInt()+expected.path("titles").asInt()==0)known=false;
         }
         var issues=GenerationIssueMapper.from(s,job);
         s.generationIssues.addAll(issues.stream().filter(i->!s.generationIssueDismissed(i)).toList());
@@ -1093,6 +1189,21 @@ public class CreationWorkflowService {
             total=Math.max(completed,total-(int)issues.stream().filter(i->type.equals(i.type())&&s.generationIssueDismissed(i)).count());
             int failed=known&&terminal?Math.max(0,total-completed):terminal?(int)s.generationIssues.stream().filter(i->type.equals(i.type())).count():0;
             s.generationCounts.add(new CreationState.GenerationCount(type,completed,known?Math.max(total,completed):null,failed));
+        }
+        if(s.generationRequestedCounts!=null&&s.generationRequestedCounts.titles()>0&&s.regeneration==null&&s.generationRetry==null) {
+            int perProduct=s.generationRequestedCounts.titles();
+            int total=perProduct*s.generationProductIds.size();
+            int completed=s.generationImportedTitles.values().stream().mapToInt(Integer::intValue).sum();
+            boolean terminal=Set.of("succeeded","partial_failed","failed","cancelled").contains(job.path("status").asText());
+            int failed=terminal?Math.max(0,total-completed):0;
+            s.generationCounts.add(new CreationState.GenerationCount("TITLE",completed,total,failed));
+            if(failed>0)for(var product:s.products) {
+                if(!s.generationProductIds.contains(product.qcProductId()))continue;
+                int generated=s.generationImportedTitles.getOrDefault(product.qcProductId(),0);
+                if(generated<perProduct)s.generationIssues.add(new CreationState.GenerationIssue(
+                        product.qcProductId(),product.name(),"本次标题已生成 "+generated+"/"+perProduct+" 条。",
+                        "TITLE",null,"标题",null));
+            }
         }
     }
     private static boolean selectedGenerationGroup(CreationState s,JsonNode group){
