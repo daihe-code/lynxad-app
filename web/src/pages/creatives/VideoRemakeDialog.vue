@@ -155,13 +155,14 @@
 
             <div v-else class="remake-step-body">
               <h3>替换人物<template v-if="productPeopleSupported">（可选）</template></h3>
-              <div v-if="productPeopleSupported" class="remake-person-options" role="radiogroup" aria-label="人物选择">
-                <label v-for="option in portraitOptions" :key="option.value" class="remake-person-option">
-                  <input v-model="portraitMode" type="radio" name="remake-portrait-mode" :value="option.value" :disabled="busy">
-                  <span>{{ option.label }}</span>
-                </label>
-              </div>
-              <template v-if="!productPeopleMode">
+      <div v-if="productPeopleSupported" class="remake-person-options">
+        <label class="remake-person-option">
+          <input v-model="useCustomPortrait" type="checkbox" :disabled="busy">
+          <span>使用自选人像</span>
+        </label>
+        <p class="remake-person-hint">不上传时，默认使用商品图中的模特，没有模特时使用参考视频中的表演者。</p>
+      </div>
+      <template v-if="!productPeopleMode">
                 <RemakeFilePicker v-if="useKling" kind="image" label="上传已授权的成年人像" :file="portraitImage?.file"
                   :disabled="busy" @change="selectPortrait" />
                 <template v-else>
@@ -422,12 +423,11 @@ const linkFormatError = computed(() => referenceLinkUrl.value.trim() && !extract
   ? invalidShareLink : '');
 const referenceRights = ref<HTMLInputElement>();
 const portraitId = ref(''), portraitName = ref('');
-const portraitOptions = [
-  { value: 'auto', label: '使用商品图中的模特' },
-  { value: 'none', label: '仅展示商品' },
-  { value: 'replace', label: '使用自选人像' },
-] as const;
-const portraitMode = ref<typeof portraitOptions[number]['value']>('none');
+  const portraitMode = ref<'auto' | 'replace'>('auto');
+  const useCustomPortrait = computed({
+    get: () => portraitMode.value === 'replace',
+    set: (value: boolean) => { portraitMode.value = value ? 'replace' : 'auto'; },
+  });
 const rights = ref(false), portraitTerms = ref(false);
 const rightsAgreementOpen = ref(false);
 const setupSteps = ['参考视频', '目标商品', '替换人物'];
@@ -762,7 +762,7 @@ async function continueSetup() {
       productPeopleMode: peopleMode, rightsConfirmed: rights.value,
       portraitTermsConfirmed, followSource: true });
     requestId = crypto.randomUUID();
-    portraitMode.value = 'none';
+    portraitMode.value = 'auto';
     portraitTerms.value = false;
     setupStep.value = 0;
     await openTask(result.id, result);
