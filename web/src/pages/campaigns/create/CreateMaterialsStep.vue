@@ -27,7 +27,10 @@
         <p class="mblock__hint">{{ readOnly ? '点击素材或标题可查看投放效果预览' : canGenerate ? '每条素材均可独立编辑，不满意可直接删除或重新生成，页面右侧可预览投放效果' : '每条素材均可独立编辑，页面右侧可预览投放效果' }}</p>
         <div class="tabs" role="tablist" aria-label="素材类型"><button v-for="(label, key) in tabs" :key="key" class="tabs__item" type="button" role="tab" :aria-selected="tab === key" @click="tab = key">{{ label }}<span class="tabs__count">{{ key === 'TITLE' ? titleCount : materials.filter(m => m.type === key).length }}</span><span v-if="productHasFailure(state, productId, key)" class="material-failure-badge" role="img" :aria-label="`${label}有失败项`" :title="`${label}有生成失败项`">!</span></button></div>
         <div class="work" :class="{'work--titles':tab==='TITLE'}"><div class="work__main">
-          <MaterialTitleList :key="productId" v-if="tab === 'TITLE'" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :generation-allowed="canGenerate" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" @add="(kind,source,text,receipt) => emit('addTitle',{productId,kind,source,text},receipt)" />
+          <template v-if="tab === 'TITLE'">
+            <p v-if="batchTitleIssue" class="product-generation-failure" role="status">{{ batchTitleIssue.message }}</p>
+            <MaterialTitleList :key="productId" :materials="materials" :pool="state.titlePools?.[productId]" :busy="busy || running || titlePending || materialEditPending" :generation="state.titleGeneration" :generation-allowed="canGenerate" :read-only="readOnly && !titleActions" @save="(kind, values) => emit('productTitles', productId, kind, values)" @regenerate="(kind,index,text) => emit('regenerateTitle',productId,kind,index,text)" @add="(kind,source,text,receipt) => emit('addTitle',{productId,kind,source,text},receipt)" />
+          </template>
           <template v-else>
             <div class="matlist" role="list">
               <div v-for="m in visible" :key="m.id" class="matrow" :class="{ 'matrow--active': active?.id === m.id }">
@@ -75,13 +78,31 @@
           <span class="generation-product__tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /></svg></span>
         </button>
       </div>
-      <fieldset v-if="generationIds.length" class="generation-video-style" :disabled="busy || generationSubmitting">
-        <legend>视频风格</legend>
-        <label><input v-model="generationVideoStyle" type="radio" value="PRODUCT_SHOWCASE" name="generation-video-style" /> 商品展示赛马</label>
-        <label><input v-model="generationVideoStyle" type="radio" value="AUTO" name="generation-video-style" /> 自动创意</label>
-      </fieldset>
+      <template v-if="generationIds.length">
+        <fieldset v-if="requestedCounts.videos > 0" class="generation-settings" :disabled="busy || generationSubmitting">
+          <legend>视频风格</legend>
+          <div class="generation-style-options">
+            <label v-for="style in videoStyles" :key="style.value" class="generation-style-option" :class="{ 'is-selected': generationVideoStyle === style.value }">
+              <input v-model="generationVideoStyle" type="radio" :value="style.value" name="generation-video-style" />
+              {{ style.label }}
+            </label>
+          </div>
+        </fieldset>
+        <fieldset class="generation-settings" :disabled="busy || generationSubmitting">
+          <legend>每款商品的生成数量</legend>
+          <div class="generation-quantities">
+            <label v-for="kind in countOptions" :key="kind.key">
+              <span>{{ kind.label }}</span>
+              <select v-model.number="requestedCounts[kind.key]" :aria-label="kind.label">
+                <option v-for="quantity in kind.max + 1" :key="quantity" :value="quantity - 1">{{ quantity - 1 }}</option>
+              </select>
+            </label>
+          </div>
+          <p v-if="generationCountError" class="generation-count-error" role="alert">{{ generationCountError }}</p>
+        </fieldset>
+      </template>
       <p class="generation-help">未勾选的商品仍保留在投放计划中，需从素材库补充素材。<br />所有商品配齐素材后，才能{{ contentEditing ? '保存修改' : '发布投放' }}。</p>
-      <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
+      <template #footer><span class="generation-count" aria-live="polite">已选 <b>{{ generationIds.length }}</b> 款商品</span><button class="btn-brand" type="button" :disabled="busy || generationSubmitting || running || !!generationCountError" @click="submitGeneration">{{ busy || generationSubmitting ? '正在提交…' : generationIds.length ? '为所选商品生成素材' : '不智能生成，继续编辑' }}</button></template>
     </ReferenceModal>
     <MaterialVersionDialog v-if="reviewSource && (!readOnly || materialActions)" :key="reviewSource.id" :source="reviewSource" :version="pendingVersion(reviewSource.id)" :busy="busy" :material-count="state.materials.length" :failed="pendingVersion(reviewSource.id)?.material.status === 'FAILED' || state.materialRevision?.sourceId === reviewSource.id && state.materialRevision.status === 'FAILED'" :message="state.generationMessage" @close="reviewSourceId = ''" @confirm="(id, decision) => emit('resolveVersion', id, decision)" @retry="id => emit('retrySync', id)"><p v-if="versionError" class="version-error" role="alert">{{ versionError }}</p></MaterialVersionDialog>
     <AddMaterialDialog v-if="addOpen" :state="state" :product-id="productId" :initial-type="additionPreset.type" :busy="busy" :generation-busy="running" :generation-allowed="canGenerate" :submission-error="versionError" @close="addOpen = false" @generate="body => { tab = body.type; emit('generateAddition', body); }" @add="body => { tab = body.type as 'VIDEO' | 'IMAGE' | 'CAROUSEL'; emit('add', body); }" @add-uploads="(body, receipt) => { tab = body.type; emit('addUploads', body, receipt); }" @upload-batch-finished="emit('uploadBatchFinished')" />
@@ -104,7 +125,7 @@ import AddMaterialDialog from './AddMaterialDialog.vue';
 import type { LocalUploadBatch, UploadBatchReceipt } from '@/features/creative/localUploadBatch';
 import MaterialVersionDialog from './MaterialVersionDialog.vue';
 import '../reference/creative-workspace.css';
-import type { CreationState, CreationMaterial, CreationAdditionBody, GenerationIssue, GenerationVideoStyle, creationAdd } from '@/features/delivery/creationApi';
+import type { BatchGenerationCounts, CreationState, CreationMaterial, CreationAdditionBody, GenerationIssue, GenerationVideoStyle, creationAdd } from '@/features/delivery/creationApi';
 import { isGeneratedMaterial, materialSourceLabel } from '@/features/delivery/materialSelection';
 import { regenerationWait } from '@/features/delivery/regenerationPolicy';
 import { materialIsReady, materialHasPreview, materialProcessingLabel } from '@/features/delivery/materialProcessing';
@@ -116,13 +137,18 @@ const titlePending=computed(()=>!!props.state.titleGeneration && ['SENDING','PRO
 const materialEditPending = computed(() => !!props.state.materialEdit && !['SUCCEEDED','FAILED'].includes(props.state.materialEdit.status));
 const published = computed(() => !!props.state.qcPlanId || props.state.publishStatus === 'CREATED');
 const planName = defineModel<string>('planName', { required: true });
-const emit = defineEmits<{ retryVisibility:[]; addTitle:[body:TitleAddition,receipt:TitleAdditionReceipt]; retryFailure:[issue:GenerationIssue]; deleteFailure:[issue:GenerationIssue]; account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; regenerateTitle: [productId:string,kind:'CUSTOM'|'CARD',index:number,original:string]; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[], videoStyle?: GenerationVideoStyle]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
+const emit = defineEmits<{ retryVisibility:[]; addTitle:[body:TitleAddition,receipt:TitleAdditionReceipt]; retryFailure:[issue:GenerationIssue]; deleteFailure:[issue:GenerationIssue]; account:[key:string]; navigate:[step:number]; saveDraft: []; retryGeneration: [type: 'VIDEO'|'IMAGE'|'CAROUSEL']; regenerateTitle: [productId:string,kind:'CUSTOM'|'CARD',index:number,original:string]; productTitles: [productId:string,kind:'CUSTOM'|'CARD',titles:string[]]; visibility: [hideInAweme: boolean]; context: [id: string]; generate: [ids: string[], videoStyle?: GenerationVideoStyle, counts?: BatchGenerationCounts]; generateAddition: [body: CreationAdditionBody]; resolveVersion: [id: string, decision: 'REPLACE' | 'KEEP_BOTH' | 'DISCARD']; action: [action: 'regenerate' | 'delete', id: string]; titles: [id: string, titles: string[]]; recheck: [id: string]; retrySync: [id: string]; verifySync: [id: string]; refreshStatus: []; typography: [id: string]; prev: []; confirm: []; publish: []; cancel: []; add: [body: Parameters<typeof creationAdd>[1]]; addUploads: [body: LocalUploadBatch, receipt: UploadBatchReceipt]; uploadBatchFinished: [] }>();
 const now = ref(Date.now()), timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
 watch(() => props.state.regenerationRetryAt, () => { now.value = Date.now(); }, { flush: 'sync' });
 const regenerationWaitSeconds = computed(() => regenerationWait(props.state.regenerationRetryAt, now.value));
 const tabs = { VIDEO: '视频', IMAGE: '图片', CAROUSEL: '图文', TITLE: '标题' };
-const productId = ref(props.initialProductId || props.state.products[0]?.qcProductId || ''), tab = ref<keyof typeof tabs>(props.initialTab || 'VIDEO'), selectedId = ref('');
+const titleOnlyBatch = computed(() => {
+  const counts = props.state.generationRequestedCounts;
+  return !!counts && counts.titles > 0 && counts.videos + counts.productCards + counts.carousels === 0;
+});
+const productId = ref(props.initialProductId || props.state.products[0]?.qcProductId || ''),
+  tab = ref<keyof typeof tabs>(props.initialTab || (titleOnlyBatch.value ? 'TITLE' : 'VIDEO')), selectedId = ref('');
 function focusNotice(target: NonNullable<ReturnType<typeof generationNoticeTarget>>) {
   if (target.productId && props.state.products.some(p => p.qcProductId === target.productId)) productId.value = target.productId;
   if (target.type && target.type in tabs) tab.value = target.type as keyof typeof tabs;
@@ -137,6 +163,7 @@ const materials = computed(() => props.state.materials.filter(m => m.productId =
 const visible = computed(() => materials.value.filter(m => m.type === tab.value));
 const failureRows = computed(() => generationFailureRows(props.state, productId.value, tab.value));
 const productIssues = computed(() => activeGenerationIssues(props.state).filter(i => i.productId === productId.value && !i.type));
+const batchTitleIssue = computed(() => activeGenerationIssues(props.state).find(i => i.productId === productId.value && i.type === 'TITLE'));
 const otherFailedProducts = computed(() => props.state.products.filter(p => p.qcProductId !== productId.value && productHasFailure(props.state, p.qcProductId)));
 function showOtherFailure() {
   const product = otherFailedProducts.value[0]; if (!product) return;
@@ -224,7 +251,45 @@ onUnmounted(() => {
 const generationCandidates = computed(() => generationPromptProductIds(props.state));
 const generationProducts = computed(() => props.state.products.filter(p => generationCandidates.value.includes(p.qcProductId)));
 const generationOpen = ref(!props.readOnly && shouldPromptGeneration(props.state)), generationIds = ref(selectedGenerationProducts(props.state));
-const generationVideoStyle = ref<GenerationVideoStyle>(props.state.generationVideoStyle ?? 'PRODUCT_SHOWCASE');
+const videoStyles = [
+  { value: 'AUTO', label: '自动匹配' }, { value: 'CREAM', label: '奶油风' },
+  { value: 'MINIMAL', label: '极简风' }, { value: 'NATURAL', label: '自然生活风' },
+  { value: 'TECH', label: '科技感' }, { value: 'RETRO', label: '复古胶片风' },
+] as const;
+const countOptions = [
+  { key: 'videos', label: '视频', max: 5 }, { key: 'productCards', label: '商品卡片', max: 10 },
+  { key: 'carousels', label: '图文', max: 10 }, { key: 'titles', label: '标题', max: 10 },
+] as const;
+function savedVideoStyle(): GenerationVideoStyle {
+  const style = props.state.generationVideoStyle;
+  return !style || style === 'PRODUCT_SHOWCASE' ? 'AUTO' : style;
+}
+function savedGenerationCounts(): BatchGenerationCounts {
+  const counts = { ...(props.state.generationRequestedCounts ?? { videos: 1, productCards: 1, carousels: 1, titles: 1 }) };
+  for (const { key, max } of countOptions) counts[key] = Math.min(counts[key], max);
+  return counts;
+}
+const generationVideoStyle = ref<GenerationVideoStyle>(savedVideoStyle());
+const requestedCounts = ref(savedGenerationCounts());
+const generationCountError = computed(() => {
+  if (!generationIds.value.length) return '';
+  const { videos, productCards, carousels, titles } = requestedCounts.value;
+  const assetsPerProduct = videos + productCards + carousels;
+  if (!assetsPerProduct && !titles) return '请至少生成一项素材。';
+  if (assetsPerProduct * generationIds.value.length + props.state.materials.length > 100) {
+    return '本次生成与已有素材合计不能超过 100 条。';
+  }
+  if (titles > 0 && generationIds.value.some(id => {
+    const pool = props.state.titlePools?.[id];
+    return pool && (pool.customTitles.length + titles > 29
+      || new Set([...pool.customTitles, ...pool.cardTitles]).size + titles > 30);
+  })) return '本次生成与商品已有标题合计超过上限，请减少标题数量。';
+  return '';
+});
+watch(() => props.state.planId, () => {
+  generationVideoStyle.value = savedVideoStyle();
+  requestedCounts.value = savedGenerationCounts();
+});
 const generationPromptHandled = ref(false);
 const generationSubmitting = ref(false), brokenGenerationImages = ref<Record<string, boolean>>({});
 watch(() => JSON.stringify([props.state.planId,props.state.products.map(p => p.qcProductId)]), () => {
@@ -247,11 +312,12 @@ function toggleGeneration(id: string) {
   generationIds.value = generationIds.value.includes(id) ? generationIds.value.filter(value => value !== id) : [...generationIds.value, id];
 }
 function submitGeneration() {
-  if (props.readOnly || props.busy || generationSubmitting.value || running.value || (generationIds.value.length > 0 && !canGenerate.value)) return;
+  if (props.readOnly || props.busy || generationSubmitting.value || running.value || generationCountError.value || (generationIds.value.length > 0 && !canGenerate.value)) return;
   generationPromptHandled.value = true;
   generationOpen.value = false;
   generationSubmitting.value = true;
-  emit('generate', [...generationIds.value], generationIds.value.length ? generationVideoStyle.value : undefined);
+  if (generationIds.value.length) emit('generate', [...generationIds.value], generationVideoStyle.value, { ...requestedCounts.value });
+  else emit('generate', []);
 }
 function deferGeneration() {
   generationPromptHandled.value = true;
@@ -272,6 +338,7 @@ watch(() => props.state.generationStatus, status => {
   } else if (!props.readOnly && !generationPromptHandled.value && props.state.generationPendingProductIds?.length && shouldPromptGeneration(props.state)) {
     generationIds.value=selectedGenerationProducts(props.state);generationOpen.value=true;
   }
+  if (titleOnlyBatch.value && ['SUCCEEDED','FAILED'].includes(status)) tab.value = 'TITLE';
 });
 const addOpen = ref(false);
 const additionPreset = ref<{ type: CreationAdditionBody['type'] }>({ type: 'VIDEO' });
@@ -315,10 +382,16 @@ watch(productId, () => { selectedId.value = ''; const first = materials.value[0]
 .generation-dialog :deep(.reference-modal__body) { margin: 14px 0 22px; }
 .generation-intro,.generation-help,.generation-count { font-size: 13px; line-height: 1.65; color: #525570; }
 .generation-help { margin-top: 18px; color: #8588a5; }
-.generation-video-style { border: 0; margin: 16px 0 0; padding: 0; display: flex; gap: 18px; }
-.generation-video-style legend { margin-bottom: 8px; font-size: 14px; font-weight: 600; }
-.generation-video-style label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
-.generation-video-style input { accent-color: var(--color-primary, #575cf6); }
+.generation-settings { border: 0; margin: 20px 0 0; padding: 0; min-width: 0; }
+.generation-settings legend { margin-bottom: 9px; font-size: 14px; font-weight: 600; }
+.generation-style-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.generation-style-option { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; min-height: 36px; border: 1px solid #e0e2ef; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.generation-style-option.is-selected { border-color: #575cf6; background: #f5f4ff; color: #433bd1; }
+.generation-style-option input { margin: 0; accent-color: var(--color-primary, #575cf6); }
+.generation-quantities { display: grid; grid-template-columns: repeat(4, minmax(0, 110px)); gap: 8px; }
+.generation-quantities label { display: grid; gap: 5px; font-size: 13px; color: #525570; }
+.generation-quantities select { width: 100%; height: 36px; padding: 0 8px; border: 1px solid #e0e2ef; border-radius: 8px; background: #fff; color: #1a1b2e; font: inherit; }
+.generation-count-error { margin: 6px 0 0; font-size: 12px; color: #c53848; }
 .generation-products { margin-top: 20px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 30px 40px; }
 .generation-product { position: relative; display: flex; align-items: center; gap: 10px; min-height: 66px; padding: 10px 32px 10px 10px; border: 1px solid #e0e2ef; border-radius: 12px; background: #fff; text-align: left; }
 .generation-product:hover { border-color: #575cf680; }

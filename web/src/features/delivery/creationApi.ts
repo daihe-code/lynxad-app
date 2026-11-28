@@ -8,7 +8,8 @@ export interface CreationProduct {
   priceInfo?: PlatformProductPrice | null; channelId?: string | null;
   draft?: { planId: string; planName: string } | null;
 }
-export type GenerationVideoStyle = 'AUTO' | 'PRODUCT_SHOWCASE';
+export type GenerationVideoStyle = 'AUTO' | 'PRODUCT_SHOWCASE' | 'CREAM' | 'MINIMAL' | 'NATURAL' | 'TECH' | 'RETRO';
+export interface BatchGenerationCounts { videos: number; productCards: number; carousels: number; titles: number }
 export interface ProductSuggestions {
   accountId: string; awemeId: string; sourceProductIds: string[];
   items: { product: CreationProduct; reasons: string[]; matchedProductIds: string[] }[];
@@ -106,13 +107,14 @@ export interface CreationState {
   generationStatus: string; generationMessage?: string; progress: number; generationProductIds: string[];
   generationSelection?: string[] | null;
   generationVideoStyle?: GenerationVideoStyle | null;
+  generationRequestedCounts?: BatchGenerationCounts | null;
   generationPendingProductIds?: string[];
   selectionChange?: { addedNames: string[]; removedNames: string[]; retainedMaterials: number; removedMaterials: number };
   regenerationRetryAt?: number;
   materialEdit?: { status: string; message: string } | null;
   generationStage?: string;
   generationResultStatus?: string;
-  generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL'; completed: number; total: number | null; failed?: number }[];
+  generationCounts?: { type: 'VIDEO' | 'IMAGE' | 'CAROUSEL' | 'TITLE'; completed: number; total: number | null; failed?: number }[];
   generationIssues?: { productId: string; productName: string; message: string; type?: 'VIDEO' | 'IMAGE' | 'CAROUSEL' | 'TITLE' | null; materialId?: string | null; title?: string | null; slotId?: string | null }[];
   productSelectionLocked?:boolean;
   contentEdit?: {targetPlanId:string;status:string;message?:string;planStatus?:string}; contentEditDraftId?:string;
@@ -145,8 +147,8 @@ export const creationRecommendations = (id: string, refresh = false) => apiGet<C
 export const creationGoal = (s: CreationState, body: { name: string; smartBidType: string; budget: number; roi2Goal: number | null; scheduleType: string; startDate: string | null; endDate: string | null }) => apiPut<CreationState>(`${root}/${s.planId}/goal`, { revision: s.revision, ...body });
 export const creationStep = (s: CreationState, step: number) =>
   apiPut<CreationState>(`${root}/${s.planId}/step`, { revision: s.revision, step }, s.skipProductAnalysis && step === 2 ? quiet : undefined);
-export const creationGenerate = (s: CreationState, productIds: string[], videoStyle?: GenerationVideoStyle) =>
-  apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds, videoStyle });
+export const creationGenerate = (s: CreationState, productIds: string[], videoStyle?: GenerationVideoStyle, counts?: BatchGenerationCounts) =>
+  apiPost<CreationState>(`${root}/${s.planId}/generation`, { revision: s.revision, productIds, videoStyle, counts });
 export const creationRetryGeneration = (s: CreationState, type: 'VIDEO'|'IMAGE'|'CAROUSEL', issue?: GenerationIssue) => apiPost<CreationState>(`${root}/${s.planId}/generation/retry`, { revision:s.revision,type, ...(issue ? {productId:issue.productId,slotId:issue.slotId} : {}) }, slow);
 export const creationDeleteGenerationFailure = (s: CreationState, issue: GenerationIssue) => apiDelete<CreationState>(`${root}/${s.planId}/generation/failures`, { data: {revision:s.revision,productId:issue.productId,type:issue.type,slotId:issue.slotId} });
 export const creationAddition = (s: CreationState, body: CreationAdditionBody) => apiPost<CreationState>(`${root}/${s.planId}/generation/additions`, { revision: s.revision, ...body });

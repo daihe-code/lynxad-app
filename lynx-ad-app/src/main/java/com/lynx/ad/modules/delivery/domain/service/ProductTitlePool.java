@@ -11,7 +11,9 @@ public final class ProductTitlePool {
         var saved=s.titlePools.get(product);
         var pool=new CreationState.TitlePool();
         for(var m:s.activeMaterials())if(product.equals(m.productId)) {
-            boolean card="IMAGE".equals(m.type);var titles=values(pool,card);var generated=generated(pool,card);
+            boolean card="IMAGE".equals(m.type);
+            if(m.separateBatchTitles&&!card)continue;
+            var titles=values(pool,card);var generated=generated(pool,card);
             for(String title:m.titles){if(!titles.contains(title))titles.add(title);if(m.engineMaterialId!=null&&!m.engineMaterialId.isBlank()&&!generated.contains(title))generated.add(title);}
         }
         if(saved!=null){
